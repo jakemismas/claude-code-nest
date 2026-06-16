@@ -207,10 +207,13 @@ try {
     }
     if (!pf.treeClean && i === startIndex) {
       const reset = await agent(
-        "Restore a clean working tree for a resumed build: run 'git fetch origin', then checkout main and " +
-        "hard-reset it to origin/main (the latest reviewed-and-merged commit on the remote). Delete any " +
-        "leftover slice/* working branches. Remove untracked files EXCEPT .nest-build-state.json and " +
-        "gitignored paths. Confirm git status --porcelain is empty except the state file. Do not push.",
+        "Restore a clean working tree for a resumed build WITHOUT any force command (git reset --hard, " +
+        "git checkout -f, and git branch -f are all blocked by the hook). 1) 'git fetch origin'. 2) Discard " +
+        "uncommitted working changes: 'git stash -u' (or 'git checkout -- .' then 'git clean -fd', which " +
+        "preserves .nest-build-state.json and gitignored paths). 3) 'git checkout main' then " +
+        "'git merge --ff-only origin/main' to advance main to the latest merged commit. 4) Best-effort delete " +
+        "leftover merged slice/* branches with 'git branch -d' (ignore failures). Confirm git status " +
+        "--porcelain is empty except the state file. Do not push.",
         { label: "reset-tree", phase: "Build" });
       if (reset == null) throw new HaltError("Tree reset agent died on resume", { stage: "reset", slice: slice.id });
     }
@@ -337,8 +340,10 @@ try {
       "'git push -u origin slice/" + slice.id + "', open a PR into main with 'gh pr create --base main --head " +
       "slice/" + slice.id + " --title <subject> --body <short body>', then merge it with a MERGE COMMIT so the " +
       "slice commit lands on main unchanged: 'gh pr merge --merge --delete-branch' (pass the PR number or url). " +
-      "Do NOT push to main directly. 5) Sync local main: 'git fetch origin', 'git checkout main', " +
-      "'git reset --hard origin/main'. 6) VERIFY: the slice commit carrying the Nest-Slice trailer is now on " +
+      "Do NOT push to main directly. 5) Sync local main WITHOUT any force command (git reset --hard is blocked " +
+      "by the hook): 'git fetch origin', 'git checkout main', then 'git merge --ff-only origin/main' (local " +
+      "main is strictly behind origin/main after the merge, so this fast-forwards cleanly). 6) VERIFY: the " +
+      "slice commit carrying the Nest-Slice trailer is now on " +
       "origin/main (git log origin/main), and on THAT slice commit the author is 'Jake Mismas " +
       "<jake@jakemismas.com>' and the committer is the same. Report committed, pushed, verifiedOnRemote (true " +
       "only if the trailer commit is on origin/main), sha (the slice commit sha), authorVerified, and " +
@@ -363,8 +368,9 @@ try {
     "4) Land it on main via a PR (direct pushes to main are blocked): commit on a branch 'slice/handoff' " +
     "with author and committer both Jake (local config; no --author flag, no AI trailer, no generated-by " +
     "marker, no em or en dashes, no emoji), push the branch, open a PR into main with gh, merge it with " +
-    "'gh pr merge --merge --delete-branch', then 'git fetch origin' and 'git reset --hard origin/main' on " +
-    "main and verify the handoff commit is on origin/main. Do NOT push to main directly. Report packaged, " +
+    "'gh pr merge --merge --delete-branch', then 'git fetch origin', 'git checkout main', and " +
+    "'git merge --ff-only origin/main' (do NOT use git reset --hard; it is blocked) and verify the handoff " +
+    "commit is on origin/main. Do NOT push to main directly. Report packaged, " +
     "vsixPath, testingDocWritten, pushed, verifiedOnRemote.",
     { schema: handoffSchema, label: "handoff", phase: "Release and Handoff" });
   if (handoff == null || !handoff.packaged || !handoff.testingDocWritten || !handoff.pushed || !handoff.verifiedOnRemote) {
