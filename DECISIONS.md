@@ -5,6 +5,51 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-16 Slice 2 (Folders): the id factory lands here, separator + sentinel guard
+
+Resolution: src/model/idFactory.ts is added as the vscode-free single place
+folder ids are minted and validated. It mints a separator-free folder id
+(crypto.randomUUID, mirroring deviceId.ts, with a separator-free fallback) and
+exposes isSeparatorFree / assertSeparatorFree / isMintableId / assertMintableId.
+The mintable space excludes the synthetic sentinels __unfiled__ (this slice) and
+__untagged__ (slice 3), so a factory-minted id can never collide with a synthetic
+bucket. Slice 2 is the first slice to mint folder ids, so the factory lands here
+rather than being deferred.
+
+Rationale: ARCHITECTURE.md mandates that folder/tag/chat ids be free of ':' '#'
+'>' and says to "enforce in the id factory." Until this slice nothing minted an
+id, so there was no factory; placing it here makes the separator rule a property
+of the minting code (and the assertion is re-run at the folder-write boundary as
+defense in depth) instead of a review-time discipline. Excluding the sentinels
+from the mintable space closes the one remaining collision path between a real
+folder id and a synthetic bucket id.
+
+## 2026-06-16 Slice 2 (Folders): slash names expand to a chain of real records (interpretation b)
+
+Resolution: typing a slash name like Work/ClientA in the create-folder command
+expands at CREATE time into a chain of real parent-child Folder records (Work
+parentId=null, ClientA parentId=Work.id), reusing any existing segment matched by
+(parentId, name) and minting a new record only for a missing segment. No literal
+'/' is ever stored in a single Folder.name. folderTree.ts assembles the nested
+tree from the flat records at render time; the slash split happens in
+folderCommands.ts at create time. The synthetic Unfiled bucket uses the sentinel
+folderId __unfiled__ and holds every chat whose ChatMeta.folderId is null/absent
+or whose home folder no longer resolves. Chat member nodes use the composite id
+${folderId}#${chatId} for both real and Unfiled buckets; getParent splits on the
+FIRST '#' to recover the single owning folder id.
+
+Rationale: the alternative (storing a literal slash inside one Folder.name) would
+make Folder.parentId meaningless, leave the delete cascade and getParent's
+single-owning-folder semantics undefined, and contradict folderTree.ts's stated
+"slash-path expansion, single-home assembly" role. Expanding to real records
+keeps parentId authoritative, makes deleteFolder's by-folderId cascade and
+getParent well-defined, and lets a later segment reuse an existing or
+earlier-in-this-call parent. The __unfiled__ sentinel mirrors the established
+__untagged__ convention and, being separator-free and excluded from the factory's
+mintable space, cannot collide with a real folder id; the first-'#' split is
+unambiguous because folderId is separator-free and chatId is a separator-free
+UUID.
+
 ## 2026-06-15 Slice 1 (storage): orphan state on a separate non-synced document
 
 Resolution: the local-only orphan-reconcile state (missingSince, archived,

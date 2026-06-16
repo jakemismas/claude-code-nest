@@ -58,6 +58,40 @@ that is a stop-the-line failure.
    only after the grace window. A scan that returns zero or far fewer chats than
    last seen is treated as suspect and skipped rather than mass-archiving.
 
+## Slice 2: Folders view (single-home hierarchy)
+
+This is also the slice that lets you finish the Slice 1 reload-persistence check
+above: the Folders view is the affordance Slice 1 said could only be exercised
+"once those slices are installed."
+
+1. Open the Nest workspace. The Folders view appears in the claudeNest panel
+   alongside the flat Chats view.
+2. Create a nested folder via a slash name: run "New Folder" and enter
+   `Work/ClientA`. Confirm two folders appear, ClientA nested under Work, and
+   that neither folder's displayed name contains a literal slash.
+3. Create a child under an existing folder: right-click `Work`, choose
+   "New Folder", and enter `ClientB`. Confirm ClientB appears under Work (not at
+   the top level), and that Work was reused rather than duplicated.
+4. Assign a chat to a folder: right-click a chat (in either view) and choose the
+   assign-to-folder action, then pick `Work/ClientA`. Confirm the chat now
+   appears under ClientA and under NO other folder (exactly one home). Re-assign
+   it to `Unfiled` ("Move out of folder") and confirm it moves to the Unfiled
+   bucket.
+5. Unfiled bucket: confirm every chat with no folder appears under the Unfiled
+   node (inbox icon), and that the Unfiled node has no rename/delete menu items.
+6. Rename: rename `ClientA` to `ClientA-Renamed` and confirm the label updates in
+   place and any chat under it stays put. Confirm a rename to a name a sibling
+   already uses is rejected, and that typing a slash in a rename is rejected.
+7. Delete with cascade: create `Work/ClientA/Q1`, assign a chat to `Q1`, then
+   delete `Work`. Confirm the confirmation names the folder and the nested-folder
+   count, that Work and all descendants disappear, and that the chat that was in
+   `Q1` is NOT deleted but moves to Unfiled.
+8. Reveal/selection stability (Slice 1 + binding rules): with a chat assigned to
+   a folder, reload the window (Developer: Reload Window). Confirm the folders,
+   the chat's folder assignment, and the Unfiled membership all persist exactly
+   as before the reload (this is the deferred Slice 1 persistence verification),
+   and that selecting a chat keeps its selection across a Refresh.
+
 ## Integration tests (deferred)
 
 The electron-host integration tests (`npm run test:integration`) need a VSCode

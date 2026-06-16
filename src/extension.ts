@@ -1,8 +1,26 @@
 import * as vscode from 'vscode';
-import { FlatProvider, OPEN_CHAT_COMMAND } from './views/flatProvider';
+import { FlatProvider, FlatChatItem, OPEN_CHAT_COMMAND } from './views/flatProvider';
+import {
+  FoldersProvider,
+  FolderItem,
+  ChatMemberItem,
+  FolderTreeNode,
+} from './views/foldersProvider';
 import { openChat, OpenUri } from './launch/uriLauncher';
 import { MetadataStore, SyncMemento } from './store/metadataStore';
 import { DeviceIdStore, getOrCreateDeviceId } from './store/deviceId';
+import {
+  CREATE_FOLDER_COMMAND,
+  RENAME_FOLDER_COMMAND,
+  DELETE_FOLDER_COMMAND,
+  ASSIGN_CHAT_TO_FOLDER_COMMAND,
+  FolderCommandDeps,
+  FolderCommandUi,
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  assignChatToFolder,
+} from './commands/folderCommands';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -50,6 +68,96 @@ export function activate(context: vscode.ExtensionContext): void {
     showCollapseAll: false,
   });
   context.subscriptions.push(flatView);
+
+  // The encoded project key (the on-disk projects directory name) is resolved ON
+  // DEMAND, not frozen here: it is undefined until Claude Code has created a project
+  // dir for this workspace, and the dir can appear after activation (the Folders
+  // view activates on first open, which may precede the first session). The provider
+  // re-resolves it on every refresh via FoldersProvider.resolveProjectKey, and the
+  // commands share that same resolution through FolderCommandDeps.getProjectKey, so
+  // the view and its commands recover on the next Refresh Folders without a window
+  // reload. The store keys ProjectMeta by this same string.
+  const foldersProvider = new FoldersProvider(workspacePath, store);
+  const foldersView = vscode.window.createTreeView('claudeNest.folders', {
+    treeDataProvider: foldersProvider,
+    showCollapseAll: true,
+  });
+  context.subscriptions.push(foldersView);
+
+  const folderUi: FolderCommandUi = {
+    prompt: (options) =>
+      vscode.window.showInputBox({
+        title: options.title,
+        placeHolder: options.placeholder,
+        value: options.value,
+        validateInput: options.validateInput
+          ? (value) => options.validateInput?.(value) ?? null
+          : undefined,
+      }),
+    confirmWarning: async (message, confirmLabel) => {
+      const picked = await vscode.window.showWarningMessage(
+        message,
+        { modal: true },
+        confirmLabel,
+      );
+      return picked === confirmLabel;
+    },
+    pickFolder: async (items, placeholder) => {
+      const picked = await vscode.window.showQuickPick(
+        items.map((item) => ({
+          label: item.label,
+          description: item.description,
+          folderId: item.folderId,
+        })),
+        { placeHolder: placeholder },
+      );
+      return picked ? { folderId: picked.folderId } : undefined;
+    },
+    showError: (message) => void vscode.window.showErrorMessage(message),
+  };
+
+  const folderDeps: FolderCommandDeps = {
+    store,
+    provider: foldersProvider,
+    getProjectKey: () => foldersProvider.resolveProjectKey(),
+    ui: folderUi,
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      CREATE_FOLDER_COMMAND,
+      (parent?: FolderTreeNode) =>
+        createFolder(folderDeps, parent instanceof FolderItem ? parent : undefined),
+    ),
+    vscode.commands.registerCommand(RENAME_FOLDER_COMMAND, (item?: FolderTreeNode) =>
+      item instanceof FolderItem ? renameFolder(folderDeps, item) : undefined,
+    ),
+    vscode.commands.registerCommand(DELETE_FOLDER_COMMAND, (item?: FolderTreeNode) =>
+      item instanceof FolderItem ? deleteFolder(folderDeps, item) : undefined,
+    ),
+    vscode.commands.registerCommand(
+      ASSIGN_CHAT_TO_FOLDER_COMMAND,
+      (item?: FolderTreeNode | FlatChatItem | string) => {
+        // The command fires from EITHER view (PLAN/TESTING: assign from either
+        // list). VSCode passes the right-clicked tree item: a ChatMemberItem from
+        // the Folders view or a FlatChatItem from the Chats view (both contextValue
+        // 'claudeNest.chat'). A bare sessionId string covers a programmatic caller.
+        if (typeof item === 'string') {
+          return assignChatToFolder(folderDeps, item);
+        }
+        if (item instanceof ChatMemberItem) {
+          return assignChatToFolder(folderDeps, item);
+        }
+        if (item instanceof FlatChatItem) {
+          return assignChatToFolder(folderDeps, item.record.sessionId);
+        }
+        return undefined;
+      },
+    ),
+    vscode.commands.registerCommand('claudeNest.refreshFolders', () =>
+      foldersProvider.refresh(),
+    ),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_CHAT_COMMAND, (sessionId: string) => {
