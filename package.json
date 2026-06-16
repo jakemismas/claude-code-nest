@@ -131,6 +131,12 @@
         "command": "claudeNest.removeTagFromChat",
         "title": "Remove Tag from Chat",
         "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.tagChats",
+        "title": "Tag Chats...",
+        "category": "Claude Code Nest",
+        "icon": "$(tag)"
       }
     ],
     "menus": {
@@ -206,6 +212,36 @@
           "command": "claudeNest.addTagToChat",
           "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
           "group": "1_modify@2"
+        },
+        {
+          "command": "claudeNest.tagChats",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "1_modify@3"
+        },
+        {
+          "command": "claudeNest.tagChats",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "inline"
+        },
+        {
+          "command": "claudeNest.tagChats",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "1_modify@3"
+        },
+        {
+          "command": "claudeNest.tagChats",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "inline"
+        },
+        {
+          "command": "claudeNest.tagChats",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
+          "group": "1_modify@2"
+        },
+        {
+          "command": "claudeNest.tagChats",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
+          "group": "inline"
         }
       ],
       "commandPalette": [
@@ -235,6 +271,10 @@
         },
         {
           "command": "claudeNest.removeTagFromChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.tagChats",
           "when": "false"
         }
       ]

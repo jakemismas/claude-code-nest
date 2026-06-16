@@ -7,6 +7,53 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Slice 4 (drag and drop plus context-menu tagging): the primary affordance is the
+  canPickMany "Tag Chats..." QuickPick plus an inline tag row button, wired from a
+  chat row in ANY view (Chats, Folders) and a tag occurrence in the Tags view; it
+  applies to the WHOLE multi-selection, pre-checks only the tags common to every
+  selected chat, applies the add/remove diff against each chat's current set, and
+  fires a single refresh of both membership views (commands/taggingCommands.ts with
+  pure tagSetDiff / commonAppliedTagIds helpers, ui/tagQuickPick.ts). Both the
+  Folders and Tags views also register a TreeDragAndDropController (dnd/dndController.ts)
+  with canSelectMany: dragging one or more chats onto a folder sets their single home
+  (onto the Unfiled bucket or empty space unfiles), and onto a tag adds that tag (onto
+  Untagged or empty space is a no-op); the drop is interpreted strictly by the TARGET
+  view, never the source. Cross-view drags (a Folders chat dropped on a Tags tag and
+  the reverse) work via the reserved-MIME carrier: VSCode 1.66 preserves a custom MIME
+  set in handleDrag into handleDrop ONLY for a drop in the same tree, so on a cross-tree
+  drop the host strips the shared chat MIME and carries only the SOURCE tree's reserved
+  MIME (application/vnd.code.tree.<treeidlowercase>) between two trees of the same
+  extension; handleDrag therefore writes the chat-id JSON under BOTH the shared chat MIME
+  (the within-view carrier) AND its own reserved MIME (the cross-view carrier), each
+  controller lists BOTH reserved MIMEs plus the shared chat MIME in dropMimeTypes so the
+  host offers the peer tree as a drop target, and handleDrop recovers the payload from
+  whichever recognized MIME is present. A multi-select drop batches into N synchronous
+  store calls that coalesce into one pending write, then one flush and one refresh
+  (refresh coalescing); a drop with no resolved project, no recognized payload MIME, an
+  empty or foreign payload, or no real target is a no-op. The interpretation and payload
+  logic stays vscode-free so the headless gate exercises it: dnd/dropReducer.ts holds the
+  MIME guard, the folder-move vs tag-add interpretation by target view, the synthetic
+  Unfiled/Untagged bucket handling, and multi-node batching with de-duplication;
+  dnd/dropPayload.ts holds the tolerant parseChatIds (a missing / null / non-string /
+  malformed / non-array value yields [], non-string elements filtered) and the pickPayload
+  recognized-MIME selector that recovers a cross-view payload off either reserved MIME and
+  prefers the shared chat MIME within-view. The vscode-bound controller only pulls the
+  plain values off the real DataTransfer, dispatches the node types by instanceof, and
+  applies the reducer's intents. New modules: src/dnd/dropReducer.ts, src/dnd/dropPayload.ts,
+  src/dnd/dndController.ts, src/commands/taggingCommands.ts, src/ui/tagQuickPick.ts. Headless
+  unit tests cover the pure reducer (MIME guard including a rejected foreign and per-view
+  reserved MIME, folder-move vs tag-add by target view, the Unfiled/Untagged/empty-target
+  cases, multi-node batching and de-dup, the sentinel-literal contract), the payload helpers
+  (parseChatIds tolerance and non-string filtering, pickPayload cross-view carrier selection
+  and within-view priority, the reserved-MIME tree-id literals), and the tagging command
+  orchestration (project/no-tags/empty-selection guards, single- and multi-chat apply with
+  common-set pre-check, add/remove diff, confirm-without-change and cancel no-ops, one
+  refresh per batch). The controller's instanceof node-dispatch (chatIdsFromSource,
+  targetIdFor) and the live cross-tree carrier behavior are verified by the deferred electron
+  test (TESTING.md), since both require the vscode host. Manual smoke (TESTING.md): the
+  QuickPick canPickMany tagging from any view; drag a chat onto a folder and onto a tag;
+  multi-drag a selection; a real Folders<->Tags cross-view drag; an unrecognized drop source
+  is a no-op.
 - Slice 3 (Tags view): the claudeNest.tags tree, the MANY-TO-MANY tag membership.
   Create and delete tags; apply or remove a tag on a chat via the row context menu
   or from the Chats / Folders rows. A chat appears once under EACH tag in its

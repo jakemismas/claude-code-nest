@@ -103,12 +103,39 @@ handler. If the extension fails, Claude must be entirely unaffected.
 - Link cycle detection uses a proper visited-set graph traversal (transitive
   cycles and diamonds), not a two-case check. A linked child renders under only
   its one designated parent link. Cap depth.
-- Drag and drop: each view's controller declares only its own reserved MIME plus
-  one shared custom chat MIME for cross-view drags. handleDrop asserts the
-  payload MIME and interprets by the TARGET view. Reject unrecognized sources as
-  a no-op.
+- Drag and drop: each view's controller's dropMimeTypes declares BOTH views'
+  reserved MIMEs (its own AND the peer view's) plus one shared custom chat MIME;
+  dragMimeTypes declares its own reserved MIME plus the shared chat MIME. The peer
+  reserved MIME is REQUIRED in dropMimeTypes for the cross-view drop to work: in
+  VSCode 1.66 the host delivers a custom MIME (the shared chat MIME) to handleDrop
+  only when the drag started in the SAME controller, and to be offered as a drop
+  target for a peer tree's drag a controller must list that peer tree's reserved
+  MIME (application/vnd.code.tree.<viewidlowercase>). handleDrop reads the payload
+  from whichever recognized MIME is present, asserts the payload MIME, and
+  interprets by the TARGET view. Reject unrecognized sources as a no-op. See
+  DECISIONS.md (Slice 3, dropMimeTypes peer-reserved-MIME).
+  - The drop INTERPRETATION is a PURE reducer in its own vscode-free module
+    (src/dnd/dropReducer.ts), NOT co-located in the controller: the controller
+    (src/dnd/dndController.ts) imports vscode (TreeDragAndDropController,
+    DataTransfer, DataTransferItem), and the unit test that imports the reducer
+    must not transitively require vscode (unit-gate rule; mirrors the occurrence.ts
+    vs tagsProvider.ts split). The reducer takes plain data
+    {payloadMime, sourceChatIds, targetView, targetId} and returns an ordered list
+    of store-mutation intents; the controller extracts that plain data from the
+    real DataTransfer and drop target, then applies the intents. dndController.ts
+    imports the reducer.
+  - The two controllers are constructed in extension.ts and passed to each
+    createTreeView's dragAndDropController option (they are NOT self-registering).
+    Both the foldersView and tagsView createTreeView calls set canSelectMany:true
+    (required so a multi-chat drag carries every selected chat) AND the
+    dragAndDropController option.
 - Refresh coalescing: batch a multi-select mutation into ONE store write and fire
   onDidChangeTreeData once (targeted to affected parents where possible).
+  Implement the batch via the store's EXISTING mutation coalescing, NOT a new batch
+  API: apply the reducer's intent list as N synchronous store.setChatFolder /
+  store.addChatTag calls (which coalesce into one pending write), then a single
+  await store.flush() and a single provider.refresh() (the same shape as
+  deleteFolder's cascade).
 - Empty state: getChildren(undefined) returns [] and a viewsWelcome contribution
   shows the no-sessions message. Never throw out of getChildren.
 - Separator-namespace discipline: tag, folder, and chat ids are generated free of

@@ -5,6 +5,32 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-16 Slice 3 (Tags/DnD): dropMimeTypes lists the PEER view's reserved MIME, not only its own
+
+Resolution: each NestDragAndDropController sets dropMimeTypes to ALL recognized
+payload MIMEs (NEST_CHAT_MIME, FOLDERS_RESERVED_MIME, TAGS_RESERVED_MIME) — i.e.
+its own reserved MIME, the PEER view's reserved MIME, AND the shared custom chat
+MIME — while dragMimeTypes stays narrow (the controller's own reserved MIME plus
+the shared chat MIME). handleDrag writes the chat-id payload under both its own
+reserved MIME (the cross-view carrier) and the shared chat MIME (the within-view
+carrier). This deviates from the original ARCHITECTURE.md "Drag and drop" wording
+("declares only its own reserved MIME plus one shared custom chat MIME"), which
+has been corrected to match.
+
+Evidence: @types/vscode is pinned to 1.66.0 (package.json engines ^1.66.0). The
+DataTransfer class doc (node_modules/@types/vscode/index.d.ts) states that custom
+additional MIME types added in handleDrag "will only be included in the handleDrop
+when the drag was initiated from an element in the same drag and drop controller."
+The dropMimeTypes doc states "To support drops from trees, you will need to add
+the mime type of that tree. This includes drops from within the same tree," where
+a tree's MIME is application/vnd.code.tree.<treeidlowercase>. So on a cross-tree
+drop the host strips our custom chat MIME and carries only the SOURCE tree's
+reserved MIME; for the target tree to be offered as a drop target and to receive
+that payload it MUST list the peer tree's reserved MIME in dropMimeTypes. Following
+the literal old rule (own reserved MIME only) would silently break the headline
+cross-view drag feature. The implementation in src/dnd/dndController.ts
+(dropMimeTypes = [...RECOGNIZED_PAYLOAD_MIMES]) is correct and required.
+
 ## 2026-06-16 Slice 2 (Folders): the id factory lands here, separator + sentinel guard
 
 Resolution: src/model/idFactory.ts is added as the vscode-free single place

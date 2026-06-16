@@ -10,6 +10,10 @@ Claude Code Nest contributes its own Activity Bar panel with:
 
 - A Folders view: a single-home, nestable hierarchy for chats.
 - A Tags view: many-to-many labels plus an automatic Untagged bucket.
+- Organize by drag-and-drop or a multi-select tag picker: drag one or more chats
+  onto a folder to set their home or onto a tag to apply it (within a view or
+  across the Folders and Tags views), or right-click and "Tag Chats..." for a
+  checkbox picker that applies to the whole selection.
 - Links between chats, rendered as branch-nested children.
 - Read-only, auto-computed Smart Groups the user can promote to real folders or tags.
 - A Settings webview to read and edit Claude's global cleanupPeriodDays.

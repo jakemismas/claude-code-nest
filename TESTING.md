@@ -92,8 +92,83 @@ above: the Folders view is the affordance Slice 1 said could only be exercised
    as before the reload (this is the deferred Slice 1 persistence verification),
    and that selecting a chat keeps its selection across a Refresh.
 
+## Slice 4: Drag and drop plus context-menu tagging
+
+1. Multi-select tag QuickPick (primary affordance): right-click a chat in any
+   view and choose "Tag Chats...". Confirm a checkbox QuickPick (canPickMany)
+   lists every tag with the chat's current tags pre-checked. Toggle some on and
+   off, confirm with Enter, and verify the Tags view reflects exactly the
+   confirmed set (added tags gain an occurrence, unchecked tags lose theirs).
+   Confirming without changes makes no edit; pressing Escape cancels with no
+   change.
+2. Inline tag button: confirm a chat row in the Chats, Folders, and Tags views
+   shows an inline tag button that opens the same multi-select picker.
+3. Multi-select batching: in the Chats view, ctrl/shift-select several chats,
+   right-click, choose "Tag Chats...", and confirm a tag checked ON is applied to
+   EVERY selected chat in one action (the picker pre-checks only the tags common
+   to all of them). Unchecking a common tag removes it from all of them.
+4. Drag a chat onto a folder (Folders view): drag a chat row and drop it on a
+   folder. Confirm the chat moves to that folder (single home), and dropping it on
+   the Unfiled bucket (or empty space) unfiles it.
+5. Drag a chat onto a tag (Tags view): drag a chat occurrence and drop it on a
+   different tag row. Confirm the chat gains that tag (a new occurrence appears
+   under the target tag) while keeping its other tags. Dropping on the Untagged
+   bucket does nothing.
+6. Multi-drag: select several chats and drag them onto a folder (or a tag).
+   Confirm all of them move (or gain the tag) and the view refreshes once.
+7. Cross-view drag (the headline feature): drag a chat FROM the Folders view and
+   drop it onto a tag in the Tags view; confirm the chat gains that tag (a new
+   occurrence appears under the tag) without losing its folder home. Then drag a
+   chat occurrence FROM the Tags view and drop it onto a folder in the Folders
+   view; confirm its single home moves to that folder. This exercises the
+   cross-tree carrier path: VSCode strips the custom chat MIME on a cross-tree
+   drop, so the payload rides the source tree's reserved MIME, which each
+   controller now lists in dropMimeTypes.
+8. Cross-view interpretation: confirm the SAME drag is interpreted by the target
+   view, not the source: dropping on the Folders view moves the home; dropping on
+   the Tags view adds a tag. An unrecognized drag source (a file, another
+   extension's tree) is a no-op.
+
 ## Integration tests (deferred)
 
 The electron-host integration tests (`npm run test:integration`) need a VSCode
 download and a display, so they are not part of the unattended gate. Run them
 locally or in CI when validating activation and view registration.
+
+How to run: `npm run test:integration`. The script runs
+`node ./out/test/integration/runTest.js`, which downloads a VSCode build (cached
+under `.vscode-test/` after the first run) and launches an Extension Development
+Host. The launcher (`src/test/integration/runTest.ts`) points the host at
+`src/test/integration/index.ts`, a mocha runner that globs only
+`out/test/integration/**/*.test.js` (never the headless `out/test/unit/**`, so an
+integration spec can never be pulled into `npm test`). A network-restricted or
+headless-display machine cannot download/launch VSCode; that is the deferral, not
+a missing artifact.
+
+Slice 4 integration test (authored, under `src/test/integration/dndContract.test.ts`,
+run only by the command above, never in the headless gate). It asserts:
+
+- Both views construct a real `TreeDragAndDropController` (a `createTreeView` with
+  each controller succeeds in the host).
+- Each controller's `dragMimeTypes` is its own reserved MIME plus the shared chat
+  MIME (`application/vnd.code.tree.claudenest.chat`).
+- Each controller's `dropMimeTypes` lists BOTH reserved MIMEs
+  (`application/vnd.code.tree.claudenest.folders` and
+  `application/vnd.code.tree.claudenest.tags`) plus the shared chat MIME, so a
+  cross-view drag is offered the peer tree as a drop target.
+- Those reserved MIME strings equal the auto-derived
+  `application/vnd.code.tree.<viewidlowercase>` value VSCode computes from the
+  contributed view ids, read from the SAME package.json the host loaded as the
+  Extension Manifest (the package.json<->reserved-MIME contract).
+- A real cross-tree drag lands the store mutation, exercised through real
+  `vscode.DataTransfer` / `vscode.DataTransferItem` objects: a Folders
+  `ChatMemberItem` dragged onto a Tags `TagItem` adds the tag and KEEPS the folder
+  home, and a Tags `ChatOccurrenceItem` dragged onto a Folders `FolderItem` moves
+  the single home and KEEPS the tags. The cross-tree carrier (the host strips the
+  custom chat MIME and the payload rides only the source reserved MIME) is
+  reproduced by copying only the source reserved-MIME item into the drop transfer,
+  and a within-view drop (full transfer preserved) plus a foreign-source no-op are
+  also covered. This is the one behavior the headless `dropPayload` / `dropReducer`
+  unit tests cannot exercise without the host, and the controller's node-dispatch
+  helpers (`chatIdsFromSource`, `targetIdFor`) using `instanceof` against the
+  `vscode.TreeItem` subclasses are verified only here.
