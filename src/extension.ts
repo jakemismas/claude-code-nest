@@ -34,6 +34,18 @@ import {
   addTagToChat,
   removeTagFromChat,
 } from './commands/tagCommands';
+import {
+  NestDragAndDropController,
+  FOLDERS_RESERVED_MIME,
+  TAGS_RESERVED_MIME,
+} from './dnd/dndController';
+import {
+  TAG_CHATS_COMMAND,
+  TaggingCommandDeps,
+  TagMultiPickUi,
+  tagChats,
+} from './commands/taggingCommands';
+import { showTagMultiPick } from './ui/tagQuickPick';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -91,9 +103,27 @@ export function activate(context: vscode.ExtensionContext): void {
   // the view and its commands recover on the next Refresh Folders without a window
   // reload. The store keys ProjectMeta by this same string.
   const foldersProvider = new FoldersProvider(workspacePath, store);
+  // The Folders-view drag-and-drop controller. It declares its own reserved MIME
+  // plus the shared chat MIME, and interprets a drop as a single-home folder move
+  // (ARCHITECTURE.md "Drag and drop": interpret by the TARGET view). Constructed
+  // here and passed to createTreeView; it is not self-registering.
+  const foldersDnd = new NestDragAndDropController<FolderTreeNode>(
+    {
+      store,
+      getProjectKey: () => foldersProvider.resolveProjectKey(),
+      provider: foldersProvider,
+    },
+    'claudeNest.folders',
+    FOLDERS_RESERVED_MIME,
+  );
   const foldersView = vscode.window.createTreeView('claudeNest.folders', {
     treeDataProvider: foldersProvider,
     showCollapseAll: true,
+    // canSelectMany lets a multi-chat drag (and multi-select context-menu tag)
+    // carry every selected chat; the controller batches the mutation into one
+    // store write and a single refresh (ARCHITECTURE.md "Refresh coalescing").
+    canSelectMany: true,
+    dragAndDropController: foldersDnd,
   });
   context.subscriptions.push(foldersView);
 
@@ -176,9 +206,23 @@ export function activate(context: vscode.ExtensionContext): void {
   // project key on demand exactly like the Folders view, and its commands share
   // that resolution through TagCommandDeps.getProjectKey.
   const tagsProvider = new TagsProvider(workspacePath, store);
+  // The Tags-view drag-and-drop controller. It declares its own reserved MIME
+  // plus the shared chat MIME, and interprets a drop as a tag-add on the target
+  // tag (ARCHITECTURE.md "Drag and drop": interpret by the TARGET view).
+  const tagsDnd = new NestDragAndDropController<TagTreeNode>(
+    {
+      store,
+      getProjectKey: () => tagsProvider.resolveProjectKey(),
+      provider: tagsProvider,
+    },
+    'claudeNest.tags',
+    TAGS_RESERVED_MIME,
+  );
   const tagsView = vscode.window.createTreeView('claudeNest.tags', {
     treeDataProvider: tagsProvider,
     showCollapseAll: true,
+    canSelectMany: true,
+    dragAndDropController: tagsDnd,
   });
   context.subscriptions.push(tagsView);
 
@@ -256,6 +300,48 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // The multi-select tag command: the canPickMany QuickPick affordance. It fires
+  // from a chat row in ANY view (Chats, Folders) or a tag occurrence in the Tags
+  // view, applies to the WHOLE current multi-selection, and refreshes BOTH the
+  // Folders and Tags views once (a tag change alters Tags membership and can move
+  // a chat out of Untagged, which the Folders view does not render, but refreshing
+  // both keeps every surface consistent in one shot).
+  const taggingUi: TagMultiPickUi = {
+    pickTags: (options, placeholder) => showTagMultiPick(options, placeholder),
+    showError: (message) => void vscode.window.showErrorMessage(message),
+  };
+  const taggingDeps: TaggingCommandDeps = {
+    store,
+    // Refresh both membership views after a multi-select tag change.
+    provider: {
+      refresh: () => {
+        tagsProvider.refresh();
+        foldersProvider.refresh();
+      },
+    },
+    getProjectKey: () => tagsProvider.resolveProjectKey(),
+    ui: taggingUi,
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      TAG_CHATS_COMMAND,
+      (
+        item?: TagTreeNode | FolderTreeNode | FlatChatItem | string,
+        selection?: (TagTreeNode | FolderTreeNode | FlatChatItem)[],
+      ) => {
+        // VSCode passes the clicked node first and the full multi-selection second
+        // for a tree context-menu command. Prefer the selection (so a multi-select
+        // tags every chosen chat); fall back to the single clicked node, then to a
+        // bare sessionId for a programmatic caller.
+        const chatIds = collectChatSessionIds(item, selection);
+        if (chatIds.length === 0) {
+          return undefined;
+        }
+        return tagChats(taggingDeps, chatIds);
+      },
+    ),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_CHAT_COMMAND, (sessionId: string) => {
       // Compose vscode.Uri.from with vscode.env.openExternal as the injected
@@ -288,4 +374,45 @@ export function deactivate(): Thenable<void> | void {
   if (store) {
     return store.flush();
   }
+}
+
+// Recover the dragged/clicked chats' sessionIds from a tag-command invocation.
+// VSCode passes the clicked node first and the full multi-selection second for a
+// tree context-menu command. The selection (when present) wins so a multi-select
+// tags every chosen chat; otherwise the single clicked node is used, then a bare
+// sessionId string for a programmatic caller. A chat node resolves to its
+// record.sessionId (Folders/Chats) or its occurrence chat (Tags); a folder/tag
+// row contributes nothing. The result is de-duplicated in first-seen order.
+function collectChatSessionIds(
+  item: TagTreeNode | FolderTreeNode | FlatChatItem | string | undefined,
+  selection: (TagTreeNode | FolderTreeNode | FlatChatItem)[] | undefined,
+): string[] {
+  const nodes =
+    selection !== undefined && selection.length > 0
+      ? selection
+      : typeof item === 'object' && item !== undefined
+        ? [item]
+        : [];
+  const ids: string[] = [];
+  if (typeof item === 'string') {
+    ids.push(item);
+  }
+  for (const node of nodes) {
+    if (node instanceof ChatOccurrenceItem) {
+      ids.push(node.record.sessionId);
+    } else if (node instanceof ChatMemberItem) {
+      ids.push(node.record.sessionId);
+    } else if (node instanceof FlatChatItem) {
+      ids.push(node.record.sessionId);
+    }
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (id.length > 0 && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
 }
