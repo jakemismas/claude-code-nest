@@ -7,6 +7,75 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Slice 3 (Tags view): the claudeNest.tags tree, the MANY-TO-MANY tag membership.
+  Create and delete tags; apply or remove a tag on a chat via the row context menu
+  or from the Chats / Folders rows. A chat appears once under EACH tag in its
+  effective set and once under a synthetic Untagged bucket (sentinel tag id
+  __untagged__) when that set is empty. Each on-screen appearance is a distinct
+  ChatOccurrence wrapper with its own tree-wide-unique composite id
+  ${tagId}:${chatId}; every wrapper dereferences the ONE shared ChatRecord resolved
+  from a records map, so the bare record is never returned under two parents.
+  getParent splits an occurrence id on the FIRST ':' to recover the single owning
+  tag (tagId is separator-free, minted by idFactory.mintTagId or the __untagged__
+  sentinel, and chatId is a separator-free UUID, so the split is unambiguous); the
+  Tags view reveals a specific occurrence only, while the chat's single-home
+  reveal-by-chat target stays the Folders view. A chat's EFFECTIVE tag set is the
+  subset of its stored tag ids that still resolve to a real Tag (de-duped,
+  order-preserving); a dangling tag id (e.g. a tag deleted on another machine before
+  reconcile) contributes no occurrence, so a chat whose every tag id is dangling
+  lands in Untagged, mirroring how a dangling folderId routes a chat to Unfiled.
+  Deleting a tag removes the tag record AND strips its id from every chat that had
+  it (via the store's deleteTag), so no occurrence survives a delete and a chat that
+  loses its last tag recomputes into Untagged on the next refresh; chats are never
+  deleted. The Untagged membership is RECOMPUTED on every refresh while node objects
+  are MEMOIZED by id across refreshes (reused when the shared chat's title and
+  timestamp still match) so VSCode's reference-keyed element cache keeps reveal and
+  selection stable; the memo cache is pruned to the live id set so it cannot grow
+  unbounded. Each tag mutation flushes the store then fires onDidChangeTreeData once
+  (refresh coalescing). createTag mints a separator-free id through the shared id
+  factory and re-asserts it at the write boundary (assertMintableId), the invariant
+  the occurrence grammar depends on. The vscode-free model holds the binding rules:
+  the composite-id grammar and the single-owning-tag getParent recovery
+  (occurrence.ts: tagOccurrenceId, parseTagOccurrenceId, makeOccurrence,
+  canReuseOccurrenceItem, memoizeById) and the many-to-many assembly plus the
+  Untagged membership rule (untagged.ts: effectiveTagIds, isUntagged,
+  assembleTagsTree), so the provider only delegates and both binding rules are
+  exercised by the headless gate. New modules: src/model/occurrence.ts (the
+  ChatOccurrence wrapper, the composite-id grammar, and the pure memoization core),
+  src/model/untagged.ts (the Untagged bucket sentinel and the many-to-many tree
+  assembly), src/views/tagsProvider.ts, and src/commands/tagCommands.ts; idFactory
+  now mints tag ids (mintTagId) and the __untagged__ sentinel was already reserved
+  out of the mintable space. Headless unit tests cover the five highest-priority
+  areas: the composite-id round-trip (including the minted-id and Untagged shapes
+  and the malformed-id null cases), tree-wide composite-id uniqueness over a 50-by-8
+  synthetic set (proving distinct-wrapper ids for a multi-tag chat and that no chat
+  is dropped), the single owning tag per occurrence, Untagged membership equal to
+  the empty effective-tag set (including the all-dangling case), and node-object
+  memoization by id; plus the command orchestration (create mints separator-free and
+  refreshes once, delete confirms and strips the tag from every chat, add offers only
+  not-yet-applied tags, remove drops only the occurrence's owning tag). Manual smoke
+  (TESTING.md): tag one chat with two tags and confirm it appears under both; an
+  untagged chat appears only under Untagged; removing the last tag moves it to
+  Untagged; deleting a tag removes it from every chat without deleting any chat.
+- Read-only chokepoint lint hardening (pre-Slice-3, while no src file imports fs):
+  closed two pre-existing chinks that would have breached the chokepoint once a
+  write-capable slice (Slice 7) lands. First, an arbitrarily-named whole-module
+  alias from require (const myfs = require('fs'), or a reassignment
+  later = require('fs')) defeated the fs-object-name gate on computed write calls
+  (myfs[m](...)), so the require module alias is now banned at the binding for fs,
+  node:fs, and fs/promises; the only sanctioned whole-module reference stays a
+  namespace import (import * as fs), whose writes are member or computed calls
+  already covered. Second, aliasing a write-capable member off a require result
+  (const w = require('fs').writeFile) escaped both the const w = fs.writeFileSync
+  alias selector (its object was a require CallExpression, not the fs identifier) and
+  the bare-identifier backstop (which may not name an async write), so that
+  require-result member alias is now banned across all write names. The bare-identifier
+  backstop was also extended to the async write names writeFile / appendFile /
+  copyFile. Verified against an exploit probe (every require-alias, computed-key, and
+  member-alias write entry point errors) and a legitimate-reads probe (namespace-import
+  reads and a non-write member alias off require('fs').readFileSync stay clean). Lint
+  runs in pretest, so the strengthened guard is enforced by the headless test gate,
+  not by review.
 - Read-only chokepoint lint hardening: closed a hole where a require-destructured
   fs write (const { writeFile } = require('fs/promises'), sync or async) slipped
   the guard because the require-destructure selector could never match (it tested

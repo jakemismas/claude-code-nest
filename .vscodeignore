@@ -4,6 +4,9 @@
 .claude-working/**
 **/*.bak
 **/__probe*
+**/__probe*/**
+**/__*probe*
+**/__*probe*/**
 src/**
 out/test/**
 **/*.ts

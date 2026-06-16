@@ -8,7 +8,9 @@ dist/
 .claude-working/
 .DS_Store
 # Transient chokepoint-validation probe scratch. The probe generator should write
-# under .claude-working/, but guard against any stray __probe* in the linted src/
-# tree being staged or tripping the gate.
+# under .claude-working/, but guard against any stray __probe / __lintprobe / other
+# __*probe* in the linted src/ tree being staged or tripping the gate.
 **/__probe*
+**/__*probe*
 src/__probe/
+src/__lintprobe/

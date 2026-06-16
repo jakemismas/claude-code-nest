@@ -21,6 +21,19 @@ import {
   deleteFolder,
   assignChatToFolder,
 } from './commands/folderCommands';
+import { TagsProvider, TagItem, ChatOccurrenceItem, TagTreeNode } from './views/tagsProvider';
+import {
+  CREATE_TAG_COMMAND,
+  DELETE_TAG_COMMAND,
+  ADD_TAG_TO_CHAT_COMMAND,
+  REMOVE_TAG_FROM_CHAT_COMMAND,
+  TagCommandDeps,
+  TagCommandUi,
+  createTag,
+  deleteTag,
+  addTagToChat,
+  removeTagFromChat,
+} from './commands/tagCommands';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -156,6 +169,90 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('claudeNest.refreshFolders', () =>
       foldersProvider.refresh(),
+    ),
+  );
+
+  // The claudeNest.tags view: the many-to-many tag membership. It resolves the
+  // project key on demand exactly like the Folders view, and its commands share
+  // that resolution through TagCommandDeps.getProjectKey.
+  const tagsProvider = new TagsProvider(workspacePath, store);
+  const tagsView = vscode.window.createTreeView('claudeNest.tags', {
+    treeDataProvider: tagsProvider,
+    showCollapseAll: true,
+  });
+  context.subscriptions.push(tagsView);
+
+  const tagUi: TagCommandUi = {
+    prompt: (options) =>
+      vscode.window.showInputBox({
+        title: options.title,
+        placeHolder: options.placeholder,
+        value: options.value,
+        validateInput: options.validateInput
+          ? (value) => options.validateInput?.(value) ?? null
+          : undefined,
+      }),
+    confirmWarning: async (message, confirmLabel) => {
+      const picked = await vscode.window.showWarningMessage(
+        message,
+        { modal: true },
+        confirmLabel,
+      );
+      return picked === confirmLabel;
+    },
+    pickTag: async (items, placeholder) => {
+      const picked = await vscode.window.showQuickPick(
+        items.map((item) => ({
+          label: item.label,
+          description: item.description,
+          tagId: item.tagId,
+        })),
+        { placeHolder: placeholder },
+      );
+      return picked ? { tagId: picked.tagId } : undefined;
+    },
+    showError: (message) => void vscode.window.showErrorMessage(message),
+  };
+
+  const tagDeps: TagCommandDeps = {
+    store,
+    provider: tagsProvider,
+    getProjectKey: () => tagsProvider.resolveProjectKey(),
+    ui: tagUi,
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(CREATE_TAG_COMMAND, () => createTag(tagDeps)),
+    vscode.commands.registerCommand(DELETE_TAG_COMMAND, (item?: TagTreeNode) =>
+      item instanceof TagItem ? deleteTag(tagDeps, item) : undefined,
+    ),
+    vscode.commands.registerCommand(
+      ADD_TAG_TO_CHAT_COMMAND,
+      (item?: TagTreeNode | FlatChatItem | ChatMemberItem | string) => {
+        // Fires from EITHER the Folders or Chats view (a chat row) or from the
+        // Tags view (an occurrence). A bare sessionId covers a programmatic caller.
+        if (typeof item === 'string') {
+          return addTagToChat(tagDeps, item);
+        }
+        if (item instanceof ChatOccurrenceItem) {
+          return addTagToChat(tagDeps, item);
+        }
+        if (item instanceof ChatMemberItem) {
+          return addTagToChat(tagDeps, item.record.sessionId);
+        }
+        if (item instanceof FlatChatItem) {
+          return addTagToChat(tagDeps, item.record.sessionId);
+        }
+        return undefined;
+      },
+    ),
+    vscode.commands.registerCommand(
+      REMOVE_TAG_FROM_CHAT_COMMAND,
+      (item?: TagTreeNode) =>
+        item instanceof ChatOccurrenceItem ? removeTagFromChat(tagDeps, item) : undefined,
+    ),
+    vscode.commands.registerCommand('claudeNest.refreshTags', () =>
+      tagsProvider.refresh(),
     ),
   );
 
