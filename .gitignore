@@ -7,3 +7,8 @@ dist/
 .nest-build-state.json
 .claude-working/
 .DS_Store
+# Transient chokepoint-validation probe scratch. The probe generator should write
+# under .claude-working/, but guard against any stray __probe* in the linted src/
+# tree being staged or tripping the gate.
+**/__probe*
+src/__probe/

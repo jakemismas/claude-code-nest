@@ -7,6 +7,55 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Read-only chokepoint lint hardening: closed a hole where a require-destructured
+  fs write (const { writeFile } = require('fs/promises'), sync or async) slipped
+  the guard because the require-destructure selector could never match (it tested
+  init as both an ObjectPattern and a require call at once). The selector now
+  targets the destructure binding on the declarator with an fs-module-constrained
+  require initializer, covering sync and async write names; a non-fs
+  require-destructure was verified to stay clean. Closes the gap before the
+  write-capable settings slice lands.
+- Slice 2 (Folders view): the claudeNest.folders tree, a single-home nestable
+  hierarchy. Create (including slash-nested names), rename, and delete folders;
+  assign a chat to a folder via the row context menu or the command palette. A
+  slash name like Work/ClientA expands at create time into a CHAIN of real
+  parent-child Folder records (Work parentId=null, ClientA parentId=Work),
+  reusing any existing segment by (parentId, name) and minting a new record only
+  for a missing segment, so no literal slash is ever stored in a single
+  Folder.name and parentId stays meaningful for the delete cascade and getParent.
+  Each chat appears under EXACTLY one folder via the composite member-node id
+  ${folderId}#${chatId}, with a synthetic Unfiled bucket (sentinel folderId
+  __unfiled__) holding every chat whose folderId is null or whose home folder no
+  longer resolves; getParent splits a member id on the FIRST # to recover the one
+  owning folder. Creating a child under a right-clicked folder roots the slash-path
+  expansion at that folder's AUTHORITATIVE id (expandFolderPath startParentId), not
+  by recomposing and re-matching its name path, so a new child always hangs under
+  the exact clicked folder even when a same-named sibling exists; renameFolder
+  rejects a name that would collide with an existing sibling (parentId, name) so
+  the reuse key and the assign picker stay unambiguous. Folder deletion cascades to
+  descendant folders and unfiles their
+  member chats (chats are never deleted). Node objects are memoized by id across
+  refreshes so reveal and selection stay stable, and a folder mutation flushes the
+  store then fires onDidChangeTreeData once (refresh coalescing). The single-home
+  getParent resolution (chatId -> owning folder id with the Unfiled fallback) and
+  the node-object memoization reuse rule live in the vscode-free folderTree model
+  (buildChatHomeIndex, resolveChatHomeFolderId, canReuseFolderItem,
+  canReuseChatMemberItem) so the provider only delegates and both binding rules are
+  exercised by the headless gate. New modules:
+  src/model/idFactory.ts (the vscode-free id factory: mints separator-free folder
+  ids and exposes the guard/assertion that rejects ':' '#' '>' and excludes the
+  __unfiled__ / __untagged__ sentinels from the mintable space, per
+  ARCHITECTURE.md "enforce in the id factory"), src/model/folderTree.ts
+  (vscode-free slash-path expansion, single-home tree assembly, composite-id
+  grammar, delete-cascade set, the pure getParent resolution, and the memoization
+  reuse predicates), src/views/foldersProvider.ts, and
+  src/commands/folderCommands.ts. Headless unit tests cover slash-path expansion
+  and reuse (including startParentId rooting under a clicked-parent id with a
+  same-named-sibling guard), the single-home invariant (including dangling-home and
+  dangling-parent routing), tree assembly, the composite-id round-trip, the pure
+  getParent home-index resolution and the memoization reuse predicates, the
+  rename sibling-name-collision guard, the cascade set with a cyclic-store guard,
+  and the id factory's separator/sentinel guarantees across many generations.
 - Slice 1 (storage): the MetadataStore over globalState with one synced key per
   project (nest.meta.v1::<projectKey>) and setKeysForSync refreshed to the union
   of all known project keys whenever a new project key first appears (and

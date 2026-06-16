@@ -17,7 +17,8 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onView:claudeNest.flat"
+    "onView:claudeNest.flat",
+    "onView:claudeNest.folders"
   ],
   "contributes": {
     "viewsContainers": {
@@ -35,6 +36,11 @@
           "id": "claudeNest.flat",
           "name": "Chats",
           "contextualTitle": "Claude Code Nest"
+        },
+        {
+          "id": "claudeNest.folders",
+          "name": "Folders",
+          "contextualTitle": "Claude Code Nest"
         }
       ]
     },
@@ -42,6 +48,10 @@
       {
         "view": "claudeNest.flat",
         "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then refresh.\n[Refresh](command:claudeNest.refresh)"
+      },
+      {
+        "view": "claudeNest.folders",
+        "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then create a folder.\n[New Folder](command:claudeNest.createFolder)"
       }
     ],
     "commands": [
@@ -55,6 +65,34 @@
         "title": "Refresh",
         "category": "Claude Code Nest",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeNest.refreshFolders",
+        "title": "Refresh Folders",
+        "category": "Claude Code Nest",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeNest.createFolder",
+        "title": "New Folder",
+        "category": "Claude Code Nest",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "claudeNest.renameFolder",
+        "title": "Rename Folder",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.deleteFolder",
+        "title": "Delete Folder",
+        "category": "Claude Code Nest",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "claudeNest.assignChatToFolder",
+        "title": "Move Chat to Folder",
+        "category": "Claude Code Nest"
       }
     ],
     "menus": {
@@ -63,11 +101,60 @@
           "command": "claudeNest.refresh",
           "when": "view == claudeNest.flat",
           "group": "navigation"
+        },
+        {
+          "command": "claudeNest.createFolder",
+          "when": "view == claudeNest.folders",
+          "group": "navigation@1"
+        },
+        {
+          "command": "claudeNest.refreshFolders",
+          "when": "view == claudeNest.folders",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "claudeNest.createFolder",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.folder",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "claudeNest.renameFolder",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.folder",
+          "group": "1_modify@2"
+        },
+        {
+          "command": "claudeNest.deleteFolder",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.folder",
+          "group": "1_modify@3"
+        },
+        {
+          "command": "claudeNest.assignChatToFolder",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "claudeNest.assignChatToFolder",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "1_modify@1"
         }
       ],
       "commandPalette": [
         {
           "command": "claudeNest.openChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.renameFolder",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.deleteFolder",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.assignChatToFolder",
           "when": "false"
         }
       ]
