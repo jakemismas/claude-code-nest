@@ -1,0 +1,45 @@
+{
+  "name": "claude-code-nest",
+  "displayName": "Claude Code Nest",
+  "description": "A virtual organization layer over Claude Code chat sessions: folders, tags, links, and read-only smart groups for a single project.",
+  "version": "0.0.1",
+  "publisher": "jakemismas",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jakemismas/claude-code-nest.git"
+  },
+  "engines": {
+    "vscode": "^1.66.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": []
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "pretest": "npm run compile",
+    "test": "mocha",
+    "test:integration": "node ./out/test/integration/runTest.js",
+    "package": "vsce package --no-dependencies -o nest-build-check.vsix"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.30",
+    "@types/vscode": "1.66.0",
+    "@typescript-eslint/eslint-plugin": "^7.7.0",
+    "@typescript-eslint/parser": "^7.7.0",
+    "@vscode/test-electron": "^2.3.9",
+    "@vscode/vsce": "^3.9.2",
+    "eslint": "^8.57.0",
+    "mocha": "^10.4.0",
+    "typescript": "^5.4.5"
+  }
+}
