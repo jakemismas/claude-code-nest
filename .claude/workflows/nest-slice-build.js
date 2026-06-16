@@ -258,7 +258,10 @@ try {
       "BUILD this slice for the Claude Code Nest VSCode extension. Implement to the plan, honoring the binding " +
       "design rules in ARCHITECTURE.md (read-only on ~/.claude/projects, composite-id tree model, visited-set " +
       "cycle detection, surgical settings write, per-project sync keys, refresh coalescing). Plan and any " +
-      "accepted patches:\n" + JSON.stringify(mergedPlan) + "\nRun the compile to confirm it builds. Do NOT git " +
+      "accepted patches:\n" + JSON.stringify(mergedPlan) + "\nNever create scratch, probe, throwaway, or " +
+      "lint-test files under src/ or out/; they break the tsc and eslint gates and can ship in the VSIX. If you " +
+      "must create a temporary file to verify a rule, put it under .claude-working/ (gitignored) and remove it " +
+      "when done. Run the compile to confirm it builds. Do NOT git " +
       "add, commit, or push. No em dashes, en dashes, or emojis in code or docs.",
       { label: "build:" + slice.id, phase: "Build" });
     if (build == null) throw new HaltError("Build agent died for " + slice.id, { stage: "build", slice: slice.id });
@@ -306,7 +309,8 @@ try {
         "FIX PASS (round " + round + " of up to " + MAX_FIX_ROUNDS + "). Resolve ALL of these actionable " +
         "findings, then re-check by rebuilding AND running the slice tests (" + (slice.testCommand || "npm test") +
         "). Report buildPasses, testsPass, and any remainingFindings. Findings:\n" + JSON.stringify(actionable) +
-        "\nDo NOT commit or push.",
+        "\nKeep any scratch or probe files under .claude-working/ (gitignored), never under src/ or out/, and " +
+        "remove them before reporting. Do NOT commit or push.",
         { schema: fixResultSchema, label: "fix:" + slice.id + ":r" + round, phase: "Fix" });
       if (fix == null) throw new HaltError("Fix agent died for " + slice.id, { stage: "fix", slice: slice.id });
       // loop re-reviews; the next round is the independent re-verification.
