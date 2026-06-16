@@ -1,6 +1,9 @@
 .vscode/**
 .vscode-test/**
 .claude/**
+.claude-working/**
+**/*.bak
+**/__probe*
 src/**
 out/test/**
 **/*.ts

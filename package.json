@@ -16,16 +16,70 @@
     "Other"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:claudeNest.flat"
+  ],
   "contributes": {
-    "commands": []
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudeNest",
+          "title": "Claude Code Nest",
+          "icon": "media/nest.svg"
+        }
+      ]
+    },
+    "views": {
+      "claudeNest": [
+        {
+          "id": "claudeNest.flat",
+          "name": "Chats",
+          "contextualTitle": "Claude Code Nest"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "claudeNest.flat",
+        "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then refresh.\n[Refresh](command:claudeNest.refresh)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "claudeNest.openChat",
+        "title": "Open Chat",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.refresh",
+        "title": "Refresh",
+        "category": "Claude Code Nest",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "claudeNest.refresh",
+          "when": "view == claudeNest.flat",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "claudeNest.openChat",
+          "when": "false"
+        }
+      ]
+    }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run clean && npm run compile",
+    "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
-    "pretest": "npm run compile",
+    "pretest": "npm run lint && npm run compile",
     "test": "mocha",
     "test:integration": "node ./out/test/integration/runTest.js",
     "package": "vsce package --no-dependencies -o nest-build-check.vsix"

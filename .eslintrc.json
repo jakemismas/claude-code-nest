@@ -18,7 +18,48 @@
     "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
     "no-throw-literal": "warn",
     "semi": "off",
-    "@typescript-eslint/semi": "off"
+    "@typescript-eslint/semi": "off",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.property.name=/^(writeFile|writeFileSync|appendFile|appendFileSync|write|writeSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|truncate|truncateSync|ftruncate|ftruncateSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|copyFile|copyFileSync|cp|cpSync|createWriteStream|chmod|chmodSync|chown|chownSync|symlink|symlinkSync|link|linkSync|utimes|utimesSync|open|openSync)$/]",
+        "message": "Read-only chokepoint (ARCHITECTURE.md): member-call write-capable fs calls (fs.writeFileSync(...)) are banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts). Nothing may ever write under ~/.claude/projects/. If you genuinely need to write Claude's settings.json, do it there behind the path-asserting chokepoint; otherwise this is a read-only surface."
+      },
+      {
+        "selector": "CallExpression[callee.type='MemberExpression'][callee.computed=true][callee.property.value=/^(writeFile|writeFileSync|appendFile|appendFileSync|write|writeSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|truncate|truncateSync|ftruncate|ftruncateSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|copyFile|copyFileSync|cp|cpSync|createWriteStream|chmod|chmodSync|chown|chownSync|symlink|symlinkSync|link|linkSync|utimes|utimesSync|open|openSync)$/]",
+        "message": "Read-only chokepoint (ARCHITECTURE.md): computed-access write-capable fs calls (fs['writeFileSync'](...)) are banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts). Nothing may ever write under ~/.claude/projects/."
+      },
+      {
+        "selector": "ImportDeclaration[source.value=/^(node:)?fs(\\u002Fpromises)?$/] > ImportSpecifier[imported.name=/^(writeFile|writeFileSync|appendFile|appendFileSync|write|writeSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|truncate|truncateSync|ftruncate|ftruncateSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|copyFile|copyFileSync|cp|cpSync|createWriteStream|chmod|chmodSync|chown|chownSync|symlink|symlinkSync|link|linkSync|utimes|utimesSync|open|openSync)$/]",
+        "message": "Read-only chokepoint (ARCHITECTURE.md): destructured/named import of a write-capable fs member (import { writeFileSync } from 'fs') is banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts). This is the entry point for a bare or aliased write; import write-capable fs members only in the chokepoint."
+      },
+      {
+        "selector": "VariableDeclarator[init.type='MemberExpression'][init.object.name='fs'][init.property.name=/^(writeFile|writeFileSync|appendFile|appendFileSync|write|writeSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|truncate|truncateSync|ftruncate|ftruncateSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|copyFile|copyFileSync|cp|cpSync|createWriteStream|chmod|chmodSync|chown|chownSync|symlink|symlinkSync|link|linkSync|utimes|utimesSync|open|openSync)$/]",
+        "message": "Read-only chokepoint (ARCHITECTURE.md): aliasing a write-capable fs member (const w = fs.writeFileSync) is banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts)."
+      },
+      {
+        "selector": "VariableDeclarator[init.type='ObjectPattern']:has(Property[key.name=/^(writeFile|writeFileSync|appendFile|appendFileSync|write|writeSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|truncate|truncateSync|ftruncate|ftruncateSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|copyFile|copyFileSync|cp|cpSync|createWriteStream|chmod|chmodSync|chown|chownSync|symlink|symlinkSync|link|linkSync|utimes|utimesSync|open|openSync)$/])[init.callee.name='require']",
+        "message": "Read-only chokepoint (ARCHITECTURE.md): destructuring a write-capable fs member out of require('fs') is banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts)."
+      },
+      {
+        "selector": "CallExpression[callee.type='Identifier'][callee.name=/^(writeFileSync|appendFileSync|renameSync|rmSync|rmdirSync|unlinkSync|truncateSync|ftruncateSync|mkdirSync|mkdtempSync|copyFileSync|cpSync|createWriteStream|chmodSync|chownSync|symlinkSync|linkSync|utimesSync|openSync)$/]",
+        "message": "Read-only chokepoint (ARCHITECTURE.md): bare write-capable fs call from a destructured/aliased import (writeFileSync(...)) is banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts). Nothing may ever write under ~/.claude/projects/."
+      }
+    ]
   },
-  "ignorePatterns": ["out", "dist", "node_modules", "**/*.d.ts", ".vscode-test"]
+  "ignorePatterns": ["out", "dist", "node_modules", "**/*.d.ts", ".vscode-test"],
+  "overrides": [
+    {
+      "files": ["src/settings/claudeSettingsIO.ts"],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": ["src/test/**/*.ts"],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    }
+  ]
 }
