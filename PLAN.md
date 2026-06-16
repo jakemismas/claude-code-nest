@@ -30,7 +30,9 @@ consolidated into TESTING.md at handoff for the user to run on return.
 
 - Unit tests (headless): node + mocha against compiled out/test/unit/**. Pure
   logic only; these never import the vscode module. This is what `npm test`
-  runs and what the workflow TEST gate verifies.
+  runs and what the workflow TEST gate verifies. `pretest` runs `npm run lint`
+  then `npm run compile`, so the read-only chokepoint lint is part of the
+  headless gate, not just the per-slice DoD checklist.
 - Integration tests (electron host): @vscode/test-electron under
   out/test/integration/**. These need a VSCode download and a display, so they
   are deferred to TESTING.md and run by the human or CI, not during the

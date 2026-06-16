@@ -3,5 +3,7 @@ out/
 dist/
 *.vsix
 *.log
+*.bak
 .nest-build-state.json
+.claude-working/
 .DS_Store

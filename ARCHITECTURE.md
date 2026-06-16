@@ -26,11 +26,17 @@ guarded settings write.
   Title resolution order: customTitle, then aiTitle, then slug, then a truncated
   first user-message text.
 - Project-key encoding rule (verified exact): lowercase only the leading drive
-  letter, then replace each separator character (backslash, forward slash, colon,
-  dot, space) with a single hyphen, preserving existing hyphens. Example:
-  c:\Users\JakeMismas\Documents\Claude Code - Nest maps to
-  c--Users-JakeMismas-Documents-Claude-Code---Nest. The transcript cwd field is
-  the self-verification anchor: derive the key, then confirm by re-encoding a
+  letter, then replace EVERY character that is not [A-Za-z0-9-] with a single
+  hyphen, preserving existing hyphens. This is the full character class Claude
+  Code uses on disk, not just the path separators: any non-alphanumeric character
+  in a folder name (space, dot, '+', '&', '(', ')', ',', apostrophe, '@', '!',
+  etc.) collapses to a hyphen. Verified against the live ~/.claude/projects
+  listing: c:\Users\JakeMismas\Documents\Claude Code - Nest maps to
+  c--Users-JakeMismas-Documents-Claude-Code---Nest, and c:\Users\JakeMismas\Notes+
+  Github maps to c--Users-JakeMismas-Notes--Github (the '+' AND the space each
+  become a hyphen). A separators-only encoder leaves the '+' intact and returns
+  null for that project, so the broad class is mandatory. The transcript cwd field
+  is the self-verification anchor: derive the key, then confirm by re-encoding a
   transcript's cwd, and fall back to a cwd scan across ~/.claude/projects/* if
   the exact directory is missing.
 - Smart-group signal strength for this user's real data: prNumber and prUrl are
@@ -54,9 +60,31 @@ handler. If the extension fails, Claude must be entirely unaffected.
 
 - Read-only chokepoint: a single fs-writing module is the ONLY code permitted to
   write under ~/.claude, and it hard-asserts the canonicalized absolute target
-  equals the one allowed settings.json path, throwing otherwise. A lint or
-  review rule keeps raw fs-write imports out of every other module. Nothing may
-  ever write under ~/.claude/projects/.
+  equals the one allowed settings.json path, throwing otherwise. The lint half of
+  this defense is enforced, not left to review discipline, and it covers every
+  call shape, not just member calls. A bank of eslint no-restricted-syntax
+  selectors bans every write-capable fs call (writeFile/writeFileSync, append,
+  write/writeSync, rename, rm/rmdir, unlink, truncate, mkdir/mkdtemp, copyFile/cp,
+  createWriteStream, chmod/chown, symlink, link, utimes, open/openSync) across src
+  at every entry point a write can take:
+  - the member-call form (fs.writeFileSync(...));
+  - the computed-access form (fs['writeFileSync'](...));
+  - the named/destructured import (import { writeFileSync } from 'fs' |
+    'node:fs' | 'fs/promises' | 'node:fs/promises') and the require-destructure
+    (const { writeFileSync } = require('fs')), which are the idiomatic entry
+    points for a bare or aliased write and are caught at the import itself;
+  - the alias (const w = fs.writeFileSync);
+  - the bare call of a collision-free write name (writeFileSync(...)) as a
+    defense-in-depth backstop once a name is in scope. A namespace import
+    (import * as fs from 'fs') stays legal because every write through it is a
+    member or computed call already covered above.
+  All selectors have an override carve-out for ONLY the sanctioned settings-IO module
+  (src/settings/claudeSettingsIO.ts, which holds the path-asserting chokepoint)
+  and the scratch-fixture test tree. The carve-out is staged ahead of the settings
+  module so the guard is already in force before any write-capable slice lands.
+  Lint is wired into the headless test gate (pretest runs lint before compile and
+  mocha), so the chokepoint cannot be bypassed by skipping a separate command.
+  Nothing may ever write under ~/.claude/projects/.
 - All transcript-reading tests run against scratch copies, never the real files.
 
 ## Tree and VSCode API binding rules
@@ -152,8 +180,10 @@ id. Rationale and rules:
 - Lint: eslint with @typescript-eslint over src.
 - Unit tests (headless gate): node + mocha over out/test/unit/**/*.test.js. Pure
   logic only; unit test files and the modules they import must not require the
-  vscode module. `npm test` runs `pretest` (compile) then mocha. This is the
-  command the workflow TEST gate runs.
+  vscode module. `npm test` runs `pretest` (lint then compile) then mocha, so the
+  read-only chokepoint lint runs as part of the headless gate and cannot be
+  bypassed by skipping a separate command. This is the command the workflow TEST
+  gate runs.
 - Integration tests (electron host): @vscode/test-electron under
   out/test/integration/**. Needs a VSCode download and a display; deferred to
   TESTING.md and run by a human or CI, never part of the unattended gate.
