@@ -168,7 +168,9 @@ async function runCouncil(slice, fit) {
 // ---------------- main ----------------
 try {
   phase("Preflight");
-  const slices = (args && Array.isArray(args.slices)) ? args.slices : [];
+  // The harness can deliver args as a JSON-encoded string; coerce to an object.
+  const A = (args && typeof args === "string") ? JSON.parse(args) : (args || {});
+  const slices = (A && Array.isArray(A.slices)) ? A.slices : [];
   if (slices.length === 0) throw new HaltError("No slices in args.slices", { stage: "preflight" });
   const orders = slices.map(s => s.order);
   for (let i = 0; i < slices.length; i++) {
@@ -176,9 +178,9 @@ try {
   }
   slices.sort((a, b) => a.order - b.order);
 
-  const PER_SLICE_FLOOR = (args && args.perSliceFloor) ? args.perSliceFloor : 300000;
-  const MAX_FIX_ROUNDS = (args && args.maxFixRounds) ? args.maxFixRounds : 3;
-  const COUNCIL_MIN = (args && args.councilMinConfidence) ? args.councilMinConfidence : 0.6;
+  const PER_SLICE_FLOOR = (A && A.perSliceFloor) ? A.perSliceFloor : 300000;
+  const MAX_FIX_ROUNDS = (A && A.maxFixRounds) ? A.maxFixRounds : 3;
+  const COUNCIL_MIN = (A && A.councilMinConfidence) ? A.councilMinConfidence : 0.6;
 
   const pf = await agent(
     "Read-only preflight at the repo root. First run 'git fetch origin' (read-only; updates remote-tracking " +
