@@ -18,7 +18,8 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "onView:claudeNest.flat",
-    "onView:claudeNest.folders"
+    "onView:claudeNest.folders",
+    "onView:claudeNest.tags"
   ],
   "contributes": {
     "viewsContainers": {
@@ -41,6 +42,11 @@
           "id": "claudeNest.folders",
           "name": "Folders",
           "contextualTitle": "Claude Code Nest"
+        },
+        {
+          "id": "claudeNest.tags",
+          "name": "Tags",
+          "contextualTitle": "Claude Code Nest"
         }
       ]
     },
@@ -52,6 +58,10 @@
       {
         "view": "claudeNest.folders",
         "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then create a folder.\n[New Folder](command:claudeNest.createFolder)"
+      },
+      {
+        "view": "claudeNest.tags",
+        "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then create a tag.\n[New Tag](command:claudeNest.createTag)"
       }
     ],
     "commands": [
@@ -93,6 +103,34 @@
         "command": "claudeNest.assignChatToFolder",
         "title": "Move Chat to Folder",
         "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.refreshTags",
+        "title": "Refresh Tags",
+        "category": "Claude Code Nest",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeNest.createTag",
+        "title": "New Tag",
+        "category": "Claude Code Nest",
+        "icon": "$(add)"
+      },
+      {
+        "command": "claudeNest.deleteTag",
+        "title": "Delete Tag",
+        "category": "Claude Code Nest",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "claudeNest.addTagToChat",
+        "title": "Add Tag to Chat",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.removeTagFromChat",
+        "title": "Remove Tag from Chat",
+        "category": "Claude Code Nest"
       }
     ],
     "menus": {
@@ -110,6 +148,16 @@
         {
           "command": "claudeNest.refreshFolders",
           "when": "view == claudeNest.folders",
+          "group": "navigation@2"
+        },
+        {
+          "command": "claudeNest.createTag",
+          "when": "view == claudeNest.tags",
+          "group": "navigation@1"
+        },
+        {
+          "command": "claudeNest.refreshTags",
+          "when": "view == claudeNest.tags",
           "group": "navigation@2"
         }
       ],
@@ -138,6 +186,26 @@
           "command": "claudeNest.assignChatToFolder",
           "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
           "group": "1_modify@1"
+        },
+        {
+          "command": "claudeNest.deleteTag",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tag",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "claudeNest.removeTagFromChat",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "claudeNest.addTagToChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "1_modify@2"
+        },
+        {
+          "command": "claudeNest.addTagToChat",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "1_modify@2"
         }
       ],
       "commandPalette": [
@@ -155,6 +223,18 @@
         },
         {
           "command": "claudeNest.assignChatToFolder",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.deleteTag",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.addTagToChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.removeTagFromChat",
           "when": "false"
         }
       ]

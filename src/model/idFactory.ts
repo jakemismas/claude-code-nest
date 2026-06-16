@@ -74,14 +74,16 @@ export function assertMintableId(id: string, context = 'id'): void {
   }
 }
 
-// Mint a fresh, separator-free folder id. A v4 UUID from crypto.randomUUID is
-// hyphen-delimited hex with no reserved separator, so it is mintable by
-// construction; the post-mint guard is defense-in-depth in case a future entropy
-// source is swapped in. On the (vanishingly unlikely) chance a generated value
-// is not mintable, it regenerates a bounded number of times before falling back.
-export function mintFolderId(): string {
+// Mint a fresh, separator-free id with a bounded retry on the (vanishingly
+// unlikely) chance an entropy source yields a non-mintable value, falling back to
+// a guaranteed-legal counter+time id. prefix names the last-resort fallback id's
+// kind ('f' folder, 't' tag) so a fallback collision across kinds is impossible;
+// the UUID path is identical for every kind, which is correct because all minted
+// ids share one separator-free namespace (ARCHITECTURE.md "Separator-namespace
+// discipline" governs folder, tag, AND chat ids together).
+function mintId(prefix: string): string {
   for (let attempt = 0; attempt < 8; attempt++) {
-    const candidate = randomId();
+    const candidate = randomId(prefix);
     if (isMintableId(candidate)) {
       return candidate;
     }
@@ -89,26 +91,43 @@ export function mintFolderId(): string {
   // Unreachable with the UUID/fallback generators (both are separator-free), but
   // a total function never throws on its own entropy: derive a guaranteed-legal
   // id from a counter + time, stripped of any reserved separator.
-  return sanitize('f-' + Date.now().toString(36) + '-' + (counter++).toString(36));
+  return sanitize(prefix + '-' + Date.now().toString(36) + '-' + (counter++).toString(36));
+}
+
+// Mint a fresh, separator-free folder id. A v4 UUID from crypto.randomUUID is
+// hyphen-delimited hex with no reserved separator, so it is mintable by
+// construction; the post-mint guard is defense-in-depth in case a future entropy
+// source is swapped in.
+export function mintFolderId(): string {
+  return mintId('f');
+}
+
+// Mint a fresh, separator-free tag id (slice 3). Shares the same separator-free
+// namespace and post-mint guard as a folder id: the create-tag command mints
+// through here so a tag id can never carry ':' '#' '>' (or a reserved sentinel
+// like '__untagged__'), which is what lets the tag-occurrence composite id
+// `${tagId}:${chatId}` split unambiguously on the FIRST ':'.
+export function mintTagId(): string {
+  return mintId('t');
 }
 
 let counter = 0;
 
-function randomId(): string {
+function randomId(prefix: string): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (c && typeof c.randomUUID === 'function') {
     return c.randomUUID();
   }
-  return fallbackId();
+  return fallbackId(prefix);
 }
 
-function fallbackId(): string {
+function fallbackId(prefix: string): string {
   const time = Date.now().toString(16);
   let rand = '';
   for (let i = 0; i < 24; i++) {
     rand += Math.floor(Math.random() * 16).toString(16);
   }
-  return 'f-' + time + '-' + rand;
+  return prefix + '-' + time + '-' + rand;
 }
 
 // Replace any reserved separator with a hyphen. Only used by the unreachable
