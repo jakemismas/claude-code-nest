@@ -7,6 +7,40 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Slice 1 (storage): the MetadataStore over globalState with one synced key per
+  project (nest.meta.v1::<projectKey>) and setKeysForSync refreshed to the union
+  of all known project keys whenever a new project key first appears (and
+  re-established from the Memento on reload). The full ProjectMeta schema
+  (folders, tags, chats with per-record updatedAt + deviceId stamps, plus the
+  per-project stamps), with a defensive, total migration that lifts an older or
+  malformed stored value to the current schemaVersion (drops unknown fields,
+  defaults missing ones, preserves what normalizes from a newer-version value).
+  preserves what normalizes from a newer-version value, AND escrows that newer
+  writer's unrecognized top-level fields verbatim under a __unknown carrier while
+  keeping the document at its original higher schemaVersion, so mutating a
+  newer-schema synced document on an older build does not strip the foreign
+  machine's richer data and clobber it on the next sync). Writes are debounced
+  and serialized: a burst of mutations coalesces into one persisted write per
+  project and writes never interleave, last-writer-wins in-process. The
+  serialized write chain is fault-tolerant: a rejected globalState.update (a
+  transient Settings Sync write failure, locked storage, quota) no longer poisons
+  the chain and silently stops all later persistence for the session; the failed
+  write is re-staged and retried on the next debounce tick and the chain tail
+  always resolves. Orphan reconcile (src/store/reconcile.ts) soft-marks records
+  missingSince, soft-archives them only after a grace window, and never
+  hard-deletes; a zero-result or suspiciously-low-count scan for a project that
+  had records is treated as suspect and the whole pass is skipped. Orphan state
+  is LOCAL ONLY: it lives on a separate, non-synced companion document
+  (nest.local.v1::<projectKey>) that is never registered for sync. A per-install
+  deviceId (src/store/deviceId.ts) stamps every write. New modules:
+  src/store/schema.ts, src/store/metadataStore.ts, src/store/reconcile.ts,
+  src/store/deviceId.ts. The store, schema, reconcile, and deviceId modules are
+  vscode-free and depend on locally-declared structural seams (SyncMemento,
+  DeviceIdStore); extension.ts adapts the real context.globalState to those
+  seams at the call site. Headless unit tests cover CRUD, schema versioning and
+  migration, the debounce/serialize coalescing and last-writer-wins guard, the
+  setKeysForSync refresh-on-new-key union, the reconcile transitions, and the
+  zero-result / low-count circuit breaker.
 - Slice 0 (scaffold, read JSONL, flat list): the namespaced claudeNest Activity
   Bar view container and the claudeNest.flat tree view listing every chat for the
   active workspace as a title plus a relative time. Clicking a chat fires Claude
