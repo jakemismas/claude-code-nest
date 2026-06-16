@@ -5,6 +5,46 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-15 Slice 1 (storage): orphan state on a separate non-synced document
+
+Resolution: the local-only orphan-reconcile state (missingSince, archived,
+tombstone) is NOT modeled as fields on the synced ProjectMeta. It lives on a
+distinct LocalProjectMeta document stored under a NON-synced key,
+nest.local.v1::<projectKey>, which deliberately does not carry the
+nest.meta.v1 prefix, so isMetaKey is false for it and the store never sweeps it
+into setKeysForSync. The MetadataStore registers only meta keys for sync;
+setLocalChatState and putLocalProjectMeta write the companion key directly,
+outside the debounced synced write chain.
+
+Rationale: ARCHITECTURE.md requires that orphan state be "local only, never
+synced." Storing missingSince/archived as fields on the synced ChatMeta would
+make that invariant a runtime discipline that one wrong write could violate
+(and a foreign-device wholesale replace of a project's value could carry another
+machine's orphan view). Putting the orphan state on a separate document that is
+structurally excluded from the sync key set makes the invariant a property of
+the storage layout, not of every write site. The synced ProjectMeta stays
+self-contained and free of any local-only field.
+
+## 2026-06-15 Slice 1 (storage): deferred-drain debounce (no inline drain)
+
+Resolution: every mutation stages its result in an in-memory pending map and
+schedules a DEFERRED drain (a setTimeout at the debounce interval, or
+setTimeout 0 when debounceMs <= 0 in the test harness); a mutation never drains
+inline. Reads serve the pending map first (read-your-writes), then fall back to
+the migrated stored value. flush() loops draining the chain tail until both the
+debounce timer is clear and the pending map is empty.
+
+Rationale: the first implementation drained synchronously inside mutate when
+debounceMs was 0, which cleared the pending entry before the async
+memento.update landed. A second same-tick mutation then read neither the
+pending value (already cleared) nor the not-yet-persisted store value, so it
+overwrote the first mutation with a stale base document. Deferring the drain
+keeps the pending map populated across a synchronous burst, so reads stay
+consistent and the burst still coalesces into one persisted write. This also
+matches the production path (a real debounce timer), so the test harness with
+debounceMs 0 exercises the same code path rather than a special-cased inline
+branch.
+
 ## 2026-06-15 Slice 0 (scaffold): "documented URI handler" fork
 
 Resolution: the open-chat launcher fires the verified URI

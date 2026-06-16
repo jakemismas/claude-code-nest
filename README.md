@@ -14,6 +14,14 @@ Claude Code Nest contributes its own Activity Bar panel with:
 - Read-only, auto-computed Smart Groups the user can promote to real folders or tags.
 - A Settings webview to read and edit Claude's global cleanupPeriodDays.
 
+Your organization (folders, tags, links) is stored per project in VSCode's
+globalState and registered for Settings Sync one key per project, so it follows
+you across machines on a best-effort, last-writer-wins basis. The export JSON is
+the authoritative backup. If a chat's transcript disappears, its organization is
+soft-marked and archived only after a grace window, never hard-deleted, and a
+suspect scan (zero or far fewer chats than last seen) is skipped rather than
+mass-archiving.
+
 Clicking a chat opens or resumes it through Claude's documented URI handler.
 
 ## The hard constraint
