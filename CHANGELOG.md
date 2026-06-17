@@ -5,6 +5,21 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-06-17
+
+First packaged release. Ships all ten dependency-ordered slices (0 through 9):
+the namespaced Activity Bar panel and flat Chats view, the per-project metadata
+store with reconcile, the single-home Folders view, the many-to-many Tags view
+with Untagged, drag-and-drop plus multi-select tagging, links with branch-nested
+display, read-only promotable Smart Groups, the cleanupPeriodDays Settings
+webview, export/import with cross-machine sync hardening, and the Polish pass
+(empty states, cancellable scan progress, walkthrough, gallery icon, marketplace
+metadata). Strictly read-only over the transcripts under ~/.claude/projects/;
+the only sanctioned write anywhere under ~/.claude is the surgical single-key
+settings.json edit through the read-only chokepoint. Packaged as
+claude-code-nest-0.0.1.vsix; see TESTING.md for install and the consolidated
+manual smoke checklist.
+
 ### Added
 
 - Slice 9 (Polish): marketplace metadata, a getting-started walkthrough, a raster
