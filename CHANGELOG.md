@@ -7,6 +7,58 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Slice 5 (Links plus branch display): a chat can be linked to another chat from a
+  chat row in any view (the claudeNest.linkToChat command), and a linked child can be
+  unlinked from its designated parent's context menu (claudeNest.unlinkChat). A
+  kind:'parent' link on a SOURCE chat pointing at a TARGET chat makes the target
+  render NESTED beneath the source in the Folders tree as a distinct linkedChild node
+  with a git-branch ThemeIcon; the schema and model also carry a kind:'related'
+  cross-reference link (no nesting), but the user-facing picker offers only 'parent'
+  this slice because a related link has no read/navigate/remove surface yet (the
+  'related' kind is deferred to a later slice that renders and unlinks it, so a user
+  cannot create an invisible, unremovable link). Because the store lets a child be the
+  target of parent links from more than one source, links.ts pins ONE deterministic
+  DESIGNATED parent per child (the lexicographically smallest source chat id) so the
+  child nests under the same parent on every render and the traversal is deterministic;
+  unlink recomputes that designated parent from the current store and removes exactly
+  the parent link backing the visible nesting, so the child then nests under the next
+  smallest source (the correct remove-this-one-nesting semantics). Transitive cycles
+  and diamonds are blocked by a proper visited-set graph traversal at expansion time,
+  bounded by a second independent depth cap (MAX_LINK_DEPTH = 16); a broken target (a
+  link whose target chat id no longer resolves to a scanned chat, e.g. the target was
+  deleted on disk) still renders MUTED and unlink-able but is a leaf (its record is
+  unknown, so it is never recursed into). A drop landing on a linkedChild row in the
+  Folders view files the dragged chat ALONGSIDE the linked child (resolving the child's
+  underlying chat's current home folder via a ChatHomeResolver), and returns a strict
+  no-op sentinel when that home cannot be resolved, so a drop on a linked-child row
+  never silently unfiles the dragged chat. The cross-view drag carrier was also
+  corrected this slice: the cross-tree payload rides an in-process singleton stash
+  (src/dnd/dragContext.ts), because VSCode 1.66 does NOT deliver a source controller's
+  custom DataTransferItem to a peer controller's handleDrop (it re-applies the source
+  handleDrag items only when source view === destination view); on a real cross-tree
+  drop the peer controller receives at most an OPAQUE host-internal value under the
+  source's reserved MIME, which parseChatIds rejects, so handleDrop parses the
+  DataTransfer first and falls back to the stash whenever that parse yields no chat ids
+  (an absent payload OR the opaque cross-tree value). The link-graph build, the
+  single-parent selector, the cycle/diamond traversal with the depth cap, the
+  broken-target rule, and the linkedChild composite-id grammar
+  (`${parentChatId}>link>${chatId}`, split on the first '>') live in the vscode-free
+  src/model/links.ts so the headless gate exercises them; the view layer
+  (src/views/linkDecoration.ts and the foldersProvider splice) turns a LinkedChild into
+  a muted-or-branch-icon TreeItem and memoizes the node object by id (broken state is a
+  reuse discriminator). New modules: src/model/links.ts, src/views/linkDecoration.ts,
+  src/commands/linkCommands.ts; foldersProvider gained the linkedChild splice and
+  getParent recovery. Headless unit tests cover the parent-source candidate set
+  (ignoring self-links and related links), the deterministic smallest-id parent
+  selector, the link-forest build, transitive-cycle and diamond detection, the depth
+  cap, broken-target handling, the linkedChild composite-id round-trip, the node-object
+  memoization reuse rule, and the link-command orchestration (parent link add and
+  refresh-once, the no-target and cancel guards, idempotent re-link, unlink recomputing
+  the designated parent). The live cross-tree carrier and the linkedChild drop-target
+  resolution (both needing the vscode host) are verified by the deferred electron test
+  (TESTING.md). Manual smoke (TESTING.md): link chat B under chat A; B renders nested
+  under A with the branch icon; a cycle is prevented; a deleted target shows muted;
+  unlink removes the nesting; a drop on a linked-child row files alongside it.
 - Slice 4 (drag and drop plus context-menu tagging): the primary affordance is the
   canPickMany "Tag Chats..." QuickPick plus an inline tag row button, wired from a
   chat row in ANY view (Chats, Folders) and a tag occurrence in the Tags view; it

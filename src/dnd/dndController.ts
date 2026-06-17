@@ -10,6 +10,7 @@ import {
   FolderTreeNode,
   FolderItem,
   ChatMemberItem,
+  LinkedChildItem,
 } from '../views/foldersProvider';
 import {
   TagTreeNode,
@@ -21,6 +22,7 @@ import {
   parseChatIds,
   pickPayload,
 } from './dropPayload';
+import { stashDrag, takeDrag } from './dragContext';
 
 // dndController: the vscode-bound TreeDragAndDropController for the Folders and
 // Tags views. It is the ONLY half of the drag-and-drop feature that imports
@@ -33,19 +35,31 @@ import {
 // reducer, and applies the returned intents.
 //
 // Binding rules honored (ARCHITECTURE.md "Drag and drop" + "Refresh coalescing"):
-// - Cross-view drags REQUIRE the peer view's reserved MIME. VSCode 1.66 preserves
-//   a custom MIME set in handleDrag into handleDrop only for a drop in the SAME
-//   tree's controller; on a cross-tree drop the host strips the custom chat MIME
-//   and carries ONLY the SOURCE tree's reserved MIME
-//   (application/vnd.code.tree.<treeidlowercase>) between two trees of the same
-//   extension. So each controller lists BOTH reserved MIMEs plus the shared chat
-//   MIME in dropMimeTypes (so the host offers it as a drop target for a peer-view
-//   drag), and handleDrag writes the chat-id payload under BOTH its own reserved
-//   MIME (the cross-view carrier) AND the shared chat MIME (the within-view path).
-// - handleDrop reads the payload from whichever recognized MIME is present
-//   (dropPayload.pickPayload), parses the chat ids tolerantly, asserts the payload
-//   MIME via the reducer's MIME guard, and interprets the drop strictly by the
-//   TARGET view. An unrecognized source is a no-op.
+// - Cross-view drags use an IN-PROCESS shared stash (dragContext), NOT the
+//   DataTransfer. VSCode 1.66 does NOT deliver a source controller's custom
+//   DataTransferItem to a DIFFERENT controller's handleDrop: verified against the
+//   pinned source (extHostTreeViews $handleDrop only re-applies the source
+//   handleDrag items when sourceViewId === destinationViewId; on a cross-tree drop
+//   only the base transfer DTO crosses), and the @types/vscode 1.66 docs say the
+//   same ("will only be included in the handleDrop when the drag was initiated
+//   from an element in the same drag and drop controller"). So the chat-id JSON a
+//   controller writes under its own reserved MIME does NOT reach the peer
+//   controller. handleDrag therefore ALSO stashes the dragged chat ids in the
+//   vscode-free dragContext singleton, and handleDrop falls back to that stash
+//   when the DataTransfer carried no recognized Nest payload (the cross-view
+//   case). The DataTransfer remains the authoritative source for a WITHIN-view
+//   drop (the host preserves the custom item there). Each controller still lists
+//   both reserved MIMEs plus the shared chat MIME in dropMimeTypes so the host
+//   OFFERS the peer tree as a drop target for a cross-view drag (without that the
+//   drop is never accepted and handleDrop never runs); the stash supplies the
+//   payload the DataTransfer cannot carry across controllers.
+// - handleDrop parses the chat ids from whichever recognized MIME the DataTransfer
+//   carries (dropPayload.pickPayload + parseChatIds); when that parse yields NO ids
+//   (an absent payload, OR the opaque host-internal value the host actually hands a
+//   peer controller cross-tree, which parseChatIds rejects) it falls back to the
+//   cross-view stash. It then asserts the payload MIME via the reducer's MIME guard
+//   and interprets the drop strictly by the TARGET view. An unrecognized source with
+//   no stash is a no-op.
 // - A multi-select mutation is batched into ONE store write: the intents are
 //   applied as N synchronous store.addChatTag / store.setChatFolder calls (which
 //   coalesce into one pending write via the store's existing debounce), then a
@@ -76,14 +90,26 @@ export interface RefreshableProvider {
 // activation), and a drop with no resolved project is a no-op.
 export type ProjectKeyResolver = () => string | undefined;
 
+// Resolve a chat's CURRENT home folder id (the real folder id, or the Unfiled
+// sentinel for an unfiled chat), used only by the Folders controller to resolve a
+// drop landing on a LinkedChildItem row to its underlying chat's folder home so
+// the drop files the dragged chat ALONGSIDE that linked child rather than
+// unfiling it. Returns undefined when the chat's home cannot be resolved (a
+// not-yet-homed or unknown chat), which the controller then treats as a no-op for
+// that target. The Tags controller does not supply this (a Tags drop never lands
+// on a folder-home node).
+export type ChatHomeResolver = (chatId: string) => string | undefined;
+
 // The dependencies a controller needs: the store to mutate, the project-key
 // resolver, the provider to refresh once after a drop, and the view this
 // controller is attached to (which fixes the drop INTERPRETATION). deviceId is
-// not needed here; the store stamps writes itself.
+// not needed here; the store stamps writes itself. resolveChatHome is optional and
+// only the Folders controller passes it (see ChatHomeResolver).
 export interface DndControllerDeps {
   store: MetadataStore;
   getProjectKey: ProjectKeyResolver;
   provider: RefreshableProvider;
+  resolveChatHome?: ChatHomeResolver;
 }
 
 // The union of node types a drag can originate from across both views. handleDrag
@@ -94,9 +120,11 @@ type DraggableNode = FolderTreeNode | TagTreeNode;
 
 // Extract the dragged chats' sessionIds from the selected source nodes. A chat
 // node in the Folders view is a ChatMemberItem (record.sessionId); a chat node in
-// the Tags view is a ChatOccurrenceItem (record.sessionId). A folder or tag row
-// contributes nothing, so dragging a non-chat row yields an empty payload and the
-// drop is a no-op. The order follows the selection order VSCode passes.
+// the Tags view is a ChatOccurrenceItem (record.sessionId); a linked-child row in
+// the Folders view is a LinkedChildItem whose dragged chat is the child chat
+// (child.chatId). A folder or tag row contributes nothing, so dragging a non-chat
+// row yields an empty payload and the drop is a no-op. The order follows the
+// selection order VSCode passes.
 function chatIdsFromSource(nodes: readonly DraggableNode[]): string[] {
   const ids: string[] = [];
   for (const node of nodes) {
@@ -104,46 +132,23 @@ function chatIdsFromSource(nodes: readonly DraggableNode[]): string[] {
       ids.push(node.record.sessionId);
     } else if (node instanceof ChatOccurrenceItem) {
       ids.push(node.record.sessionId);
+    } else if (node instanceof LinkedChildItem) {
+      ids.push(node.child.chatId);
     }
   }
   return ids;
 }
 
-// Resolve the drop TARGET id from the node the drop landed on, interpreted in the
-// target view. The reducer turns this id into the move/tag target:
-// - Folders view: a FolderItem contributes its folderId (real folder or the
-//   Unfiled sentinel); a ChatMemberItem contributes its OWNING folder id, so
-//   dropping a chat onto another chat files it alongside that chat. undefined
-//   (a drop on empty space / the view root) unfiles in the reducer.
-// - Tags view: a TagItem contributes its tagId (real tag or the Untagged
-//   sentinel); a ChatOccurrenceItem contributes its OWNING tag id, so dropping a
-//   chat onto an occurrence adds that occurrence's tag. undefined yields no tag
-//   intents in the reducer.
-function targetIdFor(
-  view: DropTargetView,
-  target: DraggableNode | undefined,
-): string | undefined {
-  if (target === undefined) {
-    return undefined;
-  }
-  if (view === 'claudeNest.folders') {
-    if (target instanceof FolderItem) {
-      return target.folderId;
-    }
-    if (target instanceof ChatMemberItem) {
-      return target.folderId;
-    }
-    return undefined;
-  }
-  // Tags view.
-  if (target instanceof TagItem) {
-    return target.tagId;
-  }
-  if (target instanceof ChatOccurrenceItem) {
-    return target.occurrence.tagId;
-  }
-  return undefined;
-}
+// The sentinel a drop-target resolution returns when the drop landed on a node
+// that is a recognized drop surface but yields NO actionable target (e.g. a
+// LinkedChildItem whose underlying chat's folder home cannot be resolved). It is
+// DISTINCT from undefined: undefined means "the view root / empty space", which on
+// the Folders view legitimately unfiles, whereas this sentinel must be a strict
+// no-op so a drop on an unresolvable linked-child row never silently unfiles the
+// dragged chat. handleDrop short-circuits to a no-op on this sentinel BEFORE
+// calling the reducer.
+const NOOP_TARGET = Symbol('noop-target');
+type ResolvedTarget = string | undefined | typeof NOOP_TARGET;
 
 // The TreeDragAndDropController for ONE view. Constructed per view (Folders or
 // Tags) and passed to createTreeView's dragAndDropController option in
@@ -155,15 +160,16 @@ export class NestDragAndDropController<TNode extends DraggableNode>
   // The MIME types this controller can RECEIVE on a drop: BOTH per-view reserved
   // MIMEs plus the shared chat MIME. The OWN reserved MIME makes the host offer
   // this tree as a drop target for its own drags (the within-view path); the PEER
-  // reserved MIME makes it a drop target for the other view's drags (the only item
-  // the host carries cross-tree) so the cross-view feature works; the shared chat
-  // MIME is the within-view custom carrier. handleDrop's recognition order lives in
-  // dropPayload.RECOGNIZED_PAYLOAD_MIMES.
+  // reserved MIME makes the host OFFER this tree as a drop target for the other
+  // view's drags so handleDrop runs at all on a cross-view drop; the shared chat
+  // MIME is the within-view custom carrier. The cross-view PAYLOAD itself rides the
+  // in-process dragContext stash, not these MIMEs (the host does not deliver a
+  // peer controller's custom MIME value cross-tree). handleDrop's recognition order
+  // lives in dropPayload.RECOGNIZED_PAYLOAD_MIMES.
   public readonly dropMimeTypes: string[];
-  // The MIME types this controller PRODUCES on a drag: its own reserved MIME (the
-  // cross-view carrier the host preserves between trees) plus the shared chat MIME
-  // (the within-view carrier), so the payload is droppable both within this view
-  // and on the other view.
+  // The MIME types this controller PRODUCES on a drag: its own reserved MIME (so
+  // the host offers a drop target) plus the shared chat MIME (the within-view
+  // carrier the host preserves for a same-tree drop).
   public readonly dragMimeTypes: string[];
 
   // The controller's own reserved MIME, retained so handleDrag can write the
@@ -185,33 +191,54 @@ export class NestDragAndDropController<TNode extends DraggableNode>
 
   // Set the drag payload. The dragged chats' sessionIds are serialized as JSON
   // under BOTH the shared chat MIME (recovered on a within-view drop, where the
-  // host preserves our custom item) AND this controller's own reserved MIME (the
-  // cross-view carrier: the only item the host moves to the OTHER tree of the same
-  // extension, since the custom chat MIME is stripped on a cross-tree drop). A drag
-  // that includes no chat node (a folder/tag row only) sets an empty list, which
-  // the reducer treats as a no-op on drop.
+  // host preserves our custom item) AND this controller's own reserved MIME (so
+  // the host offers a drop target). They are ALSO stashed in the in-process
+  // dragContext: that stash is the RELIABLE carrier for a CROSS-view drop, where
+  // the host does not deliver this controller's custom MIME value to the peer
+  // controller's handleDrop. A drag that includes no chat node (a folder/tag row
+  // only) sets and stashes an empty list, which the reducer treats as a no-op on
+  // drop and which clears any prior stash.
   handleDrag(
     source: readonly TNode[],
     dataTransfer: vscode.DataTransfer,
   ): void {
-    const payload = JSON.stringify(chatIdsFromSource(source));
+    const chatIds = chatIdsFromSource(source);
+    const payload = JSON.stringify(chatIds);
     dataTransfer.set(NEST_CHAT_MIME, new vscode.DataTransferItem(payload));
     dataTransfer.set(this.reservedMime, new vscode.DataTransferItem(payload));
+    // The cross-view carrier: the peer controller's handleDrop reads this when the
+    // DataTransfer carried no recognized Nest payload (the cross-tree case).
+    stashDrag(chatIds);
   }
 
-  // Handle a drop. Find the payload under whichever recognized MIME is present
-  // (the shared chat MIME for a within-view drop, or a reserved MIME for a
-  // cross-view drop), parse the chat ids tolerantly, run the pure reducer, and
-  // apply the resulting intents as N synchronous store calls that coalesce into
-  // ONE pending write, then flush once and refresh once.
+  // Handle a drop. Prefer the DataTransfer payload (the authoritative within-view
+  // carrier, present when the host preserved our custom item for a same-tree drop);
+  // when the DataTransfer yields no usable chat ids - whether it carried no
+  // recognized MIME at all OR carried an opaque host-internal value under the peer
+  // reserved MIME that parses empty (the real cross-tree case) - fall back to the
+  // in-process drag stash (the cross-view carrier the DataTransfer cannot deliver
+  // across controllers). Parse the chat ids tolerantly, run the pure reducer, and
+  // apply the resulting intents as N synchronous store calls that coalesce into ONE
+  // pending write, then flush once and refresh once.
   async handleDrop(
     target: TNode | undefined,
     dataTransfer: vscode.DataTransfer,
   ): Promise<void> {
+    // Resolve the drop target FIRST. A NOOP_TARGET (e.g. a LinkedChildItem whose
+    // chat home cannot be resolved) is a strict no-op: it must NOT fall through to
+    // the reducer, which would map an undefined Folders target to unfile.
+    const resolved = this.resolveTarget(target);
+    if (resolved === NOOP_TARGET) {
+      // Consume the stash so an abandoned no-op drop does not leave it for a later
+      // unrelated drop.
+      takeDrag();
+      return;
+    }
+
     // Pull the raw value out of every recognized MIME the real DataTransfer
-    // carries, then let the pure picker choose by priority. pickPayload returns
-    // undefined when no recognized MIME carried a value (an unrecognized source),
-    // which the reducer's MIME guard then treats as a no-op.
+    // carries, then let the pure picker choose by priority. A within-view drop
+    // carries our custom item; a cross-view drop carries none of our MIMEs, so the
+    // stash supplies the payload instead.
     const found = new Map<string, unknown>();
     for (const mime of RECOGNIZED_PAYLOAD_MIMES) {
       const item = dataTransfer.get(mime);
@@ -220,18 +247,34 @@ export class NestDragAndDropController<TNode extends DraggableNode>
       }
     }
     const payload = pickPayload(found);
-    // Normalize the carrier MIME to the shared chat MIME for the reducer's guard:
-    // a payload found under EITHER reserved MIME (a cross-view carrier) or the
-    // shared chat MIME is a recognized Nest drop. No recognized MIME -> undefined,
-    // which the reducer rejects as a no-op.
-    const payloadMime = payload !== undefined ? NEST_CHAT_MIME : undefined;
-    const sourceChatIds = parseChatIds(payload?.raw);
+
+    // The stash is consumed on EVERY drop (one-shot) so a within-view drop also
+    // clears it and it can never leak into a later unrelated drop. It is USED
+    // whenever the DataTransfer payload yielded no usable chat ids: that covers
+    // both the absent-payload case AND the case the cross-view drop actually hits,
+    // where the host delivers an OPAQUE host-internal value under the source's
+    // reserved MIME (e.g. {itemHandles:['0'],hostInternal:true}). pickPayload then
+    // returns that opaque value (payload !== undefined), but parseChatIds rejects it
+    // and returns [], so keying the fallback only on payload === undefined would
+    // skip the stash and silently no-op the whole cross-view drag (the precise
+    // failure DECISIONS.md says the stash prevents). Parse the DataTransfer payload
+    // FIRST and fall back to the stash whenever the parse came up empty.
+    const stashed = takeDrag();
+    const dtChatIds = payload !== undefined ? parseChatIds(payload.raw) : [];
+    const usedStash = dtChatIds.length === 0;
+    const sourceChatIds = usedStash ? stashed?.chatIds ?? [] : dtChatIds;
+    // A Nest drop is recognized when EITHER the DataTransfer carried parseable chat
+    // ids (the within-view case) OR the cross-view stash supplied chat ids; both
+    // normalize to the shared chat MIME for the reducer's guard. Neither present ->
+    // undefined, which the reducer rejects as a no-op (a foreign or empty drag).
+    const payloadMime =
+      sourceChatIds.length > 0 ? NEST_CHAT_MIME : undefined;
 
     const intents = reduceDrop({
       payloadMime,
       sourceChatIds,
       targetView: this.view,
-      targetId: targetIdFor(this.view, target),
+      targetId: resolved,
     });
     if (intents.length === 0) {
       return;
@@ -250,6 +293,52 @@ export class NestDragAndDropController<TNode extends DraggableNode>
     // onDidChangeTreeData once for the whole multi-select mutation).
     await this.deps.store.flush();
     this.deps.provider.refresh();
+  }
+
+  // Resolve the drop TARGET id from the node the drop landed on, interpreted in
+  // this controller's view. The reducer turns this id into the move/tag target:
+  // - Folders view: a FolderItem contributes its folderId (real folder or the
+  //   Unfiled sentinel); a ChatMemberItem contributes its OWNING folder id, so
+  //   dropping a chat onto another chat files it alongside that chat; a
+  //   LinkedChildItem resolves its underlying chat's home folder (via
+  //   deps.resolveChatHome) so a drop files alongside the linked child rather than
+  //   silently unfiling, and yields NOOP_TARGET when that home cannot be resolved;
+  //   undefined (a drop on empty space / the view root) unfiles in the reducer.
+  // - Tags view: a TagItem contributes its tagId (real tag or the Untagged
+  //   sentinel); a ChatOccurrenceItem contributes its OWNING tag id, so dropping a
+  //   chat onto an occurrence adds that occurrence's tag. undefined yields no tag
+  //   intents in the reducer.
+  private resolveTarget(target: TNode | undefined): ResolvedTarget {
+    if (target === undefined) {
+      return undefined;
+    }
+    if (this.view === 'claudeNest.folders') {
+      if (target instanceof FolderItem) {
+        return target.folderId;
+      }
+      if (target instanceof ChatMemberItem) {
+        return target.folderId;
+      }
+      if (target instanceof LinkedChildItem) {
+        // File alongside the linked child: resolve ITS underlying chat's current
+        // home folder. A LinkedChildItem is NOT a folder-home node (its tree id is
+        // the link composite, not `${folderId}#${chatId}`), so its folder home must
+        // be looked up by chat id. Without a resolver (or when the home is
+        // unknown), return NOOP_TARGET so the drop does nothing rather than
+        // unfiling the dragged chat.
+        const home = this.deps.resolveChatHome?.(target.child.chatId);
+        return home ?? NOOP_TARGET;
+      }
+      return undefined;
+    }
+    // Tags view.
+    if (target instanceof TagItem) {
+      return target.tagId;
+    }
+    if (target instanceof ChatOccurrenceItem) {
+      return target.occurrence.tagId;
+    }
+    return undefined;
   }
 
   private applyIntents(projectKey: string, intents: DropIntent[]): void {

@@ -30,8 +30,8 @@
         "message": "Read-only chokepoint (ARCHITECTURE.md): computed-access write-capable fs calls (fs['writeFileSync'](...)) are banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts). Nothing may ever write under ~/.claude/projects/."
       },
       {
-        "selector": "CallExpression[callee.type='MemberExpression'][callee.computed=true][callee.object.name=/^(fs|fsp|fsPromises)$/]",
-        "message": "Read-only chokepoint (ARCHITECTURE.md): a computed member call on an fs object with a non-literal key (fs[m](...), where m is a variable) is banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts). A variable key cannot be statically proven read-only, so all computed fs calls are blocked. Use an explicit named call inside the chokepoint instead."
+        "selector": "CallExpression[callee.type='MemberExpression'][callee.computed=true][callee.property.type!='Literal']",
+        "message": "Read-only chokepoint (ARCHITECTURE.md): a computed member call with a NON-LITERAL key (obj[m](...), where m is a variable) is banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts). The fs-object-name gate is deliberately dropped: a namespace import aliased to any other name (const zz = fs as unknown as ...; zz[m](...)) defeats a name-gated rule, so ALL computed member calls with a variable key are blocked in src (a variable key cannot be statically proven read-only). Use an explicit named call inside the chokepoint instead."
       },
       {
         "selector": "VariableDeclarator[init.type='CallExpression'][init.callee.name='require'][init.arguments.0.value=/^(node:)?fs(\\u002Fpromises)?$/] > Identifier.id",
@@ -67,7 +67,7 @@
       }
     ]
   },
-  "ignorePatterns": ["out", "dist", "node_modules", "**/*.d.ts", ".vscode-test", "**/__probe*", "**/__*probe*", "src/__probe/", "src/__lintprobe/"],
+  "ignorePatterns": ["out", "dist", "node_modules", "**/*.d.ts", ".vscode-test"],
   "overrides": [
     {
       "files": ["src/settings/claudeSettingsIO.ts"],
