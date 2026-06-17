@@ -50,12 +50,19 @@ chokepoint with an mtime guard.
 
 ## Status
 
-Built in ten dependency-ordered vertical slices. See PLAN.md for the slice cut,
-ARCHITECTURE.md for the binding design rules and sync architecture, CHANGELOG.md
-for the per-slice record, and DECISIONS.md for autonomous design decisions made
-during the build. TESTING.md (written at handoff) carries the install steps and
-the manual smoke checklist.
+All ten dependency-ordered vertical slices are complete and packaged as
+`claude-code-nest-0.0.1.vsix`. See PLAN.md for the slice cut, ARCHITECTURE.md for
+the binding design rules and sync architecture, CHANGELOG.md for the per-slice
+record, and DECISIONS.md for autonomous design decisions made during the build.
+TESTING.md carries the install steps and the consolidated manual smoke checklist.
 
 ## Install
 
-See TESTING.md for how to install the packaged VSIX into a clean VSCode.
+Install the packaged VSIX into VSCode:
+
+- From a terminal: `code --install-extension claude-code-nest-0.0.1.vsix`.
+- Or in VSCode: open the Extensions view, use the `...` menu, choose "Install
+  from VSIX...", and select `claude-code-nest-0.0.1.vsix`.
+
+See TESTING.md for the full install steps and the manual smoke checklist to run
+on the live extension.

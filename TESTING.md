@@ -10,11 +10,15 @@ own smoke section; check the ones whose slice is recorded in CHANGELOG.md.
 
 ## Install the packaged VSIX
 
-1. Build the artifact (if not already present):
-   `npm run package` produces `nest-build-check.vsix` in the repo root.
-2. In a clean VSCode, open the Extensions view, use the `...` menu, choose
-   "Install from VSIX...", and select `nest-build-check.vsix`. Or from a
-   terminal: `code --install-extension nest-build-check.vsix`.
+The shipped artifact is `claude-code-nest-0.0.1.vsix` in the repo root.
+
+1. From a terminal, install it directly:
+   `code --install-extension claude-code-nest-0.0.1.vsix`. Or in VSCode, open the
+   Extensions view, use the `...` menu, choose "Install from VSIX...", and select
+   `claude-code-nest-0.0.1.vsix`.
+2. If you need to rebuild the artifact from source instead, run
+   `npx vsce package --no-dependencies` (produces `claude-code-nest-0.0.1.vsix`),
+   or `npm run package` (produces `nest-build-check.vsix`, the build-check name).
 3. Reload the window when prompted.
 4. Open a folder that has Claude Code sessions under `~/.claude/projects/` (for
    example this repo's own workspace), so the extension has chats to list.
@@ -92,6 +96,27 @@ above: the Folders view is the affordance Slice 1 said could only be exercised
    the chat's folder assignment, and the Unfiled membership all persist exactly
    as before the reload (this is the deferred Slice 1 persistence verification),
    and that selecting a chat keeps its selection across a Refresh.
+
+## Slice 3: Tags view (many-to-many membership plus Untagged)
+
+1. Open the Nest workspace. The Tags view appears in the claudeNest panel
+   alongside the Chats and Folders views.
+2. Create two tags via "New Tag" (for example `urgent` and `review`). Confirm both
+   appear in the Tags view.
+3. Many-to-many: tag one chat with BOTH tags (use the tagging affordance from
+   Slice 4, or assign the tags individually). Confirm the SAME chat appears under
+   `urgent` AND under `review` at the same time (one occurrence per tag), proving
+   the many-to-many membership.
+4. Untagged bucket: confirm a chat with no tags appears ONLY under the synthetic
+   Untagged node and under no real tag. Confirm Untagged is synthetic (it has no
+   delete menu) and sorts last after the real tags.
+5. Last-tag removal: remove tags from the chat in step 3 one at a time. Confirm it
+   leaves each tag's bucket as that tag is removed, and that removing its LAST
+   remaining tag moves it into Untagged.
+6. Single owning parent: confirm selecting an occurrence under one tag and
+   revealing it stays within that one tag's subtree (each occurrence resolves to
+   exactly one owning tag), and that the same chat under two tags is two distinct
+   rows, never a duplicated or merged single row.
 
 ## Slice 4: Drag and drop plus context-menu tagging
 
