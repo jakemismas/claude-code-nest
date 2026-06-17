@@ -69,6 +69,7 @@ import {
   promoteGroupToFolder,
   promoteGroupToTag,
 } from './commands/promoteSmartGroup';
+import { OPEN_SETTINGS_COMMAND, openSettingsWebview } from './settings/settingsWebview';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -504,6 +505,17 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('claudeNest.refresh', () => flatProvider.refresh()),
+  );
+
+  // The Settings gear (Slice 7): opens a CSP-locked, nonce-scripted WebviewPanel
+  // that reads and surgically edits cleanupPeriodDays in Claude's settings.json,
+  // routed through the read-only chokepoint. context.extensionUri is needed so the
+  // webview can build asWebviewUri asset URLs and set localResourceRoots to the
+  // shipped media dir.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(OPEN_SETTINGS_COMMAND, () =>
+      openSettingsWebview(context.extensionUri),
+    ),
   );
 }
 

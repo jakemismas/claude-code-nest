@@ -102,7 +102,14 @@ handler. If the extension fails, Claude must be entirely unaffected.
   module so the guard is already in force before any write-capable slice lands.
   Lint is wired into the headless test gate (pretest runs lint before compile and
   mocha), so the chokepoint cannot be bypassed by skipping a separate command.
-  Nothing may ever write under ~/.claude/projects/.
+  Nothing may ever write under ~/.claude/projects/. (Slice 7 LANDED the chokepoint
+  module src/settings/claudeSettingsIO.ts: it holds the ONLY write-capable fs calls
+  in src, hard-asserts the canonicalized allowed settings.json path via
+  path.resolve/normalize with a win32 drive-letter case-fold and NO realpath on the
+  possibly-absent target, performs the single-key surgical jsonc byte-range edit
+  preserving siblings/comments/order/EOL with create-when-missing, and guards the
+  write with an mtimeMs re-stat abort-on-change before an atomic temp-write-rename.
+  See DECISIONS.md Slice 7.)
 - All transcript-reading tests run against scratch copies, never the real files.
 
 ## Tree and VSCode API binding rules

@@ -20,7 +20,8 @@
     "onView:claudeNest.flat",
     "onView:claudeNest.folders",
     "onView:claudeNest.tags",
-    "onView:claudeNest.smartGroups"
+    "onView:claudeNest.smartGroups",
+    "onCommand:claudeNest.openSettings"
   ],
   "contributes": {
     "viewsContainers": {
@@ -176,6 +177,12 @@
         "title": "Promote to Tag",
         "category": "Claude Code Nest",
         "icon": "$(tag)"
+      },
+      {
+        "command": "claudeNest.openSettings",
+        "title": "Claude Code Nest Settings",
+        "category": "Claude Code Nest",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
@@ -209,6 +216,26 @@
           "command": "claudeNest.refreshSmartGroups",
           "when": "view == claudeNest.smartGroups",
           "group": "navigation@1"
+        },
+        {
+          "command": "claudeNest.openSettings",
+          "when": "view == claudeNest.flat",
+          "group": "navigation@9"
+        },
+        {
+          "command": "claudeNest.openSettings",
+          "when": "view == claudeNest.folders",
+          "group": "navigation@9"
+        },
+        {
+          "command": "claudeNest.openSettings",
+          "when": "view == claudeNest.tags",
+          "group": "navigation@9"
+        },
+        {
+          "command": "claudeNest.openSettings",
+          "when": "view == claudeNest.smartGroups",
+          "group": "navigation@9"
         }
       ],
       "view/item/context": [

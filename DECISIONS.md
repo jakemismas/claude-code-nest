@@ -5,6 +5,66 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-17 Slice 7 (Settings): chokepoint canonicalization, EOL/comma surgical edit, and the mtime injection seam
+
+Resolution: three implementation decisions in the settings slice that the plan and
+the accepted fit patch left to the build.
+
+1. PATH CANONICALIZATION (the chokepoint's core guarantee). assertAllowedTarget
+   canonicalizes both the allowed path (os.homedir()-anchored settings.json, the
+   same anchor chatScanner.defaultProjectsRoot uses) and the candidate via
+   path.resolve + path.normalize, then case-folds ONLY the leading drive letter on
+   win32 (lowercase position 0 when /^[A-Za-z]:/), exactly the projectKeyResolver
+   convention. It deliberately does NOT fs.realpathSync the target: create-when-
+   missing is in scope and realpath throws on a nonexistent path. The rest of the
+   path stays case-sensitive (the candidate is derived from the same homedir, so a
+   case mismatch outside the drive letter is a genuinely different path and must be
+   rejected). A dot-segment path like .../projects/../settings.json normalizes to
+   the allowed path and is accepted (path.resolve collapses it); a real
+   .../projects/x.jsonl target throws. This is the binding read-only guarantee:
+   nothing routed through the chokepoint can ever write under ~/.claude/projects/.
+
+2. SURGICAL EDIT SHAPE. The single-key jsonc edit is a byte-range splice computed
+   by a small top-level-only, comment- and string-aware scanner (never
+   parse-then-stringify). An existing top-level cleanupPeriodDays has only its
+   value bytes replaced (siblings, whitespace, comments, key order untouched); a
+   value already equal to the request is a no-op that rewrites nothing. When the
+   key is absent it is INSERTED AS THE FIRST MEMBER followed by a comma, anchored
+   right after the opening brace, so every existing member survives byte-for-byte;
+   an empty {} gets the sole member with no trailing comma. EOL is preserved by
+   detecting CRLF anywhere in the document and using it for the inserted line. A
+   same-named key NESTED at depth > 1 is never matched (the scanner skips whole
+   bracketed values and a depthAt re-check confirms depth 1), so a nested
+   cleanupPeriodDays does not shadow the top-level insert. Create-when-missing
+   writes a minimal LF document containing just the key.
+
+3. MTIME GUARD AND ITS TEST SEAM. The guard re-stats immediately before the write
+   and aborts on any change, comparing statSync().mtimeMs (float ms), not the
+   second-resolution Date, so a same-second concurrent edit is still caught.
+   writeCleanupPeriodDays takes an optional WriteOptions.statMtimeMs injection seam
+   (defaulting to fs.statSync(p).mtimeMs), mirroring ScannerOptions / ResolveDeps
+   elsewhere. This was chosen over monkeypatching fs.statSync in the test: the fs
+   module namespace property is non-configurable (Object.defineProperty throws), so
+   an in-place swap is impossible, and a DI seam is the codebase's established
+   pattern for making an fs-touching unit deterministic. The atomic temp-write-then-
+   rename uses a '.nest-settings-<pid>-<ts>.tmp' sibling and both calls stay inside
+   the exempt chokepoint module.
+
+Rationale: ARCHITECTURE.md's "Read-only invariant" pre-staged the eslint carve-out
+for src/settings/claudeSettingsIO.ts ahead of this slice; this slice fills that
+carve-out with the only write-capable fs calls in src (verified: a write-capable fs
+grep over src hits only the chokepoint and the exempt test tree). The fit patch
+correctly required canonicalizing WITHOUT realpath and comparing mtimeMs not mtime;
+both are implemented as stated. The patch's premise that "no .vscodeignore exists"
+was WRONG (one exists), but its conclusion held on inspection: .vscodeignore
+excludes src/**, **/*.ts, and out/test/** but not media/**, so the settings.{html,
+js,css} assets ship in the VSIX unchanged (confirmed by vsce package output), and
+no packaging change beyond the asWebviewUri + localResourceRoots plumbing was
+needed. The webview HTML body ships as media/settings.html (the plan's module) and
+the module substitutes the per-load nonce, CSP, and asWebviewUri asset URLs into it,
+because those cannot be baked into a static file under a CSP that forbids inline
+script.
+
 ## 2026-06-16 Slice 6 (Smart Groups): four __smart_*__ sentinels and a '::' bucket-id namespace
 
 Resolution: this slice extends the reserved-id space in two ways that the prior

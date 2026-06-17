@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="{{csp}}" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="{{styleUri}}" rel="stylesheet" />
+  <title>Claude Code Nest Settings</title>
+</head>
+<body>
+  <main>
+    <h1>Claude Code settings</h1>
+    <div class="global-warning" role="alert">
+      <strong>This is a GLOBAL setting.</strong>
+      It is written to your Claude Code <code>settings.json</code> and applies to
+      every project on this machine, not just this workspace.
+    </div>
+
+    <section class="field">
+      <label for="cleanupPeriodDays">Cleanup period (days)</label>
+      <p class="help">
+        How long Claude Code retains chat transcripts before cleaning them up.
+        Whole number of days. Leave at the default to let Claude Code decide.
+      </p>
+      <div class="row">
+        <input
+          id="cleanupPeriodDays"
+          type="number"
+          inputmode="numeric"
+          step="1"
+          min="0"
+          autocomplete="off"
+        />
+        <button id="save" type="button">Save</button>
+      </div>
+      <p id="effective" class="effective"></p>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+</body>
+</html>
