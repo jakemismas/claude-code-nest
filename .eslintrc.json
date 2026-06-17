@@ -23,7 +23,11 @@
       "error",
       {
         "selector": "CallExpression[callee.property.name=/^(writeFile|writeFileSync|appendFile|appendFileSync|write|writeSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|truncate|truncateSync|ftruncate|ftruncateSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|copyFile|copyFileSync|cp|cpSync|createWriteStream|chmod|chmodSync|chown|chownSync|symlink|symlinkSync|link|linkSync|utimes|utimesSync|open|openSync)$/]",
-        "message": "Read-only chokepoint (ARCHITECTURE.md): member-call write-capable fs calls (fs.writeFileSync(...)) are banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts). Nothing may ever write under ~/.claude/projects/. If you genuinely need to write Claude's settings.json, do it there behind the path-asserting chokepoint; otherwise this is a read-only surface."
+        "message": "Read-only chokepoint (ARCHITECTURE.md): member-call write-capable fs calls (fs.writeFileSync(...)) are banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts) and the export-IO module (src/store/exportIO.ts). Nothing may ever write under ~/.claude/projects/. If you genuinely need to write Claude's settings.json, do it there behind the path-asserting chokepoint; otherwise this is a read-only surface."
+      },
+      {
+        "selector": "CallExpression[callee.type='MemberExpression'][callee.object.type='MemberExpression'][callee.object.property.name='fs'][callee.object.object.type='MemberExpression'][callee.object.object.property.name='workspace'][callee.property.name=/^(writeFile|delete|createDirectory|copy|rename)$/]",
+        "message": "Read-only chokepoint (ARCHITECTURE.md): the VSCode FileSystem mutators vscode.workspace.fs.writeFile/delete/createDirectory/copy/rename are banned outside the sanctioned export-IO module (src/store/exportIO.ts), which runtime-asserts the target is not under ~/.claude/projects/. The node-fs verbs delete/createDirectory/copy are NOT in the object-agnostic selector above because they collide with Map/Set.delete and array copies; this selector gates them to the vscode.workspace.fs callee chain so the deletion/dir-create primitive is caught the same way writeFile is. Nothing may ever write, delete, or create under ~/.claude/projects/."
       },
       {
         "selector": "CallExpression[callee.type='MemberExpression'][callee.computed=true][callee.property.value=/^(writeFile|writeFileSync|appendFile|appendFileSync|write|writeSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|truncate|truncateSync|ftruncate|ftruncateSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|copyFile|copyFileSync|cp|cpSync|createWriteStream|chmod|chmodSync|chown|chownSync|symlink|symlinkSync|link|linkSync|utimes|utimesSync|open|openSync)$/]",
@@ -71,6 +75,12 @@
   "overrides": [
     {
       "files": ["src/settings/claudeSettingsIO.ts"],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": ["src/store/exportIO.ts"],
       "rules": {
         "no-restricted-syntax": "off"
       }

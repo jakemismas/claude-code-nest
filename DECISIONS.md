@@ -5,6 +5,70 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-17 Slice 8 (Export/import): write-ban resolution, LWW-per-record interpretation, and the shadow key
+
+Resolution of three build-time forks the plan and the accepted fit patch left open.
+
+1. Write-ban collision. The fit patch offered two resolutions and recommended the
+   vscode.workspace.fs path on the claim that it "is not matched by the fs-call
+   selectors at all." That claim is FALSE and was disproved by running the lint
+   gate: the bank's first selector,
+   CallExpression[callee.property.name=/^(writeFile|...)$/], is object-AGNOSTIC,
+   so vscode.workspace.fs.writeFile(...) trips it exactly as fs.writeFile(...)
+   does (lint failed on src/commands/exportImportCommands.ts line 381 with the
+   member-call message). The accepted resolution is therefore the patch's FIRST
+   option: all export/import and auto-export snapshot file IO is isolated in a new
+   narrow module src/store/exportIO.ts, added to the .eslintrc no-restricted-syntax
+   override list alongside src/settings/claudeSettingsIO.ts. exportIO.ts does
+   nothing but the vscode.workspace.fs read/write/readDirectory/delete/
+   createDirectory primitives and imports NO node fs, so the carve-out stays
+   auditable and the command module plus the pure store modules remain under the
+   full ban. exportIO.ts never writes under ~/.claude (its targets are a
+   user-chosen export path or context.globalStorageUri); the only sanctioned
+   ~/.claude write is still claudeSettingsIO.ts behind its path assertion.
+   ARCHITECTURE.md's read-only-chokepoint section was updated to record the second
+   carve-out and the corrected reasoning.
+
+2. "LWW per scalar field" with no per-field stamp. ProjectMeta carries only a
+   per-project updatedAt and a per-ChatMeta updatedAt, never a per-scalar-field
+   stamp (architecture and the fit patch confirm this). So the merge implements
+   "LWW per scalar field" as: chat folderId is arbitrated by the per-RECORD
+   ChatMeta.updatedAt (the only scalar a stamp covers), folders/tags same-id
+   conflicts are arbitrated by the document-level updatedAt, and tags/links unions
+   are additive and stamp-independent. A tie keeps the live side (local-wins bias,
+   consistent with the platform's per-key local-wins sync behavior). A genuine
+   differing-NON-NULL folderId on both sides is the irreducible same-scalar
+   conflict floor; it is counted per project and surfaced through the honest LWW
+   warning. The build did NOT invent a per-field stamp and did NOT bump
+   SCHEMA_VERSION, per the patch.
+
+3. The reconcile shadow needed a store. No shadow store existed (Slices 1-7 added
+   only globalState meta and nest.local.* orphan keys). reconcileSync.ts defines
+   the shadow (the last-seen synced ProjectMeta this device wrote/saw) and the
+   diff/detection; MetadataStore gained getSyncShadow/putSyncShadow that persist it
+   under SHADOW_KEY_PREFIX = 'nest.shadow.v1' through the existing LOCAL
+   (non-synced) write chain. The prefix deliberately does not start with
+   META_KEY_PREFIX, so isMetaKey is false and the store never registers the shadow
+   for sync (verified by a unit test). MetadataStore also gained allProjectKeys()
+   so export-all enumerates every persisted project, including one synced in a
+   prior session but not touched this session.
+
+4. Reconcile persist gate: storeChanged, not merge.changed (defect fix, found by
+   the slice-8 review). The first build gated the foreign-merge store write on
+   ProjectMergeResult.changed, which reports whether the merge differs from its
+   BASE. In the reconcile path the base is the SHADOW
+   (mergeProjectMeta(shadow, live)), so a foreign value that DROPPED a local-only
+   record this device never synced produced merged == shadow (changed:false): the
+   write was skipped, the store kept the lossy foreign value, and the shadow was
+   then advanced to it, losing the record permanently. Resolution: reconcileProject-
+   Sync now reports storeChanged = (merged differs from the live STORE value), and
+   reconcileAllProjects gates the write on storeChanged. A foreign subset is always
+   written back (the dropped record is restored); a pure-superset foreign write
+   (nothing dropped, merged == live) still skips the redundant write via the
+   acceptedKeys path. The import path was never affected (its merge base IS the live
+   store, so changed already equals storeChanged there). Locked by regression tests
+   at the pure and orchestration levels.
+
 ## 2026-06-17 Slice 7 (Settings): chokepoint canonicalization, EOL/comma surgical edit, and the mtime injection seam
 
 Resolution: three implementation decisions in the settings slice that the plan and

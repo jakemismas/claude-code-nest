@@ -1,6 +1,5 @@
 import { MetadataStore } from '../store/metadataStore';
 import { Link } from '../store/schema';
-import { FoldersProvider } from '../views/foldersProvider';
 import { LinkedChild, designatedParentOf, linksFromChats } from '../model/links';
 
 // linkCommands: the link-to-chat and unlink commands that manage a chat's links[]
@@ -44,7 +43,10 @@ export interface LinkCommandUi {
 
 export interface LinkCommandDeps {
   store: MetadataStore;
-  provider: FoldersProvider;
+  // Only refresh() is used; a structural refresher lets the wiring schedule the
+  // opt-in auto-export snapshot after a link mutation. The concrete FoldersProvider
+  // and the test stubs both satisfy it.
+  provider: { refresh(): void };
   // Resolve the encoded project key ON DEMAND (mirroring the other command decks),
   // so a command invoked after Claude Code created the project dir resolves it.
   getProjectKey: () => string | undefined;

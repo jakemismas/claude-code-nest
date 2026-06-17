@@ -21,7 +21,9 @@
     "onView:claudeNest.folders",
     "onView:claudeNest.tags",
     "onView:claudeNest.smartGroups",
-    "onCommand:claudeNest.openSettings"
+    "onCommand:claudeNest.openSettings",
+    "onCommand:claudeNest.exportLibrary",
+    "onCommand:claudeNest.importLibrary"
   ],
   "contributes": {
     "viewsContainers": {
@@ -183,6 +185,18 @@
         "title": "Claude Code Nest Settings",
         "category": "Claude Code Nest",
         "icon": "$(gear)"
+      },
+      {
+        "command": "claudeNest.exportLibrary",
+        "title": "Export Library to JSON...",
+        "category": "Claude Code Nest",
+        "icon": "$(export)"
+      },
+      {
+        "command": "claudeNest.importLibrary",
+        "title": "Import Library from JSON...",
+        "category": "Claude Code Nest",
+        "icon": "$(import)"
       }
     ],
     "menus": {
@@ -236,6 +250,16 @@
           "command": "claudeNest.openSettings",
           "when": "view == claudeNest.smartGroups",
           "group": "navigation@9"
+        },
+        {
+          "command": "claudeNest.exportLibrary",
+          "when": "view == claudeNest.flat",
+          "group": "9_backup@1"
+        },
+        {
+          "command": "claudeNest.importLibrary",
+          "when": "view == claudeNest.flat",
+          "group": "9_backup@2"
         }
       ],
       "view/item/context": [

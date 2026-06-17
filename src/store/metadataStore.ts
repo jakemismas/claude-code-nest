@@ -34,6 +34,7 @@ import {
   metaKeyFor,
   migrateProjectMeta,
 } from './schema';
+import { shadowKeyFor } from './reconcileSync';
 
 // The structural store seam. A real context.globalState satisfies this: get and
 // update are the Memento contract, and setKeysForSync is the extra method VSCode
@@ -545,6 +546,65 @@ export class MetadataStore {
   // refresh-on-new-key unit test and for diagnostics.
   registeredSyncProjectKeys(): string[] {
     return Array.from(this.syncedProjectKeys);
+  }
+
+  // Every project key with a PERSISTED synced document, plus any staged
+  // pending/in-flight key not yet on disk. The union is what export-all
+  // enumerates: it reflects the on-disk Memento (every nest.meta.v1::* key) so a
+  // project synced in a prior session but not yet touched this session is still
+  // exported. De-duplicated. Used by exportImportCommands; not a sync mutation.
+  allProjectKeys(): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const add = (projectKey: string): void => {
+      if (!seen.has(projectKey)) {
+        seen.add(projectKey);
+        out.push(projectKey);
+      }
+    };
+    for (const key of this.memento.keys()) {
+      if (isMetaKey(key)) {
+        add(key.slice(metaKeyFor('').length));
+      }
+    }
+    for (const projectKey of this.pending.keys()) {
+      add(projectKey);
+    }
+    for (const projectKey of this.inFlight.keys()) {
+      add(projectKey);
+    }
+    return out;
+  }
+
+  // ---- The cross-machine reconcile SHADOW (local-only, non-synced). The shadow
+  // ---- records what THIS device last wrote or saw for a project's synced value,
+  // ---- so a focus/activation poll can diff the live synced value against it and
+  // ---- detect a foreign-device wholesale-replace (reconcileSync.ts). It is read
+  // ---- and written under SHADOW_KEY_PREFIX, which does NOT start with
+  // ---- META_KEY_PREFIX, so isMetaKey is false and it is never registered for
+  // ---- sync. Written through the dedicated local write chain (same serialization
+  // ---- discipline as orphan state), NOT the synced debounced chain.
+
+  // Read the stored shadow for a project. Returns the raw stored value (or
+  // undefined when absent); reconcileSync.coerceShadow validates it. A defensive
+  // copy is returned so a caller cannot corrupt the staged or persisted value.
+  getSyncShadow(projectKey: string): unknown {
+    const raw = this.memento.get<unknown>(shadowKeyFor(projectKey));
+    if (raw === undefined || raw === null) {
+      return undefined;
+    }
+    return JSON.parse(JSON.stringify(raw));
+  }
+
+  // Persist the shadow for a project under the non-synced shadow key. Queued on
+  // the local write chain so it never interleaves with a concurrent local write
+  // and never shares the synced debounced window. The value is deep-copied at
+  // enqueue time so a later caller mutation cannot leak into the staged value.
+  putSyncShadow(projectKey: string, shadow: unknown): Promise<void> {
+    const copy = JSON.parse(JSON.stringify(shadow)) as unknown;
+    return this.enqueueLocalWrite(() =>
+      this.memento.update(shadowKeyFor(projectKey), copy),
+    );
   }
 
   // Dispose: cancel the debounce timer and force any staged writes to persist.
