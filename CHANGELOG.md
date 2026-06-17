@@ -7,6 +7,82 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Slice 7 (Settings webview): a gear button on every claudeNest view title
+  (claudeNest.openSettings) opens a single reusable, CSP-locked, nonce-scripted
+  WebviewPanel that reads and edits Claude Code's GLOBAL cleanupPeriodDays in
+  ~/.claude/settings.json. The panel shows the current stored value, or Claude's
+  default (CLAUDE_DEFAULT_CLEANUP_PERIOD_DAYS = 30) flagged as "using default"
+  when the key is absent, alongside a prominent warning that the setting is
+  global (it affects every workspace's Claude Code, not just this project). This
+  is the ONE sanctioned write anywhere under ~/.claude, and it lands the
+  read-only chokepoint that all the prior lint-hardening entries pre-staged:
+  src/settings/claudeSettingsIO.ts is now the only module in src that performs a
+  write-capable fs call (the eslint no-restricted-syntax bank carves out exactly
+  this file plus the test tree, verified by the headless lint gate), and every
+  write routes through writeCleanupPeriodDays, which hard-asserts the
+  canonicalized absolute target equals the ONE allowed settings.json path and
+  throws a SettingsIoError otherwise, so nothing routed through it can ever write
+  under ~/.claude/projects/. assertAllowedTarget canonicalizes both the allowed
+  path (os.homedir()-anchored, the same anchor chatScanner uses) and the
+  candidate via path.resolve + path.normalize, then case-folds ONLY the leading
+  drive letter on win32 (the projectKeyResolver convention); it deliberately does
+  NOT realpath the target because create-when-missing is in scope and realpath
+  throws on a nonexistent path, and a normalized dot-segment path that collapses
+  to the allowed path is accepted while a real projects/x.jsonl target is
+  rejected. The edit is SURGICAL: a single-key jsonc byte-range splice computed
+  by a top-level-only, comment- and string-aware scanner (never
+  parse-then-stringify). An existing top-level cleanupPeriodDays has only its
+  value bytes replaced (siblings, whitespace, comments, and key order untouched),
+  a value already equal to the request is a no-op that rewrites nothing, and an
+  absent key is INSERTED AS THE FIRST MEMBER followed by a comma anchored right
+  after the opening brace (an empty {} gets the sole member with no trailing
+  comma) so every existing member survives byte-for-byte; a same-named key NESTED
+  at depth > 1 is never matched (the scanner skips whole bracketed values and a
+  depthAt re-check confirms depth 1). EOL is preserved by detecting CRLF anywhere
+  in the document, and a missing file is created with a minimal LF document
+  containing just the key. A pre-write mtime guard re-stats the file immediately
+  before writing and aborts on any change, comparing statSync().mtimeMs (float
+  ms, not the second-resolution Date) so a same-second concurrent edit is still
+  caught; writeCleanupPeriodDays takes an optional WriteOptions.statMtimeMs
+  injection seam (mirroring ScannerOptions / ResolveDeps) because the fs module
+  namespace property is non-configurable and cannot be monkeypatched, and the
+  atomic temp-write-then-rename (a '.nest-settings-<pid>-<ts>.tmp' sibling) stays
+  inside the exempt chokepoint module. Validation (validateCleanupPeriodDays)
+  accepts a number or a clean base-10 integer string and rejects decimals,
+  expressions, hex, exponent, empty, and negative input with a specific message;
+  the webview posts a string and the host echoes the validation error back. The
+  webview/host message protocol (handleSettingsMessage) is a pure, vscode-free
+  reducer over a typed Inbound/Outbound message union driven through an injected
+  SettingsIo seam (a 'ready' yields the current state; a 'save' validates, writes
+  through the chokepoint, then replies 'saved' plus a fresh 'state', or 'error'
+  on a validation/IO failure), so it is unit-tested with a fake messenger and no
+  real panel. The vscode-bound settingsWebview.ts owns only the binding: the
+  reusable-panel lifecycle, the per-load nonce and CSP (default-src none, scripts
+  gated to the nonce, styles only from the webview source), the asWebviewUri
+  asset URLs and localResourceRoots, and the onDidReceiveMessage <-> postMessage
+  wiring; it coerces the untrusted inbound message shape before handing it to the
+  pure reducer. The body markup ships as media/settings.html and the module
+  substitutes the nonce, CSP, and asset URLs into it (they cannot be baked into a
+  static file under a CSP that forbids inline script); media/settings.{js,css}
+  ship in the VSIX unchanged (.vscodeignore excludes src/**, **/*.ts, and
+  out/test/** but not media/**, confirmed by vsce package output, so no
+  packaging change beyond the asWebviewUri + localResourceRoots plumbing was
+  needed). New modules: src/settings/claudeSettingsIO.ts (the vscode-free
+  chokepoint: path canonicalization and assertion, the surgical jsonc edit,
+  validation, the mtime guard, and the pure message protocol),
+  src/settings/settingsWebview.ts (the only vscode-bound module), and the
+  media/settings.{html,js,css} assets. Headless unit tests cover the
+  claudeSettingsIO chokepoint against scratch fixtures (preserve siblings and
+  formatting on replace, the equal-value no-op, first-member insertion with the
+  trailing comma and the empty-{} sole-member shape, CRLF EOL preservation,
+  create-when-missing, the nested-same-name non-match, the path-assertion throw
+  including the dot-segment-collapse accept and the projects/x.jsonl reject, the
+  validation accept/reject boundaries, and the injected-mtime concurrent-edit
+  abort) and the message protocol via the fake messenger (ready -> state, save ->
+  saved + fresh state, save with an invalid value -> error, an IO throw -> error).
+  The vscode-bound panel (the CSP/nonce HTML assembly, asWebviewUri plumbing, and
+  the live onDidReceiveMessage wiring) has no headless test and is verified by the
+  slice-7 manual smoke (TESTING.md).
 - Slice 6 (Smart Groups): a read-only claudeNest.smartGroups tree that recomputes
   four signal groups from the current scan on every refresh, never auto-files a
   chat, and never mutates the store except through an explicit promote command.

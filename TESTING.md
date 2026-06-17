@@ -23,10 +23,11 @@ own smoke section; check the ones whose slice is recorded in CHANGELOG.md.
 
 Before and after exercising the extension, confirm nothing under
 `~/.claude/projects/` was written, renamed, moved, or deleted. The extension's
-only sanctioned write anywhere under `~/.claude` is the future single-key
-`settings.json` edit (cleanupPeriodDays), which is not part of the built slices
-yet. If any transcript file changed mtime or content from using the extension,
-that is a stop-the-line failure.
+only sanctioned write anywhere under `~/.claude` is the single-key
+`settings.json` edit (cleanupPeriodDays) that the Slice 7 Settings webview
+performs through the read-only chokepoint (see the Slice 7 section below); it
+never touches `~/.claude/projects/`. If any transcript file changed mtime or
+content from using the extension, that is a stop-the-line failure.
 
 ## Slice 0: Scaffold, read JSONL, flat list
 
@@ -206,6 +207,46 @@ view.
    it does not consume or remove the smart group), and that the promoted chats kept
    any folder/tag they already had (promote-to-tag is additive; promote-to-folder
    sets the single home).
+
+## Slice 7: Settings webview (cleanupPeriodDays, surgical write plus guard)
+
+These exercise the parts of the slice that cannot run headless: the WebviewPanel
+rendering and CSP/nonce assembly, the gear affordance on the view titles, and a
+real edit landing on `~/.claude/settings.json` through the chokepoint. The
+surgical-edit, path-assertion, validation, and mtime-guard logic itself is
+covered by the headless unit suite (`claudeSettingsIO.test.ts`,
+`settingsProtocol.test.ts`); this checklist is the only verification of the
+vscode-bound webview. The read-only invariant above applies: `settings.json` is
+the ONE file the extension may write, and nothing under `~/.claude/projects/`
+may change.
+
+1. Open the gear: in any claudeNest view (Chats, Folders, Tags, Smart Groups),
+   click the gear button in the view title bar (or run "Claude Code Nest
+   Settings" from the command palette). Confirm a "Claude Code Nest Settings"
+   webview panel opens. Re-opening the gear reveals the SAME panel rather than
+   stacking duplicates.
+2. Current value and the global warning: confirm the panel shows the current
+   `cleanupPeriodDays`. If the key is absent from `~/.claude/settings.json`, the
+   panel shows Claude's default (30) flagged as the default, not as an explicit
+   setting. Confirm the panel carries a prominent warning that this is a GLOBAL
+   setting (it affects Claude Code in every workspace, not just this project).
+3. Edit to a valid integer: change the value to a valid whole number (for
+   example 14) and save. Confirm the panel reports success and re-reads the new
+   value. Then open `~/.claude/settings.json` in an editor and confirm: the
+   `cleanupPeriodDays` value is the new integer; every OTHER key, comment,
+   whitespace, key order, and the file's EOL style are intact (the edit is a
+   surgical byte-range splice, not a reformat). If the key was absent before,
+   confirm it was inserted (as the first member) without disturbing the existing
+   members. Saving the same value again rewrites nothing.
+4. Non-integer is rejected: enter a decimal (`14.5`), an expression, an empty
+   value, or a negative number and save. Confirm the panel shows a validation
+   error and `settings.json` is NOT modified (no write occurs on a rejected
+   value).
+5. The read-only invariant holds: after editing, re-confirm nothing under
+   `~/.claude/projects/` changed mtime or content. The only file the extension
+   wrote is `~/.claude/settings.json`. (If you want to confirm the chokepoint
+   itself, note that the headless unit suite already proves a write aimed at any
+   path other than the one allowed `settings.json` throws.)
 
 ## Integration tests (deferred)
 

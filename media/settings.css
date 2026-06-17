@@ -1,0 +1,114 @@
+/* Settings webview styles. Uses VSCode theme variables so the panel matches the
+   active color theme. Loaded from the webview source under the CSP style-src. */
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background-color: var(--vscode-editor-background);
+  padding: 0;
+  margin: 0;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+}
+
+h1 {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.global-warning {
+  border: 1px solid var(--vscode-inputValidation-warningBorder, #c8a000);
+  background-color: var(--vscode-inputValidation-warningBackground, rgba(200, 160, 0, 0.1));
+  color: var(--vscode-foreground);
+  border-radius: 4px;
+  padding: 12px 14px;
+  margin-bottom: 24px;
+  line-height: 1.45;
+}
+
+.global-warning strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.field {
+  display: block;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.help {
+  margin: 0 0 12px;
+  opacity: 0.85;
+  line-height: 1.45;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+input[type='number'] {
+  flex: 0 0 140px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  color: var(--vscode-input-foreground);
+  background-color: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input[type='number']:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+button {
+  padding: 5px 14px;
+  color: var(--vscode-button-foreground);
+  background-color: var(--vscode-button-background);
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+button:hover {
+  background-color: var(--vscode-button-hoverBackground);
+}
+
+.effective {
+  margin: 12px 0 0;
+  opacity: 0.85;
+}
+
+.status {
+  margin: 8px 0 0;
+  min-height: 1.2em;
+  color: var(--vscode-foreground);
+}
+
+.status.is-error {
+  color: var(--vscode-errorForeground);
+}
+
+code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  background-color: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15));
+  padding: 1px 4px;
+  border-radius: 3px;
+}
