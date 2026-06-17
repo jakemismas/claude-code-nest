@@ -8,6 +8,7 @@ bar.
 
 Claude Code Nest contributes its own Activity Bar panel with:
 
+- A Chats view: a flat, newest-first list of every session for the workspace.
 - A Folders view: a single-home, nestable hierarchy for chats.
 - A Tags view: many-to-many labels plus an automatic Untagged bucket.
 - Organize by drag-and-drop or a multi-select tag picker: drag one or more chats
@@ -32,7 +33,10 @@ soft-marked and archived only after a grace window, never hard-deleted, and a
 suspect scan (zero or far fewer chats than last seen) is skipped rather than
 mass-archiving.
 
-Clicking a chat opens or resumes it through Claude's documented URI handler.
+Clicking a chat opens or resumes it through Claude's documented URI handler. A
+Refresh in any view re-scans the transcripts under a cancellable progress
+indicator, and a built-in "Get Started with Claude Code Nest" walkthrough covers
+the panel, organizing, smart groups, and backup. The extension is telemetry-free.
 
 ## The hard constraint
 

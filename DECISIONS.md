@@ -5,6 +5,57 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-17 Slice 9 (Polish): progress wraps a synchronous scan on the explicit-refresh path only, and FlatProvider gains the memoized-snapshot shape
+
+Resolution of two build-time decisions the Polish plan and its accepted fit patch
+left to the build.
+
+1. PROGRESS/CANCELLATION WITHOUT AN ASYNC getChildren. The fit patch is binding:
+   getChildren and getParent stay SYNCHRONOUS (getParent reads the memoized snapshot
+   and cannot defer). So the cancellable progress lives on a SEPARATE explicit
+   refresh/scan command path, not the passive reveal path. The four Refresh commands
+   now call refreshScanCommands.refreshWithProgress, which wraps the scan in
+   vscode.window.withProgress with a CancellationToken, primes the provider snapshot
+   via a new ScanPrimable.primeSnapshot seam, then fires onDidChangeTreeData once;
+   the subsequent passive getChildren reads the primed (synchronous) snapshot without
+   rescanning. The scanner (src/claude/chatScanner.ts) stays vscode-free: scanChats
+   gained optional plain-callback {onProgress, shouldCancel} that the vscode layer
+   supplies, so no vscode import crosses into the scanner or the unit gate.
+
+   HONEST LIMITATION (recorded, not hidden): scanChats reads each transcript with a
+   SYNCHRONOUS fs.readFileSync, so the whole scan runs in one synchronous turn. The
+   CancellationToken is polled (shouldCancel) before each file and onProgress is
+   reported after each, but because the JS event loop is blocked during the
+   synchronous scan, a Cancel click cannot be processed mid-scan: cancellation takes
+   effect for a re-issued refresh, not for an in-flight synchronous scan, and the
+   progress message increments are computed but the notification cannot repaint
+   mid-loop. This was chosen over making the scan async (which the fit patch forbids
+   for the getChildren/getParent path) and over chunking the scan across microtasks
+   (which would change scanChats' contract and risk the snapshot-consistency the
+   memoized providers rely on). The progress indicator and the cancellation plumbing
+   are present and correct; the constraint is the synchronous reader, and TESTING.md
+   Slice 9 step 3 states it plainly rather than overclaiming interruptible cancel.
+
+2. FlatProvider GAINED THE MEMOIZED-SNAPSHOT SHAPE. The other three providers
+   already memoized their scan in ensureSnapshot (cached until refresh()); FlatProvider
+   alone rescanned on every getChildren. For primeSnapshot to actually cache the
+   progress-wrapped scan (so the passive getChildren that follows reads the primed
+   records rather than rescanning WITHOUT progress), FlatProvider was refactored to
+   hold a records snapshot cleared on refresh() and rebuilt lazily, mirroring the
+   established pattern. This is a behavior change for the flat view (it now memoizes
+   until an explicit Refresh, like the other three views) and aligns it with the
+   slice fit patch's "lazy per-project load ... memoizes until refresh()" claim. The
+   empty-state contract is preserved: getChildren still returns [] for a non-root
+   element, [] for an absent workspace, and [] on a caught scan failure, and never
+   throws.
+
+   The marketplace additions are net-new package.json fields and media assets per
+   the fit patch (top-level icon: media/icon.png raster tile, keywords,
+   galleryBanner, homepage, bugs, qna, and a contributes.walkthroughs with four
+   media/walkthrough/*.md steps); media/nest.svg remains the activitybar
+   viewsContainers icon and is NOT used as the gallery tile. No telemetry was present
+   to remove; the new error toast is worded to never blame Claude.
+
 ## 2026-06-17 Slice 8 (Export/import): write-ban resolution, LWW-per-record interpretation, and the shadow key
 
 Resolution of three build-time forks the plan and the accepted fit patch left open.

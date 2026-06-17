@@ -80,6 +80,11 @@ import {
   maybePromptAutoExport,
   reconcileAllProjects,
 } from './commands/exportImportCommands';
+import {
+  RefreshScanUi,
+  ScanPrimable,
+  refreshWithProgress,
+} from './commands/refreshScanCommands';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -135,6 +140,42 @@ export function activate(context: vscode.ExtensionContext): void {
   // a mutation before that point (none occur during synchronous activation) is a
   // harmless no-op.
   let scheduleAutoExport: () => void = () => {};
+
+  // The shared progress + cancellation UI for the explicit Refresh commands
+  // (Polish slice). vscode.window.withProgress shows a cancellable notification
+  // while a provider primes its snapshot via a transcript scan; the scanner stays
+  // vscode-free and receives only the plain onProgress/shouldCancel callbacks. The
+  // passive getChildren/getParent path is unaffected and stays synchronous.
+  const refreshScanUi: RefreshScanUi = {
+    withProgress: (title, work) =>
+      Promise.resolve(
+        vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title,
+            cancellable: true,
+          },
+          (progress, token) => {
+            let last = 0;
+            const report = (done: number, total: number): void => {
+              if (total <= 0) {
+                return;
+              }
+              const pct = Math.min(100, Math.round((done / total) * 100));
+              const increment = pct - last;
+              last = pct;
+              if (increment > 0) {
+                progress.report({ increment, message: done + ' of ' + total });
+              }
+            };
+            return Promise.resolve(work(report, () => token.isCancellationRequested));
+          },
+        ),
+      ),
+    showError: (message) => void vscode.window.showErrorMessage(message),
+  };
+  const runRefreshScan = (provider: ScanPrimable, scanLabel: string): Promise<void> =>
+    refreshWithProgress({ provider, ui: refreshScanUi, scanLabel });
 
   const flatProvider = new FlatProvider(workspacePath);
   const flatView = vscode.window.createTreeView('claudeNest.flat', {
@@ -264,7 +305,7 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     ),
     vscode.commands.registerCommand('claudeNest.refreshFolders', () =>
-      foldersProvider.refresh(),
+      runRefreshScan(foldersProvider, 'folders'),
     ),
   );
 
@@ -367,7 +408,7 @@ export function activate(context: vscode.ExtensionContext): void {
         item instanceof ChatOccurrenceItem ? removeTagFromChat(tagDeps, item) : undefined,
     ),
     vscode.commands.registerCommand('claudeNest.refreshTags', () =>
-      tagsProvider.refresh(),
+      runRefreshScan(tagsProvider, 'tags'),
     ),
   );
 
@@ -524,7 +565,7 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     ),
     vscode.commands.registerCommand('claudeNest.refreshSmartGroups', () =>
-      smartGroupsProvider.refresh(),
+      runRefreshScan(smartGroupsProvider, 'smart groups'),
     ),
   );
 
@@ -546,7 +587,9 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('claudeNest.refresh', () => flatProvider.refresh()),
+    vscode.commands.registerCommand('claudeNest.refresh', () =>
+      runRefreshScan(flatProvider, 'chats'),
+    ),
   );
 
   // The Settings gear (Slice 7): opens a CSP-locked, nonce-scripted WebviewPanel

@@ -28,6 +28,7 @@ import {
 } from '../model/links';
 import { decorateLinkedChild } from './linkDecoration';
 import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { ScanPrimable } from '../commands/refreshScanCommands';
 
 // The claudeNest.folders tree: the single-home folder hierarchy. Folder nodes are
 // collapsible; each chat appears under EXACTLY one folder (its ChatMeta.folderId,
@@ -129,9 +130,15 @@ export class LinkedChildItem extends vscode.TreeItem {
   }
 }
 
-export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode> {
+export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>, ScanPrimable {
   private readonly emitter = new vscode.EventEmitter<FolderTreeNode | undefined | void>();
   readonly onDidChangeTreeData = this.emitter.event;
+
+  // A transient per-rebuild scan-options overlay (onProgress/shouldCancel) used by
+  // the next ensureSnapshot ONLY. Set by primeSnapshot under a progress-wrapped
+  // scan, then cleared, so the passive getChildren/getParent path scans with the
+  // plain options and never carries a stale progress callback.
+  private scanOverlay: ScannerOptions | null = null;
 
   // Memoized node objects by tree-wide-unique id (folder id, or `${folderId}#${chatId}`).
   // Reused across refreshes so VSCode's reference-keyed element cache keeps reveal
@@ -182,6 +189,22 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode> 
   refresh(node?: FolderTreeNode): void {
     this.assembled = null;
     this.emitter.fire(node);
+  }
+
+  // ScanPrimable: prime the snapshot under an explicit progress-wrapped scan
+  // (refreshScanCommands.refreshWithProgress). Set the one-shot scan overlay, force
+  // a fresh ensureSnapshot (which scans with the overlay's progress/cancel
+  // callbacks), clear the overlay, then fire the change event so the passive
+  // getChildren reads the primed snapshot WITHOUT rescanning under progress.
+  primeSnapshot(scanOptions: ScannerOptions): void {
+    this.scanOverlay = scanOptions;
+    this.assembled = null;
+    try {
+      this.ensureSnapshot();
+    } finally {
+      this.scanOverlay = null;
+    }
+    this.emitter.fire();
   }
 
   getTreeItem(element: FolderTreeNode): vscode.TreeItem {
@@ -319,7 +342,7 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode> 
     }
     let records: ChatRecord[];
     try {
-      records = scanChats(this.workspacePath, this.options);
+      records = scanChats(this.workspacePath, { ...this.options, ...this.scanOverlay });
     } catch {
       records = [];
     }
