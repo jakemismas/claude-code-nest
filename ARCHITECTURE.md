@@ -186,7 +186,17 @@ handler. If the extension fails, Claude must be entirely unaffected.
   await store.flush() and a single provider.refresh() (the same shape as
   deleteFolder's cascade).
 - Empty state: getChildren(undefined) returns [] and a viewsWelcome contribution
-  shows the no-sessions message. Never throw out of getChildren.
+  shows the no-sessions message. Never throw out of getChildren. (Slice 9 Polish
+  VERIFIED this unchanged across all four providers and the four viewsWelcome
+  entries, and added the progress/cancellation path WITHOUT making getChildren or
+  getParent async: those stay synchronous on the memoized snapshot, and an explicit
+  Refresh command primes that snapshot under vscode.window.withProgress with a
+  CancellationToken via the ScanPrimable.primeSnapshot seam, then fires
+  onDidChangeTreeData once. The scanner stays vscode-free: scanChats takes optional
+  plain-callback {onProgress, shouldCancel} that the vscode layer supplies. The scan
+  is synchronous, so cancellation takes effect on a re-issued refresh, not mid-scan;
+  see DECISIONS.md Slice 9. FlatProvider gained the same memoized-snapshot shape the
+  other three providers already had so priming it caches the scan.)
 - Separator-namespace discipline: tag, folder, and chat ids are generated free of
   ':', '#', '>'. Enforce in the id factory. The synthetic-node sentinels live in
   the same id-space but are NOT mintable and are excluded from the factory's

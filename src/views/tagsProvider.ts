@@ -16,6 +16,7 @@ import {
   isUntaggedId,
 } from '../model/untagged';
 import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { ScanPrimable } from '../commands/refreshScanCommands';
 
 // The claudeNest.tags tree: the MANY-TO-MANY tag membership. A chat appears once
 // under EACH tag it is assigned to (and once under the synthetic Untagged bucket
@@ -84,7 +85,7 @@ export class ChatOccurrenceItem extends vscode.TreeItem {
   }
 }
 
-export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode> {
+export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanPrimable {
   private readonly emitter = new vscode.EventEmitter<TagTreeNode | undefined | void>();
   readonly onDidChangeTreeData = this.emitter.event;
 
@@ -92,6 +93,11 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode> {
   // Reused across refreshes so VSCode's reference-keyed element cache keeps reveal
   // and selection stable (ARCHITECTURE.md "Memoize node objects by id").
   private readonly nodesById = new Map<string, TagTreeNode>();
+
+  // A transient per-rebuild scan-options overlay (onProgress/shouldCancel) used by
+  // the next ensureSnapshot ONLY; set by primeSnapshot under a progress-wrapped
+  // scan then cleared, so the passive getChildren/getParent path scans plainly.
+  private scanOverlay: ScannerOptions | null = null;
 
   // The latest assembled tree, kept so getParent and getChildren read a single
   // consistent snapshot per refresh cycle rather than re-scanning per call.
@@ -122,6 +128,20 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode> {
   refresh(node?: TagTreeNode): void {
     this.assembled = null;
     this.emitter.fire(node);
+  }
+
+  // ScanPrimable: prime the snapshot under an explicit progress-wrapped scan. Set
+  // the one-shot scan overlay, force a fresh ensureSnapshot, clear the overlay,
+  // then fire the change event so the passive getChildren reads the primed snapshot.
+  primeSnapshot(scanOptions: ScannerOptions): void {
+    this.scanOverlay = scanOptions;
+    this.assembled = null;
+    try {
+      this.ensureSnapshot();
+    } finally {
+      this.scanOverlay = null;
+    }
+    this.emitter.fire();
   }
 
   getTreeItem(element: TagTreeNode): vscode.TreeItem {
@@ -191,7 +211,7 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode> {
     }
     let records: ChatRecord[];
     try {
-      records = scanChats(this.workspacePath, this.options);
+      records = scanChats(this.workspacePath, { ...this.options, ...this.scanOverlay });
     } catch {
       records = [];
     }

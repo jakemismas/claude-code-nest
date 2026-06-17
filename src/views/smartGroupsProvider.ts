@@ -11,6 +11,7 @@ import {
   smartBucketNodeId,
 } from '../smart/smartGroupEngine';
 import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { ScanPrimable } from '../commands/refreshScanCommands';
 
 // The claudeNest.smartGroups tree: read-only, recomputed-on-refresh buckets over
 // the four signals (PR solid; ticket, branch, fork-lineage best-effort and
@@ -100,9 +101,14 @@ export class SmartChatItem extends vscode.TreeItem {
   }
 }
 
-export class SmartGroupsProvider implements vscode.TreeDataProvider<SmartTreeNode> {
+export class SmartGroupsProvider implements vscode.TreeDataProvider<SmartTreeNode>, ScanPrimable {
   private readonly emitter = new vscode.EventEmitter<SmartTreeNode | undefined | void>();
   readonly onDidChangeTreeData = this.emitter.event;
+
+  // A transient per-rebuild scan-options overlay (onProgress/shouldCancel) used by
+  // the next ensureSnapshot ONLY; set by primeSnapshot under a progress-wrapped
+  // scan then cleared, so the passive getChildren path scans plainly.
+  private scanOverlay: ScannerOptions | null = null;
 
   // Memoized node objects by tree-wide-unique id, reused across refreshes so
   // VSCode's reference-keyed element cache keeps reveal/selection stable.
@@ -135,6 +141,20 @@ export class SmartGroupsProvider implements vscode.TreeDataProvider<SmartTreeNod
   refresh(node?: SmartTreeNode): void {
     this.tree = null;
     this.emitter.fire(node);
+  }
+
+  // ScanPrimable: prime the snapshot under an explicit progress-wrapped scan. Set
+  // the one-shot scan overlay, force a fresh ensureSnapshot, clear the overlay,
+  // then fire the change event so the passive getChildren reads the primed snapshot.
+  primeSnapshot(scanOptions: ScannerOptions): void {
+    this.scanOverlay = scanOptions;
+    this.tree = null;
+    try {
+      this.ensureSnapshot();
+    } finally {
+      this.scanOverlay = null;
+    }
+    this.emitter.fire();
   }
 
   getTreeItem(element: SmartTreeNode): vscode.TreeItem {
@@ -186,7 +206,7 @@ export class SmartGroupsProvider implements vscode.TreeDataProvider<SmartTreeNod
     }
     let records: ChatRecord[];
     try {
-      records = scanChats(this.workspacePath, this.options);
+      records = scanChats(this.workspacePath, { ...this.options, ...this.scanOverlay });
     } catch {
       records = [];
     }

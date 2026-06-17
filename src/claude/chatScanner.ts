@@ -21,6 +21,15 @@ export interface ScannerOptions {
   // Override the projects root, used by tests to point at a scratch fixture.
   // Defaults to ~/.claude/projects.
   projectsRoot?: string;
+  // Optional plain-callback progress/cancellation seam for a large scan. The
+  // scanner stays vscode-free: the vscode layer (a refresh command wrapping
+  // vscode.window.withProgress with a CancellationToken) supplies these. onProgress
+  // is called after each transcript is read with the running done/total counts;
+  // shouldCancel is polled before each file so a user cancel stops the scan
+  // promptly. Neither is required, so getChildren can scan with no options bag and
+  // the unit suite exercises the seam with plain functions and no vscode import.
+  onProgress?: (done: number, total: number) => void;
+  shouldCancel?: () => boolean;
 }
 
 export function defaultProjectsRoot(): string {
@@ -43,6 +52,12 @@ export function resolveDir(workspacePath: string, options: ScannerOptions = {}):
 // (records with no timestamp sort last). Returns [] when the project directory
 // does not resolve or contains no *.jsonl files; never throws on a malformed or
 // unreadable individual transcript.
+//
+// When options.shouldCancel/onProgress are supplied (the vscode refresh-command
+// path wraps vscode.window.withProgress around this), the scan polls shouldCancel
+// before each file and reports done/total after each. A cancel stops early and
+// returns the records gathered so far, still sorted: a partial-but-honest result
+// rather than a throw, so a cancelled refresh leaves the view consistent.
 export function scanChats(workspacePath: string, options: ScannerOptions = {}): ChatRecord[] {
   const root = options.projectsRoot ?? defaultProjectsRoot();
   const dirName = resolveDir(workspacePath, options);
@@ -50,13 +65,21 @@ export function scanChats(workspacePath: string, options: ScannerOptions = {}): 
     return [];
   }
   const projectDir = path.join(root, dirName);
+  const files = globJsonl(projectDir);
+  const total = files.length;
   const records: ChatRecord[] = [];
 
-  for (const filePath of globJsonl(projectDir)) {
+  let done = 0;
+  for (const filePath of files) {
+    if (options.shouldCancel?.() === true) {
+      break;
+    }
     const record = readChat(filePath);
     if (record !== null) {
       records.push(record);
     }
+    done++;
+    options.onProgress?.(done, total);
   }
 
   records.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));

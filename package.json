@@ -5,16 +5,35 @@
   "version": "0.0.1",
   "publisher": "jakemismas",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/jakemismas/claude-code-nest.git"
   },
+  "homepage": "https://github.com/jakemismas/claude-code-nest#readme",
+  "bugs": {
+    "url": "https://github.com/jakemismas/claude-code-nest/issues"
+  },
+  "qna": "marketplace",
   "engines": {
     "vscode": "^1.66.0"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "claude",
+    "claude code",
+    "chat history",
+    "sessions",
+    "organize",
+    "folders",
+    "tags"
+  ],
+  "galleryBanner": {
+    "color": "#1E1B4B",
+    "theme": "dark"
+  },
   "main": "./out/extension.js",
   "activationEvents": [
     "onView:claudeNest.flat",
@@ -59,6 +78,47 @@
         }
       ]
     },
+    "walkthroughs": [
+      {
+        "id": "claudeNest.gettingStarted",
+        "title": "Get Started with Claude Code Nest",
+        "description": "Organize your Claude Code chat sessions into folders, tags, links, and smart groups, all read-only over your transcripts.",
+        "steps": [
+          {
+            "id": "claudeNest.walkthrough.openView",
+            "title": "Open the Nest panel",
+            "description": "Click the Claude Code Nest icon in the Activity Bar to open the Chats, Folders, Tags, and Smart Groups views for the current workspace.\n[Open Chats](command:claudeNest.refresh)",
+            "media": {
+              "markdown": "media/walkthrough/open-view.md"
+            }
+          },
+          {
+            "id": "claudeNest.walkthrough.organize",
+            "title": "Organize with folders and tags",
+            "description": "Create a folder or a tag, then drag a chat onto it. A chat has one folder home and any number of tags.\n[New Folder](command:claudeNest.createFolder)\n[New Tag](command:claudeNest.createTag)",
+            "media": {
+              "markdown": "media/walkthrough/organize.md"
+            }
+          },
+          {
+            "id": "claudeNest.walkthrough.smartGroups",
+            "title": "Explore smart groups",
+            "description": "Smart Groups are read-only buckets computed from your transcripts (pull request, ticket prefix, git branch, fork lineage). Promote a bucket to a real folder or tag when it is useful.\n[Refresh Smart Groups](command:claudeNest.refreshSmartGroups)",
+            "media": {
+              "markdown": "media/walkthrough/smart-groups.md"
+            }
+          },
+          {
+            "id": "claudeNest.walkthrough.backup",
+            "title": "Back up your library",
+            "description": "Your organization syncs best-effort across machines. The export JSON is the authoritative backup; export it to a synced or git-tracked location.\n[Export Library](command:claudeNest.exportLibrary)",
+            "media": {
+              "markdown": "media/walkthrough/backup.md"
+            }
+          }
+        ]
+      }
+    ],
     "viewsWelcome": [
       {
         "view": "claudeNest.flat",

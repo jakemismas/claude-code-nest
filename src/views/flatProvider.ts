@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ChatRecord } from '../model/types';
 import { scanChats, ScannerOptions } from '../claude/chatScanner';
 import { relativeTime } from './relativeTime';
+import { ScanPrimable } from '../commands/refreshScanCommands';
 
 // The claudeNest.flat tree view: a single flat list of every chat for the active
 // workspace, each row showing the resolved title and a relative time. Clicking a
@@ -29,7 +30,7 @@ export class FlatChatItem extends vscode.TreeItem {
   }
 }
 
-export class FlatProvider implements vscode.TreeDataProvider<FlatChatItem> {
+export class FlatProvider implements vscode.TreeDataProvider<FlatChatItem>, ScanPrimable {
   private readonly emitter = new vscode.EventEmitter<FlatChatItem | undefined | void>();
   readonly onDidChangeTreeData = this.emitter.event;
 
@@ -39,12 +40,28 @@ export class FlatProvider implements vscode.TreeDataProvider<FlatChatItem> {
   // unchanged id.
   private readonly nodesById = new Map<string, FlatChatItem>();
 
+  // The memoized scan snapshot, rebuilt lazily on the next getChildren after a
+  // refresh (mirrors the other three providers' ensureSnapshot lazy-load). A
+  // null snapshot means "rescan on next read"; a primeSnapshot under progress sets
+  // it so the passive getChildren reads the primed records without rescanning.
+  private records: ChatRecord[] | null = null;
+
   constructor(
     private readonly workspacePath: string | undefined,
     private readonly options: ScannerOptions = {},
   ) {}
 
   refresh(): void {
+    this.records = null;
+    this.emitter.fire();
+  }
+
+  // ScanPrimable: prime the snapshot under an explicit progress-wrapped scan
+  // (refreshScanCommands.refreshWithProgress). The supplied scanOptions carry the
+  // onProgress/shouldCancel callbacks; this rebuilds the records once with them and
+  // fires the change event so the passive getChildren reads the primed snapshot.
+  primeSnapshot(scanOptions: ScannerOptions): void {
+    this.records = this.scan(scanOptions);
     this.emitter.fire();
   }
 
@@ -59,13 +76,7 @@ export class FlatProvider implements vscode.TreeDataProvider<FlatChatItem> {
     if (this.workspacePath === undefined) {
       return [];
     }
-    let records: ChatRecord[];
-    try {
-      records = scanChats(this.workspacePath, this.options);
-    } catch {
-      // Never throw out of getChildren; a failed scan renders empty.
-      return [];
-    }
+    const records = this.ensureSnapshot();
     const seen = new Set<string>();
     const items: FlatChatItem[] = [];
     for (const record of records) {
@@ -87,6 +98,30 @@ export class FlatProvider implements vscode.TreeDataProvider<FlatChatItem> {
       }
     }
     return items;
+  }
+
+  // Build (or reuse) the memoized scan snapshot. Returns [] when there is no
+  // workspace; never throws (a failed scan renders empty). Lazy per the slice fit
+  // patch: the scan runs on demand and memoizes until the next refresh.
+  private ensureSnapshot(): ChatRecord[] {
+    if (this.records !== null) {
+      return this.records;
+    }
+    this.records = this.scan(this.options);
+    return this.records;
+  }
+
+  // Scan with the given options, tolerating a failed scan as an empty result so
+  // getChildren never throws (binding rule: never throw out of getChildren).
+  private scan(scanOptions: ScannerOptions): ChatRecord[] {
+    if (this.workspacePath === undefined) {
+      return [];
+    }
+    try {
+      return scanChats(this.workspacePath, { ...this.options, ...scanOptions });
+    } catch {
+      return [];
+    }
   }
 }
 

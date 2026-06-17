@@ -310,6 +310,54 @@ target is NOT under `~/.claude/projects/`; nothing there may change.
    suite proves `exportIO` throws on any target under `~/.claude/projects/`, so a
    save dialog pointed there is refused rather than overwriting a transcript.)
 
+## Slice 9: Polish (empty state, progress, icons, walkthrough, marketplace metadata)
+
+These exercise the parts of the Polish slice that cannot run headless: the
+viewsWelcome rendering, the cancellable progress notification on a Refresh, the
+gallery icon and walkthrough, and the marketplace metadata in a real install. The
+pure logic is covered by the headless unit suite (`scanProgress.test.ts` for the
+scanner progress/cancellation seam, `refreshScanCommands.test.ts` for the
+progress-command orchestration); this checklist is the only verification of the
+vscode-bound surfaces. The read-only invariant above applies: the scan reads
+transcripts read-only and writes nothing.
+
+1. Empty-state welcome: open a workspace that has NO Claude Code sessions under
+   `~/.claude/projects/` (or a brand-new folder). Confirm each of the four views
+   (Chats, Folders, Tags, Smart Groups) shows its viewsWelcome message rather than
+   an error, a spinner, or a blank pane, and that the welcome text never says
+   Claude failed. The Chats/Folders/Tags welcomes read "No Claude Code chats found
+   for this workspace yet."; the Smart Groups welcome explains the read-only
+   buckets. Each welcome carries an action button (Refresh / New Folder / New Tag).
+2. getChildren never throws: with the empty workspace above, confirm no error
+   notification fires from the views themselves (a failed or absent scan renders
+   empty, it does not throw). Open the Output/Developer Tools console and confirm
+   no unhandled exception from a `getChildren` call.
+3. Cancellable progress on a large scan: open a workspace whose project dir holds
+   many transcripts. Run Refresh in any view (the refresh button in the view
+   title). Confirm a progress notification appears titled "Scanning <view>..." with
+   a Cancel affordance. On a very large library the notification is visible while
+   the scan runs. Note: the scan is synchronous per the design (getChildren and
+   getParent stay synchronous), so the Cancel button takes effect for a re-issued
+   refresh rather than interrupting an in-flight synchronous scan; the progress
+   indicator and the cancellation plumbing are present and the scan completes and
+   re-renders the view.
+4. Scan-failure toast wording: if a scan ever fails, confirm the error toast reads
+   "Claude Code Nest could not finish scanning <view>. Your chats and organization
+   are unchanged; try Refresh again." and never attributes the failure to Claude.
+5. Gallery icon and metadata: in the Extensions view, confirm the installed
+   "Claude Code Nest" tile shows the raster gallery icon (`media/icon.png`, the
+   nest motif on a deep indigo tile) rather than a default placeholder, and that
+   the details page shows the description, keywords, repository, homepage, and
+   issues links from `package.json`.
+6. Walkthrough: open the Command Palette and run "Welcome: Open Walkthrough...",
+   then choose "Get Started with Claude Code Nest". Confirm the four steps render
+   (Open the Nest panel, Organize with folders and tags, Explore smart groups, Back
+   up your library), each with its markdown body and a working command button.
+7. Telemetry-free: confirm the extension sends no telemetry. There is no telemetry
+   reporter in the codebase (no `@vscode/extension-telemetry` dependency, no
+   `createTelemetryLogger` call); the only user-visible output is the in-window
+   toasts and the views.
+
 ## Integration tests (deferred)
 
 The electron-host integration tests (`npm run test:integration`) need a VSCode
@@ -353,3 +401,22 @@ run only by the command above, never in the headless gate). It asserts:
   unit tests cannot exercise without the host, and the controller's node-dispatch
   helpers (`chatIdsFromSource`, `targetIdFor`) using `instanceof` against the
   `vscode.TreeItem` subclasses are verified only here.
+
+Slice 9 (Polish) integration test (authored, under
+`src/test/integration/activation.test.ts`, run only by the command above, never in
+the headless gate). It asserts:
+
+- The extension is present as a loaded extension in the host
+  (`vscode.extensions.getExtension('jakemismas.claude-code-nest')`), proving the
+  host loaded this manifest.
+- The four `claudeNest` views and the activitybar container are contributed, read
+  from the SAME `package.json` the host loaded as the Extension Manifest.
+- A `viewsWelcome` empty-state ships for every one of the four views and none of
+  the welcome strings blames Claude for the empty state.
+- The raster gallery icon (`media/icon.png`) and the getting-started walkthrough
+  (with multiple steps) are contributed and the icon file exists.
+- `getChildren(undefined)` returns `[]` and never throws for all four providers
+  when no project resolves, and `primeSnapshot` (the progress-scan entry point)
+  also does not throw on an absent project. This is the host-side confirmation of
+  the empty-state contract the headless unit suite proves in the pure scan/provider
+  layer.

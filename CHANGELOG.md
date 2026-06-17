@@ -7,6 +7,36 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Slice 9 (Polish): marketplace metadata, a getting-started walkthrough, a raster
+  gallery icon, and a cancellable progress indicator on the explicit Refresh
+  commands. package.json gains a top-level "icon": "media/icon.png" (a 256x256 RGBA
+  nest-motif tile; media/nest.svg stays the activitybar viewsContainers icon, which
+  is not valid as the gallery tile), plus keywords, galleryBanner, homepage, bugs,
+  and qna. A contributes.walkthroughs "Get Started with Claude Code Nest" adds four
+  markdown steps (open the panel, organize, smart groups, backup) under
+  media/walkthrough/. The four Refresh commands (claudeNest.refresh /
+  refreshFolders / refreshTags / refreshSmartGroups) now run through a new
+  vscode-free orchestration module (src/commands/refreshScanCommands.ts) that wraps
+  the scan in vscode.window.withProgress with a CancellationToken: it primes the
+  provider snapshot via a new ScanPrimable.primeSnapshot seam, then fires
+  onDidChangeTreeData once. getChildren and getParent stay SYNCHRONOUS and read the
+  memoized snapshot (the binding rule), so the progress/cancellation lives only on
+  the explicit refresh path, not the passive reveal path. The scanner stays
+  vscode-free: scanChats gains optional plain-callback options
+  {onProgress(done,total), shouldCancel()} that the vscode layer supplies; a cancel
+  stops the scan early and returns the partial-but-sorted result rather than
+  throwing. FlatProvider gained the same lazy memoized-snapshot shape the other
+  three providers already had (records cached until refresh), so priming it under
+  progress actually caches the scan. The empty-state contract (a viewsWelcome for
+  each of the four views and getChildren-never-throws) was VERIFIED unchanged. The
+  extension is telemetry-free (no reporter, no @vscode/extension-telemetry), and the
+  new scan-failure/cancellation toast is worded so it never attributes a failure to
+  Claude. New headless unit tests cover the scanner progress/cancellation seam
+  (scanProgress.test.ts) and the progress-command orchestration
+  (refreshScanCommands.test.ts, vscode-free via injected seams); a deferred
+  electron-host spec (src/test/integration/activation.test.ts) asserts activation,
+  view/welcome/icon/walkthrough contributions, and the empty-state contract against
+  the real host.
 - Slice 8 (Export/import plus sync hardening): two commands, Export Library to
   JSON (claudeNest.exportLibrary) and Import Library from JSON
   (claudeNest.importLibrary), plus an additive cross-machine reconcile that runs
