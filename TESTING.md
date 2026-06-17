@@ -129,6 +129,43 @@ above: the Folders view is the affordance Slice 1 said could only be exercised
    the Tags view adds a tag. An unrecognized drag source (a file, another
    extension's tree) is a no-op.
 
+## Slice 5: Links plus branch display
+
+These exercise the parts of the slice that cannot run headless: all of the
+vscode-side rendering (the branch icon, the muted broken-target styling, the
+nested splice in the Folders tree) and the link/unlink commands against the real
+window.
+
+1. Link a chat under another (parent nesting): in the Folders view, right-click a
+   chat row (chat A) and choose "Link to Chat...". Choose a target chat (chat B).
+   Confirm chat B now renders NESTED beneath chat A in the Folders tree as a child
+   row with a git-branch icon, while chat B also still appears in its own folder
+   home (the link adds a nested appearance, it does not move B).
+2. Only the parent kind is offered: confirm the link flow does NOT prompt for a
+   link "kind" and never creates a "related" link (the related kind is deferred
+   this slice; the only effect of linking is the parent nesting).
+3. Cycle / self-link prevented: link B under A, then try to link A under B. Confirm
+   the tree does not enter an infinite expansion (the visited-set guard prevents a
+   cycle); the nesting renders only one way and expanding the nested rows
+   terminates. Also confirm a chat cannot be linked to itself (the source chat is
+   not offered as its own target).
+4. Broken target shows muted: link a target chat, then remove that target chat's
+   transcript from disk (or pick a target that is later deleted) and Refresh.
+   Confirm the linked child still appears but renders MUTED/label-only (the link is
+   still visible and unlink-able) and does not expand into children.
+5. Unlink removes the nesting: right-click the nested linked-child row under chat A
+   and choose "Unlink". Confirm the nested row disappears (chat B no longer renders
+   under A) and the view refreshes once. Chat B itself is not deleted and still
+   appears in its folder home.
+6. Multiple parents resolve deterministically (optional): link the same child B
+   under two different source chats. Confirm B nests under exactly ONE of them (the
+   one with the smaller chat id) on every refresh, never under both at once;
+   unlinking that visible nesting makes B nest under the other source on the next
+   refresh.
+7. Drop onto a linked-child row files alongside (regression): drag a chat and drop
+   it directly onto a nested linked-child row. Confirm the dragged chat is filed
+   into the SAME folder as that linked child (alongside it) and is NOT unfiled.
+
 ## Integration tests (deferred)
 
 The electron-host integration tests (`npm run test:integration`) need a VSCode

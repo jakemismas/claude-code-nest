@@ -5,6 +5,93 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-16 Slice 5 (fix pass): cross-view drag payload rides an in-process stash, not the DataTransfer
+
+Resolution: the CROSS-view (cross-tree) drag payload is carried by an in-process
+singleton stash (src/dnd/dragContext.ts: stashDrag/takeDrag), NOT by a custom MIME
+on the DataTransfer. handleDrag stashes the dragged chat ids (and still writes them
+under the shared chat MIME and the controller's own reserved MIME, which remain the
+WITHIN-view carrier and the drop-target offer respectively). handleDrop reads a
+recognized MIME value when present (a within-view drop, where the host preserved our
+custom item) and otherwise falls back to the stash (a cross-view drop). The stash is
+one-shot: takeDrag clears it on every drop so it can never leak into a later
+unrelated drop. This SUPERSEDES the carrier mechanism asserted in the Slice 3
+DECISIONS entry below.
+
+Rationale: the Slice 3 entry assumed that on a cross-tree drop "the host strips our
+custom chat MIME and carries only the SOURCE tree's reserved MIME" and that the
+chat-id JSON written under that reserved MIME would therefore reach the peer
+controller's handleDrop. That is FALSE for VSCode 1.66. The pinned
+@types/vscode 1.66 DataTransfer doc says a custom MIME added in handleDrag "will
+only be included in the handleDrop when the drag was initiated from an element in
+the same drag and drop controller," and the handleDrag doc says custom
+DataTransferItem objects are preserved only "when the items are dropped on another
+tree item in the same tree." The pinned extHostTreeViews.ts source confirms the
+mechanism: $handleDrop re-applies the source controller's handleDrag items
+(addAdditionalTransferItems) ONLY when sourceViewId === destinationViewId; on a
+cross-tree drop only the base transfer DTO crosses, so the value the source
+controller wrote under its own reserved MIME never reaches the peer controller.
+Listing the peer reserved MIME in dropMimeTypes only makes the peer tree a drop
+TARGET (so handleDrop runs at all); it does not make the source's overwritten
+custom value survive cross-controller. The original assumption would have made the
+headline cross-view drag a silent no-op (pickPayload returns the host-internal
+value, parseChatIds rejects it, intents=[]). The in-process stash is the standard
+VSCode-extension pattern for passing data between two trees of the same extension
+and does not depend on any unverified DataTransfer-survival behavior. The
+integration test was rewritten to hand the peer controller a transfer carrying a
+host-style opaque reserved-MIME value (which parseChatIds rejects) so the assertion
+only passes if the payload rides the stash, closing the question-begging gap where
+the prior test copied the source's own value into the drop transfer.
+
+## 2026-06-16 Slice 5 (fix pass): a drop on a linked-child row files alongside it, never unfiles
+
+Resolution: in the Folders DnD controller, a drop landing on a LinkedChildItem row
+resolves to that linked child's underlying chat's CURRENT home folder id (via a
+ChatHomeResolver dep backed by FoldersProvider.memberNodeForChat) so the dragged
+chat is filed ALONGSIDE the linked child, matching the documented chat-onto-chat
+behavior. When that home cannot be resolved the controller returns a NOOP_TARGET
+sentinel and the drop is a strict no-op. NOOP_TARGET is distinct from undefined:
+undefined means "the view root / empty space," which on the Folders view
+legitimately unfiles, so a separate sentinel is required to keep an unresolvable
+linked-child drop from silently unfiling.
+
+Rationale: LinkedChildItem was spliced into the FolderTreeNode union in Slice 5, but
+the drop-target resolver predated it and matched only FolderItem and ChatMemberItem,
+falling through to undefined for a LinkedChildItem. The reducer maps an undefined
+Folders target to setFolder(chatId, null) = unfile, so a drop on a linked-child row
+silently moved the dragged chat OUT of its folder home (a data-loss-adjacent
+surprise). A LinkedChildItem is not a folder-home node (its tree id is the
+`${parentChatId}>link>${chatId}` link composite, not `${folderId}#${chatId}`), so
+its folder home must be looked up by chat id rather than parsed from the node id.
+
+## 2026-06-16 Slice 5 (Links): deterministic single-parent selector is the smallest source chatId
+
+Resolution: the store permits a chat to be the target of kind:'parent' links from
+MORE THAN ONE source chat (addLink dedupes only on the exact (targetChatId, kind)
+pair, never enforces a single parent), so links.ts must pin ONE designated parent
+per child or the child would nest under different parents on different renders and
+the cycle/diamond traversal would be non-deterministic. The selector is: among all
+source chats that hold a kind:'parent' link to a given child, the designated parent
+is the one with the lexicographically SMALLEST source chatId (string comparison on
+the separator-free UUID). This is total (every candidate set is non-empty when a
+child has any parent link), stable across renders (the input is the same stored
+links, the order is content-independent), and independent of object/iteration order
+(it is a min over a value, not a first-seen pick). A child with no kind:'parent'
+link pointing at it has no designated parent and renders only in its own folder
+home, never as a linkedChild. The linkedChild composite id is
+`${parentChatId}>link>${chatId}` where parentChatId is exactly this designated
+parent, so the id is itself deterministic.
+
+Rationale: ARCHITECTURE.md ("Link cycle detection") requires "a linked child
+renders under only its one designated parent link" and a deterministic visited-set
+traversal. Since the store does not enforce single-parent at write time, the
+determinism has to be a property of the READ-time selector, not of write discipline.
+Smallest-source-chatId was chosen over "first link found" (which depends on object
+iteration order and so is not stable) and over a stored "primary" flag (which would
+add a synced field and a new mutation this slice's plan does not call for). The
+selector lives in vscode-free links.ts so the unit suite asserts the tie-break
+directly without the vscode host.
+
 ## 2026-06-16 Slice 3 (Tags/DnD): dropMimeTypes lists the PEER view's reserved MIME, not only its own
 
 Resolution: each NestDragAndDropController sets dropMimeTypes to ALL recognized

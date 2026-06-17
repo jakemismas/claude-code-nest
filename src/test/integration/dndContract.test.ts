@@ -9,6 +9,7 @@ import {
   TAGS_RESERVED_MIME,
 } from '../../dnd/dndController';
 import { NEST_CHAT_MIME } from '../../dnd/dropReducer';
+import { clearDrag } from '../../dnd/dragContext';
 import {
   MetadataStore,
   SyncMemento,
@@ -17,6 +18,7 @@ import {
   FoldersProvider,
   FolderItem,
   ChatMemberItem,
+  LinkedChildItem,
   FolderTreeNode,
 } from '../../views/foldersProvider';
 import {
@@ -35,10 +37,17 @@ import { ChatRecord } from '../../model/types';
 // (out/test/integration via runTest.js), never in the headless `npm test` gate,
 // because the things it verifies CANNOT be reached headless:
 //   1. A real vscode.DataTransfer / DataTransferItem round-trip (the host's own
-//      types, not a fake), including the cross-tree carrier behavior where the
-//      host strips the shared custom chat MIME and leaves only the source tree's
-//      reserved MIME between two trees of the same extension.
-//   2. The controller's node-dispatch helpers (chatIdsFromSource, targetIdFor)
+//      types, not a fake). On a CROSS-tree drop the host does NOT deliver the
+//      source controller's custom DataTransferItem to the peer controller (it
+//      re-applies the source handleDrag items only when source view === dest
+//      view), so the cross-view payload rides the in-process dragContext stash,
+//      not the DataTransfer. This test reproduces the cross-tree drop by handing
+//      the peer controller a transfer that carries NONE of our payload values
+//      (only a host-style opaque reserved-MIME handle), so the drop MUST come from
+//      the stash or it fails - the previous version copied the source's own
+//      overwritten value into the drop transfer and so could never catch a real
+//      cross-controller delivery failure.
+//   2. The controller's node-dispatch helpers (chatIdsFromSource, resolveTarget)
 //      using `instanceof vscode.TreeItem` subclasses (FolderItem, ChatMemberItem,
 //      TagItem, ChatOccurrenceItem), which only have real prototypes in the host.
 //   3. The reserved-MIME literals equaling the value VSCode auto-derives from the
@@ -202,26 +211,27 @@ describe('Slice 4 drag-and-drop controller registration and MIME contract (elect
 });
 
 describe('Slice 4 cross-tree drag carrier (electron host, real DataTransfer)', () => {
-  // Simulate the host's cross-tree drop: VSCode 1.66 preserves a custom MIME set
-  // in handleDrag into handleDrop ONLY for a drop in the SAME tree. On a cross-tree
-  // drop the host STRIPS the shared chat MIME and carries ONLY the source tree's
-  // reserved MIME between two trees of the same extension. We reproduce that by
-  // copying only the source reserved MIME item from the drag DataTransfer into a
-  // fresh drop DataTransfer, which is exactly what the host delivers to the peer
-  // controller's handleDrop. This is the one carrier behavior the headless
-  // dropPayload/dropReducer tests cannot exercise (they never build a real
-  // DataTransfer nor cross trees).
-  function crossTreeTransfer(
-    drag: vscode.DataTransfer,
-    sourceReservedMime: string,
-  ): vscode.DataTransfer {
+  // Reproduce the host's REAL cross-tree drop. VSCode 1.66 does NOT hand the source
+  // controller's custom DataTransferItem to the PEER controller's handleDrop: it
+  // re-applies the source handleDrag items only when the source and destination
+  // views match. On a cross-tree drop the peer controller's transfer carries none
+  // of OUR payload values - at most the host's own internal opaque reserved-MIME
+  // handle. We model that worst case here: the drop transfer carries the source
+  // reserved MIME set to a host-style opaque value that parseChatIds REJECTS (it is
+  // not our JSON id array), so the chat ids MUST come from the in-process
+  // dragContext stash that handleDrag set, or the drop is a no-op and the assertion
+  // fails. This is the carrier behavior the headless tests cannot exercise (they
+  // never build a real DataTransfer nor cross controllers), and it is what the
+  // previous copy-the-source-value version could not catch.
+  function crossTreeTransfer(sourceReservedMime: string): vscode.DataTransfer {
     const out = new vscode.DataTransfer();
-    const item = drag.get(sourceReservedMime);
-    assert.ok(
-      item,
-      'handleDrag must have set the source reserved MIME (the cross-tree carrier)',
+    // A host-internal opaque handle, NOT our chat-id JSON. parseChatIds returns []
+    // for it, so any code path that trusted this value cross-tree would silently
+    // no-op - which is exactly the failure mode the stash carrier fixes.
+    out.set(
+      sourceReservedMime,
+      new vscode.DataTransferItem({ itemHandles: ['0'], hostInternal: true }),
     );
-    out.set(sourceReservedMime, item);
     return out;
   }
 
@@ -232,14 +242,16 @@ describe('Slice 4 cross-tree drag carrier (electron host, real DataTransfer)', (
     await store.flush();
 
     // The dragged node is a real Folders-view ChatMemberItem (instanceof
-    // vscode.TreeItem), exercising chatIdsFromSource's instanceof dispatch.
+    // vscode.TreeItem), exercising chatIdsFromSource's instanceof dispatch. The
+    // drag stashes the chat ids in dragContext (the cross-view carrier).
     const dragged = new ChatMemberItem('f1', chatRecord('c1'));
     const dragTransfer = new vscode.DataTransfer();
     foldersDnd.handleDrag([dragged], dragTransfer);
 
-    // The host hands the peer (Tags) controller only the source reserved MIME.
-    const dropTransfer = crossTreeTransfer(dragTransfer, FOLDERS_RESERVED_MIME);
-    // The drop target is a real TagItem t1 (instanceof dispatch in targetIdFor).
+    // The host hands the peer (Tags) controller a transfer with NO usable payload
+    // value: the cross-view chat ids must ride the stash, not this transfer.
+    const dropTransfer = crossTreeTransfer(FOLDERS_RESERVED_MIME);
+    // The drop target is a real TagItem t1 (instanceof dispatch in resolveTarget).
     const target = new TagItem('t1', 'Tag One', false);
     await tagsDnd.handleDrop(target, dropTransfer);
     await store.flush();
@@ -255,14 +267,15 @@ describe('Slice 4 cross-tree drag carrier (electron host, real DataTransfer)', (
     store.addChatTag(PROJECT_KEY, 'c2', 't1');
     await store.flush();
 
-    // The dragged node is a real Tags-view ChatOccurrenceItem.
+    // The dragged node is a real Tags-view ChatOccurrenceItem; the drag stashes c2.
     const occurrence = makeOccurrence('t1', 'c2');
     const dragged = new ChatOccurrenceItem(occurrence, chatRecord('c2'));
     const dragTransfer = new vscode.DataTransfer();
     tagsDnd.handleDrag([dragged], dragTransfer);
 
-    // Cross-tree: only the Tags reserved MIME survives to the Folders controller.
-    const dropTransfer = crossTreeTransfer(dragTransfer, TAGS_RESERVED_MIME);
+    // Cross-tree: the Folders controller gets no usable payload value; the chat id
+    // rides the stash.
+    const dropTransfer = crossTreeTransfer(TAGS_RESERVED_MIME);
     const target = new FolderItem('f2', null, 'Folder Two', false);
     await foldersDnd.handleDrop(target, dropTransfer);
     await store.flush();
@@ -279,7 +292,7 @@ describe('Slice 4 cross-tree drag carrier (electron host, real DataTransfer)', (
 
     // A within-view drop in the SAME tree: the host preserves the full
     // DataTransfer, so the shared chat MIME is present. Pass the drag transfer
-    // straight through (no stripping).
+    // straight through (no stripping); the DataTransfer payload wins here.
     const occurrence = makeOccurrence('t1', 'c3');
     const dragged = new ChatOccurrenceItem(occurrence, chatRecord('c3'));
     const transfer = new vscode.DataTransfer();
@@ -293,13 +306,17 @@ describe('Slice 4 cross-tree drag carrier (electron host, real DataTransfer)', (
     assert.deepStrictEqual(meta.chats['c3'].tags.sort(), ['t1', 't2']);
   });
 
-  it('a foreign drag source is a no-op (no recognized MIME)', async () => {
+  it('a foreign drag source is a no-op (no recognized MIME, no stash)', async () => {
     const { store, tagsDnd } = buildHarness();
     store.addChatTag(PROJECT_KEY, 'c4', 't1');
     await store.flush();
 
+    // No handleDrag ran for this drop, so there is no Nest stash; consume any
+    // leftover stash from a prior test so this case is genuinely stash-free.
+    clearDrag();
+
     // A DataTransfer carrying only a foreign tree's MIME: the controller finds no
-    // recognized payload and must not mutate.
+    // recognized payload and no stash, and must not mutate.
     const transfer = new vscode.DataTransfer();
     transfer.set(
       'application/vnd.code.tree.someotherextension',
@@ -311,5 +328,53 @@ describe('Slice 4 cross-tree drag carrier (electron host, real DataTransfer)', (
 
     const meta = store.getProjectMeta(PROJECT_KEY);
     assert.deepStrictEqual(meta.chats['c4'].tags, ['t1'], 'no foreign-source mutation');
+  });
+
+  it('dropping a chat onto a linked-child row files it alongside (never silently unfiles)', async () => {
+    // Regression for the LinkedChildItem drop-target unfile bug: a drop on a
+    // linked-child row must resolve to the child chat's home folder, not undefined
+    // (which the reducer would map to unfile). The Folders controller is given a
+    // resolveChatHome that reports the linked child's home folder f3.
+    const store = new MetadataStore(new MemMemento(), {
+      deviceId: 'integration-device',
+      debounceMs: 0,
+    });
+    const foldersProvider = new FoldersProvider(undefined, store);
+    const foldersDnd = new NestDragAndDropController<FolderTreeNode>(
+      {
+        store,
+        getProjectKey: () => PROJECT_KEY,
+        provider: { refresh: () => foldersProvider.refresh() },
+        resolveChatHome: (chatId: string) => (chatId === 'childChat' ? 'f3' : undefined),
+      },
+      'claudeNest.folders',
+      FOLDERS_RESERVED_MIME,
+    );
+    // Seed: dragged chat c5 currently homed in f1.
+    store.setChatFolder(PROJECT_KEY, 'c5', 'f1');
+    await store.flush();
+
+    const dragged = new ChatMemberItem('f1', chatRecord('c5'));
+    const dragTransfer = new vscode.DataTransfer();
+    foldersDnd.handleDrag([dragged], dragTransfer);
+
+    // The drop target is a real LinkedChildItem whose underlying chat is childChat.
+    const child = {
+      chatId: 'childChat',
+      parentChatId: 'parentChat',
+      id: 'parentChat>link>childChat',
+      depth: 1,
+      broken: false,
+    };
+    const target = new LinkedChildItem(child, chatRecord('childChat'), false);
+    await foldersDnd.handleDrop(target, dragTransfer);
+    await store.flush();
+
+    const meta = store.getProjectMeta(PROJECT_KEY);
+    assert.strictEqual(
+      meta.chats['c5'].folderId,
+      'f3',
+      'dropped chat filed alongside the linked child (home f3), NOT unfiled',
+    );
   });
 });

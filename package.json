@@ -137,6 +137,17 @@
         "title": "Tag Chats...",
         "category": "Claude Code Nest",
         "icon": "$(tag)"
+      },
+      {
+        "command": "claudeNest.linkToChat",
+        "title": "Link to Chat...",
+        "category": "Claude Code Nest",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "claudeNest.unlinkChat",
+        "title": "Unlink",
+        "category": "Claude Code Nest"
       }
     ],
     "menus": {
@@ -242,6 +253,26 @@
           "command": "claudeNest.tagChats",
           "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
           "group": "inline"
+        },
+        {
+          "command": "claudeNest.linkToChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "2_link@1"
+        },
+        {
+          "command": "claudeNest.linkToChat",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "2_link@1"
+        },
+        {
+          "command": "claudeNest.unlinkChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.linkedChild",
+          "group": "2_link@1"
+        },
+        {
+          "command": "claudeNest.unlinkChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.linkedChildBroken",
+          "group": "2_link@1"
         }
       ],
       "commandPalette": [
@@ -275,6 +306,10 @@
         },
         {
           "command": "claudeNest.tagChats",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.unlinkChat",
           "when": "false"
         }
       ]

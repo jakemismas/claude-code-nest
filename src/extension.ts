@@ -4,6 +4,7 @@ import {
   FoldersProvider,
   FolderItem,
   ChatMemberItem,
+  LinkedChildItem,
   FolderTreeNode,
 } from './views/foldersProvider';
 import { openChat, OpenUri } from './launch/uriLauncher';
@@ -46,6 +47,15 @@ import {
   tagChats,
 } from './commands/taggingCommands';
 import { showTagMultiPick } from './ui/tagQuickPick';
+import {
+  LINK_TO_CHAT_COMMAND,
+  UNLINK_CHAT_COMMAND,
+  LinkCommandDeps,
+  LinkCommandUi,
+  linkToChat,
+  unlinkChat,
+} from './commands/linkCommands';
+import { Link } from './store/schema';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -91,6 +101,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const flatView = vscode.window.createTreeView('claudeNest.flat', {
     treeDataProvider: flatProvider,
     showCollapseAll: false,
+    // canSelectMany enables ctrl/shift multi-select in the Chats view so the
+    // contributed "Tag Chats..." command receives the full selection and tags
+    // every chosen chat in one batched write (TESTING.md Slice 4 step 3). The flat
+    // view has NO dragAndDropController, so this only unlocks multi-select for the
+    // context-menu/inline tag command, not a drag path.
+    canSelectMany: true,
   });
   context.subscriptions.push(flatView);
 
@@ -112,6 +128,12 @@ export function activate(context: vscode.ExtensionContext): void {
       store,
       getProjectKey: () => foldersProvider.resolveProjectKey(),
       provider: foldersProvider,
+      // Resolve a dropped-on linked-child row to its chat's home folder id so a
+      // drop files the dragged chat ALONGSIDE the linked child instead of
+      // unfiling it. memberNodeForChat carries the resolved home (a real folder id
+      // or the Unfiled sentinel); undefined when the chat is not currently homed.
+      resolveChatHome: (chatId: string) =>
+        foldersProvider.memberNodeForChat(chatId)?.folderId,
     },
     'claudeNest.folders',
     FOLDERS_RESERVED_MIME,
@@ -339,6 +361,64 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         return tagChats(taggingDeps, chatIds);
       },
+    ),
+  );
+
+  // The Links commands: link-to-chat and unlink. A kind:'parent' link nests the
+  // target under the source chat in the Folders tree; unlink removes the parent link
+  // from a linked child's designated parent. Both refresh the Folders view once
+  // after the store flush.
+  const linkUi: LinkCommandUi = {
+    // Slice 5 ships ONLY the kind:'parent' link (the nesting affordance). A
+    // kind:'related' link has no read, navigate, or remove surface yet, so offering
+    // it would let a user create an invisible, unremovable link (a write-only dead
+    // end). The schema and the pure links model already carry 'related' as a
+    // non-nesting kind for a future slice that renders and unlinks it; until then the
+    // picker resolves directly to 'parent' with no prompt (a single choice needs no
+    // QuickPick). The LinkCommandUi.pickKind seam is retained so the deferred kind can
+    // be re-enabled here without touching the command logic.
+    pickKind: () => Promise.resolve('parent' as Link['kind']),
+    pickChat: async (items, placeholder) => {
+      const picked = await vscode.window.showQuickPick(
+        items.map((item) => ({
+          label: item.label,
+          description: item.description,
+          chatId: item.chatId,
+        })),
+        { placeHolder: placeholder },
+      );
+      return picked ? { chatId: picked.chatId } : undefined;
+    },
+    showError: (message) => void vscode.window.showErrorMessage(message),
+    showInfo: (message) => void vscode.window.showInformationMessage(message),
+  };
+  const linkDeps: LinkCommandDeps = {
+    store,
+    provider: foldersProvider,
+    getProjectKey: () => foldersProvider.resolveProjectKey(),
+    getChatRecords: () => foldersProvider.chatRecords(),
+    ui: linkUi,
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      LINK_TO_CHAT_COMMAND,
+      (item?: FolderTreeNode | FlatChatItem | string) => {
+        // Fires from a chat-member row (Folders), a flat row (Chats), or a bare
+        // sessionId. A folder row or a linked-child row is not a valid source.
+        if (typeof item === 'string') {
+          return linkToChat(linkDeps, item);
+        }
+        if (item instanceof ChatMemberItem) {
+          return linkToChat(linkDeps, item.record.sessionId);
+        }
+        if (item instanceof FlatChatItem) {
+          return linkToChat(linkDeps, item.record.sessionId);
+        }
+        return undefined;
+      },
+    ),
+    vscode.commands.registerCommand(UNLINK_CHAT_COMMAND, (item?: FolderTreeNode) =>
+      item instanceof LinkedChildItem ? unlinkChat(linkDeps, item.child) : undefined,
     ),
   );
 

@@ -62,7 +62,14 @@ handler. If the extension fails, Claude must be entirely unaffected.
   write under ~/.claude, and it hard-asserts the canonicalized absolute target
   equals the one allowed settings.json path, throwing otherwise. The lint half of
   this defense is enforced, not left to review discipline, and it covers every
-  call shape, not just member calls. A bank of eslint no-restricted-syntax
+  write-capable call SHAPE (not just member calls) across every linted src file.
+  The only files exempt from the selector bank are the two explicit override
+  carve-outs below (the sanctioned settings-IO module and the test tree); there is
+  no name-based exemption (an earlier ignorePatterns entry for __probe* scratch
+  names was removed once verified to be bypassable, since the probe generator
+  writes under the gitignored .claude-working/ tree that `eslint src` never scans,
+  and probe-named files are also excluded from tsconfig so they cannot compile into
+  out/). A bank of eslint no-restricted-syntax
   selectors bans every write-capable fs call (writeFile/writeFileSync, append,
   write/writeSync, rename, rm/rmdir, unlink, truncate, mkdir/mkdtemp, copyFile/cp,
   createWriteStream, chmod/chown, symlink, link, utimes, open/openSync) across src
@@ -76,8 +83,13 @@ handler. If the extension fails, Claude must be entirely unaffected.
   - the alias (const w = fs.writeFileSync);
   - the bare call of a collision-free write name (writeFileSync(...)) as a
     defense-in-depth backstop once a name is in scope. A namespace import
-    (import * as fs from 'fs') stays legal because every write through it is a
-    member or computed call already covered above.
+    (import * as fs from 'fs') stays legal: a literal-named write through it
+    (fs.writeFileSync(...)) is the member-call form already covered, and a computed
+    write through it (fs[m](...)) is covered by the computed-key ban below. That
+    computed-key ban is NOT gated on the holder being named fs: a namespace alias to
+    any other name (const zz = fs as unknown as ...; zz[m](...)) would otherwise slip
+    a name-gated rule, so EVERY computed member call with a non-literal key is banned
+    in src (a variable key cannot be statically proven read-only).
   All selectors have an override carve-out for ONLY the sanctioned settings-IO module
   (src/settings/claudeSettingsIO.ts, which holds the path-asserting chokepoint)
   and the scratch-fixture test tree. The carve-out is staged ahead of the settings
@@ -106,14 +118,21 @@ handler. If the extension fails, Claude must be entirely unaffected.
 - Drag and drop: each view's controller's dropMimeTypes declares BOTH views'
   reserved MIMEs (its own AND the peer view's) plus one shared custom chat MIME;
   dragMimeTypes declares its own reserved MIME plus the shared chat MIME. The peer
-  reserved MIME is REQUIRED in dropMimeTypes for the cross-view drop to work: in
-  VSCode 1.66 the host delivers a custom MIME (the shared chat MIME) to handleDrop
-  only when the drag started in the SAME controller, and to be offered as a drop
-  target for a peer tree's drag a controller must list that peer tree's reserved
-  MIME (application/vnd.code.tree.<viewidlowercase>). handleDrop reads the payload
-  from whichever recognized MIME is present, asserts the payload MIME, and
-  interprets by the TARGET view. Reject unrecognized sources as a no-op. See
-  DECISIONS.md (Slice 3, dropMimeTypes peer-reserved-MIME).
+  reserved MIME is REQUIRED in dropMimeTypes so the host OFFERS the peer tree as a
+  drop target for a cross-view drag (without it the host never accepts the drop and
+  handleDrop never runs). It is NOT, however, the cross-view payload carrier: in
+  VSCode 1.66 the host delivers a controller's custom DataTransferItem to handleDrop
+  only when the drag started in the SAME controller (verified against the pinned
+  extHostTreeViews source: the source handleDrag items are re-applied only when
+  source view === destination view). So the cross-view PAYLOAD rides an in-process
+  shared stash (src/dnd/dragContext.ts) that handleDrag writes and the peer
+  handleDrop reads as a fallback; the DataTransfer remains the authoritative carrier
+  for a WITHIN-view drop, where the host preserves the custom item. handleDrop reads
+  the payload from a recognized MIME when present (within-view), else from the stash
+  (cross-view), asserts the payload MIME, and interprets by the TARGET view. Reject
+  unrecognized sources (no MIME and no stash) as a no-op. See DECISIONS.md (Slice 3
+  dropMimeTypes peer-reserved-MIME, and the Slice 5 correction of the cross-view
+  carrier mechanism).
   - The drop INTERPRETATION is a PURE reducer in its own vscode-free module
     (src/dnd/dropReducer.ts), NOT co-located in the controller: the controller
     (src/dnd/dndController.ts) imports vscode (TreeDragAndDropController,
@@ -128,7 +147,10 @@ handler. If the extension fails, Claude must be entirely unaffected.
     createTreeView's dragAndDropController option (they are NOT self-registering).
     Both the foldersView and tagsView createTreeView calls set canSelectMany:true
     (required so a multi-chat drag carries every selected chat) AND the
-    dragAndDropController option.
+    dragAndDropController option. The flat (Chats) view ALSO sets canSelectMany:true
+    but has NO dragAndDropController: there it only enables ctrl/shift multi-select
+    for the contributed "Tag Chats..." command (the multi-select batching TESTING.md
+    Slice 4 step 3 verifies), not a drag path.
 - Refresh coalescing: batch a multi-select mutation into ONE store write and fire
   onDidChangeTreeData once (targeted to affected parents where possible).
   Implement the batch via the store's EXISTING mutation coalescing, NOT a new batch
