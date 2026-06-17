@@ -93,10 +93,85 @@ describe('jsonlReader.scanTranscript', () => {
     );
     assert.strictEqual(scanTranscript(content).firstUserText, 'first');
   });
+
+  it('absorbs the PR signal from a type "pr-link" line', () => {
+    const content = jsonl(
+      { type: 'user', timestamp: '2026-06-16T02:00:00.000Z', uuid: 'u1', message: { content: 'x' } },
+      {
+        type: 'pr-link',
+        sessionId: 's1',
+        prNumber: 7,
+        prUrl: 'https://github.com/jakemismas/claude-code-nest/pull/7',
+        prRepository: 'jakemismas/claude-code-nest',
+        timestamp: '2026-06-16T02:08:03.681Z',
+      },
+    );
+    const scan = scanTranscript(content);
+    assert.strictEqual(scan.prNumber, 7);
+    assert.strictEqual(scan.prUrl, 'https://github.com/jakemismas/claude-code-nest/pull/7');
+    assert.strictEqual(scan.prRepository, 'jakemismas/claude-code-nest');
+  });
+
+  it('leaves PR fields null when there is no pr-link line', () => {
+    const content = jsonl(
+      { type: 'user', timestamp: '2026-06-16T02:00:00.000Z', message: { content: 'x' } },
+    );
+    const scan = scanTranscript(content);
+    assert.strictEqual(scan.prNumber, null);
+    assert.strictEqual(scan.prUrl, null);
+    assert.strictEqual(scan.prRepository, null);
+  });
+
+  it('absorbs the first non-empty gitBranch and ignores HEAD-only transcripts only at the signal layer', () => {
+    const content = jsonl(
+      { type: 'user', timestamp: '2026-06-16T02:00:00.000Z', gitBranch: 'feature/x', uuid: 'u1', message: { content: 'x' } },
+      { type: 'assistant', timestamp: '2026-06-16T02:01:00.000Z', gitBranch: 'other', uuid: 'u2', message: { content: 'y' } },
+    );
+    // First-wins on the branch (the reader keeps the session's opening branch).
+    assert.strictEqual(scanTranscript(content).gitBranch, 'feature/x');
+  });
+
+  it('captures the leading message uuids in transcript order', () => {
+    const content = jsonl(
+      { type: 'user', timestamp: '2026-06-16T02:00:00.000Z', uuid: 'a', parentUuid: null, message: { content: '1' } },
+      { type: 'assistant', timestamp: '2026-06-16T02:01:00.000Z', uuid: 'b', parentUuid: 'a', message: { content: '2' } },
+      { type: 'user', timestamp: '2026-06-16T02:02:00.000Z', uuid: 'c', parentUuid: 'b', message: { content: '3' } },
+    );
+    assert.deepStrictEqual(scanTranscript(content).leadingMessageUuids, ['a', 'b', 'c']);
+  });
+
+  it('caps the leading message uuid capture', () => {
+    const lines: unknown[] = [];
+    for (let i = 0; i < 40; i++) {
+      lines.push({ type: 'user', timestamp: '2026-06-16T02:00:00.000Z', uuid: 'u' + i, message: { content: String(i) } });
+    }
+    const scan = scanTranscript(jsonl(...lines));
+    assert.ok(scan.leadingMessageUuids.length <= 16, 'leading uuid capture is capped');
+    assert.strictEqual(scan.leadingMessageUuids[0], 'u0', 'the LEADING run is retained');
+  });
+
+  it('does not capture a uuid off a non-user/assistant line', () => {
+    const content = jsonl(
+      { type: 'queue-operation', uuid: 'should-not-count', op: 'x' },
+      { type: 'user', timestamp: '2026-06-16T02:00:00.000Z', uuid: 'real', message: { content: 'x' } },
+    );
+    assert.deepStrictEqual(scanTranscript(content).leadingMessageUuids, ['real']);
+  });
 });
 
 describe('jsonlReader.resolveTitle', () => {
-  const base = { customTitle: null, aiTitle: null, slug: null, firstUserText: null, timestamp: null };
+  const base = {
+    customTitle: null,
+    aiTitle: null,
+    slug: null,
+    firstUserText: null,
+    timestamp: null,
+    prNumber: null,
+    prUrl: null,
+    prRepository: null,
+    gitBranch: null,
+    leadingMessageUuids: [],
+  };
 
   it('prefers customTitle over everything', () => {
     const title = resolveTitle({ ...base, customTitle: 'C', aiTitle: 'A', slug: 's', firstUserText: 'f' });

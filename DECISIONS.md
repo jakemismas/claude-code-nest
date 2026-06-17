@@ -5,6 +5,49 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-16 Slice 6 (Smart Groups): four __smart_*__ sentinels and a '::' bucket-id namespace
+
+Resolution: this slice extends the reserved-id space in two ways that the prior
+ARCHITECTURE.md / DECISIONS.md id-grammar contract did not cover, and both are
+recorded here as binding.
+
+1. RESERVED_SENTINELS (src/model/idFactory.ts) gains four entries:
+   '__smart_pr__', '__smart_ticket__', '__smart_branch__', '__smart_fork__'. They
+   are the ids of the four Smart Groups signal-group rows. Like '__unfiled__'
+   (Slice 2) and '__untagged__' (Slice 3) they are separator-free synthetic-node
+   sentinels that live in the same id-space as minted folder/tag ids but are NOT
+   mintable; the factory's assertMintableId rejects them so a real folder/tag id
+   can never collide with a smart-group row id. The set is the second guard
+   alongside the separator rule. They are also re-exported from smartGroupEngine.ts
+   (SMART_GROUP_IDS) as defense-in-depth for the view.
+
+2. A new TWO-char '::' bucket-id separator (SMART_BUCKET_SEPARATOR in
+   smartGroupEngine.ts) names a smart-group bucket row: '<groupId>::<bucketKey>',
+   and the view layers a chat-occurrence row on top as '<bucketNodeId>::<chatId>'.
+   This is a NEW namespace sitting beside the three single-char composite-id
+   separators the grammar already documents (folder member '#', tag occurrence ':',
+   linked-child '>'). '::' is two ':' characters, but it is reserved ONLY under a
+   '__smart_*__' group prefix that no other view ever mints, and the smart-group
+   view never hands its ids to the single-':' tag-occurrence parser (nor any other
+   view's parser), so the namespaces do not collide in practice: a tag occurrence
+   id is '<separator-free tagId>:<chatId>' and can never begin with a '__smart_*__'
+   sentinel because that sentinel is excluded from the mintable tag-id space.
+
+Rationale: the DoD requires ARCHITECTURE.md (and the decision log) be updated when
+a slice changes a binding contract, and the id grammar is the most load-bearing
+binding contract in this codebase. The Slice 2 DECISIONS entry documented the
+sentinel class as exactly '__unfiled__' / '__untagged__'; leaving the four new
+'__smart_*__' sentinels undocumented would let a future reader assume the mintable
+exclusion set is closed. The '::' choice was made over reusing a single existing
+separator because the smart-group ids are never parsed back into component ids by
+the model (the view stores a bucket's memberChatIds directly rather than splitting
+the id), so the bucket key is treated as opaque; a two-char token under a reserved
+prefix is the cheapest way to keep these ids visibly distinct from the three
+parsed composite-id grammars without widening the single-char reserved set (which
+would ripple into the id-factory separator check and every existing split). The
+ARCHITECTURE.md "Separator-namespace discipline" rule and the "Smart-group signal
+strength" note were revised to record both additions.
+
 ## 2026-06-16 Slice 5 (fix pass): cross-view drag payload rides an in-process stash, not the DataTransfer
 
 Resolution: the CROSS-view (cross-tree) drag payload is carried by an in-process

@@ -6,14 +6,27 @@ import { TranscriptScan } from '../model/types';
 // line types (verified ground truth):
 //   type "custom-title"  -> customTitle
 //   type "ai-title"      -> aiTitle
-//   type "user"/"assistant" -> timestamp, cwd, slug, message
+//   type "pr-link"       -> prNumber, prUrl, prRepository  (slice 6)
+//   type "user"/"assistant" -> timestamp, cwd, slug, message, gitBranch, uuid
 // Unrelated types (queue-operation, hook_success, attachment,
 // deferred_tools_delta, last-prompt, file-history-snapshot, system, ...) are
 // tolerated and contribute nothing. A line that fails to parse is skipped, never
 // thrown. This module never touches the filesystem; it operates on already-read
 // text so the scanner owns the read-only contract.
+//
+// Slice 6 extends THIS one reader (not a second scanner) with the smart-group
+// signal fields: the pr-link PR data, the user/assistant gitBranch, and the
+// leading sequence of user/assistant message uuids for fork-lineage. The
+// skip-unknown-types tolerance is preserved.
 
 const MAX_TITLE_LENGTH = 80;
+
+// Cap on the number of leading message uuids retained for the fork-lineage
+// shared-prefix signal. A shared FORK is detectable from a short leading run;
+// retaining the whole transcript's uuids would bloat the scan for no signal
+// gain. The cap is generous enough that a genuine shared prefix (a forked
+// session replays the parent's opening turns) is still observed.
+const MAX_LEADING_UUIDS = 16;
 
 // Title resolution order, applied after a scan:
 //   1. customTitle  2. aiTitle  3. slug  4. truncated first user-message text
@@ -45,6 +58,11 @@ export function scanTranscript(content: string): TranscriptScan {
     slug: null,
     firstUserText: null,
     timestamp: null,
+    prNumber: null,
+    prUrl: null,
+    prRepository: null,
+    gitBranch: null,
+    leadingMessageUuids: [],
   };
 
   const lines = content.split(/\r?\n/);
@@ -75,10 +93,15 @@ export function scanTranscript(content: string): TranscriptScan {
           scan.aiTitle = obj.aiTitle;
         }
         break;
+      case 'pr-link':
+        absorbPrLink(scan, obj);
+        break;
       case 'user':
       case 'assistant':
         absorbTimestamp(scan, obj);
         absorbSlug(scan, obj);
+        absorbGitBranch(scan, obj);
+        absorbLeadingUuid(scan, obj);
         if (type === 'user') {
           absorbFirstUserText(scan, obj);
         }
@@ -92,6 +115,51 @@ export function scanTranscript(content: string): TranscriptScan {
   }
 
   return scan;
+}
+
+// Absorb the PR signal from a type "pr-link" line. The FIRST pr-link wins (a
+// transcript carries at most one in practice; first-wins is deterministic
+// regardless). prNumber is a number, prUrl/prRepository are strings; each is
+// taken only when well-typed so a malformed field leaves the others intact.
+function absorbPrLink(scan: TranscriptScan, obj: Record<string, unknown>): void {
+  if (scan.prNumber === null && typeof obj.prNumber === 'number') {
+    scan.prNumber = obj.prNumber;
+  }
+  if (scan.prUrl === null && typeof obj.prUrl === 'string' && obj.prUrl.length > 0) {
+    scan.prUrl = obj.prUrl;
+  }
+  if (
+    scan.prRepository === null &&
+    typeof obj.prRepository === 'string' &&
+    obj.prRepository.length > 0
+  ) {
+    scan.prRepository = obj.prRepository;
+  }
+}
+
+// Absorb the branch signal: the FIRST non-empty gitBranch on a user/assistant
+// line. A session's branch is stable across its turns in this data (almost
+// always "HEAD"), so first-wins is sufficient and avoids letting a late,
+// transient value override the session's branch.
+function absorbGitBranch(scan: TranscriptScan, obj: Record<string, unknown>): void {
+  if (scan.gitBranch === null && typeof obj.gitBranch === 'string' && obj.gitBranch.length > 0) {
+    scan.gitBranch = obj.gitBranch;
+  }
+}
+
+// Absorb the leading message uuid sequence (in transcript order) for the
+// fork-lineage shared-prefix signal, capped at MAX_LEADING_UUIDS. Only the
+// LEADING run is retained: once the cap is hit, later uuids are ignored. The
+// uuid must be a non-empty string; a line without one does not break the run
+// (it simply contributes nothing), which keeps the captured sequence the ordered
+// list of present uuids rather than a sparse array.
+function absorbLeadingUuid(scan: TranscriptScan, obj: Record<string, unknown>): void {
+  if (scan.leadingMessageUuids.length >= MAX_LEADING_UUIDS) {
+    return;
+  }
+  if (typeof obj.uuid === 'string' && obj.uuid.length > 0) {
+    scan.leadingMessageUuids.push(obj.uuid);
+  }
 }
 
 function absorbTimestamp(scan: TranscriptScan, obj: Record<string, unknown>): void {

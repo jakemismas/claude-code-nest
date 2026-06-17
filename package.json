@@ -19,7 +19,8 @@
   "activationEvents": [
     "onView:claudeNest.flat",
     "onView:claudeNest.folders",
-    "onView:claudeNest.tags"
+    "onView:claudeNest.tags",
+    "onView:claudeNest.smartGroups"
   ],
   "contributes": {
     "viewsContainers": {
@@ -47,6 +48,11 @@
           "id": "claudeNest.tags",
           "name": "Tags",
           "contextualTitle": "Claude Code Nest"
+        },
+        {
+          "id": "claudeNest.smartGroups",
+          "name": "Smart Groups",
+          "contextualTitle": "Claude Code Nest"
         }
       ]
     },
@@ -62,6 +68,10 @@
       {
         "view": "claudeNest.tags",
         "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then create a tag.\n[New Tag](command:claudeNest.createTag)"
+      },
+      {
+        "view": "claudeNest.smartGroups",
+        "contents": "No Claude Code chats found for this workspace yet.\nSmart Groups are read-only buckets computed from your transcripts (pull request, ticket prefix, git branch, fork lineage).\n[Refresh](command:claudeNest.refreshSmartGroups)"
       }
     ],
     "commands": [
@@ -148,6 +158,24 @@
         "command": "claudeNest.unlinkChat",
         "title": "Unlink",
         "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.refreshSmartGroups",
+        "title": "Refresh Smart Groups",
+        "category": "Claude Code Nest",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeNest.promoteSmartGroupToFolder",
+        "title": "Promote to Folder",
+        "category": "Claude Code Nest",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "claudeNest.promoteSmartGroupToTag",
+        "title": "Promote to Tag",
+        "category": "Claude Code Nest",
+        "icon": "$(tag)"
       }
     ],
     "menus": {
@@ -176,6 +204,11 @@
           "command": "claudeNest.refreshTags",
           "when": "view == claudeNest.tags",
           "group": "navigation@2"
+        },
+        {
+          "command": "claudeNest.refreshSmartGroups",
+          "when": "view == claudeNest.smartGroups",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -273,6 +306,21 @@
           "command": "claudeNest.unlinkChat",
           "when": "view == claudeNest.folders && viewItem == claudeNest.linkedChildBroken",
           "group": "2_link@1"
+        },
+        {
+          "command": "claudeNest.promoteSmartGroupToFolder",
+          "when": "view == claudeNest.smartGroups && viewItem == claudeNest.smartGroupBucket",
+          "group": "1_promote@1"
+        },
+        {
+          "command": "claudeNest.promoteSmartGroupToTag",
+          "when": "view == claudeNest.smartGroups && viewItem == claudeNest.smartGroupBucket",
+          "group": "1_promote@2"
+        },
+        {
+          "command": "claudeNest.promoteSmartGroupToFolder",
+          "when": "view == claudeNest.smartGroups && viewItem == claudeNest.smartGroupBucket",
+          "group": "inline"
         }
       ],
       "commandPalette": [
@@ -310,6 +358,14 @@
         },
         {
           "command": "claudeNest.unlinkChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.promoteSmartGroupToFolder",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.promoteSmartGroupToTag",
           "when": "false"
         }
       ]
