@@ -44,7 +44,13 @@ guarded settings write.
   Ticket-prefixed titles are essentially absent, gitBranch is almost always
   "HEAD", and no two transcripts shared a leading message-UUID sequence in the
   sample. Build the ticket and fork-lineage groups best-effort and let them
-  render empty gracefully. PR grouping is the one to make solid.
+  render empty gracefully. PR grouping is the one to make solid. (Slice 6 landed
+  this: the four signals live in the vscode-free src/smart/* modules; the gitBranch
+  group additionally SUPPRESSES the meaningless detached-HEAD bucket, and the
+  fork-lineage group requires a shared leading message-UUID prefix of length >= 2
+  and a family of two or more. The signal-group row ids are the four reserved
+  '__smart_*__' sentinels and a bucket row is keyed by the '::' namespace; see the
+  Separator-namespace discipline rule and DECISIONS.md.)
 - cleanupPeriodDays is currently ABSENT from ~/.claude/settings.json. The present
   top-level keys are permissions, model ("opus[1m]"), and hooks (with absolute
   Windows paths). The webview must handle read-when-missing (show Claude's
@@ -161,7 +167,18 @@ handler. If the extension fails, Claude must be entirely unaffected.
 - Empty state: getChildren(undefined) returns [] and a viewsWelcome contribution
   shows the no-sessions message. Never throw out of getChildren.
 - Separator-namespace discipline: tag, folder, and chat ids are generated free of
-  ':', '#', '>'. Enforce in the id factory.
+  ':', '#', '>'. Enforce in the id factory. The synthetic-node sentinels live in
+  the same id-space but are NOT mintable and are excluded from the factory's
+  mintable set: '__unfiled__' (Folders), '__untagged__' (Tags), and the four Smart
+  Groups signal-group ids '__smart_pr__' / '__smart_ticket__' / '__smart_branch__'
+  / '__smart_fork__' (Slice 6). The Smart Groups view adds a TWO-char '::' bucket-id
+  namespace on top of the three single-char composite separators: a bucket row is
+  `${groupId}::${bucketKey}` and a chat row under it is `${bucketNodeId}::${chatId}`.
+  This namespace is reserved ONLY under a '__smart_*__' group prefix that no other
+  view mints, and smart-group ids are never fed to the single-':' tag-occurrence
+  parser (the view treats a bucket key as opaque and stores memberChatIds directly
+  rather than splitting the id), so it does not collide with the parsed
+  composite-id grammars. See DECISIONS.md (Slice 6 sentinels and '::' namespace).
 
 ## Data integrity, read-only, and settings rules
 

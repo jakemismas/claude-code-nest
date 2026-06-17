@@ -56,6 +56,19 @@ import {
   unlinkChat,
 } from './commands/linkCommands';
 import { Link } from './store/schema';
+import {
+  SmartGroupsProvider,
+  SmartBucketItem,
+  SmartTreeNode,
+} from './views/smartGroupsProvider';
+import {
+  PROMOTE_GROUP_TO_FOLDER_COMMAND,
+  PROMOTE_GROUP_TO_TAG_COMMAND,
+  PromoteDeps,
+  PromotableGroup,
+  promoteGroupToFolder,
+  promoteGroupToTag,
+} from './commands/promoteSmartGroup';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -422,6 +435,56 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // The claudeNest.smartGroups view: read-only, recomputed-on-refresh buckets
+  // over the four signals. It scans transcripts (read-only) and writes nothing on
+  // its own; the only mutations are the explicit promote commands below, which
+  // write synced ProjectMeta through the store exactly like the folder/tag
+  // commands. The provider resolves the project key on demand like the others.
+  const smartGroupsProvider = new SmartGroupsProvider(workspacePath);
+  const smartGroupsView = vscode.window.createTreeView('claudeNest.smartGroups', {
+    treeDataProvider: smartGroupsProvider,
+    showCollapseAll: true,
+    // No dragAndDropController: smart groups are read-only and not a drop target.
+  });
+  context.subscriptions.push(smartGroupsView);
+
+  // The promote commands turn a chosen bucket into a real folder/tag. A promote
+  // creates folders/tags and files/tags member chats, then refreshes the affected
+  // views once (folders + tags reflect the new membership; the smart-groups view
+  // refreshes so its description counts stay live). The promote is idempotent both
+  // on chat membership and on group identity (reuse-by-name); see
+  // promoteSmartGroup.ts.
+  const promoteDeps: PromoteDeps = {
+    store,
+    provider: {
+      refresh: () => {
+        foldersProvider.refresh();
+        tagsProvider.refresh();
+        smartGroupsProvider.refresh();
+      },
+    },
+    getProjectKey: () => smartGroupsProvider.resolveProjectKey(),
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      PROMOTE_GROUP_TO_FOLDER_COMMAND,
+      (item?: SmartTreeNode) => {
+        const group = promotableFrom(item);
+        return group ? promoteGroupToFolder(promoteDeps, group) : undefined;
+      },
+    ),
+    vscode.commands.registerCommand(
+      PROMOTE_GROUP_TO_TAG_COMMAND,
+      (item?: SmartTreeNode) => {
+        const group = promotableFrom(item);
+        return group ? promoteGroupToTag(promoteDeps, group) : undefined;
+      },
+    ),
+    vscode.commands.registerCommand('claudeNest.refreshSmartGroups', () =>
+      smartGroupsProvider.refresh(),
+    ),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_CHAT_COMMAND, (sessionId: string) => {
       // Compose vscode.Uri.from with vscode.env.openExternal as the injected
@@ -454,6 +517,20 @@ export function deactivate(): Thenable<void> | void {
   if (store) {
     return store.flush();
   }
+}
+
+// Recover a PromotableGroup from a clicked Smart Groups row. Only a bucket row
+// (SmartBucketItem) is promotable; a group row or chat row contributes nothing.
+// The bucket's label becomes the folder name / tag label and its memberChatIds
+// the chats to file/tag.
+function promotableFrom(item?: SmartTreeNode): PromotableGroup | undefined {
+  if (item instanceof SmartBucketItem) {
+    return {
+      name: item.bucket.label,
+      memberChatIds: item.bucket.memberChatIds,
+    };
+  }
+  return undefined;
 }
 
 // Recover the dragged/clicked chats' sessionIds from a tag-command invocation.

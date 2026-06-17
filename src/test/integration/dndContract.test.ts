@@ -110,6 +110,11 @@ function chatRecord(sessionId: string): ChatRecord {
     title: 'Chat ' + sessionId,
     timestamp: 1_700_000_000_000,
     filePath: '/tmp/' + sessionId + '.jsonl',
+    prNumber: null,
+    prUrl: null,
+    prRepository: null,
+    gitBranch: null,
+    leadingMessageUuids: [],
   };
 }
 

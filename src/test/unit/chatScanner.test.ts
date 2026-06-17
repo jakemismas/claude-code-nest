@@ -37,6 +37,35 @@ before(() => {
     { type: 'user', timestamp: '2026-06-15T12:00:00.000Z', cwd: 'c:\\Users\\Tester\\proj', message: { content: 'newer' } },
   ]);
 
+  // A transcript carrying all five slice 6 smart-group signals: a pr-link line
+  // (PR number/url/repo), a gitBranch on the user/assistant lines, and a leading
+  // run of message uuids. Asserts readChat/scanChats wire each scan field through
+  // to the ChatRecord (the seam between the reader and the engine's input).
+  writeJsonl(proj, 'dddddddd-0000-0000-0000-000000000004.jsonl', [
+    { type: 'custom-title', customTitle: 'Signal Chat' },
+    {
+      type: 'pr-link',
+      prNumber: 42,
+      prUrl: 'https://github.com/jakemismas/nest/pull/42',
+      prRepository: 'jakemismas/nest',
+    },
+    {
+      type: 'user',
+      timestamp: '2026-06-15T11:00:00.000Z',
+      cwd: 'c:\\Users\\Tester\\proj',
+      gitBranch: 'slice/smart-groups',
+      uuid: 'uuid-aaaa',
+      message: { content: 'first' },
+    },
+    {
+      type: 'assistant',
+      timestamp: '2026-06-15T11:01:00.000Z',
+      gitBranch: 'slice/smart-groups',
+      uuid: 'uuid-bbbb',
+      message: { content: 'reply' },
+    },
+  ]);
+
   // A bare-UUID transcript dir (no .jsonl extension) and a memory sidecar dir:
   // both must be ignored by the *.jsonl glob.
   fs.mkdirSync(path.join(proj, 'aaaaaaaa-0000-0000-0000-000000000001'), { recursive: true });
@@ -74,12 +103,13 @@ describe('chatScanner.resolveDir', () => {
 describe('chatScanner.scanChats', () => {
   it('globs *.jsonl only, ignoring bare-UUID dirs, the memory dir, and non-jsonl files', () => {
     const records = scanChats('c:\\Users\\Tester\\proj', { projectsRoot: root });
-    assert.strictEqual(records.length, 3);
+    assert.strictEqual(records.length, 4);
     const ids = records.map((r) => r.sessionId).sort();
     assert.deepStrictEqual(ids, [
       'aaaaaaaa-0000-0000-0000-000000000001',
       'bbbbbbbb-0000-0000-0000-000000000002',
       'cccccccc-0000-0000-0000-000000000003',
+      'dddddddd-0000-0000-0000-000000000004',
     ]);
   });
 
@@ -97,8 +127,32 @@ describe('chatScanner.scanChats', () => {
   it('sorts newest first, with null-timestamp records last', () => {
     const records = scanChats('c:\\Users\\Tester\\proj', { projectsRoot: root });
     assert.strictEqual(records[0].sessionId, 'cccccccc-0000-0000-0000-000000000003');
-    assert.strictEqual(records[1].sessionId, 'aaaaaaaa-0000-0000-0000-000000000001');
-    assert.strictEqual(records[2].sessionId, 'bbbbbbbb-0000-0000-0000-000000000002');
+    assert.strictEqual(records[1].sessionId, 'dddddddd-0000-0000-0000-000000000004');
+    assert.strictEqual(records[2].sessionId, 'aaaaaaaa-0000-0000-0000-000000000001');
+    assert.strictEqual(records[3].sessionId, 'bbbbbbbb-0000-0000-0000-000000000002');
+  });
+
+  it('carries the slice 6 signal fields from the scan through to the ChatRecord', () => {
+    const records = scanChats('c:\\Users\\Tester\\proj', { projectsRoot: root });
+    const byId = new Map(records.map((r) => [r.sessionId, r]));
+    const signal = byId.get('dddddddd-0000-0000-0000-000000000004');
+    assert.ok(signal, 'expected the signal-carrying transcript to be scanned');
+    assert.strictEqual(signal.prNumber, 42);
+    assert.strictEqual(signal.prUrl, 'https://github.com/jakemismas/nest/pull/42');
+    assert.strictEqual(signal.prRepository, 'jakemismas/nest');
+    assert.strictEqual(signal.gitBranch, 'slice/smart-groups');
+    assert.deepStrictEqual(signal.leadingMessageUuids, ['uuid-aaaa', 'uuid-bbbb']);
+  });
+
+  it('leaves the slice 6 signal fields null/empty for a transcript carrying none', () => {
+    const records = scanChats('c:\\Users\\Tester\\proj', { projectsRoot: root });
+    const byId = new Map(records.map((r) => [r.sessionId, r]));
+    const plain = byId.get('aaaaaaaa-0000-0000-0000-000000000001');
+    assert.ok(plain, 'expected the plain transcript to be scanned');
+    assert.strictEqual(plain.prNumber, null);
+    assert.strictEqual(plain.prUrl, null);
+    assert.strictEqual(plain.prRepository, null);
+    assert.deepStrictEqual(plain.leadingMessageUuids, []);
   });
 
   it('returns [] for an unresolved workspace without throwing', () => {

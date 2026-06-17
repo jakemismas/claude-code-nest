@@ -166,6 +166,47 @@ window.
    it directly onto a nested linked-child row. Confirm the dragged chat is filed
    into the SAME folder as that linked child (alongside it) and is NOT unfiled.
 
+## Slice 6: Smart Groups (read-only, promotable)
+
+These exercise the parts of the slice that cannot run headless: the Smart Groups
+view rendering, the four signal groups, the promote context menu, and empty-group
+rendering against the real window. The bucketing logic itself is covered by the
+headless unit suite; this checklist is the only verification of the vscode-bound
+view.
+
+1. The view appears: open the Nest workspace. A Smart Groups view appears in the
+   claudeNest panel alongside Chats, Folders, and Tags. It lists four signal-group
+   rows in fixed order: By Pull Request, By Ticket Prefix, By Git Branch, By Fork
+   Lineage.
+2. Read-only invariant: nothing in this view ever moves or files a chat on its own.
+   Expanding a group or a bucket never changes a chat's folder home or tags; the
+   only write is the explicit promote command in step 5. Re-confirm no transcript
+   under `~/.claude/projects/` changed.
+3. The PR group lists chats with PR links (the solid signal): expand By Pull
+   Request. Confirm there is one bucket per distinct PR (labeled "PR #<n> (<repo>)"
+   or the url) and that expanding a bucket lists every chat that worked that PR.
+   A chat that worked two different surfaces can appear under more than one signal
+   group (e.g. a PR bucket and a branch bucket) without error.
+4. Empty best-effort groups render cleanly: expand By Ticket Prefix, By Git Branch,
+   and By Fork Lineage. On this user's real data these are typically empty. Confirm
+   each shows as a childless row marked "best-effort, none" (not an error, not a
+   spinner, not a missing row). The detached-HEAD branch is deliberately suppressed,
+   so a workspace whose sessions all report branch "HEAD" shows an empty Git Branch
+   group.
+5. Promote a bucket to a tag, idempotently: right-click a PR bucket row and choose
+   the promote-to-tag action. Confirm a tag named like the bucket label is created
+   in the Tags view and every member chat now carries it. Right-click the SAME
+   bucket and promote-to-tag AGAIN: confirm NO duplicate tag is created (the
+   existing tag is reused by label) and no chat gains a second copy. Repeat the
+   same check with promote-to-folder on a bucket: the members file into one
+   top-level folder, and a second promote reuses that folder by name rather than
+   creating a duplicate.
+6. Promote does not disturb the read-only buckets: after promoting, confirm the
+   Smart Groups view still shows the same buckets (promotion creates a folder/tag,
+   it does not consume or remove the smart group), and that the promoted chats kept
+   any folder/tag they already had (promote-to-tag is additive; promote-to-folder
+   sets the single home).
+
 ## Integration tests (deferred)
 
 The electron-host integration tests (`npm run test:integration`) need a VSCode

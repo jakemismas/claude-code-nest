@@ -81,6 +81,13 @@ export function readChat(filePath: string): ChatRecord | null {
     title,
     timestamp: scan.timestamp,
     filePath,
+    // Carry the slice 6 smart-group signals through to the record. The scanner
+    // stays the SOLE file reader; the reader stays the SOLE parser.
+    prNumber: scan.prNumber,
+    prUrl: scan.prUrl,
+    prRepository: scan.prRepository,
+    gitBranch: scan.gitBranch,
+    leadingMessageUuids: scan.leadingMessageUuids,
   };
 }
 

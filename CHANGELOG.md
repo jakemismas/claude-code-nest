@@ -7,6 +7,63 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Slice 6 (Smart Groups): a read-only claudeNest.smartGroups tree that recomputes
+  four signal groups from the current scan on every refresh, never auto-files a
+  chat, and never mutates the store except through an explicit promote command.
+  The four signals (all pure, vscode-free, headless-tested) are: by Pull Request
+  (SOLID: a chat carries a PR when its transcript had a type "pr-link" line, keyed
+  by the canonical owner/repo#number, derived from the explicit pr-link fields OR
+  parsed from the PR url path, else a bare #number when no repo is known, else the
+  raw url; deriving repo+number from the url means a transcript whose pr-link
+  carried only a url and one that carried only repo+number for the SAME PR
+  co-locate in one bucket instead of splitting), by Ticket Prefix (best-effort: a 2-to-10
+  uppercase-letter, hyphen, digits token anchored at the START of the resolved
+  title and followed by a word boundary; essentially absent in this user's data so
+  it renders empty cleanly), by Git Branch (best-effort: groups by the gitBranch on
+  user/assistant lines, SUPPRESSING the meaningless detached-HEAD bucket so a HEAD
+  session and a branchless chat join no bucket; usually empty here), and by Fork
+  Lineage (best-effort, often empty: a disjoint-set union over the leading
+  message-UUID prefix groups transcripts that share at least MIN_SHARED_PREFIX (2)
+  leading uuids into fork families, keeping only families of two or more, with a
+  STABLE count-free label so the promote path reuses by name as a family grows).
+  Every signal group is ALWAYS present even with zero buckets, so an empty
+  best-effort group renders as a childless row marked "best-effort, none" rather
+  than vanishing, and getChildren never throws (a scan failure degrades to []).
+  Two explicit, idempotent promotion commands turn a chosen bucket into real
+  metadata: claudeNest.promoteSmartGroupToFolder files every member into a
+  top-level folder and claudeNest.promoteSmartGroupToTag applies a tag to every
+  member. Idempotency is two-level: membership (setChatFolder is last-write,
+  addChatTag dedupes, so re-promoting a member is a no-op) AND group identity
+  (idempotency-on-NAME: a second promote reuses the existing top-level folder
+  matched by name, or the existing tag matched by label, rather than minting a
+  duplicate). The promote batch follows the deleteFolder-cascade shape: N
+  synchronous store calls coalesce into one pending write, then one flush and one
+  refresh; a promote with no resolved project, an empty name, or zero members is a
+  null no-op. New id-grammar surface: the four signal groups are keyed by the
+  separator-free reserved sentinels __smart_pr__, __smart_ticket__,
+  __smart_branch__, __smart_fork__ (added to RESERVED_SENTINELS so the id factory
+  can never mint one), and a bucket row is keyed by a new two-char '::' namespace
+  ('<groupId>::<bucketKey>') layered over the existing single-char ':'/'#'/'>'
+  composite separators; the '::' token lives only under a '__smart_*__' prefix that
+  the other views never mint or split, and a chat-occurrence row under a bucket is
+  '<bucketNodeId>::<chatId>' so the SAME chat appearing in two buckets (it can carry
+  a PR and a branch) yields two distinct tree-wide-unique nodes that each
+  dereference the ONE shared ChatRecord. Node objects are memoized by id and the
+  cache is pruned to the live id set on each refresh. New modules:
+  src/smart/smartGroupEngine.ts (the pure composition and the bucket-id grammar),
+  src/smart/signals/{bucket,pr,ticket,branch,forkLineage}.ts (the four pure
+  signals), src/commands/promoteSmartGroup.ts (the two idempotent promote commands),
+  src/views/smartGroupsProvider.ts (the only vscode-bound module). Headless unit
+  tests cover each signal as a pure function (PR key precedence and co-location,
+  the ticket prefix accept/reject boundary cases, the HEAD suppression, fork-lineage
+  on synthetic shared and divergent uuid prefixes including the transitive union and
+  the two-member-minimum and longest-common-prefix), the engine assembly (four
+  groups always present, empty groups, the '::' bucket-id round-trip), the id-factory
+  sentinel additions, and the promotion orchestration (idempotency-on-name folder
+  reuse and tag-label reuse, the no-project/empty-name/zero-member null guards,
+  membership dedup on re-promote, one refresh per batch). The vscode-bound view
+  (the tree rendering, the promote context menu, empty-group rendering) has no
+  headless test and is verified by the slice-6 manual smoke (TESTING.md).
 - Slice 5 (Links plus branch display): a chat can be linked to another chat from a
   chat row in any view (the claudeNest.linkToChat command), and a linked child can be
   unlinked from its designated parent's context menu (claudeNest.unlinkChat). A
