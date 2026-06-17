@@ -8,7 +8,7 @@ import {
   UNFILED_LABEL,
 } from '../model/folderTree';
 import { assertMintableId } from '../model/idFactory';
-import { FoldersProvider, FolderItem, ChatMemberItem } from '../views/foldersProvider';
+import { FolderItem, ChatMemberItem } from '../views/foldersProvider';
 
 // The Folders-view commands: create (with slash-path expansion), rename, delete,
 // and assign-a-chat-to-a-folder. Every store mutation runs through MetadataStore
@@ -48,7 +48,10 @@ export interface FolderCommandUi {
 
 export interface FolderCommandDeps {
   store: MetadataStore;
-  provider: FoldersProvider;
+  // Only refresh() is used; a structural refresher lets the wiring pass a closure
+  // that also schedules the opt-in auto-export snapshot after a mutation. The
+  // concrete FoldersProvider and the test stubs both satisfy it.
+  provider: { refresh(): void };
   // Resolve the encoded project key ON DEMAND (mirroring scanChats), so a command
   // invoked after Claude Code created the project dir resolves it instead of acting
   // on a value frozen at activation. extension.ts wires this to

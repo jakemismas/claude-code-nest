@@ -1,7 +1,7 @@
 import { MetadataStore } from '../store/metadataStore';
 import { Tag } from '../store/schema';
 import { assertMintableId, mintTagId } from '../model/idFactory';
-import { TagsProvider, TagItem, ChatOccurrenceItem } from '../views/tagsProvider';
+import { TagItem, ChatOccurrenceItem } from '../views/tagsProvider';
 
 // The Tags-view commands: create a tag, delete a tag, and apply/remove a tag on a
 // chat. Every store mutation runs through MetadataStore (the synced ProjectMeta),
@@ -45,7 +45,10 @@ export interface TagCommandUi {
 
 export interface TagCommandDeps {
   store: MetadataStore;
-  provider: TagsProvider;
+  // Only refresh() is used; a structural refresher lets the wiring schedule the
+  // opt-in auto-export snapshot after a tag mutation. The concrete TagsProvider and
+  // the test stubs both satisfy it.
+  provider: { refresh(): void };
   // Resolve the encoded project key ON DEMAND (mirroring FoldersProvider), so a
   // command invoked after Claude Code created the project dir resolves it instead
   // of acting on a value frozen at activation.

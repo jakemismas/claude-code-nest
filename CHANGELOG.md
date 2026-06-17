@@ -7,6 +7,76 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ### Added
 
+- Slice 8 (Export/import plus sync hardening): two commands, Export Library to
+  JSON (claudeNest.exportLibrary) and Import Library from JSON
+  (claudeNest.importLibrary), plus an additive cross-machine reconcile that runs
+  on activation and on window focus, and a debounced opt-in auto-export snapshot
+  with retention. Export writes ALL projects with their per-project and per-record
+  stamps to a user-chosen JSON envelope ({ version, exportedAt, projects }) as the
+  authoritative backup. Import does scratch-validate-before-swap: it parses,
+  validates the envelope WRAPPER shape, migrates the envelope across export-format
+  versions (a SEPARATE version from the per-project SCHEMA_VERSION), runs each
+  embedded project through the existing schema.migrateProjectMeta (REUSED, not
+  duplicated, preserving each project's __unknown forward-compat escrow), and only
+  THEN merges additively per project via store.putProjectMeta, NEVER deleting a
+  project absent from the file. The additive per-project merge applies the pinned
+  collision identity rule: folders and tags union by id (same-id conflict resolved
+  by the higher document updatedAt), chat tags union as a set, chat links union
+  deduped on the exact (targetChatId, kind) pair (matching addLink), and chat
+  folderId is the last-writer-wins scalar arbitrated by the per-RECORD
+  ChatMeta.updatedAt (there is no per-scalar-field stamp and SCHEMA_VERSION is not
+  bumped); a genuine differing-non-null folderId on both sides is the irreducible
+  conflict floor, counted and surfaced through an honest last-writer-wins warning
+  toast. The cross-machine reconcile (reconcileSync) detects a foreign-device
+  wholesale-replace by diffing the live synced value against a LOCAL-ONLY on-disk
+  shadow (the last value this device wrote or saw, stored under the non-synced
+  nest.shadow.v1:: key so isMetaKey is false and it is never swept into
+  setKeysForSync), using the per-project/per-record deviceId and updatedAt stamps
+  as the signal; on a detected foreign write it merges additively (the same
+  union/LWW shape as import) so a foreign opaque-value replace does not silently
+  drop local-only organization. Detection is best-effort polling (there is no
+  Memento remote-change event): it runs once on activation and again on each
+  window focus-gain via vscode.window.onDidChangeWindowState. The opt-in
+  auto-export (default off, gated behind a globalState flag with a one-time prompt
+  to point a canonical export at a synced or git-tracked location) writes a
+  debounced snapshot to context.globalStorageUri and prunes to the most recent N
+  (RETENTION_COUNT = 10). The pure modules (src/store/exportImport.ts,
+  reconcileSync.ts, schemaMigrate.ts, autoExport.ts) are vscode-free and
+  unit-tested headless (round-trip, envelope validation, version migration,
+  additive merge and the collision identity rule, the reconcile algorithm,
+  retention, and scratch-validate-before-swap); ALL filesystem IO, the activation
+  hook, the focus polling, globalStorage access, and the warning toast live in the
+  vscode-bound src/commands/exportImportCommands.ts. Because the read-only lint
+  bank's first selector is object-agnostic, even a vscode.workspace.fs write trips
+  it (the slice-patch assumption that it would not was disproved by the lint gate),
+  so all file IO is isolated in the narrow, carve-out-exempted src/store/exportIO.ts
+  (added to .eslintrc alongside claudeSettingsIO.ts); it imports no node fs and
+  never writes under ~/.claude, so the chokepoint stays intact.
+
+### Fixed
+
+- Slice 8 reconcile data loss: the cross-machine reconcile silently dropped a
+  local-only tag, link, or chat when a foreign device delivered a SUBSET snapshot
+  (a value missing a record this device had added but never synced). The merge
+  correctly unioned the dropped record back, but reconcileAllProjects gated the
+  store write on the merge's changed flag, which compares the merged document to
+  its BASE. In the reconcile path the base is the local-only SHADOW, so a foreign
+  subset produced merged == shadow (changed:false), the write was skipped, the
+  store kept the lossy foreign value, and the shadow was then advanced to it,
+  making the loss permanent. The fix gates the write on a new storeChanged flag
+  (merged differs from the live STORE value, not from the shadow), so a foreign
+  subset is always written back and the dropped record is restored; a pure-superset
+  foreign write (nothing dropped) still skips the redundant write. The import path
+  was never affected because there the merge base IS the live store. Regression
+  tests cover the subset restore and the superset no-op at both the pure
+  reconcileProjectSync level and the reconcileAllProjects orchestration level.
+
+- Slice 8 auto-export coverage: added headless behavior tests for the AutoExporter
+  debounce timer (the named "debounced" ship item) -- the opt-in gate no-op, the
+  coalesce-a-burst-into-one-snapshot rule, dispose cancellation, the best-effort
+  write-failure swallow, and the prune wiring (listDirectory to computeRetentionPrune
+  to delete) -- via a small injected debounce window and an in-memory vscode.fs stub.
+
 - Slice 7 (Settings webview): a gear button on every claudeNest view title
   (claudeNest.openSettings) opens a single reusable, CSP-locked, nonce-scripted
   WebviewPanel that reads and edits Claude Code's GLOBAL cleanupPeriodDays in

@@ -17,6 +17,12 @@ Claude Code Nest contributes its own Activity Bar panel with:
 - Links between chats, rendered as branch-nested children.
 - Read-only, auto-computed Smart Groups the user can promote to real folders or tags.
 - A Settings webview to read and edit Claude's global cleanupPeriodDays.
+- Export the whole library to a JSON backup and import it back with an additive,
+  per-project merge that never deletes a project missing from the file. An
+  additive cross-machine reconcile (union tags and links, last-writer-wins per
+  folder by edit time) runs on activation and on window focus, with an honest
+  warning when two machines set a conflicting folder, plus an opt-in auto-export
+  snapshot with retention.
 
 Your organization (folders, tags, links) is stored per project in VSCode's
 globalState and registered for Settings Sync one key per project, so it follows

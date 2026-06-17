@@ -70,6 +70,16 @@ import {
   promoteGroupToTag,
 } from './commands/promoteSmartGroup';
 import { OPEN_SETTINGS_COMMAND, openSettingsWebview } from './settings/settingsWebview';
+import {
+  AutoExporter,
+  EXPORT_COMMAND,
+  IMPORT_COMMAND,
+  ExportImportDeps,
+  exportLibrary,
+  importLibrary,
+  maybePromptAutoExport,
+  reconcileAllProjects,
+} from './commands/exportImportCommands';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -80,6 +90,10 @@ import { OPEN_SETTINGS_COMMAND, openSettingsWebview } from './settings/settingsW
 // a Thenable returned from deactivate() during shutdown, which is the reliable
 // teardown hook for persisting writes staged within the debounce window.
 let activeStore: MetadataStore | undefined;
+
+// The active auto-exporter, held so deactivate() can cancel a pending debounced
+// snapshot at shutdown.
+let activeAutoExporter: AutoExporter | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -110,6 +124,17 @@ export function activate(context: vscode.ExtensionContext): void {
   activeStore = new MetadataStore(syncMemento, { deviceId });
   const store = activeStore;
   context.subscriptions.push({ dispose: () => void store.dispose() });
+
+  // Forward handle to the debounced opt-in auto-export. The AutoExporter is
+  // constructed lower (it shares the export/import deps), but the user's own
+  // organization-mutation refresh closures (folder/tag/link/tagging/promote) are
+  // built ABOVE it, so they call through this indirection. Without it the snapshot
+  // would only fire on import/reconcile merges, never on the user's own edits,
+  // defeating the feature's stated purpose (PLAN.md slice 8: a backup of the user's
+  // work, snapshotted on a sync-time change). Assigned once the AutoExporter exists;
+  // a mutation before that point (none occur during synchronous activation) is a
+  // harmless no-op.
+  let scheduleAutoExport: () => void = () => {};
 
   const flatProvider = new FlatProvider(workspacePath);
   const flatView = vscode.window.createTreeView('claudeNest.flat', {
@@ -197,7 +222,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const folderDeps: FolderCommandDeps = {
     store,
-    provider: foldersProvider,
+    provider: {
+      refresh: () => {
+        foldersProvider.refresh();
+        scheduleAutoExport();
+      },
+    },
     getProjectKey: () => foldersProvider.resolveProjectKey(),
     ui: folderUi,
   };
@@ -296,7 +326,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const tagDeps: TagCommandDeps = {
     store,
-    provider: tagsProvider,
+    provider: {
+      refresh: () => {
+        tagsProvider.refresh();
+        scheduleAutoExport();
+      },
+    },
     getProjectKey: () => tagsProvider.resolveProjectKey(),
     ui: tagUi,
   };
@@ -353,6 +388,7 @@ export function activate(context: vscode.ExtensionContext): void {
       refresh: () => {
         tagsProvider.refresh();
         foldersProvider.refresh();
+        scheduleAutoExport();
       },
     },
     getProjectKey: () => tagsProvider.resolveProjectKey(),
@@ -408,7 +444,12 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   const linkDeps: LinkCommandDeps = {
     store,
-    provider: foldersProvider,
+    provider: {
+      refresh: () => {
+        foldersProvider.refresh();
+        scheduleAutoExport();
+      },
+    },
     getProjectKey: () => foldersProvider.resolveProjectKey(),
     getChatRecords: () => foldersProvider.chatRecords(),
     ui: linkUi,
@@ -462,6 +503,7 @@ export function activate(context: vscode.ExtensionContext): void {
         foldersProvider.refresh();
         tagsProvider.refresh();
         smartGroupsProvider.refresh();
+        scheduleAutoExport();
       },
     },
     getProjectKey: () => smartGroupsProvider.resolveProjectKey(),
@@ -517,6 +559,91 @@ export function activate(context: vscode.ExtensionContext): void {
       openSettingsWebview(context.extensionUri),
     ),
   );
+
+  // Slice 8: export/import plus cross-machine sync hardening. The export writes
+  // ALL projects (with stamps) to a user-chosen JSON as the authoritative backup;
+  // import validates and migrates a scratch copy then atomically swaps and merges
+  // additively per project (never deleting an absent project). The additive
+  // cross-machine reconcile runs on activation and on window focus (best-effort
+  // polling; there is no Memento remote-change event), unioning tags and links and
+  // applying LWW-per-folderId by updatedAt, and surfaces the honest LWW warning. A
+  // debounced opt-in auto-export snapshot with retention writes to globalStorage.
+  //
+  // All filesystem IO here goes through vscode.workspace.fs (a vscode API, not
+  // node fs), so the export/import file writes never trip the read-only lint bank
+  // and need no new chokepoint carve-out; the pure store modules stay vscode-free.
+  const autoExporter = new AutoExporter({
+    store,
+    globalStorageUri: context.globalStorageUri,
+    flags: {
+      get: (key: string) => context.globalState.get<boolean>(key),
+      update: (key: string, value: boolean) => context.globalState.update(key, value),
+    },
+    deviceId,
+    refresh: () => {
+      foldersProvider.refresh();
+      tagsProvider.refresh();
+      smartGroupsProvider.refresh();
+    },
+  });
+  activeAutoExporter = autoExporter;
+  context.subscriptions.push({ dispose: () => autoExporter.dispose() });
+  // Now that the AutoExporter exists, point the forward handle at it so the
+  // user's own organization mutations (folder/tag/link/tagging/promote refresh
+  // closures above) schedule a debounced snapshot. schedule() is a no-op when the
+  // opt-in flag is off, so this is inert until the user enables auto-export.
+  scheduleAutoExport = () => autoExporter.schedule();
+
+  // The export/import deps. refresh re-renders every membership view after a
+  // reconcile/import applies merges, and schedules a debounced auto-export
+  // snapshot so a sync-time change is captured to the backup dir.
+  const exportImportDeps: ExportImportDeps = {
+    store,
+    globalStorageUri: context.globalStorageUri,
+    flags: {
+      get: (key: string) => context.globalState.get<boolean>(key),
+      update: (key: string, value: boolean) => context.globalState.update(key, value),
+    },
+    deviceId,
+    refresh: () => {
+      foldersProvider.refresh();
+      tagsProvider.refresh();
+      smartGroupsProvider.refresh();
+      autoExporter.schedule();
+    },
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(EXPORT_COMMAND, () =>
+      exportLibrary(exportImportDeps),
+    ),
+    vscode.commands.registerCommand(IMPORT_COMMAND, () =>
+      importLibrary(exportImportDeps),
+    ),
+  );
+
+  // Reconcile on ACTIVATION: a foreign-device sync write may have landed while
+  // this window was closed. The extension activates on its first view open (the
+  // onView:* events), which is early enough to reconcile before the user touches
+  // organization. Best-effort and fire-and-forget; a failure must never block
+  // activation.
+  void reconcileAllProjects(exportImportDeps);
+
+  // Reconcile on window FOCUS: the only signal available for a Settings Sync
+  // remote write (no Memento change event). Poll on focus-gain (state.focused) so
+  // a foreign write that landed while the window was in the background is merged
+  // when the user returns. Pushed to subscriptions so it is disposed on shutdown.
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) {
+        void reconcileAllProjects(exportImportDeps);
+      }
+    }),
+  );
+
+  // The one-time opt-in prompt for the auto-export snapshot and the
+  // synced/git-tracked canonical export location. Fire-and-forget; shown once.
+  void maybePromptAutoExport(exportImportDeps);
 }
 
 export function deactivate(): Thenable<void> | void {
@@ -526,6 +653,13 @@ export function deactivate(): Thenable<void> | void {
   // but its promise is not awaited by the host).
   const store = activeStore;
   activeStore = undefined;
+  // Cancel any pending debounced auto-export snapshot so it cannot fire during
+  // teardown. The snapshot is best-effort; the store flush below persists the
+  // authoritative live data.
+  if (activeAutoExporter) {
+    activeAutoExporter.dispose();
+    activeAutoExporter = undefined;
+  }
   if (store) {
     return store.flush();
   }

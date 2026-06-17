@@ -248,6 +248,68 @@ may change.
    itself, note that the headless unit suite already proves a write aimed at any
    path other than the one allowed `settings.json` throws.)
 
+## Slice 8: Export and import plus cross-machine sync hardening
+
+These exercise the parts of the slice that cannot run headless: the real save and
+open dialogs, a JSON file landing on disk, the merge applied through the live
+store, the LWW warning toast, the activation/window-focus reconcile poll, and the
+opt-in auto-export snapshot with retention. The pure logic itself (the additive
+per-project merge and collision identity rule, schema validation and version
+migration, the reconcile algorithm, scratch-validate-before-swap, the retention
+prune) is covered by the headless unit suite (`exportImport.test.ts`,
+`exportImportStore.test.ts`, `reconcileSync.test.ts`, `schemaMigrate.test.ts`,
+`autoExport.test.ts`); this checklist is the only verification of the vscode-bound
+file IO and toasts. The read-only invariant above applies: every export/import and
+snapshot write goes through `src/store/exportIO.ts`, which runtime-asserts the
+target is NOT under `~/.claude/projects/`; nothing there may change.
+
+1. Export the library: create some organization first (a folder, a tag on a chat,
+   a parent link). Run "Claude Code Nest: Export Library" (command palette).
+   Confirm a save dialog opens defaulting to `claude-code-nest-export.json`. Save
+   it to a scratch location (for example your Desktop). Confirm the success toast
+   reports the project count and the file path, and that the file exists and is
+   pretty-printed JSON containing your projects with their folders, tags, chats,
+   links, and stamps.
+2. Import on a clean store: simulate a fresh machine by clearing the extension's
+   stored organization (uninstall/reinstall the VSIX, or use a clean VSCode
+   profile), then run "Claude Code Nest: Import Library" and pick the JSON from
+   step 1. Confirm the open dialog appears, the success toast reports the merged
+   project count, and the Folders/Tags views re-render with the imported
+   organization. Confirm NO project that existed only on the clean store was
+   deleted (the merge is additive; a project absent from the file is untouched).
+3. Additive merge, never-delete-absent: on a store that ALREADY has organization,
+   import a JSON that carries a DIFFERENT folder/tag for the same project. Confirm
+   the result is the UNION (the live folder/tag AND the imported one both survive;
+   chat tags and links are unioned), and no live-only project or record was
+   dropped.
+4. LWW warning on a real conflict: prepare a JSON whose copy of a chat sets a
+   DIFFERENT non-null home folder than the live store's copy, with a newer chat
+   `updatedAt`. Import it. Confirm the warning toast appears once ("merged
+   organization across machines ... the most recent edit won and the other was
+   dropped"), the chat's home is the newer side, and tags/links were still kept
+   from both. Then re-focus the window (click away and back) and confirm the
+   warning does NOT re-fire and the views do not re-merge (the import finalized the
+   reconcile shadow, so the next focus poll reports unchanged).
+5. Cross-machine reconcile on focus: with Settings Sync enabled on two machines
+   (or simulated by editing the synced globalState from a second profile), make a
+   foreign organization change on the other machine. Return focus to this window
+   and confirm the change is merged additively (your local-only records survive),
+   the views refresh, and any genuine same-folder conflict surfaces the LWW
+   warning exactly once per focus-gain, not repeatedly.
+6. Opt-in auto-export and retention: on first activation confirm the one-time
+   prompt offers "Enable auto-export" / "Export now..."; it must not nag again
+   after a choice. Enable auto-export, then make several organization edits
+   (create folders, tag chats) spaced a few seconds apart. Confirm snapshot JSON
+   files accumulate under the extension's global storage `auto-export/` directory
+   (a debounced burst coalesces into one snapshot), and that old snapshots are
+   pruned to the retention count rather than growing without bound. Confirm a
+   single rapid burst of edits produces ONE snapshot, not one per edit.
+7. The read-only invariant holds: after every step above, confirm nothing under
+   `~/.claude/projects/` changed mtime or content. The export, import-source, and
+   auto-export snapshot files are all OUTSIDE `~/.claude/projects/`. (The headless
+   suite proves `exportIO` throws on any target under `~/.claude/projects/`, so a
+   save dialog pointed there is refused rather than overwriting a transcript.)
+
 ## Integration tests (deferred)
 
 The electron-host integration tests (`npm run test:integration`) need a VSCode

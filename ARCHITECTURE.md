@@ -97,8 +97,9 @@ handler. If the extension fails, Claude must be entirely unaffected.
     a name-gated rule, so EVERY computed member call with a non-literal key is banned
     in src (a variable key cannot be statically proven read-only).
   All selectors have an override carve-out for ONLY the sanctioned settings-IO module
-  (src/settings/claudeSettingsIO.ts, which holds the path-asserting chokepoint)
-  and the scratch-fixture test tree. The carve-out is staged ahead of the settings
+  (src/settings/claudeSettingsIO.ts, which holds the path-asserting chokepoint), the
+  narrow export-IO module (src/store/exportIO.ts, Slice 8), and the scratch-fixture
+  test tree. The carve-out is staged ahead of the settings
   module so the guard is already in force before any write-capable slice lands.
   Lint is wired into the headless test gate (pretest runs lint before compile and
   mocha), so the chokepoint cannot be bypassed by skipping a separate command.
@@ -110,6 +111,19 @@ handler. If the extension fails, Claude must be entirely unaffected.
   preserving siblings/comments/order/EOL with create-when-missing, and guards the
   write with an mtimeMs re-stat abort-on-change before an atomic temp-write-rename.
   See DECISIONS.md Slice 7.)
+  - Slice 8 export/import write-ban resolution: the lint bank's first selector is
+    object-AGNOSTIC (it matches any CallExpression whose callee property name is a
+    write verb), so even a vscode.workspace.fs write (vscode.workspace.fs.writeFile)
+    trips it exactly as a node fs write does; the slice-patch claim that
+    vscode.workspace.fs slips the selectors is FALSE and was disproved by the lint
+    gate during the build. The accepted resolution is the patch's first option: all
+    export/import and auto-export snapshot file IO is isolated in the narrow,
+    carve-out-exempted src/store/exportIO.ts, which does nothing but the
+    vscode.workspace.fs read/write/readDirectory/delete/createDirectory primitives
+    and imports NO node fs, so the exemption stays auditable and the command module
+    (exportImportCommands.ts) and the pure store modules remain under the full ban.
+    exportIO.ts NEVER writes under ~/.claude: its targets are a user-chosen export
+    path or context.globalStorageUri. See DECISIONS.md Slice 8.
 - All transcript-reading tests run against scratch copies, never the real files.
 
 ## Tree and VSCode API binding rules
