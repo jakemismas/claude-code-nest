@@ -182,13 +182,18 @@ try {
   const MAX_FIX_ROUNDS = (A && A.maxFixRounds) ? A.maxFixRounds : 3;
   const COUNCIL_MIN = (A && A.councilMinConfidence) ? A.councilMinConfidence : 0.6;
 
+  // Resume detection must key on THIS run's exact id+order trailers, not order alone: a prior sprint can have
+  // landed orders 0..n on origin/main, so counting any Nest-Slice trailer by order would mark this run done.
+  const expectedTrailers = slices.map(s => "Nest-Slice: " + s.id + " (" + s.order + ")").join("; ");
   const pf = await agent(
     "Read-only preflight at the repo root. First run 'git fetch origin' (read-only; updates remote-tracking " +
     "refs only, does not touch the working tree). 1) Report authorOk true only if effective git user.name is " +
     "exactly 'Jake Mismas' and user.email exactly 'jake@jakemismas.com' (local overrides global; report " +
-    "the EFFECTIVE values), and committerOk the same way. 2) completedOrders: a slice is done only if a " +
-    "commit carrying the trailer 'Nest-Slice: <id> (<order>)' is present on origin/main " +
-    "(verify against origin/main with git log origin/main or git branch -r --contains, not just local log). " +
+    "the EFFECTIVE values), and committerOk the same way. 2) completedOrders: the EXACT trailers for THIS " +
+    "run are [" + expectedTrailers + "]. An order N counts as done ONLY if a commit on origin/main carries " +
+    "that order's EXACT trailer from this list (matching BOTH the id AND the order); a Nest-Slice trailer " +
+    "with any OTHER id, such as a prior sprint's, does NOT count toward completedOrders. Verify against " +
+    "origin/main with git log origin/main, not just local log. " +
     "3) treeClean from git status --porcelain, ignoring .nest-build-state.json. Modify nothing.",
     { schema: preflightSchema, label: "preflight", phase: "Preflight" });
   if (pf == null) throw new HaltError("Preflight agent died", { stage: "preflight" });
