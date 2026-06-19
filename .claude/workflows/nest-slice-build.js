@@ -1,6 +1,6 @@
 export const meta = {
   name: "nest-slice-build",
-  description: "Autonomous per-slice build loop for the Claude Code Nest VSCode extension: fit review with a council to break design forks, build, a three-lens-plus-completeness adversarial review that loops fix-and-reverify until dry, an independent test gate, then a PR-per-slice merge to main with verified Jake authorship; ends by packaging the VSIX and writing TESTING.md. Sequential across slices. Auto-resolves reversible design forks (recording each in DECISIONS.md); hard-stops only on an irreversible or data-loss fork, a surviving safety finding after the fix loop, broken git identity, or a failed landing.",
+  description: "Autonomous per-slice build loop for the Claude Code Nest VSCode extension: fit review with a council to break design forks, build, a three-lens-plus-completeness adversarial review that loops fix-and-reverify until dry, an independent test gate, then a PR-per-slice merge to main with verified Jake authorship; ends by packaging the VSIX and writing TESTING.md. Sequential across slices. Optionally runs a 10-lens pre-release security council over the whole change set before the release slice when args.securityCouncil is set. Auto-resolves reversible design forks (recording each in DECISIONS.md); hard-stops only on an irreversible or data-loss fork, a surviving safety finding after the fix loop (per-slice or security), broken git identity, or a failed landing.",
   phases: [
     { title: "Preflight" },
     { title: "Fit Review" },
@@ -10,6 +10,7 @@ export const meta = {
     { title: "Fix" },
     { title: "Test" },
     { title: "Commit and Push" },
+    { title: "Security Council" },
     { title: "Release and Handoff" },
     { title: "Run Summary" }
   ]
@@ -100,11 +101,11 @@ const commitResultSchema = {
 };
 const preflightSchema = {
   type: "object", additionalProperties: false,
-  required: ["authorOk", "committerOk", "completedOrders", "treeClean", "note"],
+  required: ["authorOk", "committerOk", "completedOrders", "treeClean", "securityDone", "note"],
   properties: {
     authorOk: { type: "boolean" }, committerOk: { type: "boolean" },
     completedOrders: { type: "array", items: { type: "integer" } },
-    treeClean: { type: "boolean" }, note: { type: "string" }
+    treeClean: { type: "boolean" }, securityDone: { type: "boolean" }, note: { type: "string" }
   }
 };
 const handoffSchema = {
@@ -164,6 +165,41 @@ async function runCouncil(slice, fit) {
     "cheaply undone or risks data loss or the read-only constraint), and a planPatch to apply before build.",
     { schema: councilDecisionSchema, label: "council-judge:" + slice.id, phase: "Council" });
 }
+const SECURITY_LENSES = [
+  { key: "webview-xss", name: "webview XSS / HTML injection", detail: "Untrusted transcript content (chat titles, search snippets, message text, file paths) rendered in the org-panel and preview webviews. Verify the CSP, the nonce, and that EVERY interpolated chat-derived string is escaped; flag any innerHTML, template insertion, or unsanitized postMessage data that could execute as HTML or script." },
+  { key: "read-only", name: "read-only boundary", detail: "ANY path that writes, renames, moves, or deletes under ~/.claude/projects/, or bypasses the settings/export chokepoints. Flag missing assertNotUnderClaudeProjects guards on export, the archive body copy, and the search index." },
+  { key: "path-traversal", name: "path traversal / arbitrary write", detail: "User-chosen export paths, the archive body copy, and the search index location. Flag any write target derived from untrusted input without the path guard, and any '..' or absolute-path escape." },
+  { key: "deserialization", name: "deserialization / parser safety", detail: "JSONL body retention, import JSON, and the MiniSearch index load. Flag eval, the Function constructor, unsafe JSON handling, or trusting parsed shapes without validation." },
+  { key: "redos", name: "ReDoS", detail: "Search query handling, the ticket-prefix regex, and any regex run over large transcript text. Flag catastrophic-backtracking patterns and user-controlled regex." },
+  { key: "proto-pollution", name: "prototype pollution", detail: "reconcile/import/normalize JSON merges and any object key assigned from parsed data. Flag __proto__, constructor, and prototype key paths and unsafe deep merges." },
+  { key: "supply-chain", name: "supply chain", detail: "The new minisearch dependency in a PUBLIC repo: pinned version, lockfile integrity, transitive deps, license, and exactly what node_modules ships in the VSIX. Flag an unpinned or surprising dependency surface." },
+  { key: "secrets-pii-public", name: "secrets, PII, and public-repo exposure", detail: "This repo is PUBLIC on GitHub. Flag any secret, token, API key, or credential in committed files OR git history; any real Claude transcript content or personal data in test fixtures or committed artifacts (fixtures MUST be synthetic); and anything sensitive that would land in a world-readable commit message, issue, PR, or release. Confirm telemetry-free and no network calls. Treat leaked username/absolute-path as a lower-severity hygiene note since authorship is already public." },
+  { key: "sync-data-loss", name: "sync / data-loss integrity", detail: "The reconcileSync per-scalar changes and the archive flag. Flag any regression of the known reconcile data-loss class (a foreign-merge silently dropping local-only curation)." },
+  { key: "meta", name: "completeness / meta", detail: "What the other lenses missed: webview postMessage handler validation, missing input validation, CSP gaps, and public-repo hygiene (committed build artifacts, .vscodeignore coverage, anything sensitive shipped in the VSIX)." }
+];
+async function runSecurityCouncil(cfg, floor) {
+  let round = 0;
+  while (true) {
+    round += 1;
+    phase("Security Council");
+    const reviews = await parallel(SECURITY_LENSES.map((L) => () =>
+      agent("SECURITY COUNCIL reviewer, lens " + L.name + ". REFUTE the safety of the entire Sprint 2 change set: " +
+        "diff origin/main against the v0.0.1 release tag (or commit 44174c8 if that tag is absent) and read the " +
+        "changed files. Lens focus: " + L.detail + " Report findings; mark an exploitable issue severity critical " +
+        "and a likely-but-unproven one major. Round " + round + ".",
+        { schema: critiqueSchema, label: "sec-" + L.key + ":r" + round, phase: "Security Council" })));
+    const findings = aggregateFindings(reviews);
+    const actionable = findings.filter(f => f.severity === "critical" || f.severity === "major");
+    if (actionable.length === 0) return { dry: true, round };
+    if (round > (cfg.maxRounds || 3)) return { dry: false, round, actionable };
+    if (budget.total && budget.remaining() <= floor) return { dry: false, round, actionable, budget: true };
+    const fix = await agent("SECURITY FIX PASS (round " + round + "). Resolve ALL of these security findings, then " +
+      "rebuild and run npm test. Keep any scratch under .claude-working/ only, never under src/ or out/. Do NOT " +
+      "commit or push. Findings:\n" + JSON.stringify(actionable),
+      { schema: fixResultSchema, label: "sec-fix:r" + round, phase: "Security Council" });
+    if (fix == null) return { dry: false, round, actionable, fixDied: true };
+  }
+}
 
 // ---------------- main ----------------
 try {
@@ -194,7 +230,9 @@ try {
     "that order's EXACT trailer from this list (matching BOTH the id AND the order); a Nest-Slice trailer " +
     "with any OTHER id, such as a prior sprint's, does NOT count toward completedOrders. Verify against " +
     "origin/main with git log origin/main, not just local log. " +
-    "3) treeClean from git status --porcelain, ignoring .nest-build-state.json. Modify nothing.",
+    "3) treeClean from git status --porcelain, ignoring .nest-build-state.json. 4) securityDone: true if a " +
+    "commit carrying the trailer 'Nest-Security: sprint-2 (audit)' is present on origin/main, else false. " +
+    "Modify nothing.",
     { schema: preflightSchema, label: "preflight", phase: "Preflight" });
   if (pf == null) throw new HaltError("Preflight agent died", { stage: "preflight" });
   if (!pf.authorOk || !pf.committerOk) throw new HaltError("git identity is not Jake Mismas <jake@jakemismas.com>", { stage: "preflight", pf });
@@ -202,7 +240,15 @@ try {
   const startIndex = lowestMissingOrder(pf.completedOrders, slices.length);
   const builtSlices = (pf.completedOrders || []).map(o => (slices[o] ? slices[o].id : String(o)));
   const decisions = [];
-  log("Preflight ok. Resuming at slice order " + startIndex + " of " + slices.length + ".");
+  // Opt-in pre-release security council (args.securityCouncil). Runs once, before the named release slice.
+  const securityCfg = (A && A.securityCouncil) ? A.securityCouncil : null;
+  const releaseIdx = securityCfg ? slices.findIndex(s => s.id === securityCfg.beforeSliceId) : -1;
+  if (securityCfg && releaseIdx < 0) {
+    throw new HaltError("securityCouncil.beforeSliceId '" + securityCfg.beforeSliceId + "' matches no slice", { stage: "preflight", securityCfg });
+  }
+  let securityRan = false;
+  log("Preflight ok. Resuming at slice order " + startIndex + " of " + slices.length + "." +
+    (securityCfg ? " Security council armed before slice " + securityCfg.beforeSliceId + (pf.securityDone ? " (already done on origin/main)." : ".") : ""));
 
   for (let i = startIndex; i < slices.length; i++) {
     const slice = slices[i];
@@ -223,6 +269,41 @@ try {
         "--porcelain is empty except the state file. Do not push.",
         { label: "reset-tree", phase: "Build" });
       if (reset == null) throw new HaltError("Tree reset agent died on resume", { stage: "reset", slice: slice.id });
+    }
+
+    // ---- Pre-release security council (opt-in; once, before the release slice) ----
+    if (securityCfg && i === releaseIdx && !pf.securityDone && !securityRan) {
+      if (budget.total && budget.remaining() <= PER_SLICE_FLOOR) {
+        await persistState(slices, i, "security", {});
+        throw new HaltError("Budget floor reached before the security council", { stage: "budget", slice: "security" });
+      }
+      const sec = await runSecurityCouncil(securityCfg, PER_SLICE_FLOOR);
+      if (!sec.dry) {
+        await persistState(slices, i, "security", { actionable: sec.actionable || [] });
+        throw new HaltError("Security council still has actionable findings after the fix loop; not releasing.",
+          { stage: "security", actionable: sec.actionable, budgetHit: !!sec.budget, fixDied: !!sec.fixDied });
+      }
+      const secLand = await agent(
+        "Land the Sprint 2 security audit on main via a PR. If the council made code fixes the working tree has " +
+        "changes: stage them and add a CHANGELOG note (and update ARCHITECTURE.md if a binding contract changed). " +
+        "If there were NO code fixes, still create a marker by appending a dated 'Security audit: no actionable " +
+        "findings' line under the CHANGELOG.md [Unreleased] section. Either way commit as Jake via local git config " +
+        "(NO --author, NO GIT_AUTHOR_*/GIT_COMMITTER_* overrides, NO AI co-author trailer; subject under 70 chars; " +
+        "no em or en dashes; no emoji) with the trailer 'Nest-Security: sprint-2 (audit)'. Create branch " +
+        "'security/sprint-2-audit', push it, open a PR with 'gh pr create --base main', merge with 'gh pr merge " +
+        "--merge --delete-branch', then sync local main with 'git fetch origin' + 'git checkout main' + 'git merge " +
+        "--ff-only origin/main'. NEVER put 'git push' and the word main in the SAME shell command; run them as " +
+        "separate commands. The PR body must include 'Fixes #" + (securityCfg.issue || 0) + "'. Verify the " +
+        "Nest-Security trailer commit is on origin/main, authored and committed by Jake. Report committed, pushed, " +
+        "verifiedOnRemote, sha, authorVerified, committerVerified.",
+        { schema: commitResultSchema, label: "security-land", phase: "Security Council" });
+      if (secLand == null || !secLand.committed || !secLand.pushed || !secLand.verifiedOnRemote
+          || !secLand.authorVerified || !secLand.committerVerified) {
+        await persistState(slices, i, "security", { secLand });
+        throw new HaltError("Security audit landing failed", { stage: "security", secLand });
+      }
+      securityRan = true;
+      log("Security council came back dry; audit landed on origin/main: " + secLand.sha);
     }
 
     // ---- Fit review (+ council on a fork) ----
