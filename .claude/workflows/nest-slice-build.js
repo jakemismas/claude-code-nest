@@ -1,6 +1,6 @@
 export const meta = {
   name: "nest-slice-build",
-  description: "Autonomous per-slice build loop for the Claude Code Nest VSCode extension: fit review with a council to break design forks, build, a three-lens-plus-completeness adversarial review that loops fix-and-reverify until dry, an independent test gate, then a direct-to-main commit and push with verified Jake authorship; ends by packaging the VSIX and writing TESTING.md. Sequential across slices. Hard-stops only on the safety floor or a true dead end.",
+  description: "Autonomous per-slice build loop for the Claude Code Nest VSCode extension: fit review with a council to break design forks, build, a three-lens-plus-completeness adversarial review that loops fix-and-reverify until dry, an independent test gate, then a PR-per-slice merge to main with verified Jake authorship; ends by packaging the VSIX and writing TESTING.md. Sequential across slices. Auto-resolves reversible design forks (recording each in DECISIONS.md); hard-stops only on an irreversible or data-loss fork, a surviving safety finding after the fix loop, broken git identity, or a failed landing.",
   phases: [
     { title: "Preflight" },
     { title: "Fit Review" },
@@ -235,20 +235,34 @@ try {
     if (fit.blocking) {
       phase("Council");
       const decision = await runCouncil(slice, fit);
-      if (decision == null || decision.irreversible || decision.confidence < COUNCIL_MIN) {
+      if (decision == null) {
         await persistState(slices, i, "council", { fit, decision });
-        throw new HaltError("Design fork needs a human (council low-confidence or irreversible) for " + slice.id,
+        throw new HaltError("Council judge agent died for " + slice.id, { stage: "council", slice: slice.id, fit });
+      }
+      // Safety floor: an irreversible fork (data loss or the read-only constraint) is NOT auto-resolved. A wrong
+      // call there cannot be cheaply undone and would be reviewed only after it had already landed, so a human
+      // decides. The judge sets irreversible; the adversarial read-only-data-integrity lens is the second backstop.
+      if (decision.irreversible) {
+        await persistState(slices, i, "council", { fit, decision });
+        throw new HaltError("Design fork is irreversible (data-loss or read-only risk); needs a human for " + slice.id,
           { stage: "council", slice: slice.id, fit, decision });
       }
-      decisions.push({ slice: slice.id, fork: fit.summary, chosen: decision.chosen, rationale: decision.rationale });
+      // Reversible forks proceed on the judge's best option even at low confidence (engine default since
+      // 2026-06-19). A wrong reversible call is caught by the adversarial review or undone in a later PR; every
+      // such decision is recorded in DECISIONS.md, and low-confidence ones are flagged for post-hoc human review.
+      const lowConf = decision.confidence < COUNCIL_MIN;
+      decisions.push({ slice: slice.id, fork: fit.summary, chosen: decision.chosen, rationale: decision.rationale,
+        confidence: decision.confidence, lowConfidence: lowConf });
       if (decision.planPatch && decision.planPatch.hasPatch) patches.push({ source: "council", changes: decision.planPatch.changes });
       await agent(
         "Append a dated entry to DECISIONS.md at the repo root (create it if missing) recording this " +
         "autonomous design decision. Entry: slice " + slice.id + "; fork: " + fit.summary + "; chosen: " +
-        decision.chosen + "; rationale: " + decision.rationale + ". Do not stage, commit, or push. No em " +
-        "dashes, en dashes, or emojis.",
+        decision.chosen + "; rationale: " + decision.rationale + "; confidence: " + decision.confidence +
+        (lowConf ? " (LOW CONFIDENCE; auto-resolved as reversible, flag for post-hoc human review)" : "") +
+        ". Do not stage, commit, or push. No em dashes, en dashes, or emojis.",
         { label: "log-decision:" + slice.id, phase: "Council" });
-      log("Council decided for " + slice.id + ": " + decision.chosen);
+      log("Council decided for " + slice.id + ": " + decision.chosen +
+        (lowConf ? " (low-confidence, reversible, auto-proceeded)" : ""));
     }
     const mergedPlan = { slice, patches };
 
