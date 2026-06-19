@@ -38,6 +38,21 @@ known reconcile fragility); 1.0.0 is reserved for when the read-only guarantees 
 tested. "Sprint 2" is the release-effort name; V2-RESEARCH.md's "Phase 1/1.5/2" are internal
 R&D sub-phases and are not reused as the sprint name.
 
+## 2026-06-19 Engine: auto-resolve reversible design forks (new default)
+
+Fork: when the fit-review council flags a design fork, should the build halt for a human on a
+low-confidence judgment, or decide it autonomously? Resolution (user decision, applied as the
+nest-slice-build engine default): the council now hard-stops ONLY when the judge marks the fork
+irreversible (data loss or a read-only-constraint risk) or the judge agent dies. A reversible
+fork proceeds on the judge's best option even at low confidence, and the decision is recorded in
+DECISIONS.md with its confidence, low-confidence ones flagged for post-hoc human review.
+Rationale: a reversible wrong call is caught by the adversarial review (the read-only-data-
+integrity lens is a second backstop) or undone in a later PR, and is visible in the PR diff, so
+blocking on it wastes a human round-trip; an irreversible wrong call cannot be cheaply undone and
+is reviewed only after it has landed, so it still requires a human. The COUNCIL_MIN threshold is
+retained only to flag low-confidence decisions, not to block them. The review-still-dirty-after-3-
+rounds halt and the identity and landing halts are unchanged. See .claude/workflows/nest-slice-build.js.
+
 ## 2026-06-17 Slice 9 (Polish): progress wraps a synchronous scan on the explicit-refresh path only, and FlatProvider gains the memoized-snapshot shape
 
 Resolution of two build-time decisions the Polish plan and its accepted fit patch

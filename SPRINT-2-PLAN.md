@@ -13,6 +13,14 @@ search, rich preview, token badges, files-touched, and content export. The impos
 chat-window features (compact button, in-window transcript renderer and composer, live token
 gauge, UI injected into Claude's chat, USD cost) are dropped; see DECISIONS.md.
 
+## UI design reference
+
+The sidebar visual target is `media/mockups/sidebar-mockup.html` (open in a browser for the
+Comfortable and Compact frames), distilled to intent in `UI-SPEC.md`. Slices 1, 2, and 6 build
+to UI-SPEC.md. Pixel-exactness is a human smoke check (TESTING.md), not an automated gate,
+because the build agent cannot see its own rendered webview; the adversarial review must not
+churn on cosmetic mismatches it cannot verify.
+
 ## How this feeds the build engine
 
 The engine is the workflow at `.claude/workflows/nest-slice-build.js`, surfaced as the
@@ -77,7 +85,7 @@ release slice for the user to run after install.
 
 ## Slice 1: lazy body reader, token badge, rich hover preview — issue #18
 
-- **Goal:** read a single chat's full body on demand (never into the snapshot); surface a per-chat ~token badge and a rich hover preview plus the chatsPreview card.
+- **Goal:** read a single chat's full body on demand (never into the snapshot); surface a per-chat ~token badge and a rich hover preview plus the chatsPreview card. Build the badge and preview card to UI-SPEC.md.
 - **Ships:** `readTranscriptBodies` (on-demand single-chat body reader, discarded after use); the tier-A token total as a per-chat ~token badge in the row description; a rich `MarkdownString` tooltip (title, relative time, ~tokens, models, files-touched count, last-message snippet); the chatsPreview POC card gains the same summary line.
 - **Modules:** `src/claude/bodyReader.ts` (new, vscode-free: `readTranscriptBodies(filePath)`, single read, read-only, try/catch like `readChat`; held by no provider); `src/views/chatTooltip.ts` (new, vscode-free: `buildChatTooltip(record)` returns plain markdown; provider wraps in `vscode.MarkdownString`); `src/views/flatProvider.ts`, `foldersProvider.ts`, `tagsProvider.ts` (set `TreeItem.description` and `.tooltip`; keep memoized nodes, ids, getParent); `src/views/chatsPreviewWebview.ts` + `media/chatsPreview.js` (extend `PreviewRow` and render the summary line; still POC).
 - **Tests:** `bodyReader.test.ts` (ordered extraction over scratch fixture; never throws; [] on unreadable); `chatTooltip.test.ts` (full / token-less / multi-model records; no vscode import).
@@ -86,7 +94,7 @@ release slice for the user to run after install.
 
 ## Slice 2: full-text content search (MiniSearch, in-memory) — issue #19
 
-- **Goal:** index chat content with MiniSearch and surface matches plus a snippet in the chatsPreview filter box. No embeddings, no SQLite.
+- **Goal:** index chat content with MiniSearch and surface matches plus a snippet in the chatsPreview filter box. No embeddings, no SQLite. Surface results per UI-SPEC.md (snippet under the title).
 - **Ships:** an in-memory MiniSearch index over tier-A text (title, lastMessageText, filesTouched) plus on-demand bodies; a query in the chatsPreview filter returns matching chats with a highlighted snippet. Index lives in extension globalStorage (serialized for warm starts) or in memory; NEVER registered for sync, NEVER under ~/.claude/projects.
 - **Modules:** `package.json` (add `minisearch` runtime dependency; the build agent must `npm install minisearch` before the installCheck, and confirm `vsce package --no-dependencies` still bundles it); `src/search/searchIndex.ts` (new, vscode-free: `buildIndex`, `search` returning {sessionId, score, snippet}, pure snippet builder); `src/search/searchStore.ts` (new, vscode-thin: persist/load via exportIO to globalStorageUri only; fall back to in-memory rebuild if cut); `src/views/chatsPreviewWebview.ts` + `media/chatsPreview.js` (filter gains a content-search mode; render ranked rows with snippets).
 - **Tests:** `searchIndex.test.ts` (ranked sessionIds; snippet centers and truncates; empty/no-match; no vscode import); a guard test that the store target resolves under globalStorage, never a projects path.
@@ -122,7 +130,7 @@ release slice for the user to run after install.
 
 ## Slice 6: org-panel webview migration (primary view) — issue #23
 
-- **Goal:** promote the chatsPreview POC to the PRIMARY org panel (sections, chips, sort, density, folder color, rename, drag-to-unfile, webview DnD reusing the pure dropReducer) and retire the native Folders/Tags trees while keeping the flat Chats tree as the accessible fallback. Largest slice, last before release.
+- **Goal:** promote the chatsPreview POC to the PRIMARY org panel (sections, chips, sort, density, folder color, rename, drag-to-unfile, webview DnD reusing the pure dropReducer) and retire the native Folders/Tags trees while keeping the flat Chats tree as the accessible fallback. Largest slice, last before release. Build to UI-SPEC.md; the visual target is media/mockups/sidebar-mockup.html.
 - **Ships:** a primary org-panel WebviewView (CSP-locked, nonce-scripted) with sections Starred (slice-3 flag), Questions (the scan-time awaiting-reply heuristic from slice-0 `lastMessageRole === 'user'`, LABELLED a heuristic, NOT live), plus folders/tags; tag filter chips; sort; density modes; per-folder color (slice-3 `Folder.color`); double-click rename; drag-to-unfile; webview drag-and-drop reusing the UNCHANGED `reduceDrop` (only the extraction shell changes). Accessibility and keyboard nav are ACCEPTANCE CRITERIA (focus order, ARIA roles, Enter/Space activation, arrow navigation). Native Folders/Tags trees retired; flat Chats TreeView KEPT as accessible fallback.
 - **Modules:** `src/views/orgPanelWebview.ts` (new, primary; supersedes chatsPreviewWebview); `src/views/orgPanelModel.ts` (new, vscode-free: `buildSections(records, meta)` including the heuristic); `src/dnd/webviewDropAdapter.ts` (new, vscode-thin: extract {payloadMime, sourceChatIds, targetView, targetId} from the drop message, call the UNCHANGED `reduceDrop` in src/dnd/dropReducer.ts, apply intents as N store calls plus one flush plus one refresh); `media/orgPanel.{js,css}` (DnD shell, chips, sort, density, rename, keyboard, ARIA); `src/extension.ts` (register org panel as primary; retire foldersView/tagsView createTreeView and their dead DnD controllers; keep flatView; keep the folder/tag/link/promote commands); `package.json` (re-point the primary view; remove retired tree views; keep claudeNest.flat); `ARCHITECTURE.md` (document org-panel-as-primary, the DnD-shell-only contract, the scan-time heuristic, the flat-tree fallback).
 - **Tests:** `orgPanelModel.test.ts` (section assembly; heuristic flags only lastMessageRole === 'user'; per-folder color carried; empty sections render); the webview DnD shell is covered by the EXISTING dropReducer unit tests (reducer unchanged) plus a small adapter-extraction test mapping a webview message to a correct DropInput.
