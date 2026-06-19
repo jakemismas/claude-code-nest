@@ -2,6 +2,22 @@
 // dependency on the vscode module so they can be imported from both the
 // extension host and the headless unit suite.
 
+// Summed token usage for one transcript (Sprint 2 tier-A). Each field sums one
+// assistant turn's message.usage exactly ONCE, deduped by message.id: a single
+// turn spans several JSONL lines that repeat the identical usage block, so a
+// naive per-line sum over-counts 3-5x (verified ground truth). Defaults to 0 when
+// the transcript carried no usage at all. The four fields mirror the
+// message.usage keys this reader trusts (input_tokens, output_tokens,
+// cache_creation_input_tokens, cache_read_input_tokens); the many other usage
+// keys Claude writes (server_tool_use, iterations, service_tier, ...) are
+// ignored. These are bounded reductions, never message bodies.
+export interface TokenTotals {
+  input: number;
+  output: number;
+  cacheCreation: number;
+  cacheRead: number;
+}
+
 // One Claude Code chat transcript. sessionId equals the .jsonl filename with the
 // extension stripped (verified ground truth: filename equals sessionId). title
 // is resolved by the jsonlReader per the documented order; timestamp is the most
@@ -21,6 +37,17 @@ export interface ChatRecord {
   prRepository: string | null;
   gitBranch: string | null;
   leadingMessageUuids: string[];
+  // Sprint 2 tier-A summary, carried on the ONE shared record so later slices
+  // (token badge, hover preview, search, awaiting-reply heuristic, files-touched)
+  // read it without re-reading or re-parsing a transcript. All are bounded
+  // reductions, never bodies: defaulted 0/null/[] when the transcript carried no
+  // such signal. See ARCHITECTURE.md tier-A reductions rule.
+  messageCount: number;
+  lastMessageText: string | null;
+  lastMessageRole: 'user' | 'assistant' | null;
+  tokenTotals: TokenTotals;
+  filesTouched: string[];
+  models: string[];
 }
 
 // The intermediate result of scanning a single transcript file by line type.
@@ -58,6 +85,27 @@ export interface TranscriptScan {
   // so a long transcript does not retain every uuid; the leading run is what the
   // shared-prefix comparison needs.
   leadingMessageUuids: string[];
+  // Sprint 2 tier-A summary fields, absorbed by the ONE existing reader rather
+  // than a second scanner, mirroring the slice-6 signal-field block. All are
+  // bounded reductions; full message bodies are never retained on the scan.
+  //   messageCount    - count of user/assistant lines (tool_result lines incl.)
+  //   lastMessageText - truncated text of the LAST genuine turn, for previews
+  //   lastMessageRole - 'user' | 'assistant' of the last GENUINE turn (null when
+  //                     none). A tool_result-only user line is harness feedback,
+  //                     not a human turn, and does NOT advance the role, so the
+  //                     slice-6 awaiting-reply heuristic (lastMessageRole ===
+  //                     'user') reflects human intent, not the tool loop.
+  //   tokenTotals     - message.usage summed once per turn (deduped by message.id;
+  //                     0 when none)
+  //   filesTouched    - distinct tool_use file_path values, deduped and CAPPED
+  //   models          - distinct message.model values (assistant lines)
+  // All default 0/null/[] when absent.
+  messageCount: number;
+  lastMessageText: string | null;
+  lastMessageRole: 'user' | 'assistant' | null;
+  tokenTotals: TokenTotals;
+  filesTouched: string[];
+  models: string[];
 }
 
 // The subset of signals the smart-group engine consumes for ONE chat, paired

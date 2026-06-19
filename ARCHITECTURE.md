@@ -56,6 +56,46 @@ guarded settings write.
   Windows paths). The webview must handle read-when-missing (show Claude's
   default) and create-on-write without disturbing siblings.
 
+## Tier-A summary reductions (Sprint 2, slice 0)
+
+The single transcript reader (src/claude/jsonlReader.ts) retains a bounded,
+read-only tier-A summary per chat on TranscriptScan, carried through readChat onto
+ChatRecord. These are the ONLY transcript-content fields the scan snapshot holds;
+full message BODIES are never retained on the snapshot and are read on demand for
+one chat and discarded (slice 1's bodyReader). The fields, all defaulted to
+0/null/[] when absent and absorbed additively alongside the slice-6 signal
+absorbers without disturbing title/timestamp/PR/branch/uuid logic or the tolerant
+skip-unknown-types contract:
+
+- messageCount: count of user/assistant lines (not raw JSONL lines); tool_result
+  feedback user lines still count here.
+- lastMessageText (truncated) plus lastMessageRole ('user' | 'assistant' | null):
+  the LAST GENUINE user/assistant turn, for the awaiting-reply heuristic and
+  previews. A textless assistant turn (pure tool_use) is a real assistant action
+  and DOES advance the role to 'assistant', keeping the prior snippet text. A
+  tool_result-only user line, however, is the harness feeding a tool output back
+  into an assistant loop (the dominant real user-line shape) and is NOT a human
+  turn: it does not advance the role to 'user' and does not overwrite the snippet,
+  so the slice-6 awaiting-reply heuristic (lastMessageRole === 'user') reads human
+  intent rather than the tool loop.
+- tokenTotals: the four trusted message.usage counts (input_tokens, output_tokens,
+  cache_creation_input_tokens, cache_read_input_tokens) summed ONCE per logical
+  assistant turn. A turn spans several JSONL lines that share one message.id and
+  repeat the identical usage block verbatim (verified ground truth), so usage is
+  deduped by message.id and counted on first sighting; a per-line sum over-counts
+  3-5x. An id-less line cannot be deduped and is always counted. All other usage
+  keys are ignored, and a missing or malformed usage block or field contributes 0.
+- filesTouched: distinct file_path values from tool_use blocks (verified ground
+  truth: file_path rides Read, Edit, AND Write blocks, so this is "files
+  referenced" including read-only Reads, not strictly "files edited"), deduped in
+  first-seen order and CAPPED (MAX_FILES_TOUCHED) like leadingMessageUuids.
+- models: distinct message.model values (assistant lines), first-seen order.
+
+usage, model, and tool_use blocks are assistant-line-only (verified ground truth),
+so those absorbers fire only on assistant lines; messageCount and the last-message
+absorber fire on both user and assistant lines. The reader stays the SOLE parser
+and the scanner the SOLE file reader; no slice adds a second scan path.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under

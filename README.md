@@ -38,6 +38,13 @@ Refresh in any view re-scans the transcripts under a cancellable progress
 indicator, and a built-in "Get Started with Claude Code Nest" walkthrough covers
 the panel, organizing, smart groups, and backup. The extension is telemetry-free.
 
+Each scanned chat also carries a bounded, read-only tier-A summary computed once
+during the scan (message count, last-turn snippet and role, summed token usage,
+the distinct files referenced, and the models used). Nothing of it renders yet;
+it is the read-only groundwork the upcoming token badge, rich hover preview,
+content search, and archive features build on. Full message bodies are never held
+in memory beyond reading one chat on demand.
+
 ## The hard constraint
 
 The extension is strictly read-only on Claude's transcript files under

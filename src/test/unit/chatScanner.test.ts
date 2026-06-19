@@ -62,7 +62,14 @@ before(() => {
       timestamp: '2026-06-15T11:01:00.000Z',
       gitBranch: 'slice/smart-groups',
       uuid: 'uuid-bbbb',
-      message: { content: 'reply' },
+      message: {
+        model: 'claude-opus-4-8',
+        content: [
+          { type: 'text', text: 'reply with edit' },
+          { type: 'tool_use', name: 'Edit', input: { file_path: 'src/x.ts' } },
+        ],
+        usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 5 },
+      },
     },
   ]);
 
@@ -153,6 +160,36 @@ describe('chatScanner.scanChats', () => {
     assert.strictEqual(plain.prUrl, null);
     assert.strictEqual(plain.prRepository, null);
     assert.deepStrictEqual(plain.leadingMessageUuids, []);
+  });
+
+  it('carries the tier-A summary fields from the scan through to the ChatRecord', () => {
+    const records = scanChats('c:\\Users\\Tester\\proj', { projectsRoot: root });
+    const byId = new Map(records.map((r) => [r.sessionId, r]));
+    const signal = byId.get('dddddddd-0000-0000-0000-000000000004');
+    assert.ok(signal, 'expected the signal-carrying transcript to be scanned');
+    assert.strictEqual(signal.messageCount, 2);
+    assert.strictEqual(signal.lastMessageText, 'reply with edit');
+    assert.strictEqual(signal.lastMessageRole, 'assistant');
+    assert.deepStrictEqual(signal.tokenTotals, {
+      input: 100,
+      output: 20,
+      cacheCreation: 0,
+      cacheRead: 5,
+    });
+    assert.deepStrictEqual(signal.filesTouched, ['src/x.ts']);
+    assert.deepStrictEqual(signal.models, ['claude-opus-4-8']);
+  });
+
+  it('leaves the tier-A summary at its defaults for a transcript carrying none', () => {
+    const records = scanChats('c:\\Users\\Tester\\proj', { projectsRoot: root });
+    const byId = new Map(records.map((r) => [r.sessionId, r]));
+    const plain = byId.get('aaaaaaaa-0000-0000-0000-000000000001');
+    assert.ok(plain, 'expected the plain transcript to be scanned');
+    assert.strictEqual(plain.messageCount, 2);
+    assert.strictEqual(plain.lastMessageRole, 'assistant');
+    assert.deepStrictEqual(plain.tokenTotals, { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 });
+    assert.deepStrictEqual(plain.filesTouched, []);
+    assert.deepStrictEqual(plain.models, []);
   });
 
   it('returns [] for an unresolved workspace without throwing', () => {
