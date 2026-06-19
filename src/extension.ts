@@ -7,6 +7,7 @@ import {
   LinkedChildItem,
   FolderTreeNode,
 } from './views/foldersProvider';
+import { ChatsPreviewProvider, CHATS_PREVIEW_VIEW } from './views/chatsPreviewWebview';
 import { openChat, OpenUri } from './launch/uriLauncher';
 import { MetadataStore, SyncMemento } from './store/metadataStore';
 import { DeviceIdStore, getOrCreateDeviceId } from './store/deviceId';
@@ -189,6 +190,16 @@ export function activate(context: vscode.ExtensionContext): void {
     canSelectMany: true,
   });
   context.subscriptions.push(flatView);
+
+  // PROOF-OF-CONCEPT (Tier 2 webview demo): a webview-rendered twin of the Chats
+  // list, registered alongside the native tree so the two render side by side for
+  // visual comparison. Same scanChats data, same OPEN_CHAT_COMMAND opener.
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      CHATS_PREVIEW_VIEW,
+      new ChatsPreviewProvider(context.extensionUri, workspacePath),
+    ),
+  );
 
   // The encoded project key (the on-disk projects directory name) is resolved ON
   // DEMAND, not frozen here: it is undefined until Claude Code has created a project

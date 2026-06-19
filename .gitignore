@@ -14,3 +14,6 @@ dist/
 **/__*probe*
 src/__probe/
 src/__lintprobe/
+.claude/settings.local.json
+.vscode/
+media/focus-glow-demo.html

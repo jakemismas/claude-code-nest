@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/jakemismas/claude-code-nest/discussions
+    about: Ask questions and discuss ideas here, not in issues.

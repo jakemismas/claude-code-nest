@@ -1,0 +1,17 @@
+name: Bug report
+description: Report something broken or behaving incorrectly
+labels: ["type: bug", "priority: med"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Expected behavior versus what actually occurred.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true

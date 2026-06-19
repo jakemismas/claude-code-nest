@@ -62,6 +62,12 @@
           "contextualTitle": "Claude Code Nest"
         },
         {
+          "id": "claudeNest.chatsPreview",
+          "name": "Chats (Preview)",
+          "type": "webview",
+          "contextualTitle": "Claude Code Nest"
+        },
+        {
           "id": "claudeNest.folders",
           "name": "Folders",
           "contextualTitle": "Claude Code Nest"
