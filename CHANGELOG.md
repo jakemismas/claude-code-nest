@@ -5,6 +5,16 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Sprint 2 baseline (in progress, not part of the 0.0.1 release): a Chats
+  (Preview) WebviewView (claudeNest.chatsPreview) added beside the native Chats
+  tree as a proof of concept for richer webview rendering (inline filter box,
+  card rows). It is strictly additive and read-only: it reads the SAME scanChats
+  path and opens chats through the SAME OPEN_CHAT_COMMAND as the native tree, is
+  CSP-locked with a per-render nonce, and leaves the shipped views and the model
+  untouched. The 0.0.1 feature set below is unchanged by it.
+
 ## [0.0.1] - 2026-06-17
 
 First packaged release. Ships all ten dependency-ordered slices (0 through 9):
