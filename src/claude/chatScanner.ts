@@ -111,6 +111,13 @@ export function readChat(filePath: string): ChatRecord | null {
     prRepository: scan.prRepository,
     gitBranch: scan.gitBranch,
     leadingMessageUuids: scan.leadingMessageUuids,
+    // Sprint 2 tier-A summary, carried through with no additional file read.
+    messageCount: scan.messageCount,
+    lastMessageText: scan.lastMessageText,
+    lastMessageRole: scan.lastMessageRole,
+    tokenTotals: scan.tokenTotals,
+    filesTouched: scan.filesTouched,
+    models: scan.models,
   };
 }
 

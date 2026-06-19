@@ -115,6 +115,12 @@ function chatRecord(sessionId: string): ChatRecord {
     prRepository: null,
     gitBranch: null,
     leadingMessageUuids: [],
+    messageCount: 0,
+    lastMessageText: null,
+    lastMessageRole: null,
+    tokenTotals: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 },
+    filesTouched: [],
+    models: [],
   };
 }
 

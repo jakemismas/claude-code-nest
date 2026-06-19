@@ -14,6 +14,16 @@ Keep a Changelog, and the project adheres to semantic versioning.
   path and opens chats through the SAME OPEN_CHAT_COMMAND as the native tree, is
   CSP-locked with a per-render nonce, and leaves the shipped views and the model
   untouched. The 0.0.1 feature set below is unchanged by it.
+- Tier-A transcript summary (slice 0, no UI): the single transcript reader now
+  retains a bounded, read-only per-chat summary that later slices consume without
+  re-reading or re-parsing a transcript: message count, the truncated text and
+  role of the last user/assistant turn (for the awaiting-reply heuristic), summed
+  token usage (input, output, cache-creation, cache-read), the distinct files
+  referenced by Read/Edit/Write tool_use blocks (deduped and capped), and the
+  distinct models used. The fields are additive on TranscriptScan and ChatRecord;
+  titles, timestamps, PR, branch, and uuid logic and the tolerant
+  skip-unknown-types contract are unchanged. Full message bodies are never held
+  on the scan snapshot, only bounded reductions.
 
 ## [0.0.1] - 2026-06-17
 

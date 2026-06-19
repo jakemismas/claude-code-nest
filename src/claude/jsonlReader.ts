@@ -1,4 +1,4 @@
-import { TranscriptScan } from '../model/types';
+import { TokenTotals, TranscriptScan } from '../model/types';
 
 // Tolerant, line-type-driven reader for a Claude Code transcript. The transcript
 // is JSONL: one JSON object per line, each carrying a "type". Titles and
@@ -27,6 +27,18 @@ const MAX_TITLE_LENGTH = 80;
 // gain. The cap is generous enough that a genuine shared prefix (a forked
 // session replays the parent's opening turns) is still observed.
 const MAX_LEADING_UUIDS = 16;
+
+// Cap on the number of distinct files-touched paths retained (Sprint 2 tier-A),
+// matching MAX_LEADING_UUIDS' rationale: a chat that edits hundreds of files
+// needs only a bounded, representative set for the files-touched count and
+// preview. Distinct paths are retained in first-seen order up to the cap; later
+// distinct paths are dropped.
+const MAX_FILES_TOUCHED = 64;
+
+// Truncation cap for the last-message snippet. Keeps the scan a bounded
+// reduction (the full body is never retained); the snippet is enough for the
+// awaiting-reply heuristic and the hover/preview surfaces of later slices.
+const MAX_LAST_MESSAGE_LENGTH = 200;
 
 // Title resolution order, applied after a scan:
 //   1. customTitle  2. aiTitle  3. slug  4. truncated first user-message text
@@ -63,7 +75,22 @@ export function scanTranscript(content: string): TranscriptScan {
     prRepository: null,
     gitBranch: null,
     leadingMessageUuids: [],
+    messageCount: 0,
+    lastMessageText: null,
+    lastMessageRole: null,
+    tokenTotals: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 },
+    filesTouched: [],
+    models: [],
   };
+
+  // A single logical assistant turn is emitted as MULTIPLE assistant JSONL lines
+  // that share one message.id (thinking / text / tool_use split across lines),
+  // and the IDENTICAL message.usage block is repeated verbatim on each of those
+  // lines (verified ground truth across real transcripts). Summing usage per line
+  // therefore over-counts a turn 3-5x. This set tracks message.ids already
+  // counted so each turn's usage is summed exactly once (first sighting wins). An
+  // assistant line with no message.id cannot be deduped, so it is always counted.
+  const seenUsageMessageIds = new Set<string>();
 
   const lines = content.split(/\r?\n/);
   for (const line of lines) {
@@ -102,8 +129,17 @@ export function scanTranscript(content: string): TranscriptScan {
         absorbSlug(scan, obj);
         absorbGitBranch(scan, obj);
         absorbLeadingUuid(scan, obj);
+        absorbMessageCount(scan);
+        absorbLastMessage(scan, obj, type);
         if (type === 'user') {
           absorbFirstUserText(scan, obj);
+        }
+        if (type === 'assistant') {
+          // usage, model, and tool_use blocks ride assistant lines only
+          // (verified ground truth), so the cost/model/files absorbers fire here.
+          absorbUsage(scan, obj, seenUsageMessageIds);
+          absorbModel(scan, obj);
+          absorbFilesTouched(scan, obj);
         }
         break;
       default:
@@ -159,6 +195,146 @@ function absorbLeadingUuid(scan: TranscriptScan, obj: Record<string, unknown>): 
   }
   if (typeof obj.uuid === 'string' && obj.uuid.length > 0) {
     scan.leadingMessageUuids.push(obj.uuid);
+  }
+}
+
+// Count one user/assistant line. Tier-A messageCount is the number of
+// user/assistant turns, not raw JSONL lines (unrelated types do not count).
+function absorbMessageCount(scan: TranscriptScan): void {
+  scan.messageCount++;
+}
+
+// Absorb the LAST user/assistant turn's text and role (LAST-wins, overwritten
+// on each qualifying turn). Reuses the existing extractMessageText, so the SAME
+// message shapes the title fallback understands (string body, {content:string},
+// {content:[{type:'text',text}]}) feed the snippet.
+//
+// Role semantics serve the slice-6 awaiting-reply ("Questions") heuristic, which
+// reads lastMessageRole === 'user' as "a human spoke last and awaits a reply".
+// The harness records tool outputs as type:'user' lines whose content is a
+// tool_result block (the DOMINANT real user-line shape: ~13 of 16 on real
+// transcripts). Those are machine-fed feedback inside an assistant tool loop, NOT
+// a human turn, so they must NOT advance the role to 'user' or the heuristic
+// misfires on the majority of chats. An assistant turn is always a real assistant
+// action (even a pure tool_use turn), so it always advances the role to
+// 'assistant'. A textless turn leaves the prior snippet text intact.
+function absorbLastMessage(
+  scan: TranscriptScan,
+  obj: Record<string, unknown>,
+  role: 'user' | 'assistant',
+): void {
+  if (role === 'user' && isToolResultFeedback((obj as { message?: unknown }).message)) {
+    // A tool_result-only user line is harness feedback, not a human turn: it
+    // neither advances the role nor overwrites the snippet.
+    return;
+  }
+  scan.lastMessageRole = role;
+  const text = extractMessageText((obj as { message?: unknown }).message);
+  if (isNonEmpty(text)) {
+    scan.lastMessageText = truncate((text as string).trim(), MAX_LAST_MESSAGE_LENGTH);
+  }
+}
+
+// True when a user message is purely tool_result feedback: its content is an
+// array of one or more blocks, ALL of which are tool_result. Such a line is the
+// harness feeding a tool output back into an assistant loop, not a human prose
+// turn. A string body, a {content:string}, or any array containing a text/string
+// block is a genuine human turn and returns false.
+function isToolResultFeedback(message: unknown): boolean {
+  if (!isRecord(message)) {
+    return false;
+  }
+  const content = message.content;
+  if (!Array.isArray(content) || content.length === 0) {
+    return false;
+  }
+  return content.every((block) => isRecord(block) && block.type === 'tool_result');
+}
+
+// Sum the message.usage token counts onto the running totals, ONCE per logical
+// assistant turn. A turn spans multiple JSONL lines that share one message.id and
+// repeat the identical usage block verbatim; counting per line over-counts 3-5x
+// (verified ground truth), so usage is summed only on the FIRST line bearing a
+// given message.id. Lines without a string message.id cannot be deduped and are
+// always counted. Tolerant of a missing usage block, a non-object usage, and
+// individually-missing or non-numeric fields (each absent/garbage field
+// contributes 0). The many other usage keys Claude writes are ignored; only the
+// four trusted counts are summed.
+function absorbUsage(
+  scan: TranscriptScan,
+  obj: Record<string, unknown>,
+  seenUsageMessageIds: Set<string>,
+): void {
+  const message = (obj as { message?: unknown }).message;
+  if (!isRecord(message)) {
+    return;
+  }
+  const usage = message.usage;
+  if (!isRecord(usage)) {
+    return;
+  }
+  const id = message.id;
+  if (typeof id === 'string' && id.length > 0) {
+    if (seenUsageMessageIds.has(id)) {
+      return;
+    }
+    seenUsageMessageIds.add(id);
+  }
+  addUsageField(scan.tokenTotals, 'input', usage.input_tokens);
+  addUsageField(scan.tokenTotals, 'output', usage.output_tokens);
+  addUsageField(scan.tokenTotals, 'cacheCreation', usage.cache_creation_input_tokens);
+  addUsageField(scan.tokenTotals, 'cacheRead', usage.cache_read_input_tokens);
+}
+
+function addUsageField(totals: TokenTotals, key: keyof TokenTotals, value: unknown): void {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    totals[key] += value;
+  }
+}
+
+// Absorb the distinct message.model into the models list (first-seen order, no
+// duplicates). Almost always one model per transcript, but a session can switch
+// models, so distinct values are retained.
+function absorbModel(scan: TranscriptScan, obj: Record<string, unknown>): void {
+  const message = (obj as { message?: unknown }).message;
+  if (!isRecord(message)) {
+    return;
+  }
+  const model = message.model;
+  if (typeof model === 'string' && model.length > 0 && !scan.models.includes(model)) {
+    scan.models.push(model);
+  }
+}
+
+// Absorb the distinct file_path values from tool_use blocks in message.content,
+// deduped and capped at MAX_FILES_TOUCHED. file_path appears on Read, Edit, and
+// Write tool_use blocks (verified ground truth), so this is "files referenced"
+// (including read-only Reads), not strictly "files edited"; that matches the
+// plan's literal spec. Once the cap is hit, later distinct paths are dropped.
+function absorbFilesTouched(scan: TranscriptScan, obj: Record<string, unknown>): void {
+  const message = (obj as { message?: unknown }).message;
+  if (!isRecord(message)) {
+    return;
+  }
+  const content = message.content;
+  if (!Array.isArray(content)) {
+    return;
+  }
+  for (const block of content) {
+    if (scan.filesTouched.length >= MAX_FILES_TOUCHED) {
+      return;
+    }
+    if (!isRecord(block) || block.type !== 'tool_use') {
+      continue;
+    }
+    const input = block.input;
+    if (!isRecord(input)) {
+      continue;
+    }
+    const filePath = input.file_path;
+    if (typeof filePath === 'string' && filePath.length > 0 && !scan.filesTouched.includes(filePath)) {
+      scan.filesTouched.push(filePath);
+    }
   }
 }
 
