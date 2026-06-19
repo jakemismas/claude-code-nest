@@ -1,0 +1,110 @@
+/* PROOF-OF-CONCEPT styling for the Chats (Preview) webview. This is the whole
+   point of the demo: none of this is expressible through the TreeView API.
+   Colors mix VSCode theme variables (so it stays readable in any theme) with a
+   custom accent so the visual freedom is obvious. Swap the --nest-accent value
+   to recolor the panel. */
+
+:root {
+  --nest-accent: #7c6cff;
+  --nest-accent-soft: rgba(124, 108, 255, 0.14);
+  --nest-radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+}
+
+.nest-toolbar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: var(--vscode-sideBar-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  z-index: 2;
+}
+
+.nest-filter {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: var(--nest-radius);
+  border: 1px solid var(--vscode-input-border, transparent);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  outline: none;
+}
+
+.nest-filter:focus {
+  border-color: var(--nest-accent);
+}
+
+.nest-refresh {
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--nest-radius);
+  background: var(--nest-accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.nest-refresh:hover {
+  filter: brightness(1.1);
+}
+
+.nest-list {
+  padding: 6px;
+}
+
+.nest-group {
+  margin: 10px 6px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nest-accent);
+  opacity: 0.85;
+}
+
+.nest-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px 8px 12px;
+  margin: 4px 0;
+  border-radius: var(--nest-radius);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  background: var(--vscode-list-inactiveSelectionBackground, transparent);
+}
+
+.nest-card:hover {
+  background: var(--nest-accent-soft);
+  border-left-color: var(--nest-accent);
+}
+
+.nest-card-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nest-card-meta {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.nest-empty {
+  padding: 24px 12px;
+  text-align: center;
+  opacity: 0.6;
+}

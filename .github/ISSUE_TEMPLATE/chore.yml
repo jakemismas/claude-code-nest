@@ -1,0 +1,19 @@
+name: Chore
+description: Maintenance, dependency bumps, version bumps, housekeeping
+labels: ["type: chore", "priority: low"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs maintaining and why.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ]
+    validations:
+      required: true

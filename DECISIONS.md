@@ -5,6 +5,39 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-19 Sprint 2 planning: chat-window features dropped as impossible
+
+Fork: the Sprint 2 source spec (FEATURES.md) and its UI mockup include an in-window
+chat surface (a context-health bar across the chat, a one-click compact button, a live
+"used / 200K" token readout, a tag chips bar beside the session title, and a transcript
+plus composer). Resolution: dropped from scope and not planned. V2-RESEARCH.md sections 4
+and 5 spike-verified that a third-party extension cannot inject UI into Claude's chat body
+or input, cannot read Claude's live webview state, cannot obtain the real session id, and
+cannot drive the session (e.g. /compact); a full in-app renderer is explicitly "Don't
+build" and an in-panel composer would write into a running session. The honest residue
+(a per-chat ~token total computed from the transcript, and tag editing inside Nest's own
+panel) is folded into the surviving slices. USD cost is also dropped (needs a maintained
+pricing table or a network call that breaks the telemetry-free promise). Rationale: the
+read-only invariant and the spike findings are non-negotiable; planning impossible features
+would only surface as failed slices.
+
+## 2026-06-19 Sprint 2 planning: one sprint including the webview re-platform
+
+Fork: ship the read-layer expansion (search, preview, token badge, export, star, archive)
+alone as v0.1.0 and defer the webview org-panel re-platform to a later sprint, or do both in
+one sprint. Resolution: one sprint (user decision), with the webview migration as the last,
+heaviest slice (6). Mitigations: slices 0..5 stay independently shippable so a release can be
+cut from the read layer if slice 6 slips; the flat Chats TreeView is kept as the accessible
+fallback; accessibility and keyboard navigation are acceptance criteria on slice 6, not polish.
+
+## 2026-06-19 Sprint 2 planning: release as v0.1.0, not v2.0
+
+Fork: the release version. Resolution: v0.1.0, a minor bump over the shipped 0.0.1. Rationale:
+honest semver for a pre-1.0 extension still stabilizing (a heuristic chat-identity layer and a
+known reconcile fragility); 1.0.0 is reserved for when the read-only guarantees are battle-
+tested. "Sprint 2" is the release-effort name; V2-RESEARCH.md's "Phase 1/1.5/2" are internal
+R&D sub-phases and are not reused as the sprint name.
+
 ## 2026-06-17 Slice 9 (Polish): progress wraps a synchronous scan on the explicit-refresh path only, and FlatProvider gains the memoized-snapshot shape
 
 Resolution of two build-time decisions the Polish plan and its accepted fit patch
