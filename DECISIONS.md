@@ -5,6 +5,30 @@ one dated entry per fork: the slice, the fork, the chosen resolution, and the
 rationale. Locked decisions from the approved plan live in PLAN.md and
 ARCHITECTURE.md and are not relitigated here.
 
+## 2026-06-19 Slice 1 (hover preview): reconcile the PLAN Ships line to the binding UI-SPEC hover card
+
+Fork: SPRINT-2-PLAN.md declares UI-SPEC.md binding for slices 1, 2, and 6, but the
+slice 1 per-slice Ships line (and its manual-smoke step) described the hover preview
+card as title, relative time, ~tokens, models, files-touched count, and snippet,
+omitting the folder and the full tag set that the binding UI-SPEC.md hover card
+requires. The first autonomous build followed the narrower Ships line, and the
+adversarial completeness review halted slice 1 after three fix rounds on the divergence.
+
+Resolution (autonomous, reversible): the binding spec wins, per the run prompt's
+explicit instruction to build slices 1, 2, and 6 to UI-SPEC.md. The slice 1 Ships line,
+modules note, manual-smoke step, and test note were reconciled so the hover card
+includes folder, age, ~token total, full tag set, and a first/last message snippet;
+models and files-touched count remain as additive context. buildChatTooltip takes the
+chat's folder name and tag set as plain params (the providers already read both at the
+call site), keeping the builder vscode-free. Tracked as issue #34.
+
+Rationale: this is a plan-internal contradiction, not a design choice, so resolving it
+in favor of the document the plan itself declares binding is non-discretionary and fully
+reversible (a doc edit; the actual hover card is still gated by the slice 1 review and
+test gate before it lands). Recorded here per the engine's fork-recording contract
+because the contradiction surfaced in post-build review, where the engine has no council
+to log it.
+
 ## 2026-06-19 Sprint 2 planning: chat-window features dropped as impossible
 
 Fork: the Sprint 2 source spec (FEATURES.md) and its UI mockup include an in-window
