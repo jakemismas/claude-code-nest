@@ -1,29 +1,30 @@
 // vscodeStub MUST be imported first so require('vscode') resolves before
-// chatsPreviewWebview (and its transitive searchStore -> exportIO) imports it.
+// orgPanelWebview (and its transitive searchStore -> exportIO) imports it.
 import './vscodeStub';
 
 import * as assert from 'assert';
 import { ChatRecord, TokenTotals } from '../../model/types';
 
 // Regression test for the refresh-during-async-build race in
-// src/views/chatsPreviewWebview.ts (round-2 fix-pass finding). The content index
-// builds in two detached phases (tier-A, then a yielding body-read upgrade). A
-// 'refresh' message lands invalidateContentIndex() in the middle of the body-read
-// window. BEFORE the fix, the in-flight build wrote back AFTER invalidation:
-// contentIndex was resurrected to a stale index and bodyIndexReady flipped back to
-// true, so a subsequent content query short-circuited on the stale index while the
-// fresh build's cleared indexedRecords made rankRows drop every row -> zero rows
-// for a query that should match. The fix stamps each build with a generation
-// captured at ensureContentIndexBuilding time; the phases only write shared state
-// while their captured generation still matches.
+// src/views/orgPanelWebview.ts (the content-search machinery the PRIMARY org panel
+// carried over from the retired chatsPreview POC). The content index builds in two
+// detached phases (tier-A, then a yielding body-read upgrade). A 'refresh' message
+// lands invalidateContentIndex() in the middle of the body-read window. WITHOUT the
+// generation guard, the in-flight build would write back AFTER invalidation:
+// contentIndex resurrected to a stale index and bodyIndexReady flipped back to true,
+// so a subsequent content query short-circuits on the stale index while the fresh
+// build's cleared indexedRecords makes rankRows drop every row -> zero rows for a
+// query that should match. The fix stamps each build with a generation captured at
+// ensureContentIndexBuilding time; the phases only write shared state while their
+// captured generation still matches.
 //
 // We exercise the real provider by intercepting its two module-level data
 // dependencies (chatScanner.scanChats, bodyReader.readTranscriptBodies) on the
 // cached CommonJS module objects. The compiled provider calls these as
 // chatScanner_1.scanChats(...) / bodyReader_1.readTranscriptBodies(...), i.e.
 // through the module namespace at call time, so overriding the exports redirects
-// them. readTranscriptBodies is gated on a controllable promise so we can pause
-// the body-read loop precisely inside the phase-2 window and fire the refresh.
+// them. readTranscriptBodies is gated so we can pause the body-read loop precisely
+// inside the phase-2 window and fire the refresh.
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const chatScanner = require('../../claude/chatScanner') as {
@@ -34,13 +35,17 @@ const bodyReader = require('../../claude/bodyReader') as {
   readTranscriptBodies: (filePath: string) => { role: string; text: string | null; uuid: string | null }[];
 };
 
-// Load the provider AFTER the stubbed modules are in the cache. Import path matches
-// the searchStore tests' style (require from compiled-equivalent source path).
+// Load the provider AFTER the stubbed modules are in the cache.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ChatsPreviewProvider } = require('../../views/chatsPreviewWebview') as {
-  ChatsPreviewProvider: new (
+const { OrgPanelProvider } = require('../../views/orgPanelWebview') as {
+  OrgPanelProvider: new (
     extensionUri: unknown,
     workspacePath: string | undefined,
+    store: unknown,
+    getProjectKey: () => string | undefined,
+    actions: unknown,
+    dropDeps: unknown,
+    stateStore: unknown,
     globalStorageUri?: unknown,
   ) => {
     resolveWebviewView(view: unknown): void;
@@ -50,10 +55,46 @@ const { ChatsPreviewProvider } = require('../../views/chatsPreviewWebview') as {
 const realScanChats = chatScanner.scanChats;
 const realReadBodies = bodyReader.readTranscriptBodies;
 
-// A fake extension Uri for the provider's media-root joins. Matches the shape the
-// vscodeStub's Uri.joinPath consumes (fsPath + scheme). The HTML it feeds is
-// dropped by the fake webview, so only the join must not throw.
 const extUri = { fsPath: '/ext', scheme: 'file' } as const;
+
+// Inert deps the search path never touches: the store/actions/dropDeps are only
+// used on a mutation, not during a search. getProjectKey returns undefined so the
+// section build is empty but the content search still scans (search does not gate on
+// the project key). The state store returns defaults.
+const inertStore = {
+  getProjectMeta: (): unknown => ({ folders: {}, tags: {}, chats: {} }),
+  flush: (): Promise<void> => Promise.resolve(),
+  setChatFolder: (): void => undefined,
+  addChatTag: (): void => undefined,
+  upsertFolder: (): void => undefined,
+  setFolderColor: (): void => undefined,
+};
+const inertActions = {
+  renameFolder: (): void => undefined,
+  setFolderColor: (): void => undefined,
+};
+const inertDropDeps = {
+  store: inertStore,
+  getProjectKey: (): string | undefined => undefined,
+  refresh: (): void => undefined,
+};
+const inertStateStore = {
+  get: (): string | undefined => undefined,
+  set: (): void => undefined,
+};
+
+function makeProvider(workspacePath: string): unknown {
+  return new OrgPanelProvider(
+    extUri,
+    workspacePath,
+    inertStore,
+    () => undefined,
+    inertActions,
+    inertDropDeps,
+    inertStateStore,
+    undefined,
+  );
+}
 
 function totals(): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
@@ -88,9 +129,6 @@ interface PostedMessage {
   rows?: { sessionId: string }[];
 }
 
-// A minimal WebviewView double that captures posted messages and the message
-// handler the provider registers, so the test can drive 'search' / 'refresh'
-// inbound messages and read back the 'searchResults' posts.
 function makeView(): {
   view: unknown;
   posted: PostedMessage[];
@@ -128,8 +166,6 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-// Wait until predicate is true or a bounded number of macrotask turns elapse, so a
-// test asserts on a settled state without a fixed sleep.
 async function until(predicate: () => boolean, turns = 200): Promise<void> {
   for (let i = 0; i < turns; i++) {
     if (predicate()) {
@@ -139,18 +175,13 @@ async function until(predicate: () => boolean, turns = 200): Promise<void> {
   }
 }
 
-describe('chatsPreviewWebview content-search refresh-during-build race', () => {
+describe('orgPanelWebview content-search refresh-during-build race', () => {
   afterEach(() => {
     chatScanner.scanChats = realScanChats;
     bodyReader.readTranscriptBodies = realReadBodies;
   });
 
   it('a refresh DURING the body-read window leaves the index invalidated (no resurrection, bodyIndexReady stays false)', async () => {
-    // Direct-state variant: fire the refresh from INSIDE the stale build's
-    // body-read loop, so the stale build's post-loop writeback runs AFTER
-    // invalidateContentIndex. The fix must leave the invalidated state intact:
-    // contentIndex null and bodyIndexReady false. BEFORE the fix the stale build
-    // resurrects contentIndex and flips bodyIndexReady back to true.
     const stale: ChatRecord[] = [
       record({ sessionId: 'a', title: 'alpha chat', lastMessageText: 'alpha body' }),
       record({ sessionId: 'a2', title: 'alpha two', lastMessageText: 'alpha body two', filePath: '/a2.jsonl' }),
@@ -158,7 +189,7 @@ describe('chatsPreviewWebview content-search refresh-during-build race', () => {
 
     chatScanner.scanChats = (): ChatRecord[] => stale.map((r) => ({ ...r }));
 
-    const provider = new ChatsPreviewProvider(extUri, '/ws', undefined) as unknown as {
+    const provider = makeProvider('/ws') as {
       resolveWebviewView(view: unknown): void;
       contentIndex: unknown;
       bodyIndexReady: boolean;
@@ -171,7 +202,6 @@ describe('chatsPreviewWebview content-search refresh-during-build race', () => {
     bodyReader.readTranscriptBodies = (): { role: 'user'; text: string; uuid: null }[] => {
       if (!refreshFired) {
         refreshFired = true;
-        // Refresh lands mid body-read window: invalidate the in-flight build.
         send({ type: 'refresh' });
       }
       return [{ role: 'user', text: 'alpha body', uuid: null }];
@@ -179,7 +209,6 @@ describe('chatsPreviewWebview content-search refresh-during-build race', () => {
 
     send({ type: 'search', query: 'alpha' });
     await until(() => refreshFired);
-    // Let the stale build run all the way to its (now-stale) writebacks.
     await until(() => false, 40);
 
     assert.strictEqual(
@@ -200,9 +229,6 @@ describe('chatsPreviewWebview content-search refresh-during-build race', () => {
   });
 
   it('a stale tier-A writeback after refresh does not flip bodyIndexReady or blank a fresh query', async () => {
-    // Tighter variant: interleave the refresh between the stale build's body reads.
-    // The body reader fires the refresh on the FIRST stale-build read, so the stale
-    // build finishes and tries to write back AFTER invalidation.
     const stale: ChatRecord[] = [
       record({ sessionId: 'a', title: 'gamma chat', lastMessageText: 'gamma body' }),
       record({ sessionId: 'c', title: 'gamma two', lastMessageText: 'gamma body two', filePath: '/c.jsonl' }),
@@ -214,7 +240,7 @@ describe('chatsPreviewWebview content-search refresh-during-build race', () => {
     let currentCorpus = stale;
     chatScanner.scanChats = (): ChatRecord[] => currentCorpus.map((r) => ({ ...r }));
 
-    const provider = new ChatsPreviewProvider(extUri, '/ws', undefined);
+    const provider = makeProvider('/ws') as { resolveWebviewView(view: unknown): void };
     const { view, posted, send } = makeView();
     provider.resolveWebviewView(view);
 
@@ -222,7 +248,6 @@ describe('chatsPreviewWebview content-search refresh-during-build race', () => {
     bodyReader.readTranscriptBodies = (): { role: 'user'; text: string; uuid: null }[] => {
       if (!refreshFired) {
         refreshFired = true;
-        // Fire the refresh mid body-read window of the stale build.
         currentCorpus = fresh;
         send({ type: 'refresh' });
       }
@@ -231,12 +256,8 @@ describe('chatsPreviewWebview content-search refresh-during-build race', () => {
 
     send({ type: 'search', query: 'gamma' });
     await until(() => refreshFired);
-    // Let the stale build settle fully (its writebacks would land here if buggy).
     await until(() => false, 20);
 
-    // Now query for "delta": only in the FRESH corpus. If the stale build flipped
-    // bodyIndexReady back on and resurrected the stale (gamma-only) index, this
-    // returns zero rows.
     posted.length = 0;
     send({ type: 'search', query: 'delta' });
     await until(

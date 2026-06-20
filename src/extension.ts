@@ -7,7 +7,7 @@ import {
   LinkedChildItem,
   FolderTreeNode,
 } from './views/foldersProvider';
-import { ChatsPreviewProvider, CHATS_PREVIEW_VIEW } from './views/chatsPreviewWebview';
+import { OrgPanelProvider, ORG_PANEL_VIEW, OrgPanelActions, OrgPanelStateStore } from './views/orgPanelWebview';
 import { openChat, OpenUri } from './launch/uriLauncher';
 import { MetadataStore, SyncMemento } from './store/metadataStore';
 import { DeviceIdStore, getOrCreateDeviceId } from './store/deviceId';
@@ -36,11 +36,6 @@ import {
   addTagToChat,
   removeTagFromChat,
 } from './commands/tagCommands';
-import {
-  NestDragAndDropController,
-  FOLDERS_RESERVED_MIME,
-  TAGS_RESERVED_MIME,
-} from './dnd/dndController';
 import {
   TAG_CHATS_COMMAND,
   TaggingCommandDeps,
@@ -95,6 +90,7 @@ import {
   previewArchivedBody,
 } from './commands/previewChatCommand';
 import { ChatRecord } from './model/types';
+import { findChildByName } from './model/folderTree';
 import { ArchiveProvider, ArchivedChatItem } from './views/archiveProvider';
 import {
   STAR_CHAT_COMMAND,
@@ -187,6 +183,14 @@ export function activate(context: vscode.ExtensionContext): void {
   // harmless no-op.
   let scheduleAutoExport: () => void = () => {};
 
+  // Forward handle to the primary org-panel webview's refresh, assigned once the
+  // OrgPanelProvider is constructed (it needs foldersProvider/tagsProvider, built
+  // below). Every organization-mutation refresh closure (folder/tag/link/tagging/
+  // promote/curation/reconcile) calls through this so the PRIMARY surface re-renders
+  // on a mutation, the same way scheduleAutoExport is forwarded. A call before the
+  // provider exists (none occur during synchronous activation) is a harmless no-op.
+  let refreshOrgPanel: () => void = () => {};
+
   // The shared progress + cancellation UI for the explicit Refresh commands
   // (Polish slice). vscode.window.withProgress shows a cancellable notification
   // while a provider primes its snapshot via a transcript scan; the scanner stays
@@ -236,54 +240,23 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push(flatView);
 
-  // PROOF-OF-CONCEPT (Tier 2 webview demo): a webview-rendered twin of the Chats
-  // list, registered alongside the native tree so the two render side by side for
-  // visual comparison. Same scanChats data, same OPEN_CHAT_COMMAND opener.
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      CHATS_PREVIEW_VIEW,
-      new ChatsPreviewProvider(context.extensionUri, workspacePath, context.globalStorageUri),
-    ),
-  );
-
   // The encoded project key (the on-disk projects directory name) is resolved ON
   // DEMAND, not frozen here: it is undefined until Claude Code has created a project
-  // dir for this workspace, and the dir can appear after activation (the Folders
-  // view activates on first open, which may precede the first session). The provider
+  // dir for this workspace, and the dir can appear after activation. The provider
   // re-resolves it on every refresh via FoldersProvider.resolveProjectKey, and the
-  // commands share that same resolution through FolderCommandDeps.getProjectKey, so
-  // the view and its commands recover on the next Refresh Folders without a window
-  // reload. The store keys ProjectMeta by this same string.
+  // commands share that same resolution through FolderCommandDeps.getProjectKey. The
+  // store keys ProjectMeta by this same string.
+  //
+  // Slice s2-org-panel-webview RETIRES the native Folders TreeView and its
+  // drag-and-drop controller: the primary org panel (a WebviewView, registered
+  // below) supersedes them. FoldersProvider is KEPT as a non-view service: the
+  // folder/link/tag/promote/curation commands still depend on it for on-demand
+  // project-key resolution (resolveProjectKey), the link target pick list
+  // (chatRecords), the rollup token seam (tokenTotalsByChat), and reveal/home
+  // resolution (memberNodeForChat). Its refresh() still fires onDidChangeTreeData,
+  // which no longer drives a tree but is harmless; the org panel's refresh is folded
+  // into every refresh closure so the primary surface re-renders on a mutation.
   const foldersProvider = new FoldersProvider(workspacePath, store);
-  // The Folders-view drag-and-drop controller. It declares its own reserved MIME
-  // plus the shared chat MIME, and interprets a drop as a single-home folder move
-  // (ARCHITECTURE.md "Drag and drop": interpret by the TARGET view). Constructed
-  // here and passed to createTreeView; it is not self-registering.
-  const foldersDnd = new NestDragAndDropController<FolderTreeNode>(
-    {
-      store,
-      getProjectKey: () => foldersProvider.resolveProjectKey(),
-      provider: foldersProvider,
-      // Resolve a dropped-on linked-child row to its chat's home folder id so a
-      // drop files the dragged chat ALONGSIDE the linked child instead of
-      // unfiling it. memberNodeForChat carries the resolved home (a real folder id
-      // or the Unfiled sentinel); undefined when the chat is not currently homed.
-      resolveChatHome: (chatId: string) =>
-        foldersProvider.memberNodeForChat(chatId)?.folderId,
-    },
-    'claudeNest.folders',
-    FOLDERS_RESERVED_MIME,
-  );
-  const foldersView = vscode.window.createTreeView('claudeNest.folders', {
-    treeDataProvider: foldersProvider,
-    showCollapseAll: true,
-    // canSelectMany lets a multi-chat drag (and multi-select context-menu tag)
-    // carry every selected chat; the controller batches the mutation into one
-    // store write and a single refresh (ARCHITECTURE.md "Refresh coalescing").
-    canSelectMany: true,
-    dragAndDropController: foldersDnd,
-  });
-  context.subscriptions.push(foldersView);
 
   const folderUi: FolderCommandUi = {
     prompt: (options) =>
@@ -322,6 +295,7 @@ export function activate(context: vscode.ExtensionContext): void {
     provider: {
       refresh: () => {
         foldersProvider.refresh();
+        refreshOrgPanel();
         scheduleAutoExport();
       },
     },
@@ -365,29 +339,119 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // The claudeNest.tags view: the many-to-many tag membership. It resolves the
-  // project key on demand exactly like the Folders view, and its commands share
-  // that resolution through TagCommandDeps.getProjectKey.
+  // The many-to-many tag membership service. Like FoldersProvider, the native Tags
+  // TreeView and its drag-and-drop controller are RETIRED in slice
+  // s2-org-panel-webview (the org panel renders tag chips and handles tag DnD).
+  // TagsProvider is KEPT as a non-view service: the tag commands resolve the project
+  // key through it (TagCommandDeps.getProjectKey) and its refresh() participates in
+  // the shared refresh closures. Tag-add by drag is handled by the org panel through
+  // the webviewDropAdapter, which reuses the UNCHANGED reduceDrop.
   const tagsProvider = new TagsProvider(workspacePath, store);
-  // The Tags-view drag-and-drop controller. It declares its own reserved MIME
-  // plus the shared chat MIME, and interprets a drop as a tag-add on the target
-  // tag (ARCHITECTURE.md "Drag and drop": interpret by the TARGET view).
-  const tagsDnd = new NestDragAndDropController<TagTreeNode>(
-    {
-      store,
-      getProjectKey: () => tagsProvider.resolveProjectKey(),
-      provider: tagsProvider,
+
+  // The PRIMARY org-panel webview (slice s2-org-panel-webview). It supersedes the
+  // retired native Folders and Tags trees: it renders the section model (Starred,
+  // Questions heuristic, the folder hierarchy with per-folder color, Unsorted), tag
+  // filter chips, sort and density modes, folder rename, and webview drag-and-drop.
+  // The drop path reuses the UNCHANGED reduceDrop through webviewDropAdapter, and the
+  // cross-tree dragContext stash is NOT involved (a webview drag is in-process). The
+  // shared refresh closure re-renders the flat Chats tree (the accessible fallback),
+  // the (now view-less) folders/tags services, the archive view, and this panel, and
+  // schedules the opt-in auto-export, so a mutation from any surface keeps all of
+  // them consistent. Constructed after both providers exist so their refresh and
+  // project-key resolution are available.
+  const refreshAllOrgSurfaces = (): void => {
+    flatProvider.refresh();
+    foldersProvider.refresh();
+    tagsProvider.refresh();
+    refreshOrgPanel();
+    scheduleAutoExport();
+  };
+  // The org panel's rename/color actions route through the existing store mutations
+  // (the same setFolderColor the schema/store slice added, and a direct rename via
+  // upsertFolder preserving the folder's parent/order) then flush + refresh once, so
+  // the webview never couples to the command layer or invents a new write path.
+  const orgPanelActions: OrgPanelActions = {
+    renameFolder: async (folderId: string, name: string): Promise<void> => {
+      const projectKey = foldersProvider.resolveProjectKey();
+      if (projectKey === undefined) {
+        return;
+      }
+      const meta = store.getProjectMeta(projectKey);
+      const existing = meta.folders[folderId];
+      if (existing === undefined) {
+        return;
+      }
+      const trimmed = name.trim();
+      // Enforce the SAME rename invariants the native renameFolder command does
+      // (folderCommands.ts): no slash (a rename sets one name; nesting is via New
+      // Folder), and no sibling-name collision under the same parent (sibling-name
+      // uniqueness backs the assign-to-folder picker and the slash-path round-trip).
+      // A violating rename is silently ignored here; the webview keeps the old name.
+      if (trimmed.length === 0 || trimmed === existing.name || trimmed.includes('/')) {
+        return;
+      }
+      const sibling = findChildByName(meta.folders, existing.parentId, trimmed);
+      if (sibling !== null && sibling.id !== existing.id) {
+        void vscode.window.showErrorMessage('A folder with that name already exists here.');
+        return;
+      }
+      store.upsertFolder(projectKey, { ...existing, name: trimmed });
+      await store.flush();
+      refreshAllOrgSurfaces();
     },
-    'claudeNest.tags',
-    TAGS_RESERVED_MIME,
+    setFolderColor: async (folderId: string, color: string | null): Promise<void> => {
+      const projectKey = foldersProvider.resolveProjectKey();
+      if (projectKey === undefined) {
+        return;
+      }
+      store.setFolderColor(projectKey, folderId, color);
+      await store.flush();
+      refreshAllOrgSurfaces();
+    },
+    deleteFolder: async (folderId: string): Promise<void> => {
+      // Reuse the existing deleteFolder command (modal confirm + descendant
+      // cascade + unfile, never deleting a chat). It takes a FolderItem; build one
+      // from the live folder record. folderDeps.provider.refresh already folds in
+      // refreshOrgPanel, so the panel re-renders after the delete.
+      const projectKey = foldersProvider.resolveProjectKey();
+      if (projectKey === undefined) {
+        return;
+      }
+      const folder = store.getProjectMeta(projectKey).folders[folderId];
+      if (folder === undefined) {
+        return;
+      }
+      const item = new FolderItem(folder.id, folder.parentId, folder.name, false);
+      await deleteFolder(folderDeps, item);
+    },
+  };
+  // The org panel's webview drop deps: the adapter applies the reducer's intents as
+  // one coalesced write, then this refresh re-renders every org surface.
+  const orgPanelDropDeps = {
+    store,
+    getProjectKey: () => foldersProvider.resolveProjectKey(),
+    refresh: () => refreshAllOrgSurfaces(),
+  };
+  // Persist the user's sort/density choice on workspaceState (per-workspace, not
+  // synced) so the panel reopens in the same mode without expanding the sync surface.
+  const orgPanelStateStore: OrgPanelStateStore = {
+    get: (key: string) => context.workspaceState.get<string>(key),
+    set: (key: string, value: string) => void context.workspaceState.update(key, value),
+  };
+  const orgPanelProvider = new OrgPanelProvider(
+    context.extensionUri,
+    workspacePath,
+    store,
+    () => foldersProvider.resolveProjectKey(),
+    orgPanelActions,
+    orgPanelDropDeps,
+    orgPanelStateStore,
+    context.globalStorageUri,
   );
-  const tagsView = vscode.window.createTreeView('claudeNest.tags', {
-    treeDataProvider: tagsProvider,
-    showCollapseAll: true,
-    canSelectMany: true,
-    dragAndDropController: tagsDnd,
-  });
-  context.subscriptions.push(tagsView);
+  refreshOrgPanel = () => orgPanelProvider.refresh();
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(ORG_PANEL_VIEW, orgPanelProvider),
+  );
 
   const tagUi: TagCommandUi = {
     prompt: (options) =>
@@ -426,6 +490,7 @@ export function activate(context: vscode.ExtensionContext): void {
     provider: {
       refresh: () => {
         tagsProvider.refresh();
+        refreshOrgPanel();
         scheduleAutoExport();
       },
     },
@@ -480,11 +545,13 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   const taggingDeps: TaggingCommandDeps = {
     store,
-    // Refresh both membership views after a multi-select tag change.
+    // Refresh both membership services and the primary org panel after a
+    // multi-select tag change.
     provider: {
       refresh: () => {
         tagsProvider.refresh();
         foldersProvider.refresh();
+        refreshOrgPanel();
         scheduleAutoExport();
       },
     },
@@ -544,6 +611,7 @@ export function activate(context: vscode.ExtensionContext): void {
     provider: {
       refresh: () => {
         foldersProvider.refresh();
+        refreshOrgPanel();
         scheduleAutoExport();
       },
     },
@@ -600,6 +668,7 @@ export function activate(context: vscode.ExtensionContext): void {
         foldersProvider.refresh();
         tagsProvider.refresh();
         smartGroupsProvider.refresh();
+        refreshOrgPanel();
         scheduleAutoExport();
       },
     },
@@ -679,6 +748,7 @@ export function activate(context: vscode.ExtensionContext): void {
         foldersProvider.refresh();
         tagsProvider.refresh();
         archiveProvider.refresh();
+        refreshOrgPanel();
         scheduleAutoExport();
         // Re-load fallback titles for any newly-archived chat whose transcript may
         // already be gone (and to drop titles for restored chats). Fire-and-forget.
@@ -979,6 +1049,7 @@ export function activate(context: vscode.ExtensionContext): void {
       tagsProvider.refresh();
       smartGroupsProvider.refresh();
       archiveProvider.refresh();
+      refreshOrgPanel();
       autoExporter.schedule();
     },
   };

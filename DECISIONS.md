@@ -805,3 +805,66 @@ export command stays under the full ban. This mirrors the Slice 8 finding that t
 object-agnostic. All four resolutions are reversible (a later PR can widen the seam, swap the
 rollup surface to a webview, or re-tune the contributions) and visible in the diff. Closes
 issue #22.
+
+## 2026-06-20 Slice s2-org-panel-webview (order 6, issue 23): webview DnD target mapping, no stash on the webview path, link tree deferred
+
+Fork: the slice promotes the chatsPreview POC to the PRIMARY org panel and adds webview
+drag-and-drop. The drop path must reuse the UNCHANGED pure reduceDrop (sprint-wide hard rule,
+SPRINT-2-PLAN:73; the fit review rejects any proposal that edits the reducer rather than the
+extraction shell). Three sub-decisions were resolvable without an irreversible call: (a) how an
+in-panel drop target maps to the reducer's two existing DropTargetView strings; (b) whether the
+cross-tree dragContext stash participates in the webview drop path; (c) what becomes of the link
+nesting tree the retired Folders tree rendered.
+
+Resolution (autonomous, reversible):
+
+(a) Webview-DnD target mapping. webviewDropAdapter.ts maps each in-panel drop target to one of
+the TWO existing reduceDrop targetView strings (dropReducer.ts:35): a folder row or empty space
+-> {targetView:'claudeNest.folders', targetId: folderId | '__unfiled__' | undefined}; a tag chip
+-> {targetView:'claudeNest.tags', targetId: realTagId}. It sets payloadMime = NEST_CHAT_MIME and
+takes sourceChatIds from the drop message. The reducer (UNCHANGED) decides folder-move vs
+tag-add, unfile on the Unsorted sentinel / empty space, and no-op on the Untagged sentinel. The
+webview posts a self-describing message with targetKind ('folder' | 'tag') so it never needs to
+know the reserved view-id strings; the adapter translates kind -> view. dropReducer.ts is NOT
+modified (DnD-shell-only contract).
+
+(b) The cross-controller dragContext stash is NOT wired into the webview path. The stash exists
+ONLY because VSCode 1.66 does not deliver a controller's custom DataTransferItem to a peer TREE
+controller's handleDrop (DECISIONS.md 2026-06-16 Slice 5 fix pass; ARCHITECTURE.md "Drag and
+drop"). A webview drag-and-drop is FULLY IN-PROCESS: the drag start records the dragged chat ids
+in the webview, and the drop message carries them straight to the host, so there is no
+cross-controller transfer gap to bridge. webviewDropAdapter.ts therefore imports no dragContext
+and reads the payload only from the message; a unit test asserts the stash stays empty across an
+adapter drop. The native dndController.ts and the stash remain in the tree (still unit-tested via
+dropReducer/dropPayload/dragContext) but are no longer wired by extension.ts, since the native
+Folders/Tags trees that used them are retired.
+
+(c) The link nesting tree is NOT rendered in the org panel (deferred). The Folders tree rendered
+linked children under their designated parent; the org panel ships sections/chips/sort/density/
+color/rename/DnD but no link surface this slice. linkToChat stays reachable as a flat-view
+chat-row context action (it creates a link), and the linkToChat/unlinkChat commands and the pure
+links model are left intact for a future org-panel link surface; until then unlink has no row to
+fire from. This is a deliberate, reversible scope line: the slice's UI-SPEC control list does not
+include the link tree, and the links data and commands are untouched.
+
+Non-blocking fold-in (reconciled pre-existing drift): package.json carried a
+"dependencies": { "minisearch": "^7.2.0" } block that contradicts the slice-2 vendored-module
+contract (ARCHITECTURE.md "Search-index location"; DECISIONS.md 2026-06-19 Slice
+s2-fulltext-search: package.json gains NO dependencies block, minisearch is vendored at
+src/search/vendor/minisearch.js and imported by relative path, never the bare specifier). The
+block was unused by the code and skipped by `vsce package --no-dependencies` anyway. It is
+removed so package.json matches the contract; verified `vsce package --no-dependencies` still
+ships out/search/vendor/minisearch.js so content search keeps working.
+
+Retirement mechanics: extension.ts no longer createTreeView's claudeNest.folders or
+claudeNest.tags or constructs their NestDragAndDropController instances; package.json drops both
+views, their viewsWelcome entries, their onView activationEvents, and the now-orphaned
+view/item/context and view/title menu entries that referenced them (the org panel, a webview, hosts
+its own row actions and a view/title menu for create-folder/create-tag/settings/backup/rollup).
+FoldersProvider and TagsProvider are KEPT as non-view services (project-key resolution, the link
+target pick list, the rollup token seam, reveal/home resolution); their refresh() still fires
+onDidChangeTreeData (harmless with no tree) and a forward refreshOrgPanel handle is folded into
+every refresh closure so the primary surface re-renders on any mutation. The retired
+chatsPreviewWebview.ts and its media files are deleted (superseded), and its content-search
+refresh-during-build race regression test is re-pointed at orgPanelWebview.ts (the machinery moved
+verbatim). All resolutions are reversible and visible in the diff. Closes issue #23.
