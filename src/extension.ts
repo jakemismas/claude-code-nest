@@ -92,6 +92,28 @@ import {
   previewChatBody,
 } from './commands/previewChatCommand';
 import { ChatRecord } from './model/types';
+import { ArchiveProvider, ArchivedChatItem } from './views/archiveProvider';
+import {
+  STAR_CHAT_COMMAND,
+  UNSTAR_CHAT_COMMAND,
+  ARCHIVE_CHAT_COMMAND,
+  RESTORE_CHAT_COMMAND,
+  CurationCommandDeps,
+  CurationTarget,
+  starChat,
+  unstarChat,
+  archiveChat,
+  restoreChat,
+} from './commands/curationCommands';
+import { readTranscriptBodies } from './claude/bodyReader';
+import {
+  writeArchivedBody,
+  deleteArchivedBody,
+  updateStarFlag,
+  readArchivedBody,
+  pruneArchivedBodies,
+} from './store/archiveBodyStore';
+import { coerceKeepWindowDays } from './store/archiveRetention';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -586,6 +608,108 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // The claudeNest.archive view (Slice 4): a flat, read-mostly list of the chats
+  // the user has user-archived (the SYNCED ChatMeta.userArchived flag, NOT the
+  // local orphan flag). Registered WITHOUT a dragAndDropController (archive/restore
+  // are commands, matching the smartGroups read-only registration shape). The
+  // provider resolves the project key on demand like the others.
+  const archiveProvider = new ArchiveProvider(workspacePath, store);
+  const archiveView = vscode.window.createTreeView('claudeNest.archive', {
+    treeDataProvider: archiveProvider,
+    showCollapseAll: false,
+    // No dragAndDropController: archive/restore are commands, not drops.
+  });
+  context.subscriptions.push(archiveView);
+
+  // Read the configured keep-window (the extension's FIRST contributes.configuration
+  // value) in the vscode-thin layer and coerce it to a plain keepWindowDays number
+  // here, so the pure archiveRetention policy never reads getConfiguration (slice
+  // patch "KEEP-WINDOW SETTING MECHANISM"). Re-read on each prune so a settings
+  // change takes effect without a reload.
+  const keepWindowDays = (): number =>
+    coerceKeepWindowDays(
+      vscode.workspace.getConfiguration('claudeNest').get<number>('archiveKeepWindowDays'),
+    );
+
+  // Load fallback titles for archived chats whose transcript was cleaned up out of
+  // band, from the Nest-owned body copies, and hand them to the provider so a
+  // missing-transcript row shows its stored title instead of a raw UUID. Async and
+  // best-effort: getChildren stays synchronous and reads whatever titles have loaded.
+  const loadArchiveFallbackTitles = async (): Promise<void> => {
+    const ids = archiveProvider.archivedSessionIds();
+    const titles = new Map<string, string>();
+    for (const id of ids) {
+      const env = await readArchivedBody(context.globalStorageUri, id);
+      if (env !== null && typeof env.title === 'string' && env.title.length > 0) {
+        titles.set(id, env.title);
+      }
+    }
+    if (titles.size > 0) {
+      archiveProvider.setFallbackTitles(titles);
+    }
+  };
+
+  // The curation commands (STAR/UNSTAR/ARCHIVE/RESTORE). A curation change alters
+  // the Archive view membership and the star badge across every chat surface, so the
+  // refresh re-renders all chat views plus the archive view and schedules the opt-in
+  // auto-export snapshot (a synced scalar changed). The archive body IO is wired to
+  // archiveBodyStore (-> exportIO, guarded); the body read to bodyReader.
+  const curationDeps: CurationCommandDeps = {
+    store,
+    provider: {
+      refresh: () => {
+        flatProvider.refresh();
+        foldersProvider.refresh();
+        tagsProvider.refresh();
+        archiveProvider.refresh();
+        scheduleAutoExport();
+        // Re-load fallback titles for any newly-archived chat whose transcript may
+        // already be gone (and to drop titles for restored chats). Fire-and-forget.
+        void loadArchiveFallbackTitles();
+      },
+    },
+    getProjectKey: () => foldersProvider.resolveProjectKey(),
+    readBody: (filePath: string) => readTranscriptBodies(filePath),
+    writeBody: (envelope) => writeArchivedBody(context.globalStorageUri, envelope),
+    deleteBody: (sessionId: string) => deleteArchivedBody(context.globalStorageUri, sessionId),
+    updateBodyStarFlag: (sessionId: string, starred: boolean) =>
+      updateStarFlag(context.globalStorageUri, sessionId, starred),
+    now: () => Date.now(),
+    showInfo: (message: string) => void vscode.window.showInformationMessage(message),
+    showError: (message: string) => void vscode.window.showErrorMessage(message),
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(STAR_CHAT_COMMAND, (item?: CurationClickable) => {
+      const target = curationTargetFrom(item);
+      return target ? starChat(curationDeps, target) : undefined;
+    }),
+    vscode.commands.registerCommand(UNSTAR_CHAT_COMMAND, (item?: CurationClickable) => {
+      const target = curationTargetFrom(item);
+      return target ? unstarChat(curationDeps, target) : undefined;
+    }),
+    vscode.commands.registerCommand(ARCHIVE_CHAT_COMMAND, (item?: CurationClickable) => {
+      const target = curationTargetFrom(item);
+      return target ? archiveChat(curationDeps, target) : undefined;
+    }),
+    vscode.commands.registerCommand(RESTORE_CHAT_COMMAND, (item?: CurationClickable) => {
+      const target = curationTargetFrom(item);
+      return target ? restoreChat(curationDeps, target) : undefined;
+    }),
+    vscode.commands.registerCommand('claudeNest.refreshArchive', async () => {
+      await runRefreshScan(archiveProvider, 'archive');
+      void loadArchiveFallbackTitles();
+    }),
+  );
+
+  // Prune lapsed body copies on activation (best-effort, fire-and-forget): a copy
+  // past the keep-window and not starred is removed. Starred copies are exempt
+  // (archiveRetention.decideRetention). A failure never blocks activation.
+  void pruneArchivedBodies(context.globalStorageUri, keepWindowDays(), Date.now());
+  // Prime the archive fallback titles once on activation so a missing-transcript row
+  // shows its stored title from the first render.
+  void loadArchiveFallbackTitles();
+
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_CHAT_COMMAND, (sessionId: string) => {
       // Compose vscode.Uri.from with vscode.env.openExternal as the injected
@@ -668,6 +792,7 @@ export function activate(context: vscode.ExtensionContext): void {
       foldersProvider.refresh();
       tagsProvider.refresh();
       smartGroupsProvider.refresh();
+      archiveProvider.refresh();
     },
   });
   activeAutoExporter = autoExporter;
@@ -693,6 +818,7 @@ export function activate(context: vscode.ExtensionContext): void {
       foldersProvider.refresh();
       tagsProvider.refresh();
       smartGroupsProvider.refresh();
+      archiveProvider.refresh();
       autoExporter.schedule();
     },
   };
@@ -762,6 +888,48 @@ function chatRecordFrom(
     item instanceof ChatOccurrenceItem
   ) {
     return item.record;
+  }
+  return undefined;
+}
+
+// The chat-row node shapes a curation command (star/unstar/archive/restore) can
+// fire on: a flat row, a folder member, a tags occurrence, or an archived row.
+type CurationClickable =
+  | FlatChatItem
+  | ChatMemberItem
+  | ChatOccurrenceItem
+  | ArchivedChatItem
+  | string;
+
+// Recover the CurationTarget (sessionId + filePath + title) from a clicked chat
+// row in any view. All chat-row wrappers dereference the ONE shared ChatRecord,
+// which carries filePath and title; an ArchivedChatItem whose transcript was
+// cleaned up has no record, so it yields a target with an EMPTY filePath (archive
+// would read no body, but star/unstar/restore on an already-archived chat need only
+// the sessionId). A non-chat node yields undefined, so a curation command is a
+// no-op on a folder/tag/group row.
+function curationTargetFrom(item?: CurationClickable): CurationTarget | undefined {
+  if (typeof item === 'string') {
+    return { sessionId: item, filePath: '', title: item };
+  }
+  if (
+    item instanceof FlatChatItem ||
+    item instanceof ChatMemberItem ||
+    item instanceof ChatOccurrenceItem
+  ) {
+    return { sessionId: item.record.sessionId, filePath: item.record.filePath, title: item.record.title };
+  }
+  if (item instanceof ArchivedChatItem) {
+    // A present archived chat carries its record (filePath/title); a cleaned-up one
+    // has none, so fall back to the sessionId for identity and an empty filePath.
+    if (item.record !== undefined) {
+      return {
+        sessionId: item.record.sessionId,
+        filePath: item.record.filePath,
+        title: item.record.title,
+      };
+    }
+    return { sessionId: item.sessionId, filePath: '', title: item.sessionId };
   }
   return undefined;
 }

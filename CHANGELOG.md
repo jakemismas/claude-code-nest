@@ -91,6 +91,35 @@ Keep a Changelog, and the project adheres to semantic versioning.
   headless unit tests cover the normalize round-trip and additive (no-bump)
   migration, the per-scalar LWW arbitration and the Folder.color trap, the foreign
   starred-flip reconcile, and the three new store setters.
+- Star, user-archive, the Archive view, and a Nest-owned body copy (slice
+  s2-star-archive): new Star/Unstar and Archive/Restore commands on a chat row in
+  the Chats, Folders, and Tags views write the slice-3 synced curation scalars
+  through the store (starred is independent of the archive flag; archiving sets
+  userArchived and a coupled archivedAt). A new read-mostly Archive view
+  (claudeNest.archive) lists the user-archived chats and offers Restore (which
+  clears the flag and the timestamp, keeps the star, and removes the copy); it
+  registers with no drag-and-drop controller and shows a viewsWelcome empty state.
+  On archive, the chat's full body is read ONCE on demand via the existing body
+  reader and a Nest-OWNED copy is written to extension globalStorage
+  (globalStorage/archive/<sessionId>.json) so the chat survives Claude Code's own
+  cleanup of ~/.claude/projects; an archived chat whose transcript is later removed
+  still appears in the Archive view with its stored title. The copy is LOCAL and is
+  never synced, and the body store does NO node fs and NO direct vscode.workspace.fs:
+  every write/read/list/delete goes through the exportIO chokepoint, which
+  runtime-asserts the target is not under ~/.claude/projects/, so nothing renames,
+  moves, or deletes a transcript. A new contributes.configuration value,
+  claudeNest.archiveKeepWindowDays (7, 30, 90, or 0 for never; default 30), governs
+  how long Nest keeps a copy; a pure, vscode-free retention policy decides keep vs
+  prune from {archivedAt, starred, keepWindowDays, now} with starred chats always
+  exempt and 0 meaning never prune, and a best-effort prune runs on activation. New
+  headless unit tests cover the retention policy (starred always kept, never keeps
+  all, 7d prunes only past-window unstarred, the inclusive boundary case, and the
+  keep-window coercion), the body store (write/read round-trip, delete, star-flag
+  update, prune-by-retention, and the reused path guard that a projects-path target
+  is rejected and writes nothing), the commands (the synced-flag writes, the
+  archivedAt coupling, best-effort copy on write failure, and restore semantics),
+  and the Archive provider asserting it lists by the SYNCED userArchived flag and
+  NOT the local-only orphan-reconcile flag.
 
 ## [0.0.1] - 2026-06-17
 

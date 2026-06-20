@@ -59,6 +59,18 @@ extension's own globalStorage, is never synced and never written under
 ~/.claude/projects/, and indexes chat bodies only in memory (read on demand and
 discarded); only tier-A fields are ever persisted.
 
+Star a chat to flag it (and exempt its archived copy from pruning), or archive a
+chat from any chat view to move it into a dedicated Archive view. Archiving keeps a
+Nest-owned copy of the chat's body in the extension's own globalStorage so the chat
+survives Claude Code's cleanup of ~/.claude/projects; that copy is local and is
+never synced, and it is written only through the same read-only chokepoint as the
+export and search code, so nothing under ~/.claude/projects is ever touched. The
+`Claude Code Nest > Archive Keep Window Days` setting (7, 30, 90, or 0 for never;
+default 30) controls how long a copy is kept; starred chats are always kept. Restore
+from the Archive view to clear the flag (your star survives) and remove the copy.
+
+
+
 ## The hard constraint
 
 The extension is strictly read-only on Claude's transcript files under
