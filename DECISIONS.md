@@ -553,3 +553,104 @@ the same machine. The encoding rule lowercases the leading drive letter, so a
 cwd of C:\Users\JakeMismas derives c--Users-JakeMismas, which would never match
 the on-disk C--Users-JakeMismas under exact equality. Case-insensitive leading
 match (with scan fallback) resolves it without weakening the derivation rule.
+
+## 2026-06-19 Slice s2-fulltext-search (order 2, issue 19): FIT REVIEW packaging conflict
+
+Fork: the slice's packaging requirement is self-contradictory with the existing
+toolchain and could not be satisfied as written. The slice's installCheck is
+vsce package --no-dependencies (SPRINT-2-PLAN.md line 158). .vscodeignore line 18
+is node_modules/**, which excludes ALL of node_modules from the VSIX. The issue
+(#19) and plan (lines 98-99, 171) require minisearch as a RUNTIME dependency that
+is "installed before packaging" and that --no-dependencies "still bundles". These
+three cannot all hold. With BOTH --no-dependencies set AND node_modules/** ignored,
+minisearch's files never enter the VSIX, so a runtime require('minisearch') throws
+"Cannot find module" at activation in an INSTALLED extension. Worse, --no-dependencies
+makes vsce skip the npm dep-tree walk, so the package step SUCCEEDS (passes
+installCheck) while shipping a broken extension, a silent false-success. The plan's
+prescribed fix at line 171 (npm install minisearch before packaging) is provably
+wrong three ways: (a) node_modules/** excludes an installed minisearch from the
+VSIX, (b) --no-dependencies makes vsce skip the dep-tree walk so it never tries,
+(c) the package step still succeeds while shipping an extension whose
+require('minisearch') throws at activation.
+
+Verified facts: node_modules/minisearch is NOT installed; package.json has NO
+dependencies block at all (the extension has ZERO third-party runtime deps today,
+all imports are vscode or node builtins, confirmed by grep over src). No bundler
+in the toolchain: esbuild/webpack/rollup all absent from devDependencies, no bundle
+script, compile is plain tsc to CommonJS (out/extension.js). minisearch ships UMD
+(dist/umd/index.js) and ESM (dist/es/index.js); it is a small, dependency-free,
+single-tree MIT package (~25KB) that bundles cleanly if a bundler or a vendored
+copy is introduced. The prior slice-7 DECISIONS entry confirms .vscodeignore
+excludes src/**, **/*.ts, out/test/** but ships media/**, and does NOT carve an
+exception for node_modules. All three proposals also caught the decisive trap the
+fit review's parenthetical missed: a raw src/search/vendor/minisearch.js is BOTH
+not compiled (tsconfig rootDir:src, include:src/**/*.ts, no allowJs) AND not
+shipped (.vscodeignore:10 src/**, :12 **/*.ts), reproducing the same silent
+failure. out/** DOES ship (nothing excludes it but out/test/** at :11), so the
+vendored file must reach out/.
+
+Resolution (autonomous, reversible): Option A, vendor MiniSearch into the repo as
+a single local module, host-side only, with a post-tsc copy step that puts it in
+out/. installCheck, .vscodeignore, --no-dependencies, and package.json dependencies
+all stay untouched. (Synthesis: Proposal 3's mechanism, hardened with Proposal 2's
+ships-verification and Proposal 1's dual-surface framing.) Mechanism: vendor
+MiniSearch's published UMD/CJS dist verbatim as src/search/vendor/minisearch.js
+(byte-identical to upstream, MIT), add a hand-thin src/search/vendor/minisearch.d.ts
+for the small surface searchIndex.ts uses, and extend the compile script with a
+one-line node -e fs copy of the vendor dir into out/search/vendor/, exactly the
+shape already proven in the clean script (package.json:518, node -e rmSync). The
+vendored .js sits outside the tsc and eslint paths entirely (eslint lints .ts only,
+package.json:521; ignores **/*.d.ts, .eslintrc:74), so zero strict-mode friction
+and zero lint churn. searchIndex.ts imports it by relative path (import MiniSearch
+from './vendor/minisearch') so the emitted CommonJS require resolves inside out/,
+which ships. MiniSearch is HOST-ONLY: the index is a host module (plan:99), the
+webview only posts a query string and renders host-returned ranked rows. So there
+is exactly one vendored copy under out/search/vendor/, no media/ copy, no
+webview-CSP problem.
+
+Rationale: the blocking conflict is real and verified against the live files
+(.vscodeignore:18 node_modules/**; package script vsce package --no-dependencies
+at package.json:525; no dependencies block). Where proposals diverged was the
+vendor FORM. Proposal 2's headline (port MiniSearch's source to a .ts file so tsc
+emits it) is the riskiest: a verbatim port through this repo's tsc --strict +
+noUnusedLocals + noUnusedParameters (tsconfig:9,11,12) is NOT guaranteed to compile
+clean, and Proposal 2 itself adds a residual-risk escape hatch admitting it may
+fail and tempt weakening strictness repo-wide. Proposal 3's primary mechanism
+(vendor dist verbatim, thin .d.ts, copy into out/) is lowest-risk and most
+auditable. Why not B or C: Option B (esbuild/webpack inline) rewrites the frozen
+tsc-only build/test toolchain contract for the smallest possible need,
+disproportionate and unnecessary once the copy step exists. Option C (drop
+--no-dependencies AND remove node_modules/**) breaks the installCheck string
+shared verbatim across all 8 slices (SPRINT-2-PLAN:156-163, the engine resumes by
+matching this trailer) and bloats every VSIX. Both rejected. Confidence 0.88.
+
+Non-blocking fold-ins (verified, to honor in the build): (1) searchStore.ts
+persists ONLY through exportIO.writeTextFile/readTextFile against
+context.globalStorageUri; every exportIO write runtime-asserts
+assertNotUnderClaudeProjects (exportIO.ts:34-59), and the object-agnostic eslint
+selector (.eslintrc:25) trips any fs write outside the two carve-outs (exportIO.ts
+is in the override list, .eslintrc:82-87); the guard test reuses exportPathGuard.
+Do NOT add a new fs path. (2) The index key/file is NEVER in setKeysForSync
+(sprint-wide hard rule, SPRINT-2-PLAN:67); add this as an explicit review
+checkpoint. (3) Body-index invariant resolved the safe way: persist
+tier-A-derived tokens only (title, lastMessageText, filesTouched); index bodies
+only in the in-memory session via bodyReader.readTranscriptBodies per chat,
+discarded, keeping "bounded reductions on snapshot, full body never" unambiguous
+(SPRINT-2-PLAN:65-66). (4) The slice MUST add the binding "search-index location"
+section to ARCHITECTURE.md (DoD, SPRINT-2-PLAN:45). (5) Search wiring lives in
+durable host modules (provider/searchIndex), not the throwaway media/chatsPreview.js
+that slice 6 supersedes.
+
+SUPERSEDED plan instructions (council fold-in): SPRINT-2-PLAN.md:99 ("add
+minisearch to package.json dependencies and run npm install minisearch") and
+SPRINT-2-PLAN.md:171 ("npm install minisearch before the installCheck or
+--no-dependencies packages a broken require") are both SUPERSEDED and NOT
+followed. Reason: node_modules/** is excluded from the VSIX (.vscodeignore:18)
+and `vsce package --no-dependencies` skips the npm dep-tree walk, so an installed
+minisearch never ships and the package step still succeeds, a silent
+false-success. They are replaced by the vendored-module mechanism above:
+package.json gains NO dependencies block, `npm install minisearch` is NOT run,
+and MiniSearch is vendored at src/search/vendor/minisearch.js and copied into
+out/ by the compile step. A post-package assertion confirms
+out/search/vendor/minisearch.js is present inside the VSIX, turning the install
+proof from a false-success into a real one.

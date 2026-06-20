@@ -134,6 +134,55 @@ the Folders and Tags views, not a degraded ChatRecord-only subset (DECISIONS.md
 folder name and tag labels so a re-file or tag edit rebuilds the row's node and its
 tooltip while an unchanged row keeps its object.
 
+## Search-index location (Sprint 2, slice 2) — binding
+
+Full-text content search (slice s2-fulltext-search) is built on MiniSearch with
+these binding placement rules. They exist so the search feature cannot violate the
+read-only invariant, the sync blast-radius bound, or the "bounded reductions on the
+snapshot, full body never persisted" tier-A rule.
+
+- MiniSearch is VENDORED, not an npm dependency. It lives at
+  src/search/vendor/minisearch.js (the upstream published UMD/CommonJS dist,
+  byte-faithful aside from a license/version header and the stripped sourceMap
+  comment, MIT, version pinned in the header) plus a hand-thin
+  src/search/vendor/minisearch.d.ts covering only the constructor and the
+  add/addAll/search/toJSON/loadJSON surface searchIndex.ts uses. It is NOT added to
+  package.json (the extension stays zero-runtime-dependency) and `npm install
+  minisearch` is NOT run. The reason is a hard packaging conflict: .vscodeignore
+  excludes node_modules/** AND the installCheck packages with
+  `vsce package --no-dependencies` (which skips the dep walk), so an npm-installed
+  minisearch would never ship and the install proof would silently false-pass. The
+  compile script copies src/search/vendor/{minisearch.js,minisearch.d.ts} into
+  out/search/vendor/ after tsc (the same `node -e` fs shape as the clean script);
+  out/** ships in the VSIX (only out/test/** is excluded), so the require resolves
+  at runtime. searchIndex.ts imports it by the RELATIVE path './vendor/minisearch',
+  never the bare specifier 'minisearch'. installCheck, .vscodeignore,
+  --no-dependencies, and the package.json dependencies (absent) all stay unchanged.
+  See DECISIONS.md 2026-06-19 Slice s2-fulltext-search.
+- MiniSearch is HOST-ONLY. The index and all ranking/snippeting are host modules
+  (src/search/searchIndex.ts, vscode-free; src/search/searchStore.ts, vscode-thin).
+  The webview only posts a query string and renders host-returned ranked rows, so
+  there is exactly one vendored copy under out/search/vendor/, no media/ copy, and
+  no webview-CSP concern.
+- The index lives in extension globalStorage, NEVER under ~/.claude/projects/, and
+  is NEVER synced. searchStore.ts persists/loads ONLY through exportIO
+  (exportIO.writeTextFile/readTextFile against context.globalStorageUri), which
+  runtime-asserts assertNotUnderClaudeProjects before every write; it introduces no
+  new fs write path, so the eslint write-ban bank stays intact. The index is a FILE
+  in globalStorage, not a globalState key, so it is structurally outside the
+  MetadataStore sync surface and is never registered with setKeysForSync — the
+  synced surface stays exactly nest.meta.v1::<projectKey>. A missing or unreadable
+  persisted index falls back to an in-memory rebuild; the persisted index is a
+  warm-start cache, never the source of truth.
+- The PERSISTED index is built from TIER-A fields ONLY (title, lastMessageText,
+  filesTouched), so no body-derived token is ever written to disk, keeping the
+  "bounded reductions on the snapshot, full body never persisted" invariant honest.
+  Full-body search is an IN-MEMORY concern: the live index is built in memory from
+  the tier-A fields plus each chat's body read on demand via
+  bodyReader.readTranscriptBodies and DISCARDED once indexed (the index holds search
+  tokens, never the raw body, and nothing about it enters the scan snapshot). See
+  DECISIONS.md 2026-06-19 Slice s2-fulltext-search fold-in 3.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under

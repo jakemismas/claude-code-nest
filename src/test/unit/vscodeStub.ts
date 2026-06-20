@@ -97,6 +97,52 @@ function makeUri(fsPath: string): FakeUri {
 
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 
+// Minimal TreeView/Webview primitives so a provider module (flatProvider,
+// chatTooltip) that extends/constructs these can be require()d under the headless
+// runner. Only the construction surface those modules touch is implemented.
+const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+
+class TreeItem {
+  label: unknown;
+  collapsibleState: unknown;
+  constructor(label: unknown, collapsibleState?: unknown) {
+    this.label = label;
+    this.collapsibleState = collapsibleState;
+  }
+}
+
+class MarkdownString {
+  value: string;
+  isTrusted = false;
+  supportThemeIcons = false;
+  constructor(value = '') {
+    this.value = value;
+  }
+}
+
+class ThemeIcon {
+  id: string;
+  constructor(id: string) {
+    this.id = id;
+  }
+}
+
+class EventEmitter<T> {
+  private listeners: ((e: T) => void)[] = [];
+  event = (listener: (e: T) => void): { dispose(): void } => {
+    this.listeners.push(listener);
+    return { dispose: (): void => undefined };
+  };
+  fire(data: T): void {
+    for (const l of this.listeners) {
+      l(data);
+    }
+  }
+  dispose(): void {
+    this.listeners.length = 0;
+  }
+}
+
 const fakeVscode = {
   Uri: {
     file: (p: string): FakeUri => makeUri(p),
@@ -104,6 +150,11 @@ const fakeVscode = {
       makeUri([base.fsPath, ...segs].join('/')),
   },
   FileType,
+  TreeItem,
+  TreeItemCollapsibleState,
+  MarkdownString,
+  ThemeIcon,
+  EventEmitter,
   window: {
     showInformationMessage: (message: string, ..._items: string[]): Thenable<undefined> => {
       vscodeHarness.messages.push({ kind: 'info', message });

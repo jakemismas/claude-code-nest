@@ -516,7 +516,7 @@
   "scripts": {
     "vscode:prepublish": "npm run clean && npm run compile",
     "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && node -e \"const fs=require('fs');fs.mkdirSync('out/search/vendor',{recursive:true});for(const f of ['minisearch.js','minisearch.d.ts'])fs.copyFileSync('src/search/vendor/'+f,'out/search/vendor/'+f);\"",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "pretest": "npm run lint && npm run compile",
