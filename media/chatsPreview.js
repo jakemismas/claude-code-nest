@@ -77,10 +77,20 @@
 
         const meta = document.createElement('div');
         meta.className = 'nest-card-meta';
-        meta.textContent = r.description || 'no timestamp';
+        const when = r.description || 'no timestamp';
+        meta.textContent = r.tokens ? when + ' | ' + r.tokens : when;
 
         card.appendChild(title);
         card.appendChild(meta);
+
+        // Slice 1 summary line: the tier-A last-message snippet under the meta row,
+        // when one was captured. Bounded reduction from the scan, not the body.
+        if (r.snippet) {
+          const snippet = document.createElement('div');
+          snippet.className = 'nest-card-snippet';
+          snippet.textContent = r.snippet;
+          card.appendChild(snippet);
+        }
         card.addEventListener('click', () => {
           vscode.postMessage({ type: 'open', sessionId: r.sessionId });
         });

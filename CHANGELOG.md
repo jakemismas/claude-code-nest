@@ -24,6 +24,25 @@ Keep a Changelog, and the project adheres to semantic versioning.
   titles, timestamps, PR, branch, and uuid logic and the tolerant
   skip-unknown-types contract are unchanged. Full message bodies are never held
   on the scan snapshot, only bounded reductions.
+- Lazy body reader, token badge, rich hover preview, and Preview Full Chat
+  (slice s2-tier-b-body-and-hover): a new vscode-free on-demand body reader
+  (readTranscriptBodies) reads ONE chat's full message bodies when needed and
+  discards them; no provider holds the result and bodies never enter the scan
+  snapshot. A "Preview Full Chat" command reads that one transcript on demand and
+  opens its formatted text in a read-only editor document, then discards the
+  bodies. Every chat row (the flat Chats view, the Folders view, and the Tags
+  view) now shows a ~token badge beside its relative time, and hovering a row
+  opens a rich MarkdownString preview card built to the UI-SPEC hover card:
+  folder, age, ~token total, full tag set, and BOTH a first and a last message
+  snippet, plus the distinct models and files-touched count as additive context.
+  The Chats (Preview) cards gained the same token badge and snippet summary line.
+  The card content is produced by a vscode-free builder (buildChatTooltip) from
+  plain folder/tag values the providers resolve at the row's call site, so the
+  builder stays in the headless unit gate; the flat view gained the same
+  MetadataStore dependency the Folders and Tags views already carry so its card
+  shows the real folder and full tag set rather than a degraded subset. All of it
+  reads only the bounded tier-A summary on the snapshot except the on-demand body
+  read; nothing writes under ~/.claude.
 
 ## [0.0.1] - 2026-06-17
 

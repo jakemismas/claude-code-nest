@@ -40,10 +40,16 @@ the panel, organizing, smart groups, and backup. The extension is telemetry-free
 
 Each scanned chat also carries a bounded, read-only tier-A summary computed once
 during the scan (message count, last-turn snippet and role, summed token usage,
-the distinct files referenced, and the models used). Nothing of it renders yet;
-it is the read-only groundwork the upcoming token badge, rich hover preview,
-content search, and archive features build on. Full message bodies are never held
-in memory beyond reading one chat on demand.
+the distinct files referenced, and the models used). Full message bodies are never
+held in memory beyond reading one chat on demand.
+
+Every chat row shows a `~`token badge beside its relative time, and hovering a row
+opens a rich preview card: the chat's folder, age, `~`token total, full tag set, and
+both a first and a last message snippet, with the models and files-touched count as
+extra context. The same summary appears on the Chats (Preview) cards. A "Preview
+Full Chat" command opens one chat's full text in a read-only editor. The card is a
+preview built from the tier-A summary, never a transcript renderer; the on-demand
+body reader reads one chat's bodies only when needed and discards them.
 
 ## The hard constraint
 

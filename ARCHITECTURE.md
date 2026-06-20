@@ -96,6 +96,44 @@ so those absorbers fire only on assistant lines; messageCount and the last-messa
 absorber fire on both user and assistant lines. The reader stays the SOLE parser
 and the scanner the SOLE file reader; no slice adds a second scan path.
 
+## On-demand body reader and rich hover card (Sprint 2, slices 1 and tier-b)
+
+The scan snapshot holds only the bounded tier-A reductions above; full message
+BODIES are never retained on it. When a feature needs the full text of ONE chat
+(the "Preview Full Chat" command), the vscode-free body reader
+(src/claude/bodyReader.ts, readTranscriptBodies) reads that single transcript on
+demand and returns the bodies to the caller, which uses and discards them. No
+provider holds the result and bodies never enter the scan snapshot, preserving the
+"bounded reductions on the snapshot, full body never" invariant.
+
+The rich hover-preview card is built by a PURE, vscode-free builder
+(src/views/chatTooltip.ts, buildChatTooltip) that returns plain MARKDOWN text and
+takes only plain data: a ChatRecord plus the chat's resolved folder NAME and full
+TAG label set. The provider wraps the returned string in a vscode.MarkdownString.
+This split keeps the builder in the headless unit gate, mirroring the
+occurrence.ts / tagsProvider.ts and dropReducer.ts / dndController.ts
+vscode-free-builder convention (the unit test that imports the builder must not
+transitively require vscode). The card renders the binding UI-SPEC fields (folder,
+age, ~token total, full tag set, and the first/last message snippets that ride the
+tier-A scan, never the full body); models and the files-touched count are additive
+context. tokenBadge in the same module is the single source of the row's ~token
+description so the badge and the card's token line agree.
+
+To feed the builder REAL folder/tag values in every view, FlatProvider carries the
+same MetadataStore constructor dependency FoldersProvider and TagsProvider already
+have (extension.ts). On each render it resolves the project key on demand
+(resolveProjectKey, mirroring the other two providers so the lookup recovers
+without a window reload), reads the project meta ONCE per render, and resolves each
+row's folder name and tag set (src/views/chatMeta.ts resolveFolderName /
+resolveTagLabels) at the call site before handing those plain values to
+buildChatTooltip. The store read is tolerant: an unresolved key leaves folder/tags
+empty and the card renders "Unfiled"/"none" rather than throwing, keeping the
+never-throw-out-of-getChildren rule. So the flat view shows the SAME full card as
+the Folders and Tags views, not a degraded ChatRecord-only subset (DECISIONS.md
+2026-06-19 Slice 1). The node memoization key (nodeReuseKey) now folds in the
+folder name and tag labels so a re-file or tag edit rebuilds the row's node and its
+tooltip while an unchanged row keeps its object.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under
@@ -236,7 +274,10 @@ handler. If the extension fails, Claude must be entirely unaffected.
   plain-callback {onProgress, shouldCancel} that the vscode layer supplies. The scan
   is synchronous, so cancellation takes effect on a re-issued refresh, not mid-scan;
   see DECISIONS.md Slice 9. FlatProvider gained the same memoized-snapshot shape the
-  other three providers already had so priming it caches the scan.)
+  other three providers already had so priming it caches the scan, and (Sprint 2)
+  the same MetadataStore dependency so its hover card resolves the real folder and
+  full tag set rather than a degraded subset; see the on-demand body reader and
+  rich hover card section above.)
 - Separator-namespace discipline: tag, folder, and chat ids are generated free of
   ':', '#', '>'. Enforce in the id factory. The synthetic-node sentinels live in
   the same id-space but are NOT mintable and are excluded from the factory's

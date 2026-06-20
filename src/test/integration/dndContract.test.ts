@@ -116,6 +116,8 @@ function chatRecord(sessionId: string): ChatRecord {
     gitBranch: null,
     leadingMessageUuids: [],
     messageCount: 0,
+    firstMessageText: null,
+    firstMessageRole: null,
     lastMessageText: null,
     lastMessageRole: null,
     tokenTotals: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 },

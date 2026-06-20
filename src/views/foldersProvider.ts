@@ -29,6 +29,9 @@ import {
 import { decorateLinkedChild } from './linkDecoration';
 import { OPEN_CHAT_COMMAND } from './flatProvider';
 import { ScanPrimable } from '../commands/refreshScanCommands';
+import { ProjectMeta } from '../store/schema';
+import { buildChatTooltip, tokenBadge } from './chatTooltip';
+import { resolveFolderName, resolveTagLabels } from './chatMeta';
 
 // The claudeNest.folders tree: the single-home folder hierarchy. Folder nodes are
 // collapsible; each chat appears under EXACTLY one folder (its ChatMeta.folderId,
@@ -81,10 +84,19 @@ export class FolderItem extends vscode.TreeItem {
 // linkedChild nodes. hasLinks records whether it has children so the memoization
 // predicate rebuilds the item when its collapsible state must flip.
 export class ChatMemberItem extends vscode.TreeItem {
+  // The folder name and tag-label signature the hover card was built from, used by
+  // the provider's reuse check so a re-file or tag edit rebuilds the node and its
+  // tooltip. Set by the provider right after construction (kept off the readonly
+  // constructor list so the memoization owns them).
+  public cardFolderName: string | null | undefined = undefined;
+  public cardTagsSignature = '';
+
   constructor(
     public readonly folderId: string,
     public readonly record: ChatRecord,
     public readonly hasLinks: boolean = false,
+    folderName: string | null | undefined = undefined,
+    tags: readonly string[] = [],
   ) {
     super(
       record.title,
@@ -93,8 +105,12 @@ export class ChatMemberItem extends vscode.TreeItem {
         : vscode.TreeItemCollapsibleState.None,
     );
     this.id = chatNodeId(folderId, record.sessionId);
-    this.description = relativeTime(record.timestamp);
-    this.tooltip = record.title + '\n' + record.sessionId;
+    this.description = chatRowDescription(record);
+    // The rich slice-1 hover card built to the binding UI-SPEC (folder, age,
+    // ~tokens, full tag set, snippet). folderName/tags are resolved by the provider
+    // from the meta it already reads in ensureSnapshot; buildChatTooltip stays
+    // vscode-free and the provider wraps the markdown here.
+    this.tooltip = new vscode.MarkdownString(buildChatTooltip(record, folderName, tags));
     this.contextValue = 'claudeNest.chat';
     this.iconPath = new vscode.ThemeIcon('comment-discussion');
     this.command = {
@@ -151,6 +167,10 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
   // sessionId -> ChatRecord for the latest scan, so a chat-member node can render
   // its title/time and getChildren can build member items.
   private recordsById = new Map<string, ChatRecord>();
+  // The latest project curation document for the current snapshot, retained so a
+  // chat-member node can resolve its folder name and full tag set for the rich
+  // hover card without a second store read. Null until the first ensureSnapshot.
+  private currentMeta: ProjectMeta | null = null;
   // chatId -> owning folderId for the current snapshot, the inverse used by
   // getParent to recover a chat's single home.
   private homeByChatId = new Map<string, string>();
@@ -349,6 +369,7 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     this.recordsById = new Map(records.map((r) => [r.sessionId, r]));
 
     const meta = this.store.getProjectMeta(projectKey);
+    this.currentMeta = meta;
     const chatHomes: { [chatId: string]: string | null | undefined } = {};
     for (const record of records) {
       const chatMeta = meta.chats[record.sessionId];
@@ -399,15 +420,27 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     // rebuild into a collapsible node (and vice versa) when its link children appear
     // or disappear, or the twistie would not update.
     const hasLinks = hasLinkedChildren(this.linkForest, record.sessionId);
+    // The hover card resolves the chat's folder name and full tag set from the
+    // current meta. These feed the tooltip, so a curation change (re-file, tag
+    // edit) must rebuild the node; tagsSignature captures the resolved labels for
+    // that reuse check.
+    const meta = this.currentMeta ?? undefined;
+    const folderName = resolveFolderName(meta, record.sessionId);
+    const tags = resolveTagLabels(meta, record.sessionId);
+    const tagsSignature = tags.join(' ');
     const existing = this.nodesById.get(id);
     if (
       existing instanceof ChatMemberItem &&
       canReuseChatMemberItem(existing.record, record) &&
-      existing.hasLinks === hasLinks
+      existing.hasLinks === hasLinks &&
+      existing.cardFolderName === folderName &&
+      existing.cardTagsSignature === tagsSignature
     ) {
       return existing;
     }
-    const item = new ChatMemberItem(folderId, record, hasLinks);
+    const item = new ChatMemberItem(folderId, record, hasLinks, folderName, tags);
+    item.cardFolderName = folderName;
+    item.cardTagsSignature = tagsSignature;
     this.nodesById.set(id, item);
     return item;
   }
@@ -614,6 +647,21 @@ function collectLiveIdsForNode(
   for (const child of node.childFolders) {
     collectLiveIdsForNode(child, records, into);
   }
+}
+
+// A chat-member row's description: relative time plus the ~token badge (from the
+// tier-A token totals on the snapshot record; no body read). Matches the flat
+// view's row description so the two surfaces read identically.
+function chatRowDescription(record: ChatRecord): string {
+  const rel = relativeTime(record.timestamp);
+  const badge = tokenBadge(record);
+  if (badge.length === 0) {
+    return rel;
+  }
+  if (rel.length === 0) {
+    return badge;
+  }
+  return rel + ' | ' + badge;
 }
 
 // Re-export the composite-id parser so command handlers can recover an owning

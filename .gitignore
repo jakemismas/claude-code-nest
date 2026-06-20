@@ -6,6 +6,7 @@ dist/
 *.bak
 .nest-build-state.json
 .claude-working/
+.vscode-test/
 .DS_Store
 # Transient chokepoint-validation probe scratch. The probe generator should write
 # under .claude-working/, but guard against any stray __probe / __lintprobe / other

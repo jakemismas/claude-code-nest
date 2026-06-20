@@ -156,6 +156,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "claudeNest.previewChat",
+        "title": "Preview Full Chat",
+        "category": "Claude Code Nest",
+        "icon": "$(preview)"
+      },
+      {
         "command": "claudeNest.refreshFolders",
         "title": "Refresh Folders",
         "category": "Claude Code Nest",
@@ -330,6 +336,21 @@
       ],
       "view/item/context": [
         {
+          "command": "claudeNest.previewChat",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "0_open@1"
+        },
+        {
+          "command": "claudeNest.previewChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "0_open@1"
+        },
+        {
+          "command": "claudeNest.previewChat",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
+          "group": "0_open@1"
+        },
+        {
           "command": "claudeNest.createFolder",
           "when": "view == claudeNest.folders && viewItem == claudeNest.folder",
           "group": "1_modify@1"
@@ -443,6 +464,10 @@
       "commandPalette": [
         {
           "command": "claudeNest.openChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.previewChat",
           "when": "false"
         },
         {
