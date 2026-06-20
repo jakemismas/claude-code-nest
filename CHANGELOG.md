@@ -139,6 +139,54 @@ Keep a Changelog, and the project adheres to semantic versioning.
   the archived-copy preview orchestration (present, missing, and empty copy), and
   the backstop (protected stale copy kept, unprotected copy still pruned, throwing
   check fails safe).
+- Per-chat Export Chat and the token cost rollup (slice s2-export-and-rollup): two
+  commands. (1) "Export Chat..." (claudeNest.exportChat), a context action on a chat
+  row in the Chats, Folders, and Tags views, exports ONE chat to Markdown or JSON.
+  The body is read ONCE on demand via the existing bodyReader (read-only on the
+  transcript) and DISCARDED after rendering; the file is written ONLY through the
+  exportIO chokepoint, whose runtime path guard (assertNotUnderClaudeProjects)
+  refuses a target under ~/.claude/projects/, so a save-dialog target aimed at a
+  transcript path is rejected rather than overwriting it. The Markdown render is a
+  YAML front-matter org layer (title, sessionId, timestamp, folder name, full tag
+  set, starred flag, link target ids, models, files-touched/message counts, and the
+  four tier-A token counts plus their total) followed by the title heading and the
+  ordered turns as labelled You/Claude paragraphs; the JSON render is a single
+  versioned, round-trippable document. Both formatters are PURE and vscode-free
+  (src/export/chatExport.ts) so they stay in the headless gate; the vscode-thin
+  orchestrator (src/commands/exportChatCommands.ts) takes injected seams for the
+  format pick, the save dialog, the body read, the org-layer resolution, and the
+  guarded write. Front-matter injection is closed: every Markdown front-matter
+  scalar is emitted as a double-quoted, escaped YAML string (yamlQuote) and sequences
+  as quoted flow arrays, so a title containing a colon, a quote, a newline, or a
+  leading "---" cannot terminate the block or inject a second one (the JSON formatter
+  gets this free via JSON.stringify); the title heading is markdown-escaped. The
+  export carries tokens only, NO USD (slice non-goal). (2) "Show Token Cost Rollup"
+  (claudeNest.showTokenRollup), a view-title action on the Chats, Folders, and Tags
+  views, sums each chat's tier-A token total by folder and by tag and opens a
+  read-only plain-text report (no webview/CSP dependency). The counting rule is
+  pinned: by FOLDER a chat counts ONCE in its single home folder (or the synthetic
+  Unfiled bucket), so the per-folder totals PARTITION the library; by TAG a chat
+  counts ONCE per EACH of its tags (or the synthetic Untagged bucket), so a
+  multi-tag chat adds its full total to every tag bucket and the per-tag totals are
+  INTENTIONALLY NOT a partition (their sum can exceed the library total). The report
+  carries an explicit note so the by-tag total does not read as a double-count bug.
+  The reducers (src/rollup/tokenRollup.ts) and the report renderer
+  (src/rollup/rollupReport.ts) are PURE and vscode-free; the vscode-thin command
+  (src/commands/tokenRollupCommand.ts) takes injected seams for the chat-id set, the
+  per-chat token totals (a new FoldersProvider.tokenTotalsByChat seam), the project
+  meta, and the document open, and surfaces an info notice when no project resolves
+  or there are no scanned chats. New modules: src/export/chatExport.ts,
+  src/commands/exportChatCommands.ts, src/rollup/tokenRollup.ts,
+  src/rollup/rollupReport.ts, src/commands/tokenRollupCommand.ts. New headless unit
+  tests cover the Markdown and JSON formatters (the org layer and token header, the
+  no-body case, the YAML front-matter injection escaping, the JSON round-trip), the
+  export-command orchestration (the format/cancel and save/cancel guards, the
+  on-demand body read and discard, the guarded write, and the write-failure error
+  path), the rollup reducers (the by-folder partition, the by-tag multi-tag
+  non-partition, the Unfiled/Untagged synthetic buckets, the stale folder/tag id
+  fallbacks, and the sort order), the report wording (including the multi-tag note),
+  and the rollup-command orchestration (the no-project/no-chats info notice and the
+  open path). The contributed commands and menu entries are added in package.json.
 
 ## [0.0.1] - 2026-06-17
 

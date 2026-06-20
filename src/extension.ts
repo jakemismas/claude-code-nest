@@ -117,6 +117,20 @@ import {
   pruneArchivedBodies,
 } from './store/archiveBodyStore';
 import { coerceKeepWindowDays } from './store/archiveRetention';
+import {
+  EXPORT_CHAT_COMMAND,
+  ExportChatDeps,
+  ExportFormat,
+  exportChat,
+} from './commands/exportChatCommands';
+import {
+  SHOW_TOKEN_ROLLUP_COMMAND,
+  TokenRollupDeps,
+  showTokenRollup,
+} from './commands/tokenRollupCommand';
+import { ExportOrgLayer } from './export/chatExport';
+import { writeTextFile } from './store/exportIO';
+import { resolveFolderName, resolveStarred, resolveTagLabels } from './views/chatMeta';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -820,6 +834,86 @@ export function activate(context: vscode.ExtensionContext): void {
           ? previewArchivedBody(previewArchivedChatDeps, sessionId)
           : undefined;
       },
+    ),
+  );
+
+  // The "Export Chat" command (Slice 5): exports ONE chat to Markdown or JSON via the
+  // GUARDED exportIO write. The org layer (folder name, full tag set, starred, link
+  // target ids) is resolved on demand from the current ProjectMeta via the chatMeta
+  // resolvers so the export carries the live curation state; the body is read once via
+  // bodyReader and discarded. The write goes through exportIO.writeTextFile, which
+  // runtime-asserts the target is not under ~/.claude/projects, so an export the user
+  // navigates into a transcript dir is refused. Fires from a chat row in any view.
+  const exportChatDeps: ExportChatDeps = {
+    pickFormat: async () => {
+      const picked = await vscode.window.showQuickPick(
+        [
+          { label: 'Markdown', description: 'Front-matter org layer plus the chat body', format: 'markdown' as ExportFormat },
+          { label: 'JSON', description: 'A single round-trippable JSON document', format: 'json' as ExportFormat },
+        ],
+        { placeHolder: 'Export this chat as...' },
+      );
+      return picked ? picked.format : null;
+    },
+    showSaveDialog: async (format, suggestedName) => {
+      const filters: { [name: string]: string[] } =
+        format === 'markdown' ? { Markdown: ['md'] } : { JSON: ['json'] };
+      const target = await vscode.window.showSaveDialog({
+        title: 'Export chat',
+        saveLabel: 'Export',
+        filters,
+        defaultUri: vscode.Uri.joinPath(context.globalStorageUri, suggestedName),
+      });
+      return target ?? null;
+    },
+    resolveOrgLayer: (sessionId: string): ExportOrgLayer => {
+      const projectKey = foldersProvider.resolveProjectKey();
+      const meta = projectKey !== undefined ? store.getProjectMeta(projectKey) : undefined;
+      const chat = meta?.chats[sessionId];
+      return {
+        folder: resolveFolderName(meta, sessionId),
+        tags: resolveTagLabels(meta, sessionId),
+        starred: resolveStarred(meta, sessionId),
+        links: chat ? chat.links.map((l) => l.targetChatId) : [],
+      };
+    },
+    writeExport: (target, content) => writeTextFile(target as vscode.Uri, content),
+    showInfo: (message: string) => void vscode.window.showInformationMessage(message),
+    showError: (message: string) => void vscode.window.showErrorMessage(message),
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      EXPORT_CHAT_COMMAND,
+      (item?: FlatChatItem | ChatMemberItem | ChatOccurrenceItem) => {
+        const record = chatRecordFrom(item);
+        return record ? exportChat(exportChatDeps, record) : undefined;
+      },
+    ),
+  );
+
+  // The "Show Token Cost Rollup" command (Slice 5): rolls up tier-A token totals by
+  // folder and by tag (tokens only, NO USD) and opens the report in a read-only
+  // document. The id set comes from FoldersProvider.chatRecords() and the per-chat
+  // token totals from the narrow tokenTotalsByChat() seam (chatRecords() drops
+  // tokenTotals); the pure reducer + renderer build the report and never read the
+  // provider. The lightest surface that meets the AC (a virtual read-only document)
+  // avoids a webview/CSP dependency.
+  const tokenRollupDeps: TokenRollupDeps = {
+    getChatIds: () => Array.from(foldersProvider.chatRecords().keys()),
+    getTokenTotals: () => foldersProvider.tokenTotalsByChat(),
+    getProjectMeta: () => {
+      const projectKey = foldersProvider.resolveProjectKey();
+      return projectKey !== undefined ? store.getProjectMeta(projectKey) : null;
+    },
+    openReport: async (content: string) => {
+      const doc = await vscode.workspace.openTextDocument({ content, language: 'markdown' });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    },
+    showInfo: (message: string) => void vscode.window.showInformationMessage(message),
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand(SHOW_TOKEN_ROLLUP_COMMAND, () =>
+      showTokenRollup(tokenRollupDeps),
     ),
   );
 

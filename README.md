@@ -18,13 +18,16 @@ Claude Code Nest contributes its own Activity Bar panel with:
 - Links between chats, rendered as branch-nested children.
 - Read-only, auto-computed Smart Groups the user can promote to real folders or tags.
 - A Settings webview to read and edit Claude's global cleanupPeriodDays.
-- Export the whole library to a JSON backup and import it back with an additive,
+- Export a single chat to Markdown or JSON (the "Export Chat..." row action), or
+  export the whole library to a JSON backup and import it back with an additive,
   per-project merge that never deletes a project missing from the file. An
   additive cross-machine reconcile (union tags and links, last-writer-wins per
   curation scalar by edit time) runs on activation and on window focus, with an
   honest warning when two machines set a conflicting folder, plus an opt-in
   auto-export snapshot with retention. The reconciled per-scalar fields are a
   chat's folder, star, and archive state and a folder's color.
+- A "Show Token Cost Rollup" view action that sums each chat's token usage by
+  folder and by tag in a read-only report.
 
 Your organization (folders, tags, links) is stored per project in VSCode's
 globalState and registered for Settings Sync one key per project, so it follows
@@ -58,6 +61,17 @@ matched-context snippet under each result. The search index lives in the
 extension's own globalStorage, is never synced and never written under
 ~/.claude/projects/, and indexes chat bodies only in memory (read on demand and
 discarded); only tier-A fields are ever persisted.
+
+Export a single chat from any chat row with "Export Chat...": pick Markdown (a YAML
+front-matter org layer plus the readable transcript) or JSON (a versioned,
+round-trippable document). The chat's body is read once on demand and discarded after
+rendering, and the file is written only through the same read-only chokepoint as the
+backup and search code, which refuses any target under ~/.claude/projects/, so an
+export can never overwrite a transcript. "Show Token Cost Rollup", a view action,
+sums each chat's token usage by folder (each chat counted once, a true partition) and
+by tag (each chat counted once per tag, so the by-tag totals can exceed the library
+total when chats are multi-tagged, by design) into a read-only report. Both surfaces
+report tokens only, never dollars.
 
 Star a chat to flag it (and exempt its archived copy from pruning), or archive a
 chat from any chat view to move it into a dedicated Archive view. Archiving keeps a
