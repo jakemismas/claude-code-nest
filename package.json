@@ -40,6 +40,7 @@
     "onView:claudeNest.folders",
     "onView:claudeNest.tags",
     "onView:claudeNest.smartGroups",
+    "onView:claudeNest.archive",
     "onCommand:claudeNest.openSettings",
     "onCommand:claudeNest.exportLibrary",
     "onCommand:claudeNest.importLibrary"
@@ -81,8 +82,35 @@
           "id": "claudeNest.smartGroups",
           "name": "Smart Groups",
           "contextualTitle": "Claude Code Nest"
+        },
+        {
+          "id": "claudeNest.archive",
+          "name": "Archive",
+          "contextualTitle": "Claude Code Nest"
         }
       ]
+    },
+    "configuration": {
+      "title": "Claude Code Nest",
+      "properties": {
+        "claudeNest.archiveKeepWindowDays": {
+          "type": "number",
+          "default": 30,
+          "enum": [
+            7,
+            30,
+            90,
+            0
+          ],
+          "enumDescriptions": [
+            "Keep archived chat copies for 7 days, then prune unstarred ones.",
+            "Keep archived chat copies for 30 days, then prune unstarred ones.",
+            "Keep archived chat copies for 90 days, then prune unstarred ones.",
+            "Never prune: keep every archived chat copy forever."
+          ],
+          "markdownDescription": "How long Nest keeps its own copy of an archived chat's body in extension storage before pruning it. Starred archived chats are always kept, even past this window. `0` means never prune. The copy lets an archived chat survive Claude Code's own cleanup of `~/.claude/projects`; it is local and is never synced."
+        }
+      }
     },
     "walkthroughs": [
       {
@@ -141,6 +169,10 @@
       {
         "view": "claudeNest.smartGroups",
         "contents": "No Claude Code chats found for this workspace yet.\nSmart Groups are read-only buckets computed from your transcripts (pull request, ticket prefix, git branch, fork lineage).\n[Refresh](command:claudeNest.refreshSmartGroups)"
+      },
+      {
+        "view": "claudeNest.archive",
+        "contents": "No archived chats.\nArchive a chat from the Chats, Folders, or Tags view to keep a Nest-owned copy that survives Claude Code cleanup. Restore it here anytime.\n[Refresh](command:claudeNest.refreshArchive)"
       }
     ],
     "commands": [
@@ -269,6 +301,36 @@
         "title": "Import Library from JSON...",
         "category": "Claude Code Nest",
         "icon": "$(import)"
+      },
+      {
+        "command": "claudeNest.starChat",
+        "title": "Star Chat",
+        "category": "Claude Code Nest",
+        "icon": "$(star-empty)"
+      },
+      {
+        "command": "claudeNest.unstarChat",
+        "title": "Unstar Chat",
+        "category": "Claude Code Nest",
+        "icon": "$(star-full)"
+      },
+      {
+        "command": "claudeNest.archiveChat",
+        "title": "Archive Chat",
+        "category": "Claude Code Nest",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "claudeNest.restoreChat",
+        "title": "Restore Chat",
+        "category": "Claude Code Nest",
+        "icon": "$(history)"
+      },
+      {
+        "command": "claudeNest.refreshArchive",
+        "title": "Refresh Archive",
+        "category": "Claude Code Nest",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -304,6 +366,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "claudeNest.refreshArchive",
+          "when": "view == claudeNest.archive",
+          "group": "navigation@1"
+        },
+        {
           "command": "claudeNest.openSettings",
           "when": "view == claudeNest.flat",
           "group": "navigation@9"
@@ -321,6 +388,11 @@
         {
           "command": "claudeNest.openSettings",
           "when": "view == claudeNest.smartGroups",
+          "group": "navigation@9"
+        },
+        {
+          "command": "claudeNest.openSettings",
+          "when": "view == claudeNest.archive",
           "group": "navigation@9"
         },
         {
@@ -446,6 +518,71 @@
           "group": "2_link@1"
         },
         {
+          "command": "claudeNest.starChat",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "3_curation@1"
+        },
+        {
+          "command": "claudeNest.starChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "3_curation@1"
+        },
+        {
+          "command": "claudeNest.starChat",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
+          "group": "3_curation@1"
+        },
+        {
+          "command": "claudeNest.unstarChat",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "3_curation@2"
+        },
+        {
+          "command": "claudeNest.unstarChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "3_curation@2"
+        },
+        {
+          "command": "claudeNest.unstarChat",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
+          "group": "3_curation@2"
+        },
+        {
+          "command": "claudeNest.archiveChat",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "3_curation@3"
+        },
+        {
+          "command": "claudeNest.archiveChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "3_curation@3"
+        },
+        {
+          "command": "claudeNest.archiveChat",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
+          "group": "3_curation@3"
+        },
+        {
+          "command": "claudeNest.starChat",
+          "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
+          "group": "3_curation@1"
+        },
+        {
+          "command": "claudeNest.unstarChat",
+          "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
+          "group": "3_curation@2"
+        },
+        {
+          "command": "claudeNest.restoreChat",
+          "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "claudeNest.restoreChat",
+          "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
+          "group": "inline"
+        },
+        {
           "command": "claudeNest.promoteSmartGroupToFolder",
           "when": "view == claudeNest.smartGroups && viewItem == claudeNest.smartGroupBucket",
           "group": "1_promote@1"
@@ -508,6 +645,22 @@
         },
         {
           "command": "claudeNest.promoteSmartGroupToTag",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.starChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.unstarChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.archiveChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.restoreChat",
           "when": "false"
         }
       ]

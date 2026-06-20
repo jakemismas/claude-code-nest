@@ -183,6 +183,59 @@ snapshot, full body never persisted" tier-A rule.
   tokens, never the raw body, and nothing about it enters the scan snapshot). See
   DECISIONS.md 2026-06-19 Slice s2-fulltext-search fold-in 3.
 
+## Archive as an org layer plus a Nest-owned body copy (Sprint 2, slice 4) — binding
+
+Star and user-archive are CURATION SCALARS on the synced ChatMeta (slice 3); slice
+4 adds the commands, the Archive view, and the Nest-owned body copy. These rules are
+binding so the archive feature cannot violate the read-only invariant or the
+synced/local flag separation.
+
+- The user-archive FLAG is the SYNCED ChatMeta.userArchived, written ONLY through
+  store.setChatArchived (which sets/clears archivedAt coupled to the flag, slice 3).
+  It is DISTINCT from the local-only orphan-reconcile LocalChatState.archived on the
+  separate nest.local.v1 document (schema.ts:80-96, 125-129): userArchived is a
+  deliberate, synced curation choice; LocalChatState.archived is missing-on-disk
+  machinery (DECISIONS.md 2026-06-15). archiveProvider lists chats by
+  store.getProjectMeta(projectKey).chats[id].userArchived === true and NEVER reads
+  LocalChatState.archived. Restore calls store.setChatArchived(false) (clearing
+  archivedAt); star/unstar (store.setChatStarred) is INDEPENDENT of the archive flag,
+  so a restored chat keeps its star. (Slice 4 unit test asserts the provider reads
+  userArchived, not the orphan flag.)
+- The Nest-owned BODY COPY is a FILE in extension globalStorage, LOCAL and NEVER
+  synced. It never renames, moves, or deletes anything under ~/.claude/projects. On
+  archive, the full body is read ONCE on demand (bodyReader.readTranscriptBodies,
+  read-only) and a copy is written to globalStorageUri/archive/<sessionId>.json so
+  the chat survives Claude's cleanup. archiveBodyStore.ts mirrors searchStore.ts
+  EXACTLY: it does NO node fs and NO direct vscode.workspace.fs; every
+  write/read/list/delete goes through exportIO (writeTextFile/readTextFile/
+  listDirectory/deleteFile/ensureDirectory), which runtime-asserts
+  assertNotUnderClaudeProjects before every write/createDirectory/delete. So
+  archiveBodyStore.ts is under the FULL read-only lint bank (it is NOT a carve-out)
+  and cannot write a transcript; ensureDirectory runs before the first write; one
+  file per archived chat keyed by the separator-free sessionId UUID; and an exposed
+  archivedBodyPath helper lets the guard test assert the target is under globalStorage
+  and that a projects-path globalStorage throws.
+- The KEEP-WINDOW is the extension's FIRST contributes.configuration value,
+  claudeNest.archiveKeepWindowDays (enum 7/30/90 and 0 for never). It is read in the
+  vscode-thin layer via vscode.workspace.getConfiguration('claudeNest') and passed as
+  a plain keepWindowDays number into the PURE archiveRetention.ts policy, which never
+  reads getConfiguration (the headless gate would break otherwise). The policy
+  decides keep|prune purely from {archivedAt, starred, keepWindowDays, now} with no
+  clock or config access, so the boundary case (now - archivedAt exactly ==
+  keepWindowDays * MS_PER_DAY) is deterministic. keepWindowDays <= 0 is the
+  never-prune sentinel (keep all), and STARRED exemption takes precedence over the
+  window (a starred copy is always kept, even past the window). A prune pass runs
+  best-effort on activation.
+- The Archive view registers WITHOUT a dragAndDropController (read-mostly;
+  archive/restore are commands, not drops), matching the smartGroups view shape, and
+  takes the same (workspacePath, store) deps as FoldersProvider, resolving the
+  project key on demand. getChildren(undefined) returns [] and never throws; an
+  onView:claudeNest.archive activationEvent and a viewsWelcome empty-state entry back
+  the view. An archived chat whose transcript was cleaned up out of band still lists
+  here (membership comes from the synced flag, not the scan); its title falls back to
+  the body copy's stored title (loaded asynchronously) and it carries no Open command.
+  See DECISIONS.md Slice s2-star-archive.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under

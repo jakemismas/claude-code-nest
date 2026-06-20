@@ -682,3 +682,42 @@ mergeProjectMeta), avoids inventing a parallel stamping scheme the schema does n
 and keeps the conflict surface unchanged. The new fields are nested on the folder/chat
 records, so the top-level KNOWN_TOP_LEVEL/__unknown forward-compat escrow is untouched
 and no SCHEMA_VERSION bump is needed (additive-optional, default-absent on older docs).
+
+## 2026-06-19 Slice s2-star-archive: read userArchived not the orphan flag, full read-only-bank body store, deterministic retention
+
+Fork: slice 4 adds star/archive commands, an Archive view, a Nest-owned body copy, and
+the first contributes.configuration value. Four sub-forks were resolvable without an
+irreversible call: (a) which archive flag the Archive view lists by, given two distinct
+"archived" flags exist; (b) where the body-copy IO lives relative to the read-only lint
+bank; (c) where the keep-window setting is read; (d) how the retention policy encodes its
+edges.
+
+Resolution (autonomous, reversible): (a) the Archive view lists by the SYNCED
+ChatMeta.userArchived === true from store.getProjectMeta, and NEVER reads the local-only
+LocalChatState.archived (the orphan-reconcile, missing-on-disk flag on nest.local.v1).
+The two are deliberately distinct (schema.ts:80-96): userArchived is a synced curation
+choice, LocalChatState.archived is reconcile machinery. Restore calls
+store.setChatArchived(false) (clearing archivedAt); star/unstar is independent. A unit
+test asserts the provider reads userArchived, not the orphan flag. (b) archiveBodyStore.ts
+mirrors searchStore.ts: it does NO node fs and NO direct vscode.workspace.fs, going only
+through exportIO (which runtime-asserts assertNotUnderClaudeProjects), so it stays under
+the FULL read-only lint bank with no new carve-out. One file per archived chat keyed by
+the separator-free sessionId UUID under globalStorageUri/archive; ensureDirectory before
+the first write; an exposed archivedBodyPath helper for the guard test. (c) the keep-window
+is read in the vscode-thin layer via vscode.workspace.getConfiguration('claudeNest') and
+passed as a plain keepWindowDays number into the pure archiveRetention policy, which never
+reads getConfiguration (the headless gate would break otherwise). (d) the policy decides
+keep|prune purely from {archivedAt, starred, keepWindowDays, now}: keepWindowDays <= 0 is
+the never-prune sentinel, STARRED exemption precedes the window, and the window edge is
+inclusive (age strictly greater than the window prunes), so the boundary case is
+deterministic.
+
+Rationale: (a) conflating the flags would either surface orphaned-on-disk chats the user
+never archived or fail to surface user-archived ones; reading only the synced flag is the
+single correct source and matches slice 3's intent. (b) reusing the exportIO chokepoint
+keeps the read-only invariant enforced by lint rather than review discipline, with no new
+exemption to audit, exactly as the search index does. (c) keeping getConfiguration out of
+the pure policy preserves the vscode-free unit gate. (d) injecting now and forbidding clock
+access inside the policy makes the boundary test exact rather than wall-clock dependent.
+The Archive view registers without a dragAndDropController (read-mostly), matching the
+smartGroups shape. Closes issue #21.
