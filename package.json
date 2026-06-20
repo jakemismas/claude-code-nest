@@ -37,8 +37,7 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "onView:claudeNest.flat",
-    "onView:claudeNest.folders",
-    "onView:claudeNest.tags",
+    "onView:claudeNest.orgPanel",
     "onView:claudeNest.smartGroups",
     "onView:claudeNest.archive",
     "onCommand:claudeNest.openSettings",
@@ -58,24 +57,14 @@
     "views": {
       "claudeNest": [
         {
-          "id": "claudeNest.flat",
-          "name": "Chats",
-          "contextualTitle": "Claude Code Nest"
-        },
-        {
-          "id": "claudeNest.chatsPreview",
-          "name": "Chats (Preview)",
+          "id": "claudeNest.orgPanel",
+          "name": "Organize",
           "type": "webview",
           "contextualTitle": "Claude Code Nest"
         },
         {
-          "id": "claudeNest.folders",
-          "name": "Folders",
-          "contextualTitle": "Claude Code Nest"
-        },
-        {
-          "id": "claudeNest.tags",
-          "name": "Tags",
+          "id": "claudeNest.flat",
+          "name": "Chats",
           "contextualTitle": "Claude Code Nest"
         },
         {
@@ -157,14 +146,6 @@
       {
         "view": "claudeNest.flat",
         "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then refresh.\n[Refresh](command:claudeNest.refresh)"
-      },
-      {
-        "view": "claudeNest.folders",
-        "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then create a folder.\n[New Folder](command:claudeNest.createFolder)"
-      },
-      {
-        "view": "claudeNest.tags",
-        "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then create a tag.\n[New Tag](command:claudeNest.createTag)"
       },
       {
         "view": "claudeNest.smartGroups",
@@ -360,22 +341,12 @@
         },
         {
           "command": "claudeNest.createFolder",
-          "when": "view == claudeNest.folders",
+          "when": "view == claudeNest.orgPanel",
           "group": "navigation@1"
-        },
-        {
-          "command": "claudeNest.refreshFolders",
-          "when": "view == claudeNest.folders",
-          "group": "navigation@2"
         },
         {
           "command": "claudeNest.createTag",
-          "when": "view == claudeNest.tags",
-          "group": "navigation@1"
-        },
-        {
-          "command": "claudeNest.refreshTags",
-          "when": "view == claudeNest.tags",
+          "when": "view == claudeNest.orgPanel",
           "group": "navigation@2"
         },
         {
@@ -390,17 +361,12 @@
         },
         {
           "command": "claudeNest.openSettings",
+          "when": "view == claudeNest.orgPanel",
+          "group": "navigation@9"
+        },
+        {
+          "command": "claudeNest.openSettings",
           "when": "view == claudeNest.flat",
-          "group": "navigation@9"
-        },
-        {
-          "command": "claudeNest.openSettings",
-          "when": "view == claudeNest.folders",
-          "group": "navigation@9"
-        },
-        {
-          "command": "claudeNest.openSettings",
-          "when": "view == claudeNest.tags",
           "group": "navigation@9"
         },
         {
@@ -412,6 +378,21 @@
           "command": "claudeNest.openSettings",
           "when": "view == claudeNest.archive",
           "group": "navigation@9"
+        },
+        {
+          "command": "claudeNest.exportLibrary",
+          "when": "view == claudeNest.orgPanel",
+          "group": "9_backup@1"
+        },
+        {
+          "command": "claudeNest.importLibrary",
+          "when": "view == claudeNest.orgPanel",
+          "group": "9_backup@2"
+        },
+        {
+          "command": "claudeNest.showTokenRollup",
+          "when": "view == claudeNest.orgPanel",
+          "group": "9_backup@3"
         },
         {
           "command": "claudeNest.exportLibrary",
@@ -427,16 +408,6 @@
           "command": "claudeNest.showTokenRollup",
           "when": "view == claudeNest.flat",
           "group": "9_backup@3"
-        },
-        {
-          "command": "claudeNest.showTokenRollup",
-          "when": "view == claudeNest.folders",
-          "group": "9_backup@3"
-        },
-        {
-          "command": "claudeNest.showTokenRollup",
-          "when": "view == claudeNest.tags",
-          "group": "9_backup@3"
         }
       ],
       "view/item/context": [
@@ -446,69 +417,14 @@
           "group": "0_open@1"
         },
         {
-          "command": "claudeNest.previewChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "0_open@1"
-        },
-        {
-          "command": "claudeNest.previewChat",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
-          "group": "0_open@1"
-        },
-        {
           "command": "claudeNest.exportChat",
           "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
           "group": "0_open@2"
         },
         {
-          "command": "claudeNest.exportChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "0_open@2"
-        },
-        {
-          "command": "claudeNest.exportChat",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
-          "group": "0_open@2"
-        },
-        {
-          "command": "claudeNest.createFolder",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.folder",
-          "group": "1_modify@1"
-        },
-        {
-          "command": "claudeNest.renameFolder",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.folder",
-          "group": "1_modify@2"
-        },
-        {
-          "command": "claudeNest.deleteFolder",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.folder",
-          "group": "1_modify@3"
-        },
-        {
-          "command": "claudeNest.assignChatToFolder",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "1_modify@1"
-        },
-        {
           "command": "claudeNest.assignChatToFolder",
           "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
           "group": "1_modify@1"
-        },
-        {
-          "command": "claudeNest.deleteTag",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tag",
-          "group": "1_modify@1"
-        },
-        {
-          "command": "claudeNest.removeTagFromChat",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
-          "group": "1_modify@1"
-        },
-        {
-          "command": "claudeNest.addTagToChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "1_modify@2"
         },
         {
           "command": "claudeNest.addTagToChat",
@@ -526,58 +442,13 @@
           "group": "inline"
         },
         {
-          "command": "claudeNest.tagChats",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "1_modify@3"
-        },
-        {
-          "command": "claudeNest.tagChats",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "inline"
-        },
-        {
-          "command": "claudeNest.tagChats",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
-          "group": "1_modify@2"
-        },
-        {
-          "command": "claudeNest.tagChats",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
-          "group": "inline"
-        },
-        {
-          "command": "claudeNest.linkToChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "2_link@1"
-        },
-        {
           "command": "claudeNest.linkToChat",
           "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
           "group": "2_link@1"
         },
         {
-          "command": "claudeNest.unlinkChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.linkedChild",
-          "group": "2_link@1"
-        },
-        {
-          "command": "claudeNest.unlinkChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.linkedChildBroken",
-          "group": "2_link@1"
-        },
-        {
           "command": "claudeNest.starChat",
           "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "3_curation@1"
-        },
-        {
-          "command": "claudeNest.starChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "3_curation@1"
-        },
-        {
-          "command": "claudeNest.starChat",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
           "group": "3_curation@1"
         },
         {
@@ -586,28 +457,8 @@
           "group": "3_curation@2"
         },
         {
-          "command": "claudeNest.unstarChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "3_curation@2"
-        },
-        {
-          "command": "claudeNest.unstarChat",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
-          "group": "3_curation@2"
-        },
-        {
           "command": "claudeNest.archiveChat",
           "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "3_curation@3"
-        },
-        {
-          "command": "claudeNest.archiveChat",
-          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
-          "group": "3_curation@3"
-        },
-        {
-          "command": "claudeNest.archiveChat",
-          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
           "group": "3_curation@3"
         },
         {
@@ -754,8 +605,5 @@
     "eslint": "^8.57.0",
     "mocha": "^10.4.0",
     "typescript": "^5.4.5"
-  },
-  "dependencies": {
-    "minisearch": "^7.2.0"
   }
 }

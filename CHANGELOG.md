@@ -187,6 +187,48 @@ Keep a Changelog, and the project adheres to semantic versioning.
   fallbacks, and the sort order), the report wording (including the multi-tag note),
   and the rollup-command orchestration (the no-project/no-chats info notice and the
   open path). The contributed commands and menu entries are added in package.json.
+- Primary org panel (slice s2-org-panel-webview): a new CSP-locked, nonce-scripted
+  WebviewView (claudeNest.orgPanel, "Organize") is now the PRIMARY organization
+  surface. It renders a section model assembled by a pure, vscode-free module
+  (src/views/orgPanelModel.ts): a Starred section (the synced star flag), a Questions
+  section (chats whose last genuine turn was yours, a SCAN-TIME HEURISTIC labelled as
+  such, not a live signal), the single-home folder hierarchy with per-folder color and
+  chat counts, and an always-present Unsorted bucket. It adds tag filter chips
+  (clickable, combinable), sort (newest/oldest/name), density (comfortable/compact,
+  persisted per workspace), double-click or Enter folder rename, a right-click folder
+  actions menu (rename, set/clear color, delete), and in-panel drag-and-drop. The drop
+  path REUSES the unchanged pure drop reducer through a thin extraction shell
+  (src/dnd/webviewDropAdapter.ts): a folder-row or empty-space drop files (or unfiles)
+  the dragged chats, a tag-chip drop tags them. Because a webview drag is fully
+  in-process, the cross-tree drag stash is not used. Accessibility is built in: an
+  ARIA tree (role tree/treeitem/group), a single roving tabindex, arrow-key
+  navigation, Enter/Space activation, and a visible focus ring. A content-search mode
+  reuses the slice-2 host-side MiniSearch machinery. New modules:
+  src/views/orgPanelWebview.ts, src/views/orgPanelModel.ts,
+  src/dnd/webviewDropAdapter.ts, media/orgPanel.{js,css}. New headless unit tests
+  cover the section assembly (the heuristic flags only a user-last chat; single-home
+  folder placement with stale-folder fallback; per-folder color; empty sections; the
+  always-present Unsorted bucket; tag chips and counts; absent-meta tolerance; the
+  Unsorted/UNFILED sentinel contract), the drop-adapter extraction mapping and intent
+  application (folder-move, unfile, tag-add, the no-op cases, project-key tolerance,
+  and that the adapter never touches the cross-tree stash), and the content-search
+  refresh-during-build race (re-pointed from the retired preview).
+
+### Changed
+
+- The native Folders and Tags TreeViews (and their tree drag-and-drop controllers)
+  are RETIRED, superseded by the primary org panel above. The flat Chats TreeView is
+  KEPT as the accessible fallback. The FoldersProvider and TagsProvider remain as
+  non-view services (project-key resolution, the link target pick list, the token
+  rollup seam, reveal/home resolution); the pure drop reducer, the native
+  drag-and-drop controller, and the cross-tree drag stash are unchanged and still
+  unit-tested. Tag removal remains reachable via the "Tag Chats..." multi-select
+  toggle on the flat Chats view. The proof-of-concept Chats (Preview) WebviewView
+  (claudeNest.chatsPreview) is removed, superseded by the org panel; its
+  content-search machinery moved into the org panel host. The unused
+  "minisearch" entry in package.json "dependencies" was removed to match the
+  slice-2 vendored-module contract (MiniSearch is vendored under
+  out/search/vendor/ and shipped by the package step, not an npm dependency).
 
 ## [0.0.1] - 2026-06-17
 

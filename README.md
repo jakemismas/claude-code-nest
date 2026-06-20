@@ -8,14 +8,19 @@ bar.
 
 Claude Code Nest contributes its own Activity Bar panel with:
 
-- A Chats view: a flat, newest-first list of every session for the workspace.
-- A Folders view: a single-home, nestable hierarchy for chats.
-- A Tags view: many-to-many labels plus an automatic Untagged bucket.
-- Organize by drag-and-drop or a multi-select tag picker: drag one or more chats
-  onto a folder to set their home or onto a tag to apply it (within a view or
-  across the Folders and Tags views), or right-click and "Tag Chats..." for a
-  checkbox picker that applies to the whole selection.
-- Links between chats, rendered as branch-nested children.
+- An Organize panel: the primary view, with a Starred section, a Questions section
+  (chats awaiting your reply, a scan-time heuristic labelled as such), the
+  single-home folder hierarchy with per-folder color and counts, and an always-present
+  Unsorted bucket. Tag filter chips, sort (newest/oldest/name), density modes, a
+  full-text content search, double-click or Enter folder rename, a right-click folder
+  actions menu (rename, color, delete), and in-panel drag-and-drop.
+- A Chats view: a flat, newest-first list of every session, kept as the accessible
+  tree fallback.
+- Organize by drag-and-drop or a multi-select tag picker: in the Organize panel,
+  drag one or more chats onto a folder to set their home, onto the Unsorted section to
+  unfile, or onto a tag chip to apply it; or right-click a Chats row and "Tag Chats..."
+  for a checkbox picker that applies to the whole selection (and toggles tags off too).
+- Links between chats (created from a Chats row with "Link to Chat...").
 - Read-only, auto-computed Smart Groups the user can promote to real folders or tags.
 - A Settings webview to read and edit Claude's global cleanupPeriodDays.
 - Export a single chat to Markdown or JSON (the "Export Chat..." row action), or
@@ -50,12 +55,12 @@ held in memory beyond reading one chat on demand.
 Every chat row shows a `~`token badge beside its relative time, and hovering a row
 opens a rich preview card: the chat's folder, age, `~`token total, full tag set, and
 both a first and a last message snippet, with the models and files-touched count as
-extra context. The same summary appears on the Chats (Preview) cards. A "Preview
+extra context. The same summary appears on the Organize panel rows. A "Preview
 Full Chat" command opens one chat's full text in a read-only editor. The card is a
 preview built from the tier-A summary, never a transcript renderer; the on-demand
 body reader reads one chat's bodies only when needed and discards them.
 
-The Chats (Preview) filter box has a "Search chat content" mode that ranks chats by
+The Organize panel search box has a "Search content" mode that ranks chats by
 full-text relevance (powered by a vendored copy of MiniSearch, MIT) and shows a
 matched-context snippet under each result. The search index lives in the
 extension's own globalStorage, is never synced and never written under

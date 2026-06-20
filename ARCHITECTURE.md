@@ -316,6 +316,80 @@ the rollup stays an honest, vscode-free reduction.
   (flat/folders/tags) gated out of the palette (it needs a target), mirroring the
   Slice 4 curation-command contributions. See DECISIONS.md Slice s2-export-and-rollup.
 
+## Org panel as the primary view (Sprint 2, slice 6) — binding
+
+Slice 6 promotes the chatsPreview proof-of-concept to the PRIMARY organization
+surface: a single CSP-locked, nonce-scripted WebviewView (claudeNest.orgPanel,
+"Organize") that renders sections, tag chips, sort, density, per-folder color,
+folder rename, and drag-and-drop. The native Folders and Tags TreeViews are
+RETIRED; the flat Chats TreeView is KEPT as the accessible fallback. These rules
+are binding so the re-platform cannot violate the read-only invariant, the
+DnD-shell-only contract, or the unit-gate split.
+
+- THE DnD-SHELL-ONLY CONTRACT. src/dnd/dropReducer.ts is NOT modified by this
+  slice (sprint-wide hard rule, SPRINT-2-PLAN:73). The only new code on the drop
+  path is the EXTRACTION SHELL src/dnd/webviewDropAdapter.ts (vscode-free): it maps
+  the webview's self-describing drop message to the reducer's plain DropInput
+  (a 'folder' drop -> targetView 'claudeNest.folders'; a 'tag' drop -> targetView
+  'claudeNest.tags'; payloadMime is always NEST_CHAT_MIME), calls the UNCHANGED
+  reduceDrop, and applies the returned intents as N synchronous store calls that
+  coalesce into ONE pending write, then one flush and one refresh (the same shape
+  as dndController.applyIntents, ARCHITECTURE.md "Refresh coalescing"). The drop
+  interpretation (folder-move vs tag-add, unfile on the Unsorted sentinel / empty
+  space, no-op on the Untagged sentinel) stays entirely in the reducer; the webview
+  DnD is covered by the EXISTING dropReducer unit tests plus a small
+  webviewDropAdapter extraction test.
+- THE WEBVIEW DnD IS FULLY IN-PROCESS, so the cross-tree dragContext stash is NOT
+  used on this path. The stash (src/dnd/dragContext.ts) exists ONLY because VSCode
+  1.66 will not deliver a controller's custom DataTransferItem to a PEER tree
+  controller's handleDrop (the cross-tree TreeView case). A webview drag starts and
+  drops inside one webview: the drop message carries sourceChatIds directly, so the
+  adapter reads the payload from the message, never from the stash, and
+  webviewDropAdapter.ts imports no dragContext (asserted by a unit test that the
+  stash stays empty across an adapter drop). The native dndController.ts and the
+  stash remain in the tree (still unit-tested) but are no longer wired by
+  extension.ts, since the native trees that used them are retired.
+- THE SECTION MODEL IS A PURE, vscode-free MODULE (src/views/orgPanelModel.ts,
+  buildSections). It takes the scanned records, the ProjectMeta, and a token-badge
+  function, and returns the serializable section model (Starred, Questions, the
+  folder hierarchy, tag chips); the webview host (orgPanelWebview.ts) scans, reads
+  the store, calls it, and posts the result over postMessage. The host never holds
+  a body in the snapshot; content search reuses the slice-2 host-side search
+  machinery (searchIndex + searchStore) with the same two-phase warm-then-body
+  upgrade and the generation guard against a refresh-during-build race (regression
+  test re-pointed from the retired chatsPreview to orgPanelWebview).
+- THE AWAITING-REPLY ("Questions") SECTION IS A SCAN-TIME HEURISTIC, NOT A LIVE
+  SIGNAL. A chat is "awaiting your reply" iff its tier-A lastMessageRole === 'user'
+  (slice 0; a tool_result-only user line does not advance the role, so the
+  heuristic reflects human intent, not the tool loop). It is LABELLED a heuristic
+  in the panel header (a "heuristic" badge with an explanatory title) so it is never
+  read as a live conversation state. Starred and Questions are CROSS-CUTTING
+  sections: a chat can appear in Starred and/or Questions AND in its single home
+  folder. Only the FOLDER placement is single-home (a chat appears under exactly its
+  ChatMeta.folderId, or the synthetic Unsorted bucket when unfiled or the folderId
+  no longer resolves, mirroring the Folders tree and the rollup counting rule).
+- PER-FOLDER COLOR rides each folder section from Folder.color (slice 3); the panel
+  renders a color dot on the folder header and the chip color on tag chips.
+  Double-click a folder header to rename (an in-place editor posting a renameFolder
+  message); right-click for the folder actions menu (rename, set/clear color,
+  delete). renameFolder/setFolderColor/deleteFolder route through the EXISTING store
+  mutations and the deleteFolder command (modal confirm + descendant cascade that
+  unfiles member chats, never deleting a chat); the webview never invents a write
+  path. Sort (newest/oldest/name) and density (comfortable/compact) are persisted on
+  workspaceState (per-workspace, NOT synced, so the sync surface stays exactly
+  nest.meta.v1::<projectKey>).
+- ACCESSIBILITY IS AN ACCEPTANCE CRITERION. The list is role="tree" with
+  role="treeitem" rows under role="group" sections, a single roving tabindex (one
+  focusable row at a time), arrow-key navigation (Up/Down/Home/End), Enter/Space
+  activation, and a visible focus ring (CSS). The native flat Chats TreeView is kept
+  as the accessible fallback while the org panel is the primary surface.
+- THE LINK NESTING TREE IS NOT RENDERED IN THE ORG PANEL (deferred, reversible).
+  The Folders tree rendered linked children; the org panel does not yet have a link
+  surface. linkToChat stays reachable (a flat-view chat-row context action), and the
+  linkToChat/unlinkChat commands and the pure links model remain intact for a future
+  org-panel link surface; until then unlink has no row to fire from. See DECISIONS.md
+  Slice s2-org-panel-webview.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under
