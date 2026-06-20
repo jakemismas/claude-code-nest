@@ -88,8 +88,11 @@ import {
 } from './commands/refreshScanCommands';
 import {
   PREVIEW_CHAT_COMMAND,
+  PREVIEW_ARCHIVED_CHAT_COMMAND,
   PreviewChatDeps,
+  PreviewArchivedChatDeps,
   previewChatBody,
+  previewArchivedBody,
 } from './commands/previewChatCommand';
 import { ChatRecord } from './model/types';
 import { ArchiveProvider, ArchivedChatItem } from './views/archiveProvider';
@@ -702,10 +705,40 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // The live-store backstop for the prune. A body copy carries its OWN snapshot of
+  // starred, kept current only best-effort (updateStarFlag swallows failures, a star
+  // applied where the copy never landed, or a star synced from another device that
+  // never touched this install's copy can all leave the snapshot stale-false while
+  // the live synced flag is true). So before deleting a copy whose snapshot says
+  // prune, re-check the LIVE synced state: if the chat is still userArchived AND
+  // starred, force keep. Starring is the user's explicit "do not lose this" signal,
+  // and the copy is the chat's only durable form after Claude's cleanup, so a
+  // stale-snapshot star must never let the prune delete it. Reads the synced meta
+  // (no write, so the sync surface is unchanged). Resolves the project key on demand;
+  // when no project is resolved, nothing is protected (the prune then trusts the copy
+  // snapshot alone, as before).
+  const isArchivedCopyLiveProtected = (sessionId: string): boolean => {
+    const projectKey = foldersProvider.resolveProjectKey();
+    if (projectKey === undefined) {
+      return false;
+    }
+    const chat = store.getProjectMeta(projectKey).chats[sessionId];
+    if (chat === undefined) {
+      return false;
+    }
+    return chat.userArchived === true && chat.starred === true;
+  };
+
   // Prune lapsed body copies on activation (best-effort, fire-and-forget): a copy
-  // past the keep-window and not starred is removed. Starred copies are exempt
-  // (archiveRetention.decideRetention). A failure never blocks activation.
-  void pruneArchivedBodies(context.globalStorageUri, keepWindowDays(), Date.now());
+  // past the keep-window and not starred is removed UNLESS the live synced state
+  // still protects it (a starred chat whose copy snapshot drifted stale-false). A
+  // failure never blocks activation.
+  void pruneArchivedBodies(
+    context.globalStorageUri,
+    keepWindowDays(),
+    Date.now(),
+    isArchivedCopyLiveProtected,
+  );
   // Prime the archive fallback titles once on activation so a missing-transcript row
   // shows its stored title from the first render.
   void loadArchiveFallbackTitles();
@@ -753,6 +786,39 @@ export function activate(context: vscode.ExtensionContext): void {
       (item?: FlatChatItem | ChatMemberItem | ChatOccurrenceItem) => {
         const record = chatRecordFrom(item);
         return record ? previewChatBody(previewChatDeps, record) : undefined;
+      },
+    ),
+  );
+
+  // The "Preview Archived Copy" command (Slice 4): the READ counterpart to the
+  // archived body copy. It renders the Nest-owned copy (globalStorage) for one
+  // archived chat, so the saved bodies are reachable AFTER Claude cleans up the live
+  // transcript. The body source is the copy (by sessionId), not a transcript path,
+  // which is exactly why this path survives cleanup. Fires from an archived row (its
+  // default click when the transcript is gone, and its context action always) or
+  // from a sessionId string argument.
+  const previewArchivedChatDeps: PreviewArchivedChatDeps = {
+    readArchivedBody: (sessionId: string) =>
+      readArchivedBody(context.globalStorageUri, sessionId),
+    openPreview: async (content: string) => {
+      const doc = await vscode.workspace.openTextDocument({ content, language: 'markdown' });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    },
+    showInfo: (message: string) => void vscode.window.showInformationMessage(message),
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      PREVIEW_ARCHIVED_CHAT_COMMAND,
+      (item?: ArchivedChatItem | string) => {
+        const sessionId =
+          typeof item === 'string'
+            ? item
+            : item instanceof ArchivedChatItem
+              ? item.sessionId
+              : undefined;
+        return sessionId !== undefined
+          ? previewArchivedBody(previewArchivedChatDeps, sessionId)
+          : undefined;
       },
     ),
   );

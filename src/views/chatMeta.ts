@@ -27,6 +27,23 @@ export function resolveFolderName(
   return folder ? folder.name : null;
 }
 
+// Whether a chat carries the SYNCED ChatMeta.starred curation flag. False when the
+// chat has no meta entry, the flag is absent/false, or there is no meta at all. The
+// primary chat surfaces (flat, folders, tags) render a star icon for a starred row
+// so the user gets the same star feedback the Archive view shows, not only after a
+// chat is archived. Reads the SAME synced flag the star command writes and the
+// Archive view reads; it never consults the local-only orphan state.
+export function resolveStarred(
+  meta: ProjectMeta | undefined,
+  chatId: string,
+): boolean {
+  if (meta === undefined) {
+    return false;
+  }
+  const chatMeta = meta.chats[chatId];
+  return chatMeta?.starred === true;
+}
+
 // The full set of tag LABELS assigned to a chat, in the chat's stored tag-id
 // order, resolving each id to its Tag.label and dropping ids that no longer
 // resolve. Returns [] when the chat has no tags or there is no meta. The hover

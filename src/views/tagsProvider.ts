@@ -19,7 +19,7 @@ import { OPEN_CHAT_COMMAND } from './flatProvider';
 import { ScanPrimable } from '../commands/refreshScanCommands';
 import { ProjectMeta } from '../store/schema';
 import { buildChatTooltip, tokenBadge } from './chatTooltip';
-import { resolveFolderName, resolveTagLabels } from './chatMeta';
+import { resolveFolderName, resolveStarred, resolveTagLabels } from './chatMeta';
 
 // The claudeNest.tags tree: the MANY-TO-MANY tag membership. A chat appears once
 // under EACH tag it is assigned to (and once under the synthetic Untagged bucket
@@ -75,12 +75,16 @@ export class ChatOccurrenceItem extends vscode.TreeItem {
   // tooltip. Set by the provider right after construction.
   public cardFolderName: string | null | undefined = undefined;
   public cardTagsSignature = '';
+  // The starred flag the row icon was built from, used by the provider's reuse
+  // check so a star toggle rebuilds the node and re-renders its badge.
+  public cardStarred = false;
 
   constructor(
     public readonly occurrence: ChatOccurrence,
     public readonly record: ChatRecord,
     folderName: string | null | undefined = undefined,
     tags: readonly string[] = [],
+    starred = false,
   ) {
     super(record.title, vscode.TreeItemCollapsibleState.None);
     this.id = occurrence.id;
@@ -92,7 +96,11 @@ export class ChatOccurrenceItem extends vscode.TreeItem {
     // provider from the meta it already reads; buildChatTooltip stays vscode-free.
     this.tooltip = new vscode.MarkdownString(buildChatTooltip(record, folderName, tags));
     this.contextValue = 'claudeNest.tagChat';
-    this.iconPath = new vscode.ThemeIcon('comment-discussion');
+    // A starred chat swaps the chat icon for the star so the curation state is
+    // visible here too, not only after the chat is archived (matching the Archive
+    // and flat views). ThemeIcon cannot composite glyphs, so the star replaces the
+    // default comment-discussion icon.
+    this.iconPath = new vscode.ThemeIcon(starred ? 'star-full' : 'comment-discussion');
     this.command = {
       command: OPEN_CHAT_COMMAND,
       title: 'Open Chat',
@@ -272,6 +280,7 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
     const folderName = resolveFolderName(meta, record.sessionId);
     const tags = resolveTagLabels(meta, record.sessionId);
     const tagsSignature = tags.join(' ');
+    const starred = resolveStarred(meta, record.sessionId);
     return memoizeById(
       this.nodesById,
       occurrence.id,
@@ -279,11 +288,13 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
         cached instanceof ChatOccurrenceItem &&
         canReuseOccurrenceItem(cached.record, record) &&
         cached.cardFolderName === folderName &&
-        cached.cardTagsSignature === tagsSignature,
+        cached.cardTagsSignature === tagsSignature &&
+        cached.cardStarred === starred,
       () => {
-        const item = new ChatOccurrenceItem(occurrence, record, folderName, tags);
+        const item = new ChatOccurrenceItem(occurrence, record, folderName, tags, starred);
         item.cardFolderName = folderName;
         item.cardTagsSignature = tagsSignature;
+        item.cardStarred = starred;
         return item;
       },
     ) as ChatOccurrenceItem;

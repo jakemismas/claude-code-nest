@@ -226,6 +226,19 @@ synced/local flag separation.
   never-prune sentinel (keep all), and STARRED exemption takes precedence over the
   window (a starred copy is always kept, even past the window). A prune pass runs
   best-effort on activation.
+- A LIVE-STORE BACKSTOP guards the prune against a stale copy snapshot. Each body
+  copy carries its own {archivedAt, starred} snapshot, kept current only best-effort
+  (updateStarFlag swallows failures; a star applied where the copy never landed, or a
+  star synced from another device that never touched this install's copy, can leave
+  the snapshot stale-false while the LIVE synced flag is true). So before deleting a
+  copy the pure policy marked prune, pruneArchivedBodies consults an optional
+  isLiveProtected(sessionId) check: when the chat is still userArchived AND starred in
+  the live synced meta it is force-kept. The check is a no-write read of getProjectMeta
+  wired in the vscode-thin layer (extension.ts), so the pure policy and the sync
+  surface stay unchanged; a throwing check fails SAFE toward keep. Starring is the
+  user's explicit "do not lose this" signal and the copy is the chat's only durable
+  form after Claude's cleanup, so a stale-snapshot star must never let the prune delete
+  it.
 - The Archive view registers WITHOUT a dragAndDropController (read-mostly;
   archive/restore are commands, not drops), matching the smartGroups view shape, and
   takes the same (workspacePath, store) deps as FoldersProvider, resolving the
@@ -233,7 +246,20 @@ synced/local flag separation.
   onView:claudeNest.archive activationEvent and a viewsWelcome empty-state entry back
   the view. An archived chat whose transcript was cleaned up out of band still lists
   here (membership comes from the synced flag, not the scan); its title falls back to
-  the body copy's stored title (loaded asynchronously) and it carries no Open command.
+  the body copy's stored title (loaded asynchronously). Its default click is Open when
+  the live transcript is still present, but when the transcript is gone the click
+  PREVIEWS the Nest-owned body copy instead (claudeNest.previewArchivedChat), so a
+  cleaned-up row stays openable — the whole point of the copy. previewArchivedBody
+  reads the copy by sessionId and routes through the SAME pure formatter as the live
+  preview (formatPreviewLines), so the two renderings are byte-identical; a missing or
+  empty copy surfaces an info notice, never a blank document.
+- The STAR BADGE renders on EVERY primary chat surface (flat, folders, tags), not
+  only in the Archive view. Each provider resolves the SYNCED ChatMeta.starred via the
+  shared resolveStarred(meta, chatId) (never the local orphan state) and swaps the row
+  icon to star-full when set. ThemeIcon cannot composite two glyphs, so the star
+  replaces the default comment-discussion icon. Each provider folds starred into its
+  node reuse key (flat) or cardStarred field (folders, tags) so a star toggle rebuilds
+  exactly the affected rows and re-renders the badge on the next refresh.
   See DECISIONS.md Slice s2-star-archive.
 
 ## Read-only invariant (the sacred constraint)

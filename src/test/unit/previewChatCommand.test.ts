@@ -1,7 +1,15 @@
 import * as assert from 'assert';
 import { ChatRecord, TokenTotals } from '../../model/types';
 import { ChatMessageBody } from '../../claude/bodyReader';
-import { formatBodyPreview, previewChatBody, PreviewChatDeps } from '../../commands/previewChatCommand';
+import {
+  formatBodyPreview,
+  formatArchivedPreview,
+  previewChatBody,
+  previewArchivedBody,
+  PreviewChatDeps,
+  PreviewArchivedChatDeps,
+} from '../../commands/previewChatCommand';
+import type { ArchivedBodyEnvelope } from '../../store/archiveBodyStore';
 
 // Headless unit tests for the "Preview Full Chat" command (slice 1): the on-demand
 // single-chat body reader's production caller. No vscode import and no filesystem:
@@ -109,5 +117,91 @@ describe('previewChatCommand: previewChatBody orchestration', () => {
     assert.strictEqual(opened, false, 'no empty document opened');
     assert.ok(info !== null, 'an info notice was shown');
     assert.ok((info as unknown as string).includes('Empty Chat'), 'notice names the chat');
+  });
+});
+
+function envelope(partial: Partial<ArchivedBodyEnvelope> = {}): ArchivedBodyEnvelope {
+  return {
+    version: 1,
+    sessionId: 'arch-1',
+    title: 'Archived Chat',
+    archivedAt: Date.now(),
+    starred: false,
+    bodies: [body('user', 'saved question'), body('assistant', 'saved answer')],
+    ...partial,
+  };
+}
+
+describe('previewChatCommand: formatArchivedPreview', () => {
+  it('renders the archived envelope identically to the live formatter', () => {
+    const env = envelope({ title: 'My Chat', sessionId: 'abc' });
+    const out = formatArchivedPreview(env);
+    const live = formatBodyPreview(
+      record({ title: 'My Chat', sessionId: 'abc' }),
+      env.bodies,
+    );
+    assert.strictEqual(out, live, 'archived and live previews use the same rendering');
+  });
+});
+
+describe('previewChatCommand: previewArchivedBody orchestration', () => {
+  it('reads the Nest-owned copy by sessionId and opens its saved bodies', async () => {
+    const reads: string[] = [];
+    let opened: string | null = null;
+    const deps: PreviewArchivedChatDeps = {
+      readArchivedBody: async (sessionId: string) => {
+        reads.push(sessionId);
+        return envelope({ sessionId, title: 'Survived Cleanup' });
+      },
+      openPreview: (content: string) => {
+        opened = content;
+      },
+      showInfo: () => assert.fail('should not show the empty notice when a copy exists'),
+    };
+    await previewArchivedBody(deps, 'arch-1');
+    assert.deepStrictEqual(reads, ['arch-1'], 'read exactly the one copy by sessionId');
+    assert.ok(opened !== null, 'a preview was opened from the saved copy');
+    assert.ok(
+      (opened as unknown as string).includes('saved question'),
+      'opened content carries the saved bodies, NOT the live transcript',
+    );
+    assert.ok(
+      (opened as unknown as string).includes('Survived Cleanup'),
+      'opened content carries the stored title',
+    );
+  });
+
+  it('shows an info notice and opens nothing when no copy exists (pruned/never written)', async () => {
+    let opened = false;
+    let info: string | null = null;
+    const deps: PreviewArchivedChatDeps = {
+      readArchivedBody: async () => null,
+      openPreview: () => {
+        opened = true;
+      },
+      showInfo: (message: string) => {
+        info = message;
+      },
+    };
+    await previewArchivedBody(deps, 'gone');
+    assert.strictEqual(opened, false, 'no empty document opened');
+    assert.ok(info !== null, 'an info notice was shown');
+  });
+
+  it('shows an info notice when the copy exists but has no bodies', async () => {
+    let opened = false;
+    let info: string | null = null;
+    const deps: PreviewArchivedChatDeps = {
+      readArchivedBody: async () => envelope({ bodies: [] }),
+      openPreview: () => {
+        opened = true;
+      },
+      showInfo: (message: string) => {
+        info = message;
+      },
+    };
+    await previewArchivedBody(deps, 'empty-copy');
+    assert.strictEqual(opened, false, 'no empty document opened for a bodiless copy');
+    assert.ok(info !== null, 'an info notice was shown');
   });
 });

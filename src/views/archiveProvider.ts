@@ -6,6 +6,7 @@ import { MetadataStore } from '../store/metadataStore';
 import { ScanPrimable } from '../commands/refreshScanCommands';
 import { ProjectMeta } from '../store/schema';
 import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 
 // The claudeNest.archive tree (Slice 4 s2-star-archive): a flat, read-mostly list
 // of the chats the user has ARCHIVED. Archive and Restore are COMMANDS, not drops,
@@ -60,13 +61,24 @@ export class ArchivedChatItem extends vscode.TreeItem {
     // transcript is marked muted so the user reads it as "archived copy only".
     this.iconPath = new vscode.ThemeIcon(starred ? 'star-full' : 'archive');
     this.description = archivedRowDescription(record, present);
-    // Only offer Open when the transcript is still on disk; a cleaned-up chat has
-    // nothing for Claude's URI handler to open, so the row is non-clickable.
+    // The row's default click action depends on whether the live transcript is
+    // still on disk. When present, Open hands the sessionId to Claude's URI handler
+    // (the richest experience). When the transcript has been cleaned up, there is
+    // nothing for Claude to open, so the click instead PREVIEWS the Nest-owned body
+    // copy: the whole point of archive is that the copy survives that cleanup, so a
+    // cleaned-up row must still be openable. Either way the row is clickable and the
+    // "Preview Archived Copy" context action is available on every archived row.
     if (present && record !== undefined) {
       this.command = {
         command: OPEN_CHAT_COMMAND,
         title: 'Open Chat',
         arguments: [record.sessionId],
+      };
+    } else {
+      this.command = {
+        command: PREVIEW_ARCHIVED_CHAT_COMMAND,
+        title: 'Preview Archived Copy',
+        arguments: [sessionId],
       };
     }
   }

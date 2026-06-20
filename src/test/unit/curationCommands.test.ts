@@ -19,6 +19,13 @@ import {
   restoreChat,
 } from '../../commands/curationCommands';
 import { ArchiveProvider, ArchivedChatItem } from '../../views/archiveProvider';
+import { OPEN_CHAT_COMMAND } from '../../views/flatProvider';
+import {
+  PREVIEW_ARCHIVED_CHAT_COMMAND,
+  previewArchivedBody,
+  PreviewArchivedChatDeps,
+} from '../../commands/previewChatCommand';
+import { writeArchivedBody, readArchivedBody } from '../../store/archiveBodyStore';
 
 // Headless unit tests for the Slice 4 curation commands and the Archive provider.
 // The commands run against a real MetadataStore over the FakeMemento double, with
@@ -273,5 +280,74 @@ describe('ArchiveProvider lists by SYNCED userArchived, NOT the orphan flag', ()
     const rows = p.getChildren();
     assert.strictEqual(rows.length, 1);
     assert.deepStrictEqual(p.getChildren(rows[0]), []);
+  });
+
+  // CLEANUP-SURVIVAL READ PATH (completeness finding): once Claude deletes the live
+  // transcript, the archived row must still be OPENABLE, and opening it must surface
+  // the Nest-owned body copy's saved bodies. These prove the wiring end to end: the
+  // row's default command, and the read path that renders env.bodies.
+  it('a PRESENT archived row carries the Open-live command', async () => {
+    const store = makeStore();
+    store.setChatArchived(PK, C1, true);
+    await store.flush();
+    const rows = provider(store).getChildren();
+    const row = rows.find((r) => r.sessionId === C1) as ArchivedChatItem;
+    assert.strictEqual(row.command?.command, OPEN_CHAT_COMMAND, 'present row opens the live transcript');
+    assert.deepStrictEqual(row.command?.arguments, [C1]);
+  });
+
+  it('a CLEANED-UP archived row (transcript gone) carries the Preview-Archived-Copy command', async () => {
+    const store = makeStore();
+    // GONE is user-archived but has NO transcript in the scan fixture: exactly the
+    // post-cleanup state. The row must still be clickable, routed to the copy reader.
+    const GONE = '99999999-0000-0000-0000-000000000099';
+    store.setChatArchived(PK, GONE, true);
+    await store.flush();
+    const rows = provider(store).getChildren();
+    const row = rows.find((r) => r.sessionId === GONE) as ArchivedChatItem;
+    assert.ok(row !== undefined, 'the cleaned-up chat still surfaces in the archive view');
+    assert.strictEqual(row.record, undefined, 'no live record for a cleaned-up chat');
+    assert.strictEqual(
+      row.command?.command,
+      PREVIEW_ARCHIVED_CHAT_COMMAND,
+      'a cleaned-up row routes its click to the archived-copy reader (was previously non-clickable)',
+    );
+    assert.deepStrictEqual(row.command?.arguments, [GONE], 'the reader is handed the sessionId');
+  });
+
+  it('end to end: a saved copy is readable AFTER the transcript is gone', async () => {
+    const STORAGE = '/storage/global-e2e';
+    const GONE = '99999999-0000-0000-0000-000000000099';
+    const savedBodies: ChatMessageBody[] = [
+      { role: 'user', text: 'this is the only surviving copy', uuid: 'u1' },
+      { role: 'assistant', text: 'and it must still read', uuid: 'u2' },
+    ];
+    const storageUri = { fsPath: STORAGE, scheme: 'file' } as never;
+    // The archive command wrote a Nest-owned copy while the transcript existed.
+    const wrote = await writeArchivedBody(storageUri, {
+      sessionId: GONE,
+      title: 'Cleaned Up Chat',
+      archivedAt: NOW,
+      starred: false,
+      bodies: savedBodies,
+    });
+    assert.strictEqual(wrote, true);
+
+    // The transcript is now gone (we never seed it). The preview-archived command
+    // reads ONLY the copy by sessionId, wired exactly as extension.ts wires it.
+    let opened: string | null = null;
+    const deps: PreviewArchivedChatDeps = {
+      readArchivedBody: (sessionId: string) => readArchivedBody(storageUri, sessionId),
+      openPreview: (content: string) => {
+        opened = content;
+      },
+      showInfo: () => assert.fail('a saved copy exists; the empty notice must not fire'),
+    };
+    await previewArchivedBody(deps, GONE);
+    assert.ok(opened !== null, 'the archived copy opened with no live transcript present');
+    const text = opened as unknown as string;
+    assert.ok(text.includes('Cleaned Up Chat'), 'the stored title renders');
+    assert.ok(text.includes('this is the only surviving copy'), 'the saved bodies render');
+    assert.ok(text.includes('and it must still read'), 'every saved turn renders');
   });
 });

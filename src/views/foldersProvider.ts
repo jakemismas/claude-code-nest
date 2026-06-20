@@ -31,7 +31,7 @@ import { OPEN_CHAT_COMMAND } from './flatProvider';
 import { ScanPrimable } from '../commands/refreshScanCommands';
 import { ProjectMeta } from '../store/schema';
 import { buildChatTooltip, tokenBadge } from './chatTooltip';
-import { resolveFolderName, resolveTagLabels } from './chatMeta';
+import { resolveFolderName, resolveStarred, resolveTagLabels } from './chatMeta';
 
 // The claudeNest.folders tree: the single-home folder hierarchy. Folder nodes are
 // collapsible; each chat appears under EXACTLY one folder (its ChatMeta.folderId,
@@ -90,6 +90,9 @@ export class ChatMemberItem extends vscode.TreeItem {
   // constructor list so the memoization owns them).
   public cardFolderName: string | null | undefined = undefined;
   public cardTagsSignature = '';
+  // The starred flag the row icon was built from, used by the provider's reuse
+  // check so a star toggle rebuilds the node and re-renders its badge.
+  public cardStarred = false;
 
   constructor(
     public readonly folderId: string,
@@ -97,6 +100,7 @@ export class ChatMemberItem extends vscode.TreeItem {
     public readonly hasLinks: boolean = false,
     folderName: string | null | undefined = undefined,
     tags: readonly string[] = [],
+    starred = false,
   ) {
     super(
       record.title,
@@ -112,7 +116,11 @@ export class ChatMemberItem extends vscode.TreeItem {
     // vscode-free and the provider wraps the markdown here.
     this.tooltip = new vscode.MarkdownString(buildChatTooltip(record, folderName, tags));
     this.contextValue = 'claudeNest.chat';
-    this.iconPath = new vscode.ThemeIcon('comment-discussion');
+    // A starred chat swaps the chat icon for the star so the curation state is
+    // visible here too, not only after the chat is archived (matching the Archive
+    // and flat views). ThemeIcon cannot composite glyphs, so the star replaces the
+    // default comment-discussion icon.
+    this.iconPath = new vscode.ThemeIcon(starred ? 'star-full' : 'comment-discussion');
     this.command = {
       command: OPEN_CHAT_COMMAND,
       title: 'Open Chat',
@@ -428,19 +436,22 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     const folderName = resolveFolderName(meta, record.sessionId);
     const tags = resolveTagLabels(meta, record.sessionId);
     const tagsSignature = tags.join(' ');
+    const starred = resolveStarred(meta, record.sessionId);
     const existing = this.nodesById.get(id);
     if (
       existing instanceof ChatMemberItem &&
       canReuseChatMemberItem(existing.record, record) &&
       existing.hasLinks === hasLinks &&
       existing.cardFolderName === folderName &&
-      existing.cardTagsSignature === tagsSignature
+      existing.cardTagsSignature === tagsSignature &&
+      existing.cardStarred === starred
     ) {
       return existing;
     }
-    const item = new ChatMemberItem(folderId, record, hasLinks, folderName, tags);
+    const item = new ChatMemberItem(folderId, record, hasLinks, folderName, tags, starred);
     item.cardFolderName = folderName;
     item.cardTagsSignature = tagsSignature;
+    item.cardStarred = starred;
     this.nodesById.set(id, item);
     return item;
   }

@@ -5,7 +5,7 @@ import { relativeTime } from './relativeTime';
 import { ScanPrimable } from '../commands/refreshScanCommands';
 import { MetadataStore } from '../store/metadataStore';
 import { buildChatTooltip, tokenBadge } from './chatTooltip';
-import { resolveFolderName, resolveTagLabels } from './chatMeta';
+import { resolveFolderName, resolveStarred, resolveTagLabels } from './chatMeta';
 
 // The claudeNest.flat tree view: a single flat list of every chat for the active
 // workspace, each row showing the resolved title plus a relative-time and ~token
@@ -29,13 +29,18 @@ export class FlatChatItem extends vscode.TreeItem {
     public readonly record: ChatRecord,
     folderName: string | null | undefined,
     tags: readonly string[],
+    starred = false,
   ) {
     super(record.title, vscode.TreeItemCollapsibleState.None);
     this.id = record.sessionId;
     this.description = rowDescription(record);
     this.tooltip = new vscode.MarkdownString(buildChatTooltip(record, folderName, tags));
     this.contextValue = 'claudeNest.chat';
-    this.iconPath = new vscode.ThemeIcon('comment-discussion');
+    // A starred chat swaps the chat icon for the star so the curation state is
+    // visible on every primary surface, not only after the chat is archived
+    // (matching the Archive view's star-full badge). ThemeIcon cannot composite two
+    // glyphs, so the star replaces the default comment-discussion icon.
+    this.iconPath = new vscode.ThemeIcon(starred ? 'star-full' : 'comment-discussion');
     this.command = {
       command: OPEN_CHAT_COMMAND,
       title: 'Open Chat',
@@ -119,12 +124,13 @@ export class FlatProvider implements vscode.TreeDataProvider<FlatChatItem>, Scan
       seen.add(record.sessionId);
       const folderName = resolveFolderName(meta, record.sessionId);
       const tags = resolveTagLabels(meta, record.sessionId);
-      const reuseKey = nodeReuseKey(record, folderName, tags);
+      const starred = resolveStarred(meta, record.sessionId);
+      const reuseKey = nodeReuseKey(record, folderName, tags, starred);
       const existing = this.nodesById.get(record.sessionId);
       if (existing !== undefined && this.reuseKeyById.get(record.sessionId) === reuseKey) {
         items.push(existing);
       } else {
-        const node = new FlatChatItem(record, folderName, tags);
+        const node = new FlatChatItem(record, folderName, tags, starred);
         this.nodesById.set(record.sessionId, node);
         this.reuseKeyById.set(record.sessionId, reuseKey);
         items.push(node);
@@ -188,6 +194,7 @@ function nodeReuseKey(
   record: ChatRecord,
   folderName: string | null | undefined,
   tags: readonly string[],
+  starred: boolean,
 ): string {
   const t = record.tokenTotals;
   const total = t.input + t.output + t.cacheCreation + t.cacheRead;
@@ -197,5 +204,6 @@ function nodeReuseKey(
     String(total),
     folderName ?? '',
     tags.join(''),
+    starred ? 's' : '-',
   ].join(' ');
 }

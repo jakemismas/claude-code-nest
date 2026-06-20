@@ -122,6 +122,18 @@ class MarkdownString {
 
 class ThemeIcon {
   id: string;
+  color?: unknown;
+  constructor(id: string, color?: unknown) {
+    this.id = id;
+    this.color = color;
+  }
+}
+
+// Minimal ThemeColor so a provider module (linkDecoration, reached transitively by
+// foldersProvider) that constructs a themed icon color can be require()d under the
+// headless runner. Only the construction surface is implemented.
+class ThemeColor {
+  id: string;
   constructor(id: string) {
     this.id = id;
   }
@@ -154,6 +166,7 @@ const fakeVscode = {
   TreeItemCollapsibleState,
   MarkdownString,
   ThemeIcon,
+  ThemeColor,
   EventEmitter,
   window: {
     showInformationMessage: (message: string, ..._items: string[]): Thenable<undefined> => {

@@ -721,3 +721,44 @@ the pure policy preserves the vscode-free unit gate. (d) injecting now and forbi
 access inside the policy makes the boundary test exact rather than wall-clock dependent.
 The Archive view registers without a dragAndDropController (read-mostly), matching the
 smartGroups shape. Closes issue #21.
+
+## 2026-06-20 Slice s2-star-archive (fix pass): live-protection backstop, cleaned-up-row preview, star badge on every surface
+
+Fork: the review-and-fix loop surfaced three reversible sub-forks left open by the initial
+slice. (e) The prune trusts each copy's OWN recorded {archivedAt, starred} snapshot, but
+that snapshot is updated only best-effort by updateStarFlag (a swallowed write failure, a
+star applied where the copy never landed, or a star synced from another device that never
+touched this install's copy can leave it stale-false while the LIVE synced flag is true) —
+so a starred copy could be silently, permanently pruned. (f) An archived row whose
+transcript Claude has cleaned up had no Open command and was non-clickable, even though the
+Nest-owned copy — the entire reason the feature exists — is still readable. (g) The star
+badge rendered only in the Archive view, so starring a chat from Chats/Folders/Tags gave no
+feedback on those surfaces.
+
+Resolution (autonomous, reversible): (e) pruneArchivedBodies takes an optional
+isLiveProtected(sessionId) check; before deleting a copy the pure policy marked prune, it
+re-reads the live synced meta and force-keeps a chat that is still userArchived AND starred.
+The check is a no-write read of getProjectMeta wired in the vscode-thin layer, so the pure
+policy and the sync surface are unchanged; a throwing check fails SAFE toward keep, and when
+no project resolves nothing is protected (the historical copy-snapshot-only behavior). (f)
+an archived row's default click is Open when the live transcript is present and
+claudeNest.previewArchivedChat (preview the Nest-owned copy by sessionId) when it is gone;
+the preview is also a context/inline action on every archived row. previewArchivedBody
+routes through the SAME pure formatter as the live preview (the shared formatPreviewLines),
+so the two renderings are byte-identical, and a missing/empty copy surfaces an info notice
+rather than a blank document. (g) every primary provider resolves the synced
+ChatMeta.starred via the shared resolveStarred and swaps the row icon to star-full, folding
+starred into its reuse key (flat) or cardStarred field (folders, tags) so a toggle rebuilds
+only the affected rows.
+
+Rationale: (e) starring is the user's explicit "do not lose this" signal and the copy is
+the chat's only durable form after Claude's cleanup, so a stale-snapshot star must never let
+the prune delete it; reading the live flag at prune time is the authoritative source, and
+fail-safe-toward-keep means a backstop fault never causes data loss. (f) a cleaned-up row
+that cannot be opened defeats the survival promise the copy exists to keep; reusing the live
+formatter guarantees no second rendering path can drift. (g) the synced flag is the single
+source the star command writes and the Archive view reads, so reading it everywhere keeps
+the badge consistent; ThemeIcon cannot composite glyphs, so the star replaces the chat icon
+rather than overlaying it. All three are reversible (a later PR can drop the backstop arg,
+revert the cleaned-up click to non-clickable, or remove the badge) and visible in the diff.
+Still closes issue #21.
