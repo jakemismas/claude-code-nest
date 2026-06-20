@@ -18,6 +18,15 @@
 //       the store's addLink dedupe.
 //     * chat folderId is the LWW scalar arbitrated by ChatMeta.updatedAt (there is
 //       NO per-scalar-field stamp; per-RECORD updatedAt arbitrates folderId).
+//     * chat starred and the (userArchived, archivedAt) pair are LWW scalars
+//       arbitrated by the SAME per-record ChatMeta.updatedAt (Slice 3), but as
+//       TWO INDEPENDENT groups: starred is orthogonal to the archive pair, so the
+//       stamp-winner wins a group only when it SET that group, otherwise the
+//       loser's independently-set group is carried (not dropped). archivedAt
+//       travels COUPLED to userArchived (the side that supplies the flag supplies
+//       its timestamp), and a tie keeps live.
+//     * Folder.color is an LWW field arbitrated by the document-level updatedAt
+//       (folders have no per-record stamp), via foldersEqual/cloneFolder.
 // - Tags/links unions are additive and stamp-independent.
 // - The merged document is written via store.putProjectMeta, which re-stamps the
 //   project and preserves __unknown; this module does NOT bump SCHEMA_VERSION or
@@ -184,7 +193,27 @@ export function mergeProjectMeta(
     // reconcile/merge sees the freshest known time for the record. deviceId
     // follows the winning stamp's side (informational; the project re-stamp by
     // putProjectMeta sets the authoritative project-level stamp/device).
+    //
+    // The remaining per-record SCALARS are arbitrated by the SAME single useFile
+    // boolean as deviceId (one per-record updatedAt stamp, NO per-scalar stamp;
+    // a tie (useFile === false) keeps the live side, local-wins bias consistent
+    // with folderId's tie rule). BUT starred is an INDEPENDENT user toggle from
+    // the archive pair, and the two share one record stamp. If we copied all
+    // three only from the single stamp-winner, a side that last touched ONLY one
+    // group would carry just its own scalar and the OTHER group's
+    // independently-set value on the loser would be silently dropped (e.g. star
+    // on machine A, archive on machine B later -> the merge keeps the archive and
+    // loses the star). So each INDEPENDENT group falls back to the loser when the
+    // stamp-winner has not set it: arbitrate starred on its own, and the
+    // (userArchived, archivedAt) pair on its own. Within the archive pair
+    // archivedAt stays COUPLED to userArchived (the side that supplies the flag
+    // supplies its timestamp) so the timestamp can never desynchronize from the
+    // flag. folderId stays on its own comparison above so it can record the
+    // conflict floor; these scalars need no conflict array (when both sides set
+    // an independent group the stamp-winner takes it, LWW, no surfaced floor).
     const useFile = fileChat.updatedAt > liveChat.updatedAt;
+    const winner = useFile ? fileChat : liveChat;
+    const loser = useFile ? liveChat : fileChat;
     const mergedChat: ChatMeta = {
       folderId: mergedFolderId,
       tags: mergedTags,
@@ -192,6 +221,28 @@ export function mergeProjectMeta(
       updatedAt: Math.max(liveChat.updatedAt, fileChat.updatedAt),
       deviceId: useFile ? fileChat.deviceId : liveChat.deviceId,
     };
+    // starred: stamp-winner wins when it set the flag; otherwise carry the
+    // loser's independently-set flag rather than dropping it.
+    const starred =
+      winner.starred !== undefined ? winner.starred : loser.starred;
+    if (starred !== undefined) {
+      mergedChat.starred = starred;
+    }
+    // archive pair (userArchived + its coupled archivedAt): the stamp-winner wins
+    // the WHOLE pair when it set userArchived; otherwise carry the loser's whole
+    // pair. archivedAt always travels with the side that supplied userArchived.
+    const archiveSide =
+      winner.userArchived !== undefined
+        ? winner
+        : loser.userArchived !== undefined
+          ? loser
+          : undefined;
+    if (archiveSide !== undefined) {
+      mergedChat.userArchived = archiveSide.userArchived;
+      if (archiveSide.archivedAt !== undefined) {
+        mergedChat.archivedAt = archiveSide.archivedAt;
+      }
+    }
     merged.chats[chatId] = mergedChat;
     if (JSON.stringify(mergedChat) !== before) {
       changed = true;
@@ -251,7 +302,15 @@ function linkKey(l: Link): string {
 }
 
 function cloneFolder(f: Folder): Folder {
-  return { id: f.id, name: f.name, parentId: f.parentId, order: f.order };
+  const out: Folder = { id: f.id, name: f.name, parentId: f.parentId, order: f.order };
+  // color is a curation scalar: copy it through, else a color-only edit is lost
+  // on a merge that picks the file folder. Coupled with foldersEqual including
+  // color (a color-only diff must read as NOT equal) and normalizeFolder carrying
+  // it; without all three a color-only change is a silent no-op.
+  if (f.color !== undefined) {
+    out.color = f.color;
+  }
+  return out;
 }
 
 function cloneTag(t: Tag): Tag {
@@ -267,18 +326,33 @@ function cloneLink(l: Link): Link {
 }
 
 function cloneChat(c: ChatMeta): ChatMeta {
-  return {
+  const out: ChatMeta = {
     folderId: c.folderId,
     tags: c.tags.slice(),
     links: c.links.map(cloneLink),
     updatedAt: c.updatedAt,
     deviceId: c.deviceId,
   };
+  // Carry the optional curation scalars through a file-only-chat clone, else a
+  // brand-new imported/merged chat loses its starred/archive state.
+  if (c.starred !== undefined) {
+    out.starred = c.starred;
+  }
+  if (c.userArchived !== undefined) {
+    out.userArchived = c.userArchived;
+  }
+  if (c.archivedAt !== undefined) {
+    out.archivedAt = c.archivedAt;
+  }
+  return out;
 }
 
 function foldersEqual(a: Folder, b: Folder): boolean {
   return (
-    a.name === b.name && a.parentId === b.parentId && a.order === b.order
+    a.name === b.name &&
+    a.parentId === b.parentId &&
+    a.order === b.order &&
+    a.color === b.color
   );
 }
 

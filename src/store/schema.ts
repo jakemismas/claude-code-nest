@@ -45,12 +45,16 @@ export function projectKeyFromMetaKey(metaKey: string): string | null {
 }
 
 // A single folder in the single-home hierarchy. parentId is null for a top-level
-// folder. order is a sort hint among siblings.
+// folder. order is a sort hint among siblings. color is an optional per-folder
+// curation scalar (a synced LWW field arbitrated by the project document's
+// updatedAt, like the rest of the folder record); absent when the user has not
+// set a color.
 export interface Folder {
   id: string;
   name: string;
   parentId: string | null;
   order: number;
+  color?: string;
 }
 
 // A single tag. Stored once and referenced by id from a chat's tags array.
@@ -72,12 +76,24 @@ export interface Link {
 // when unfiled). tags references Tag ids. links are this chat's outbound links.
 // updatedAt + deviceId are the per-record stamps used for last-writer-wins
 // reconcile. This shape carries NO orphan state; that lives in LocalChatState.
+//
+// starred, userArchived, and archivedAt are optional curation scalars (Slice 3).
+// They are SYNCED and arbitrated by the single per-record updatedAt stamp (there
+// is no per-scalar stamp). archivedAt travels COUPLED to userArchived: when the
+// LWW arbitration takes one side's archive state it takes that side's archivedAt
+// with it, so the timestamp never desynchronizes from the flag. userArchived is
+// the LOCAL user's archive decision and is distinct from the local-only
+// orphan-reconcile archive in LocalChatState (that one is missing-on-disk driven,
+// non-synced); userArchived is a deliberate, synced curation choice.
 export interface ChatMeta {
   folderId: string | null;
   tags: string[];
   links: Link[];
   updatedAt: number;
   deviceId: string;
+  starred?: boolean;
+  userArchived?: boolean;
+  archivedAt?: number;
 }
 
 // The SYNCED, self-contained per-project document stored under the meta key.
@@ -269,12 +285,18 @@ function normalizeFolder(id: string, value: unknown): Folder | null {
   if (name === null) {
     return null;
   }
-  return {
+  const folder: Folder = {
     id,
     name,
     parentId: typeof value.parentId === 'string' ? value.parentId : null,
     order: typeof value.order === 'number' ? value.order : 0,
   };
+  // color is an optional curation scalar: carry it through when present so it is
+  // not stripped on every read/migrate, default-absent otherwise.
+  if (typeof value.color === 'string') {
+    folder.color = value.color;
+  }
+  return folder;
 }
 
 function normalizeTag(id: string, value: unknown): Tag | null {
@@ -306,13 +328,27 @@ function normalizeChat(
   const links = Array.isArray(value.links)
     ? value.links.map(normalizeLink).filter((l): l is Link => l !== null)
     : [];
-  return {
+  const chat: ChatMeta = {
     folderId: typeof value.folderId === 'string' ? value.folderId : null,
     tags,
     links,
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : now,
     deviceId: typeof value.deviceId === 'string' ? value.deviceId : deviceId,
   };
+  // Optional curation scalars (Slice 3): carry them through when present so they
+  // are not stripped on every read/migrate. archivedAt is carried independently
+  // of userArchived here (a defensive normalize must not drop a stored field);
+  // the LWW merge is what keeps the pair coupled on arbitration.
+  if (typeof value.starred === 'boolean') {
+    chat.starred = value.starred;
+  }
+  if (typeof value.userArchived === 'boolean') {
+    chat.userArchived = value.userArchived;
+  }
+  if (typeof value.archivedAt === 'number') {
+    chat.archivedAt = value.archivedAt;
+  }
+  return chat;
 }
 
 function normalizeLink(value: unknown): Link | null {

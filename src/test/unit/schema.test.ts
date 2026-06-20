@@ -200,3 +200,121 @@ describe('schema migrateProjectMeta (defensive, total)', () => {
     assert.strictEqual(meta.__unknown, undefined);
   });
 });
+
+describe('schema curation scalars (Slice 3): normalize round-trip and additive migration', () => {
+  it('carries Folder.color through normalize when present and omits it when absent', () => {
+    const doc = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {
+        colored: { id: 'colored', name: 'C', parentId: null, order: 0, color: '#abc' },
+        plain: { id: 'plain', name: 'P', parentId: null, order: 1 },
+      },
+      tags: {},
+      chats: {},
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+    const meta = migrateProjectMeta(doc, DEVICE, NOW);
+    assert.strictEqual(meta.folders.colored.color, '#abc');
+    // Absent color is omitted, not defaulted to a value.
+    assert.strictEqual('color' in meta.folders.plain, false);
+  });
+
+  it('drops a non-string Folder.color rather than carrying garbage', () => {
+    const doc = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: { f: { id: 'f', name: 'F', parentId: null, order: 0, color: 42 } },
+      tags: {},
+      chats: {},
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+    const meta = migrateProjectMeta(doc, DEVICE, NOW);
+    assert.strictEqual('color' in meta.folders.f, false);
+  });
+
+  it('carries chat starred/userArchived/archivedAt through normalize when present', () => {
+    const doc = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {},
+      tags: {},
+      chats: {
+        c: {
+          folderId: null,
+          tags: [],
+          links: [],
+          updatedAt: 10,
+          deviceId: 'd',
+          starred: true,
+          userArchived: true,
+          archivedAt: 123,
+        },
+      },
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+    const meta = migrateProjectMeta(doc, DEVICE, NOW);
+    assert.strictEqual(meta.chats.c.starred, true);
+    assert.strictEqual(meta.chats.c.userArchived, true);
+    assert.strictEqual(meta.chats.c.archivedAt, 123);
+  });
+
+  it('omits the chat curation scalars when absent (default-absent, not false/0)', () => {
+    const doc = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {},
+      tags: {},
+      chats: { c: { folderId: null, tags: [], links: [], updatedAt: 10, deviceId: 'd' } },
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+    const meta = migrateProjectMeta(doc, DEVICE, NOW);
+    assert.strictEqual('starred' in meta.chats.c, false);
+    assert.strictEqual('userArchived' in meta.chats.c, false);
+    assert.strictEqual('archivedAt' in meta.chats.c, false);
+  });
+
+  it('drops a non-boolean starred / non-number archivedAt rather than carrying garbage', () => {
+    const doc = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {},
+      tags: {},
+      chats: {
+        c: {
+          folderId: null,
+          tags: [],
+          links: [],
+          updatedAt: 10,
+          deviceId: 'd',
+          starred: 'yes',
+          userArchived: 1,
+          archivedAt: 'soon',
+        },
+      },
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+    const meta = migrateProjectMeta(doc, DEVICE, NOW);
+    assert.strictEqual('starred' in meta.chats.c, false);
+    assert.strictEqual('userArchived' in meta.chats.c, false);
+    assert.strictEqual('archivedAt' in meta.chats.c, false);
+  });
+
+  it('migrates an OLDER document lacking the new scalars with NO version bump (additive)', () => {
+    // A pre-Slice-3 document has no starred/userArchived/archivedAt/color. It must
+    // migrate cleanly, stay at SCHEMA_VERSION (no bump), and gain no escrow.
+    const older = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: { f: { id: 'f', name: 'F', parentId: null, order: 0 } },
+      tags: {},
+      chats: { c: { folderId: 'f', tags: [], links: [], updatedAt: 10, deviceId: 'd' } },
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+    const meta = migrateProjectMeta(older, DEVICE, NOW);
+    assert.strictEqual(meta.schemaVersion, SCHEMA_VERSION);
+    assert.strictEqual(meta.__unknown, undefined);
+    assert.strictEqual('color' in meta.folders.f, false);
+    assert.strictEqual('starred' in meta.chats.c, false);
+  });
+});

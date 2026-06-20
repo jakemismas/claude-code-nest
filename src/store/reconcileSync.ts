@@ -22,8 +22,12 @@
 // the whole detection.
 //
 // The additive reconcile is the SAME shape as the import merge (union tags, union
-// links, LWW-per-folderId-scalar by record updatedAt), reused so the two
-// cross-machine paths agree. The irreducible floor is a concurrent same-scalar
+// links, LWW per record-scalar by record updatedAt), reused so the two
+// cross-machine paths agree. The record scalars mergeProjectMeta arbitrates are
+// folderId, starred, userArchived, and archivedAt (archivedAt coupled to
+// userArchived), plus Folder.color at the document level (Slice 3). A foreign
+// write that flipped any of these is therefore reconciled additively, not
+// wholesale-replaced. The irreducible floor is a concurrent same-scalar
 // (folderId) edit, which loses one side and is surfaced.
 
 import { ProjectMeta } from './schema';

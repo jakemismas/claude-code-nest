@@ -387,9 +387,26 @@ id. Rationale and rules:
   overwrite on activation and on window focus (there is no Memento change event
   for remote sync writes; detection is best-effort polling). On detection it
   reconciles additively against an on-disk shadow: union tags,
-  last-writer-wins per scalar field (folderId) by updatedAt, union links. The
+  last-writer-wins per scalar field by updatedAt, union links. The
   irreducible floor is a concurrent same-scalar-field edit, which loses one side
   and is surfaced.
+- Per-scalar LWW fields (Sprint 2, slice 3) — binding. mergeProjectMeta is the
+  single arbiter both cross-machine paths (import merge and reconcileSync's
+  shadow reconcile) share, so any synced curation scalar MUST be arbitrated there
+  in the same slice that introduces it, else a foreign sync write wholesale-
+  replaces it. The arbitrated per-record chat scalars are folderId, starred,
+  userArchived, and archivedAt, each decided by the SINGLE per-record ChatMeta
+  updatedAt (there is no per-scalar stamp); archivedAt travels COUPLED to
+  userArchived (the winning side supplies both, so the timestamp never desyncs
+  from the flag), and a tie keeps the live side. Folder.color is arbitrated at
+  the document level by the project updatedAt (folders carry no per-record stamp),
+  which requires foldersEqual AND cloneFolder to include color and normalizeFolder
+  to carry it (all three, or a color-only edit reads as equal and never merges or
+  persists). folderId stays the surfaced conflict floor (folderConflicts); the new
+  boolean/number scalars add no new conflict array. These are nested fields on the
+  folder and chat records, so the top-level KNOWN_TOP_LEVEL/__unknown forward-compat
+  escrow is untouched. No SCHEMA_VERSION bump: the fields are additive-optional and
+  default-absent on an older document. See DECISIONS.md Slice s2-schema-scalars-and-lww.
 - The export and import JSON is the AUTHORITATIVE backup: human-readable,
   git-committable, survives a PC reset. Import merges additively per project. A
   debounced opt-in auto-export snapshot writes to global storage with retention;
