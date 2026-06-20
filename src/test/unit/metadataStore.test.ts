@@ -698,3 +698,76 @@ describe('MetadataStore putProjectMeta (whole-document replace primitive)', () =
     assert.strictEqual(store.getProjectMeta(PK).folders.f1.name, 'A');
   });
 });
+
+describe('MetadataStore curation scalar setters (Slice 3: star, archive, folder color)', () => {
+  it('setChatStarred sets the flag, stamps the record, and coalesces into one write', async () => {
+    const clock = clockFrom(1000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+    store.setChatStarred(PK, 'c', true);
+    await store.flush();
+    let meta = store.getProjectMeta(PK);
+    assert.strictEqual(meta.chats.c.starred, true);
+    assert.strictEqual(meta.chats.c.updatedAt, 1000);
+    assert.strictEqual(meta.chats.c.deviceId, DEVICE);
+
+    clock.advance(500);
+    store.setChatStarred(PK, 'c', false);
+    await store.flush();
+    meta = store.getProjectMeta(PK);
+    assert.strictEqual(meta.chats.c.starred, false);
+    assert.strictEqual(meta.chats.c.updatedAt, 1500);
+  });
+
+  it('setChatArchived couples archivedAt to the flag (set on archive, cleared on unarchive)', async () => {
+    const clock = clockFrom(2000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+    store.setChatArchived(PK, 'c', true);
+    await store.flush();
+    let meta = store.getProjectMeta(PK);
+    assert.strictEqual(meta.chats.c.userArchived, true);
+    assert.strictEqual(meta.chats.c.archivedAt, 2000);
+
+    clock.advance(100);
+    store.setChatArchived(PK, 'c', false);
+    await store.flush();
+    meta = store.getProjectMeta(PK);
+    assert.strictEqual(meta.chats.c.userArchived, false);
+    // archivedAt is cleared on unarchive so it never lingers.
+    assert.strictEqual('archivedAt' in meta.chats.c, false);
+  });
+
+  it('setFolderColor sets and clears the color on an existing folder', async () => {
+    const mem = new FakeMemento();
+    const store = makeStore(mem);
+    store.upsertFolder(PK, { id: 'f1', name: 'F', parentId: null, order: 0 });
+    store.setFolderColor(PK, 'f1', '#abc');
+    await store.flush();
+    assert.strictEqual(store.getProjectMeta(PK).folders.f1.color, '#abc');
+
+    store.setFolderColor(PK, 'f1', null);
+    await store.flush();
+    assert.strictEqual('color' in store.getProjectMeta(PK).folders.f1, false);
+  });
+
+  it('setFolderColor on an unknown folder is a no-op (does not create a phantom folder)', async () => {
+    const mem = new FakeMemento();
+    const store = makeStore(mem);
+    store.setFolderColor(PK, 'ghost', '#abc');
+    await store.flush();
+    assert.strictEqual('ghost' in store.getProjectMeta(PK).folders, false);
+  });
+
+  it('star and archive on the same chat coalesce into one coherent record', async () => {
+    const mem = new FakeMemento();
+    const store = makeStore(mem);
+    store.setChatStarred(PK, 'c', true);
+    store.setChatArchived(PK, 'c', true);
+    await store.flush();
+    const chat = store.getProjectMeta(PK).chats.c;
+    assert.strictEqual(chat.starred, true);
+    assert.strictEqual(chat.userArchived, true);
+    assert.strictEqual(typeof chat.archivedAt, 'number');
+  });
+});

@@ -71,6 +71,26 @@ Keep a Changelog, and the project adheres to semantic versioning.
   fallbacks, a guard test that the store target resolves under globalStorage and
   that the reused assertNotUnderClaudeProjects rejects a projects-path target, and
   an isolated-process check that searchIndex loads with no vscode module.
+- Curation scalars and per-scalar last-writer-wins reconcile (slice
+  s2-schema-scalars-and-lww, no UI): the synced ProjectMeta gained four optional,
+  additive curation scalars with NO schema-version bump: per-chat starred,
+  userArchived, and archivedAt, and per-folder color. Both cross-machine merge
+  paths share the single mergeProjectMeta arbiter, which now resolves these by
+  last-writer-wins alongside folderId: the per-chat scalars by the single
+  per-record updatedAt stamp (archivedAt travels coupled to userArchived so the
+  timestamp never desynchronizes from the flag, and a tie keeps the local side),
+  and Folder.color by the document-level updatedAt (foldersEqual, cloneFolder, and
+  normalizeFolder all carry color so a color-only edit is not a silent no-op).
+  Without this arbitration a foreign Settings Sync write would wholesale-replace a
+  newly curated scalar. The schema normalizers carry the new nested fields through
+  every read and migrate (default-absent, garbage-typed values dropped), leaving
+  the top-level forward-compat escrow untouched; folderId stays the surfaced
+  conflict floor. MetadataStore gained setChatStarred, setChatArchived (which sets
+  archivedAt on archive and clears it on unarchive), and setFolderColor, each
+  stamping the record and coalescing into the existing debounced pending write. New
+  headless unit tests cover the normalize round-trip and additive (no-bump)
+  migration, the per-scalar LWW arbitration and the Folder.color trap, the foreign
+  starred-flip reconcile, and the three new store setters.
 
 ## [0.0.1] - 2026-06-17
 

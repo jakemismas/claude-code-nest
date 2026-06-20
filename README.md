@@ -21,9 +21,10 @@ Claude Code Nest contributes its own Activity Bar panel with:
 - Export the whole library to a JSON backup and import it back with an additive,
   per-project merge that never deletes a project missing from the file. An
   additive cross-machine reconcile (union tags and links, last-writer-wins per
-  folder by edit time) runs on activation and on window focus, with an honest
-  warning when two machines set a conflicting folder, plus an opt-in auto-export
-  snapshot with retention.
+  curation scalar by edit time) runs on activation and on window focus, with an
+  honest warning when two machines set a conflicting folder, plus an opt-in
+  auto-export snapshot with retention. The reconciled per-scalar fields are a
+  chat's folder, star, and archive state and a folder's color.
 
 Your organization (folders, tags, links) is stored per project in VSCode's
 globalState and registered for Settings Sync one key per project, so it follows

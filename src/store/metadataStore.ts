@@ -296,6 +296,51 @@ export class MetadataStore {
     });
   }
 
+  // Set a chat's starred flag. Creates the chat record if absent. Stamps the
+  // record so the change wins on reconcile, and coalesces into the pending write
+  // like every other granular mutation.
+  setChatStarred(projectKey: string, chatId: string, starred: boolean): void {
+    this.mutate(projectKey, (meta) => {
+      const chat = this.ensureChat(meta, chatId);
+      chat.starred = starred;
+      this.stampRecord(chat);
+    });
+  }
+
+  // Set a chat's user-archive flag. archivedAt travels COUPLED to the flag: it is
+  // set to the current clock when archiving and cleared when unarchiving, so the
+  // timestamp never lingers on an unarchived chat or desyncs from the flag. The
+  // record is stamped and the write coalesces into the pending batch.
+  setChatArchived(projectKey: string, chatId: string, archived: boolean): void {
+    this.mutate(projectKey, (meta) => {
+      const chat = this.ensureChat(meta, chatId);
+      chat.userArchived = archived;
+      if (archived) {
+        chat.archivedAt = this.now();
+      } else {
+        delete chat.archivedAt;
+      }
+      this.stampRecord(chat);
+    });
+  }
+
+  // Set (or clear) a folder's color. Pass null/undefined to clear. The folder
+  // must exist; a call for an unknown folder is a no-op (folders are created via
+  // upsertFolder). Coalesces into the pending write.
+  setFolderColor(projectKey: string, folderId: string, color: string | null): void {
+    this.mutate(projectKey, (meta) => {
+      const folder = meta.folders[folderId];
+      if (!folder) {
+        return;
+      }
+      if (color === null || color === undefined) {
+        delete folder.color;
+      } else {
+        folder.color = color;
+      }
+    });
+  }
+
   // Replace the whole synced document for a project in one stamped write. Used by
   // the sync-reconcile slice; here it is the primitive the granular mutations and
   // the reconcile scaffolding build on. The supplied document is re-stamped at

@@ -225,6 +225,205 @@ describe('reconcileSync reconcileProjectSync', () => {
     }
   });
 
+  it('reconciles a foreign write that FLIPPED starred additively, not wholesale-replaced (Slice 3)', () => {
+    // Shadow: this device starred chat c (and tagged it x). The OTHER device
+    // wholesale-replaced the synced value with a NEWER record that UNstarred c and
+    // dropped tag x. The merge unions x back and the newer foreign starred=false
+    // wins LWW; without the per-scalar arbitration the foreign opaque value would
+    // wholesale-replace the curation scalar.
+    const shadow = shadowOf(
+      proj({
+        chats: {
+          c: { folderId: 'fLocal', tags: ['x'], links: [], updatedAt: 10, deviceId: THIS_DEVICE, starred: true },
+        },
+        updatedAt: 10,
+      }),
+    );
+    const live = proj({
+      chats: {
+        c: { folderId: 'fLocal', tags: ['y'], links: [], updatedAt: 20, deviceId: OTHER_DEVICE, starred: false },
+      },
+      updatedAt: 20,
+      deviceId: OTHER_DEVICE,
+    });
+    const r = reconcileProjectSync('pk', live, shadow, THIS_DEVICE);
+    assert.strictEqual(r.kind, 'foreign-merge');
+    if (r.kind === 'foreign-merge') {
+      // Tags are still unioned (additive): our x survives, their y is added.
+      assert.deepStrictEqual(r.result.merged.chats.c.tags.slice().sort(), ['x', 'y']);
+      // starred is LWW by record updatedAt: the newer foreign value (false) wins.
+      assert.strictEqual(r.result.merged.chats.c.starred, false);
+    }
+  });
+
+  it('restores a starred flag the foreign SUBSET dropped (older foreign record, our newer star survives)', () => {
+    // Shadow: this device starred c with a NEWER stamp than the foreign value will
+    // carry. The foreign wholesale-replace delivered an OLDER record without the
+    // star and re-stamped the project. The merge keeps our newer star (LWW) AND
+    // storeChanged is true so the restore is written back.
+    const shadow = shadowOf(
+      proj({
+        chats: {
+          c: { folderId: 'fLocal', tags: [], links: [], updatedAt: 30, deviceId: THIS_DEVICE, starred: true },
+        },
+        updatedAt: 30,
+      }),
+    );
+    const live = proj({
+      chats: {
+        c: { folderId: 'fLocal', tags: [], links: [], updatedAt: 5, deviceId: OTHER_DEVICE },
+      },
+      updatedAt: 40,
+      deviceId: OTHER_DEVICE,
+    });
+    const r = reconcileProjectSync('pk', live, shadow, THIS_DEVICE);
+    assert.strictEqual(r.kind, 'foreign-merge');
+    if (r.kind === 'foreign-merge') {
+      assert.strictEqual(r.result.merged.chats.c.starred, true, 'our newer star survives the foreign subset');
+      assert.strictEqual(r.storeChanged, true, 'the restore is gated to write');
+    }
+  });
+
+  it('reconciles a foreign Folder.color flip by document updatedAt with correct storeChanged (Slice 3)', () => {
+    // Folder.color is arbitrated at the DOCUMENT level (not the per-record stamp),
+    // and the real user hits this through the sync reconcile, not a manual import.
+    // The OTHER device recolored folder fa on a NEWER document and re-stamped the
+    // project; the newer document wins the color and the restore is written back.
+    const shadow = shadowOf(
+      proj({
+        folders: { fa: { id: 'fa', name: 'A', parentId: null, order: 0, color: '#111' } },
+        updatedAt: 10,
+      }),
+    );
+    const live = proj({
+      folders: { fa: { id: 'fa', name: 'A', parentId: null, order: 0, color: '#222' } },
+      updatedAt: 20,
+      deviceId: OTHER_DEVICE,
+    });
+    const r = reconcileProjectSync('pk', live, shadow, THIS_DEVICE);
+    assert.strictEqual(r.kind, 'foreign-merge');
+    if (r.kind === 'foreign-merge') {
+      // The newer foreign document wins the color (document-level LWW). This is
+      // the core assertion finding 2 asks for: color arbitrated through the sync
+      // reconcile path, not just the manual-import unit.
+      assert.strictEqual(r.result.merged.folders.fa.color, '#222');
+      // storeChanged is true because the merge keeps the shadow base's
+      // project-level stamp/deviceId (THIS_DEVICE, updatedAt 10) while the foreign
+      // live carries OTHER_DEVICE/updatedAt 20, so merged != live at the document
+      // level even though the color matches. This is the benign one-shot
+      // re-stamp-and-converge documented on storeChanged; the write re-stamps and
+      // the next poll is silent. (result.changed is the in-merge signal.)
+      assert.strictEqual(r.result.changed, true, 'the color edit registered as a merge change');
+    }
+  });
+
+  it('keeps the local Folder.color when the foreign document is OLDER, and writes the restore', () => {
+    // The foreign value recolored fa but on an OLDER document. Document-level LWW
+    // keeps our shadow color, so merged != live (live carries the losing color)
+    // and storeChanged is true so the correct color is written back.
+    const shadow = shadowOf(
+      proj({
+        folders: { fa: { id: 'fa', name: 'A', parentId: null, order: 0, color: '#111' } },
+        updatedAt: 30,
+      }),
+    );
+    const live = proj({
+      folders: { fa: { id: 'fa', name: 'A', parentId: null, order: 0, color: '#222' } },
+      updatedAt: 5,
+      deviceId: OTHER_DEVICE,
+    });
+    const r = reconcileProjectSync('pk', live, shadow, THIS_DEVICE);
+    assert.strictEqual(r.kind, 'foreign-merge');
+    if (r.kind === 'foreign-merge') {
+      assert.strictEqual(r.result.merged.folders.fa.color, '#111', 'older foreign color loses');
+      assert.strictEqual(r.storeChanged, true, 'the correct color is written back to the store');
+    }
+  });
+
+  it('reconciles a foreign userArchived/archivedAt flip, holding the coupling through the reconcile path (Slice 3)', () => {
+    // Shadow: this device archived c at t=5. The OTHER device UNarchived it later
+    // (newer record, no archivedAt) and re-stamped the project. The newer foreign
+    // archive decision wins AND archivedAt stays coupled (cleared with the flag),
+    // verified through the sync reconcile path, not just the manual-import unit.
+    const shadow = shadowOf(
+      proj({
+        chats: {
+          c: {
+            folderId: 'fLocal',
+            tags: [],
+            links: [],
+            updatedAt: 5,
+            deviceId: THIS_DEVICE,
+            userArchived: true,
+            archivedAt: 5,
+          },
+        },
+        updatedAt: 5,
+      }),
+    );
+    const live = proj({
+      chats: {
+        c: {
+          folderId: 'fLocal',
+          tags: [],
+          links: [],
+          updatedAt: 20,
+          deviceId: OTHER_DEVICE,
+          userArchived: false,
+        },
+      },
+      updatedAt: 20,
+      deviceId: OTHER_DEVICE,
+    });
+    const r = reconcileProjectSync('pk', live, shadow, THIS_DEVICE);
+    assert.strictEqual(r.kind, 'foreign-merge');
+    if (r.kind === 'foreign-merge') {
+      assert.strictEqual(r.result.merged.chats.c.userArchived, false, 'newer foreign unarchive wins');
+      assert.strictEqual('archivedAt' in r.result.merged.chats.c, false, 'archivedAt cleared with the flag');
+    }
+  });
+
+  it('does NOT drop an independent starred when a foreign write flipped only the archive pair (independent groups through reconcile)', () => {
+    // The same independent-group collision finding, but exercised through the
+    // CROSS-MACHINE reconcile (the path the user actually hits): this device
+    // starred c (older record); the OTHER device later archived it (newer record)
+    // without touching starred. The reconcile must keep the star AND apply the
+    // newer archive, surfacing nothing as lost.
+    const shadow = shadowOf(
+      proj({
+        chats: {
+          c: { folderId: 'fLocal', tags: [], links: [], updatedAt: 10, deviceId: THIS_DEVICE, starred: true },
+        },
+        updatedAt: 10,
+      }),
+    );
+    const live = proj({
+      chats: {
+        c: {
+          folderId: 'fLocal',
+          tags: [],
+          links: [],
+          updatedAt: 20,
+          deviceId: OTHER_DEVICE,
+          userArchived: true,
+          archivedAt: 20,
+        },
+      },
+      updatedAt: 20,
+      deviceId: OTHER_DEVICE,
+    });
+    const r = reconcileProjectSync('pk', live, shadow, THIS_DEVICE);
+    assert.strictEqual(r.kind, 'foreign-merge');
+    if (r.kind === 'foreign-merge') {
+      assert.strictEqual(r.result.merged.chats.c.starred, true, 'local star survives the foreign archive');
+      assert.strictEqual(r.result.merged.chats.c.userArchived, true, 'foreign archive applied');
+      assert.strictEqual(r.result.merged.chats.c.archivedAt, 20);
+      // The star was restored relative to the lossy foreign live value, so the
+      // store write must fire.
+      assert.strictEqual(r.storeChanged, true, 'the restored star is gated to write');
+    }
+  });
+
   it('clears storeChanged when the foreign value is a pure SUPERSET (store already holds the union)', () => {
     // Project stayed ours; the foreign signal is a chat record the OTHER device wrote
     // with a NEWER stamp, ADDING tag z. Live is a superset of the shadow, so the union

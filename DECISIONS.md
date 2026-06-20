@@ -654,3 +654,31 @@ and MiniSearch is vendored at src/search/vendor/minisearch.js and copied into
 out/ by the compile step. A post-package assertion confirms
 out/search/vendor/minisearch.js is present inside the VSIX, turning the install
 proof from a false-success into a real one.
+
+## 2026-06-19 Slice s2-schema-scalars-and-lww: single-arbiter per-scalar LWW, coupled archivedAt, no new conflict array
+
+Fork: the slice adds four synced curation scalars (chat starred, userArchived,
+archivedAt; folder color) and must arbitrate them in mergeProjectMeta. Three sub-forks
+were resolvable without an irreversible call: (a) how to time-arbitrate per-chat scalars
+given there is one per-record updatedAt and no per-scalar stamp; (b) whether archivedAt
+arbitrates independently of userArchived; (c) whether the new boolean/number scalars get
+their own conflict array alongside folderConflicts.
+
+Resolution (autonomous, reversible): (a) all per-chat scalars are decided by the SINGLE
+existing useFile boolean (fileChat.updatedAt > liveChat.updatedAt), the same comparison
+that already picks the merged chat's deviceId; a tie keeps live, matching folderId's tie
+rule. No per-field timestamps were invented. (b) archivedAt travels COUPLED to
+userArchived: the winning side supplies both, so the timestamp can never desynchronize
+from the flag (and the store's setChatArchived clears archivedAt on unarchive). (c) NO
+new conflict array: folderConflicts stays the surfaced floor per the plan; the slice
+patch marks symmetry for the other scalars as optional and not required to pass.
+Folder.color is arbitrated at the document level (folders carry no per-record stamp) and
+required extending all three of foldersEqual, cloneFolder, and normalizeFolder together,
+or a color-only edit reads as equal and silently never merges or persists.
+
+Rationale: reusing the one existing stamp and arbiter keeps the import-merge and
+shadow-reconcile paths byte-identical in behavior (they both delegate to
+mergeProjectMeta), avoids inventing a parallel stamping scheme the schema does not carry,
+and keeps the conflict surface unchanged. The new fields are nested on the folder/chat
+records, so the top-level KNOWN_TOP_LEVEL/__unknown forward-compat escrow is untouched
+and no SCHEMA_VERSION bump is needed (additive-optional, default-absent on older docs).
