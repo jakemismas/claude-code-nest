@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ChatRecord } from '../model/types';
+import { ChatRecord, TokenTotals } from '../model/types';
 import { resolveDir, scanChats, ScannerOptions } from '../claude/chatScanner';
 import { relativeTime } from './relativeTime';
 import { MetadataStore } from '../store/metadataStore';
@@ -335,6 +335,23 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     const out = new Map<string, { title: string; timestamp: number | null }>();
     for (const [chatId, record] of this.recordsById) {
       out.set(chatId, { title: record.title, timestamp: record.timestamp });
+    }
+    return out;
+  }
+
+  // Expose the current scanned chats' tier-A token totals (sessionId -> TokenTotals)
+  // for the Slice 5 rollup. chatRecords() above projects the record down to
+  // {title, timestamp} and DROPS tokenTotals, so the rollup needs this narrow seam;
+  // it surfaces only the bounded tier-A token reductions that already ride the scan
+  // snapshot (never a body). Ensures a fresh snapshot first and returns a NEW map so
+  // a caller cannot mutate the provider's internal record cache. The pure
+  // tokenRollup reducer consumes this plain map plus the ProjectMeta membership and
+  // never reads the provider (ARCHITECTURE.md vscode-free-reducer convention).
+  tokenTotalsByChat(): Map<string, TokenTotals> {
+    this.ensureSnapshot();
+    const out = new Map<string, TokenTotals>();
+    for (const [chatId, record] of this.recordsById) {
+      out.set(chatId, record.tokenTotals);
     }
     return out;
   }

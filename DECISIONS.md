@@ -762,3 +762,46 @@ the badge consistent; ThemeIcon cannot composite glyphs, so the star replaces th
 rather than overlaying it. All three are reversible (a later PR can drop the backstop arg,
 revert the cleaned-up click to non-clickable, or remove the badge) and visible in the diff.
 Still closes issue #21.
+
+## 2026-06-20 Slice s2-export-and-rollup (order 5, issue 22): export-IO seam naming, YAML front-matter escaping, pinned counting rule, virtual-document rollup surface
+
+Fork: the fit patches flagged four points to settle. (1) TOKEN-TOTALS SEAM: the rollup needs
+per-chat tokenTotals, but foldersProvider.chatRecords() projects each record down to
+{title, timestamp} and drops tokenTotals. Resolution: add the narrow
+FoldersProvider.tokenTotalsByChat() seam returning a fresh Map<sessionId, TokenTotals> from
+the full records the provider already holds behind ensureSnapshot(), mirroring chatRecords();
+the pure tokenRollup reducer takes that plain map plus ProjectMeta and never reads the
+provider. (2) FRONT-MATTER ESCAPING/INJECTION: the export front-matter carries
+user/transcript-derived strings (title, tags, folder name, link ids). Resolution: the
+Markdown front-matter emits every scalar as a double-quoted YAML string with
+backslash/quote/newline/CR/tab escaped (yamlQuote) and sequences as quoted flow arrays, so a
+title with a colon/quote/newline/leading-'---' is contained on one quoted line and cannot
+break the block or inject a second one; the JSON formatter is round-trippable and gets this
+free via JSON.stringify. A no-body case and a markdown-injection case were added to
+chatExport.test.ts (the injection test asserts EXACTLY two front-matter fences). (3) DOUBLE-
+COUNT RULE: pinned in tokenRollup.ts and asserted in tokenRollup.test.ts: a chat counts ONCE
+in its single folder (unfiled/stale-id -> synthetic Unfiled; by-folder totals PARTITION the
+library) and ONCE per EACH of its tags (untagged -> synthetic Untagged; a multi-tag chat adds
+its full total to every tag bucket, so by-tag totals are INTENTIONALLY NOT a partition and can
+EXCEED the library total). The report renderer carries the explicit note so the tag rollup
+does not read as a bug. (4) ROLLUP UI SURFACE: the plan named the reducer + command but not
+the render target.
+
+Resolution chosen: the lightest surface that meets the AC, a read-only virtual document built
+from the pure reducer + renderer output, opened by the vscode-thin showTokenRollup command,
+avoiding any webview/CSP dependency (the rollup is explicitly the first thing to cut). The
+claudeNest.showTokenRollup command is contributed with a view/title entry on
+flat/folders/tags and is available in the palette; claudeNest.exportChat is a chat-row context
+action (flat/folders/tags) gated out of the palette since it needs a target, mirroring the
+Slice 4 curation-command contributions.
+
+One additional fork surfaced during the build (not in the patches): the export's guarded-write
+seam was first named writeFile, which the read-only lint bank's object-AGNOSTIC first selector
+(ban any callee property named writeFile) rejected on the deps.writeFile(...) call site exactly
+as it would a node fs write. Resolution: rename the seam to writeExport; the actual guarded
+write stays exportIO.writeTextFile (a carve-out module that runtime-asserts
+assertNotUnderClaudeProjects), and the command performs no write-shaped call itself, so the
+export command stays under the full ban. This mirrors the Slice 8 finding that the selector is
+object-agnostic. All four resolutions are reversible (a later PR can widen the seam, swap the
+rollup surface to a webview, or re-tune the contributions) and visible in the diff. Closes
+issue #22.

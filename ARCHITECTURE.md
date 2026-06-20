@@ -262,6 +262,60 @@ synced/local flag separation.
   exactly the affected rows and re-renders the badge on the next refresh.
   See DECISIONS.md Slice s2-star-archive.
 
+## Per-chat export and token rollup (Sprint 2, slice 5) — binding
+
+Export one chat to Markdown or JSON (the org layer in front-matter) through the
+exportIO chokepoint, and roll up tier-A token cost by folder and tag (tokens only, NO
+USD). These rules are binding so the export cannot violate the read-only invariant and
+the rollup stays an honest, vscode-free reduction.
+
+- The EXPORT formatters (src/export/chatExport.ts, renderMarkdown / renderJson) are
+  PURE and vscode-free: they take a ChatRecord, a resolved ExportOrgLayer
+  {folder, tags, starred, links}, and the ordered bodies, and return a string. The
+  command layer (src/commands/exportChatCommands.ts, exportChat) is vscode-thin and
+  reads the body ONCE on demand via bodyReader.readTranscriptBodies (read-only) then
+  DISCARDS it. The write goes ONLY through the injected writeExport seam, wired in
+  extension.ts to exportIO.writeTextFile, which runtime-asserts
+  assertNotUnderClaudeProjects before the bytes land. So an export the user navigates
+  (via the save dialog) into ~/.claude/projects is REFUSED by the guard and never
+  overwrites a transcript. The seam is named writeExport, NOT writeFile/writeTextFile:
+  the read-only lint bank's first selector is object-AGNOSTIC (it bans any callee
+  property named writeFile), so a deps.writeFile(...) call would trip it the same as
+  fs.writeFile; the only sanctioned write stays exportIO.writeTextFile (a carve-out
+  module).
+- MARKDOWN FRONT-MATTER ESCAPING is mandatory. The front-matter carries
+  user/transcript-derived strings (title, tags, folder name, link ids). Every scalar
+  is emitted as a DOUBLE-QUOTED YAML string with backslash/quote/newline/CR/tab
+  escaped (yamlQuote), and sequences as quoted flow arrays, so a title containing a
+  colon, a quote, a newline, or a leading '---' is contained on its own quoted line
+  and can neither break the block nor inject a second front-matter block. An unfiled
+  folder renders the YAML null. The JSON formatter gets this for free via
+  JSON.stringify and is round-trippable (JSON.parse(renderJson(...)) === the doc).
+  chatTooltip.escapeMarkdown solves the markdown-injection twin; this is the YAML twin.
+- The TOKEN-TOTALS SEAM: the rollup needs per-chat tokenTotals, but the existing
+  foldersProvider.chatRecords() projects each record down to {title, timestamp} and
+  DROPS tokenTotals. The narrow FoldersProvider.tokenTotalsByChat() seam returns a
+  fresh Map<sessionId, TokenTotals> from the full records the provider already holds
+  behind ensureSnapshot(), mirroring chatRecords(). It surfaces only the bounded
+  tier-A token reductions that already ride the scan snapshot (never a body).
+- The ROLLUP reducer (src/rollup/tokenRollup.ts, rollupByFolder / rollupByTag) is
+  PURE and vscode-free: it takes a plain {chatId -> TokenTotals} map plus ProjectMeta
+  membership and NEVER reads the provider. THE COUNTING RULE is pinned and asserted: a
+  chat counts ONCE in its single home folder (unfiled, or a stale folderId, routes to
+  the synthetic Unfiled bucket), so the by-folder totals PARTITION the library; a chat
+  counts ONCE per EACH of its tags (untagged routes to the synthetic Untagged bucket),
+  so a multi-tag chat adds its full total to every tag bucket and the by-tag totals
+  are INTENTIONALLY NOT a partition (they can EXCEED the library total). The report
+  renderer (rollupReport.ts) carries the explicit note so the tag rollup does not read
+  as a double-count bug.
+- The ROLLUP UI SURFACE is the lightest that meets the AC: a read-only virtual
+  document built from the pure reducer + renderer output, opened by the vscode-thin
+  showTokenRollup command. No webview/CSP dependency. The claudeNest.showTokenRollup
+  command is contributed with a view/title entry on the flat/folders/tags views and is
+  available in the command palette; claudeNest.exportChat is a chat-row context action
+  (flat/folders/tags) gated out of the palette (it needs a target), mirroring the
+  Slice 4 curation-command contributions. See DECISIONS.md Slice s2-export-and-rollup.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under

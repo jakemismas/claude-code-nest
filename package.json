@@ -337,6 +337,18 @@
         "title": "Refresh Archive",
         "category": "Claude Code Nest",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeNest.exportChat",
+        "title": "Export Chat...",
+        "category": "Claude Code Nest",
+        "icon": "$(export)"
+      },
+      {
+        "command": "claudeNest.showTokenRollup",
+        "title": "Show Token Cost Rollup",
+        "category": "Claude Code Nest",
+        "icon": "$(graph)"
       }
     ],
     "menus": {
@@ -410,6 +422,21 @@
           "command": "claudeNest.importLibrary",
           "when": "view == claudeNest.flat",
           "group": "9_backup@2"
+        },
+        {
+          "command": "claudeNest.showTokenRollup",
+          "when": "view == claudeNest.flat",
+          "group": "9_backup@3"
+        },
+        {
+          "command": "claudeNest.showTokenRollup",
+          "when": "view == claudeNest.folders",
+          "group": "9_backup@3"
+        },
+        {
+          "command": "claudeNest.showTokenRollup",
+          "when": "view == claudeNest.tags",
+          "group": "9_backup@3"
         }
       ],
       "view/item/context": [
@@ -427,6 +454,21 @@
           "command": "claudeNest.previewChat",
           "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
           "group": "0_open@1"
+        },
+        {
+          "command": "claudeNest.exportChat",
+          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
+          "group": "0_open@2"
+        },
+        {
+          "command": "claudeNest.exportChat",
+          "when": "view == claudeNest.folders && viewItem == claudeNest.chat",
+          "group": "0_open@2"
+        },
+        {
+          "command": "claudeNest.exportChat",
+          "when": "view == claudeNest.tags && viewItem == claudeNest.tagChat",
+          "group": "0_open@2"
         },
         {
           "command": "claudeNest.createFolder",
@@ -628,6 +670,10 @@
           "when": "false"
         },
         {
+          "command": "claudeNest.exportChat",
+          "when": "false"
+        },
+        {
           "command": "claudeNest.renameFolder",
           "when": "false"
         },
@@ -708,5 +754,8 @@
     "eslint": "^8.57.0",
     "mocha": "^10.4.0",
     "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "minisearch": "^7.2.0"
   }
 }
