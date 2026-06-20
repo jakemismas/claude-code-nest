@@ -203,7 +203,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       CHATS_PREVIEW_VIEW,
-      new ChatsPreviewProvider(context.extensionUri, workspacePath),
+      new ChatsPreviewProvider(context.extensionUri, workspacePath, context.globalStorageUri),
     ),
   );
 

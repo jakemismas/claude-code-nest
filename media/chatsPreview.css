@@ -60,6 +60,24 @@ body {
   filter: brightness(1.1);
 }
 
+/* The content-search mode toggle row sits directly under the filter toolbar. It
+   is a second sticky bar so the toggle stays visible while the list scrolls. */
+.nest-toolbar-mode {
+  top: 0;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.nest-mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.85;
+  cursor: pointer;
+  user-select: none;
+}
+
 .nest-list {
   padding: 6px;
 }

@@ -43,6 +43,34 @@ Keep a Changelog, and the project adheres to semantic versioning.
   shows the real folder and full tag set rather than a degraded subset. All of it
   reads only the bounded tier-A summary on the snapshot except the on-demand body
   read; nothing writes under ~/.claude.
+- Full-text content search (slice s2-fulltext-search): the Chats (Preview) filter
+  box gained a "Search chat content" mode that ranks chats by full-text relevance
+  and shows a matched-context snippet under each result. The search engine is
+  MiniSearch, VENDORED into the repo (src/search/vendor/minisearch.js, the upstream
+  MIT UMD dist) rather than added as an npm dependency, because .vscodeignore
+  excludes node_modules/** and the package proof runs with
+  `vsce package --no-dependencies`, so an installed dependency would never ship and
+  the install check would silently false-pass; the compile step copies the vendored
+  module into out/search/vendor/, which ships in the VSIX. The durable logic lives in
+  two host modules: src/search/searchIndex.ts (vscode-free buildIndex / ranked
+  search returning {sessionId, score, snippet} / a pure snippet builder that centers
+  on the matched term and truncates with ellipses) and src/search/searchStore.ts
+  (vscode-thin: persist and load the index ONLY through exportIO against
+  context.globalStorageUri, falling back to an in-memory rebuild when absent). The
+  index lives in extension globalStorage, is NEVER registered for Settings Sync
+  (it is a file, not a globalState key, so it stays outside setKeysForSync), and is
+  NEVER written under ~/.claude/projects/ (every exportIO write runtime-asserts the
+  path guard). The PERSISTED index is built from tier-A fields only (title, last
+  message, files touched), so no body-derived token is written to disk; full-body
+  search is in-memory only, reading each chat's body on demand via bodyReader and
+  discarding it once indexed. The throwaway POC webview owns only the query wiring
+  and rendering (slice 6 supersedes it with the org panel). New headless unit tests
+  cover ranked sessionIds, the title boost, file-field matching, snippet
+  centering/truncation, empty/no-match/limit cases, the tier-A-only persisted docs,
+  the persist/load round-trip and the absent/malformed/version-mismatch rebuild
+  fallbacks, a guard test that the store target resolves under globalStorage and
+  that the reused assertNotUnderClaudeProjects rejects a projects-path target, and
+  an isolated-process check that searchIndex loads with no vscode module.
 
 ## [0.0.1] - 2026-06-17
 

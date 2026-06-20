@@ -51,6 +51,13 @@ Full Chat" command opens one chat's full text in a read-only editor. The card is
 preview built from the tier-A summary, never a transcript renderer; the on-demand
 body reader reads one chat's bodies only when needed and discards them.
 
+The Chats (Preview) filter box has a "Search chat content" mode that ranks chats by
+full-text relevance (powered by a vendored copy of MiniSearch, MIT) and shows a
+matched-context snippet under each result. The search index lives in the
+extension's own globalStorage, is never synced and never written under
+~/.claude/projects/, and indexes chat bodies only in memory (read on demand and
+discarded); only tier-A fields are ever persisted.
+
 ## The hard constraint
 
 The extension is strictly read-only on Claude's transcript files under
