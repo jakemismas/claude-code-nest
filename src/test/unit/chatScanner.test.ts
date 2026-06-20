@@ -168,6 +168,8 @@ describe('chatScanner.scanChats', () => {
     const signal = byId.get('dddddddd-0000-0000-0000-000000000004');
     assert.ok(signal, 'expected the signal-carrying transcript to be scanned');
     assert.strictEqual(signal.messageCount, 2);
+    assert.strictEqual(signal.firstMessageText, 'first');
+    assert.strictEqual(signal.firstMessageRole, 'user');
     assert.strictEqual(signal.lastMessageText, 'reply with edit');
     assert.strictEqual(signal.lastMessageRole, 'assistant');
     assert.deepStrictEqual(signal.tokenTotals, {

@@ -17,6 +17,9 @@ import {
 } from '../model/untagged';
 import { OPEN_CHAT_COMMAND } from './flatProvider';
 import { ScanPrimable } from '../commands/refreshScanCommands';
+import { ProjectMeta } from '../store/schema';
+import { buildChatTooltip, tokenBadge } from './chatTooltip';
+import { resolveFolderName, resolveTagLabels } from './chatMeta';
 
 // The claudeNest.tags tree: the MANY-TO-MANY tag membership. A chat appears once
 // under EACH tag it is assigned to (and once under the synthetic Untagged bucket
@@ -67,14 +70,27 @@ export class TagItem extends vscode.TreeItem {
 // wrapper holds the occurrence (two ids) and the shared ChatRecord it dereferences;
 // the record object is shared across every occurrence of the same chat.
 export class ChatOccurrenceItem extends vscode.TreeItem {
+  // The folder name and tag-label signature the hover card was built from, used by
+  // the provider's reuse check so a re-file or tag edit rebuilds the node and its
+  // tooltip. Set by the provider right after construction.
+  public cardFolderName: string | null | undefined = undefined;
+  public cardTagsSignature = '';
+
   constructor(
     public readonly occurrence: ChatOccurrence,
     public readonly record: ChatRecord,
+    folderName: string | null | undefined = undefined,
+    tags: readonly string[] = [],
   ) {
     super(record.title, vscode.TreeItemCollapsibleState.None);
     this.id = occurrence.id;
-    this.description = relativeTime(record.timestamp);
-    this.tooltip = record.title + '\n' + record.sessionId;
+    this.description = chatRowDescription(record);
+    // The rich slice-1 hover card built to the binding UI-SPEC. The Tags view
+    // shows EACH occurrence of a chat, so every occurrence's card lists the chat's
+    // FULL tag set (not just the tag under which this occurrence renders), matching
+    // the spec's "full tag set" card field. folderName/tags are resolved by the
+    // provider from the meta it already reads; buildChatTooltip stays vscode-free.
+    this.tooltip = new vscode.MarkdownString(buildChatTooltip(record, folderName, tags));
     this.contextValue = 'claudeNest.tagChat';
     this.iconPath = new vscode.ThemeIcon('comment-discussion');
     this.command = {
@@ -105,6 +121,10 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
   // sessionId -> ChatRecord for the latest scan, so an occurrence node can
   // dereference the ONE shared record by its chatId.
   private recordsById = new Map<string, ChatRecord>();
+  // The latest project curation document for the current snapshot, retained so an
+  // occurrence node can resolve the chat's folder name and FULL tag set for the
+  // hover card without a second store read. Null until the first ensureSnapshot.
+  private currentMeta: ProjectMeta | null = null;
 
   constructor(
     private readonly workspacePath: string | undefined,
@@ -218,6 +238,7 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
     this.recordsById = new Map(records.map((r) => [r.sessionId, r]));
 
     const meta = this.store.getProjectMeta(projectKey);
+    this.currentMeta = meta;
     const chatTags: { [chatId: string]: string[] | undefined } = {};
     for (const record of records) {
       const chatMeta = meta.chats[record.sessionId];
@@ -244,12 +265,27 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
     occurrence: ChatOccurrence,
     record: ChatRecord,
   ): ChatOccurrenceItem {
+    // Resolve the chat's folder name and FULL tag set for the hover card from the
+    // current meta. These feed the tooltip, so a curation change rebuilds the node;
+    // tagsSignature captures the resolved labels for the reuse check.
+    const meta = this.currentMeta ?? undefined;
+    const folderName = resolveFolderName(meta, record.sessionId);
+    const tags = resolveTagLabels(meta, record.sessionId);
+    const tagsSignature = tags.join(' ');
     return memoizeById(
       this.nodesById,
       occurrence.id,
       (cached) =>
-        cached instanceof ChatOccurrenceItem && canReuseOccurrenceItem(cached.record, record),
-      () => new ChatOccurrenceItem(occurrence, record),
+        cached instanceof ChatOccurrenceItem &&
+        canReuseOccurrenceItem(cached.record, record) &&
+        cached.cardFolderName === folderName &&
+        cached.cardTagsSignature === tagsSignature,
+      () => {
+        const item = new ChatOccurrenceItem(occurrence, record, folderName, tags);
+        item.cardFolderName = folderName;
+        item.cardTagsSignature = tagsSignature;
+        return item;
+      },
     ) as ChatOccurrenceItem;
   }
 
@@ -304,4 +340,19 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
       }
     }
   }
+}
+
+// An occurrence row's description: relative time plus the ~token badge (from the
+// tier-A token totals on the snapshot record; no body read). Matches the flat and
+// folders views so every surface reads identically.
+function chatRowDescription(record: ChatRecord): string {
+  const rel = relativeTime(record.timestamp);
+  const badge = tokenBadge(record);
+  if (badge.length === 0) {
+    return rel;
+  }
+  if (rel.length === 0) {
+    return badge;
+  }
+  return rel + ' | ' + badge;
 }

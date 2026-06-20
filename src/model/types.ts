@@ -43,6 +43,8 @@ export interface ChatRecord {
   // reductions, never bodies: defaulted 0/null/[] when the transcript carried no
   // such signal. See ARCHITECTURE.md tier-A reductions rule.
   messageCount: number;
+  firstMessageText: string | null;
+  firstMessageRole: 'user' | 'assistant' | null;
   lastMessageText: string | null;
   lastMessageRole: 'user' | 'assistant' | null;
   tokenTotals: TokenTotals;
@@ -89,6 +91,12 @@ export interface TranscriptScan {
   // than a second scanner, mirroring the slice-6 signal-field block. All are
   // bounded reductions; full message bodies are never retained on the scan.
   //   messageCount    - count of user/assistant lines (tool_result lines incl.)
+  //   firstMessageText- truncated text of the FIRST genuine turn, for the preview
+  //                     card's "First:" line (FIRST-wins; set once). A tool_result-
+  //                     only user line is harness feedback, not a human turn, and
+  //                     does NOT seed it, so the first snippet reflects the opening
+  //                     human/assistant prose, not the tool loop.
+  //   firstMessageRole- 'user' | 'assistant' of the first GENUINE turn (null none)
   //   lastMessageText - truncated text of the LAST genuine turn, for previews
   //   lastMessageRole - 'user' | 'assistant' of the last GENUINE turn (null when
   //                     none). A tool_result-only user line is harness feedback,
@@ -101,6 +109,8 @@ export interface TranscriptScan {
   //   models          - distinct message.model values (assistant lines)
   // All default 0/null/[] when absent.
   messageCount: number;
+  firstMessageText: string | null;
+  firstMessageRole: 'user' | 'assistant' | null;
   lastMessageText: string | null;
   lastMessageRole: 'user' | 'assistant' | null;
   tokenTotals: TokenTotals;

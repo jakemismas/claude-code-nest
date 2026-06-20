@@ -124,6 +124,110 @@ describe('jsonlReader tier-A: last message text and role', () => {
   });
 });
 
+describe('jsonlReader tier-A: first message text and role', () => {
+  it('captures the FIRST genuine user/assistant turn text and role (first-wins)', () => {
+    const content = jsonl(
+      userLine('the opening prompt'),
+      assistantLine({ message: { content: 'a reply' } }),
+      userLine('a later turn'),
+    );
+    const scan = scanTranscript(content);
+    assert.strictEqual(scan.firstMessageText, 'the opening prompt');
+    assert.strictEqual(scan.firstMessageRole, 'user');
+  });
+
+  it('does NOT seed the first snippet from a leading tool_result feedback user line', () => {
+    // A transcript can open with a tool_result-only user line (harness feedback);
+    // it must not become the first genuine turn. The first genuine prose wins.
+    const content = jsonl(
+      { type: 'user', timestamp: '2026-06-15T22:00:00.000Z', message: { content: [{ type: 'tool_result', tool_use_id: 'x', content: 'r' }] } },
+      userLine('the real opening prompt'),
+      assistantLine({ message: { content: 'reply' } }),
+    );
+    const scan = scanTranscript(content);
+    assert.strictEqual(scan.firstMessageRole, 'user');
+    assert.strictEqual(scan.firstMessageText, 'the real opening prompt');
+  });
+
+  it('sets the first role on a textless opening assistant turn and freezes both once set', () => {
+    // A pure tool_use assistant opener has no extractable text: the role is set to
+    // 'assistant' but the text stays null until a later turn supplies prose. Once
+    // BOTH are set, a still-later turn does not overwrite them (first-wins).
+    const content = jsonl(
+      { type: 'assistant', timestamp: '2026-06-15T22:02:00.000Z', message: { content: [{ type: 'tool_use', name: 'Bash', input: {} }] } },
+      assistantLine({ message: { content: 'first prose' } }),
+      userLine('much later'),
+    );
+    const scan = scanTranscript(content);
+    assert.strictEqual(scan.firstMessageRole, 'assistant', 'first role is the textless opener');
+    assert.strictEqual(scan.firstMessageText, 'first prose', 'first text is the first available prose');
+  });
+
+  it('couples role to the prose turn when a textless opener is a DIFFERENT role', () => {
+    // A textless assistant opener (pure tool_use) followed by a user prose turn:
+    // the snippet must attribute the prose to the USER, not the assistant. The
+    // textless opener's role is only a fallback; the prose turn overwrites role
+    // and text together so they never describe different speakers.
+    const content = jsonl(
+      { type: 'assistant', timestamp: '2026-06-15T22:02:00.000Z', message: { content: [{ type: 'tool_use', name: 'Bash', input: {} }] } },
+      userLine('the human actually said this'),
+      assistantLine({ message: { content: 'a reply' } }),
+    );
+    const scan = scanTranscript(content);
+    assert.strictEqual(scan.firstMessageRole, 'user', 'role follows the prose-bearing turn');
+    assert.strictEqual(scan.firstMessageText, 'the human actually said this');
+  });
+
+  it('couples role to the prose turn for a textless USER opener then assistant prose', () => {
+    // Symmetric case: a textless genuine user opener (a user line whose content
+    // array carries only non-text, non-tool_result blocks) followed by assistant
+    // prose must attribute the prose to the ASSISTANT.
+    const content = jsonl(
+      { type: 'user', timestamp: '2026-06-15T22:00:00.000Z', message: { content: [{ type: 'image', source: {} }] } },
+      assistantLine({ message: { content: 'claude prose' } }),
+      userLine('much later'),
+    );
+    const scan = scanTranscript(content);
+    assert.strictEqual(scan.firstMessageRole, 'assistant', 'role follows the prose-bearing turn');
+    assert.strictEqual(scan.firstMessageText, 'claude prose');
+  });
+
+  it('reports the textless opener role as a fallback when no prose ever arrives', () => {
+    // If the whole transcript has no extractable prose, firstMessageRole still
+    // reports who spoke first (the textless opener) and firstMessageText stays null.
+    const content = jsonl(
+      { type: 'assistant', timestamp: '2026-06-15T22:02:00.000Z', message: { content: [{ type: 'tool_use', name: 'Bash', input: {} }] } },
+      { type: 'user', timestamp: '2026-06-15T22:03:00.000Z', message: { content: [{ type: 'tool_result', tool_use_id: 'x', content: 'r' }] } },
+    );
+    const scan = scanTranscript(content);
+    assert.strictEqual(scan.firstMessageRole, 'assistant', 'fallback role is the textless opener');
+    assert.strictEqual(scan.firstMessageText, null);
+  });
+
+  it('truncates a long first-message snippet', () => {
+    const long = 'word '.repeat(100);
+    const content = jsonl(userLine(long), userLine('short later'));
+    const scan = scanTranscript(content);
+    assert.ok(scan.firstMessageText !== null);
+    assert.ok((scan.firstMessageText as string).length <= 200);
+    assert.ok((scan.firstMessageText as string).endsWith('...'));
+  });
+
+  it('defaults to null/null when no message turn is present', () => {
+    const scan = scanTranscript(jsonl({ type: 'ai-title', aiTitle: 'Z' }));
+    assert.strictEqual(scan.firstMessageText, null);
+    assert.strictEqual(scan.firstMessageRole, null);
+  });
+
+  it('captures a single-turn transcript as BOTH the first and the last turn', () => {
+    const scan = scanTranscript(jsonl(userLine('only turn')));
+    assert.strictEqual(scan.firstMessageText, 'only turn');
+    assert.strictEqual(scan.firstMessageRole, 'user');
+    assert.strictEqual(scan.lastMessageText, 'only turn');
+    assert.strictEqual(scan.lastMessageRole, 'user');
+  });
+});
+
 describe('jsonlReader tier-A: token totals', () => {
   it('sums the four trusted usage fields across assistant lines, ignoring extras', () => {
     const content = jsonl(
@@ -334,6 +438,8 @@ describe('jsonlReader tier-A: malformed-line tolerance and all-absent defaults',
   it('yields full all-absent defaults for a transcript with no message lines', () => {
     const scan = scanTranscript(jsonl({ type: 'queue-operation', op: 'x' }, { type: 'hook_success', hook: 'h' }));
     assert.strictEqual(scan.messageCount, 0);
+    assert.strictEqual(scan.firstMessageText, null);
+    assert.strictEqual(scan.firstMessageRole, null);
     assert.strictEqual(scan.lastMessageText, null);
     assert.strictEqual(scan.lastMessageRole, null);
     assert.deepStrictEqual(scan.tokenTotals, { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 });

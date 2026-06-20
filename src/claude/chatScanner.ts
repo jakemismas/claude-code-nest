@@ -113,6 +113,8 @@ export function readChat(filePath: string): ChatRecord | null {
     leadingMessageUuids: scan.leadingMessageUuids,
     // Sprint 2 tier-A summary, carried through with no additional file read.
     messageCount: scan.messageCount,
+    firstMessageText: scan.firstMessageText,
+    firstMessageRole: scan.firstMessageRole,
     lastMessageText: scan.lastMessageText,
     lastMessageRole: scan.lastMessageRole,
     tokenTotals: scan.tokenTotals,

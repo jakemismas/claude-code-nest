@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { scanChats } from '../claude/chatScanner';
 import { relativeTime } from './relativeTime';
 import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { tokenBadge } from './chatTooltip';
 
 // PROOF-OF-CONCEPT (Tier 2 webview demo): the same chat list as claudeNest.flat,
 // but rendered as a WebviewView instead of a native TreeView. It exists to show
@@ -20,6 +21,11 @@ interface PreviewRow {
   title: string;
   description: string;
   timestamp: number | null;
+  // Slice 1 summary line: the ~token badge (empty when no usage was recorded) and
+  // the tier-A last-message snippet (null when none). Both ride the scan snapshot;
+  // no body is read here. The webview renders them under the title as a preview.
+  tokens: string;
+  snippet: string | null;
 }
 
 // Messages the webview posts to the host.
@@ -81,6 +87,8 @@ export class ChatsPreviewProvider implements vscode.WebviewViewProvider {
       title: r.title,
       description: relativeTime(r.timestamp),
       timestamp: r.timestamp,
+      tokens: tokenBadge(r),
+      snippet: r.lastMessageText,
     }));
   }
 

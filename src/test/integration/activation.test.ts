@@ -122,7 +122,7 @@ describe('Polish: activation and empty-state (electron host)', () => {
     const noProject = path.join(__dirname, 'no-such-workspace-' + Date.now());
     const store = new MetadataStore(new FakeMemento(), { deviceId: 'test-device' });
 
-    const flat = new FlatProvider(noProject, { projectsRoot: noProject });
+    const flat = new FlatProvider(noProject, store, { projectsRoot: noProject });
     const folders = new FoldersProvider(noProject, store, { projectsRoot: noProject });
     const tags = new TagsProvider(noProject, store, { projectsRoot: noProject });
     const smart = new SmartGroupsProvider(noProject, { projectsRoot: noProject });

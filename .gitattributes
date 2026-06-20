@@ -1,0 +1,16 @@
+# Normalize all text files to LF in the repository.
+# Working trees check out LF regardless of core.autocrlf, so Windows-built
+# slices stop flipping committed files between LF and CRLF.
+* text=auto eol=lf
+
+# Binary assets: never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.vsix binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

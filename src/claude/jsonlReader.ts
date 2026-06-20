@@ -76,6 +76,8 @@ export function scanTranscript(content: string): TranscriptScan {
     gitBranch: null,
     leadingMessageUuids: [],
     messageCount: 0,
+    firstMessageText: null,
+    firstMessageRole: null,
     lastMessageText: null,
     lastMessageRole: null,
     tokenTotals: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 },
@@ -130,6 +132,7 @@ export function scanTranscript(content: string): TranscriptScan {
         absorbGitBranch(scan, obj);
         absorbLeadingUuid(scan, obj);
         absorbMessageCount(scan);
+        absorbFirstMessage(scan, obj, type);
         absorbLastMessage(scan, obj, type);
         if (type === 'user') {
           absorbFirstUserText(scan, obj);
@@ -202,6 +205,46 @@ function absorbLeadingUuid(scan: TranscriptScan, obj: Record<string, unknown>): 
 // user/assistant turns, not raw JSONL lines (unrelated types do not count).
 function absorbMessageCount(scan: TranscriptScan): void {
   scan.messageCount++;
+}
+
+// Absorb the FIRST genuine user/assistant turn's snippet. Mirrors
+// absorbLastMessage's genuineness rule: a tool_result-only user line is harness
+// feedback inside an assistant loop, not a human turn, so it does not seed the
+// first snippet.
+//
+// Role and text are COUPLED so the snippet never attributes one speaker's prose
+// to another. The text-bearing turn is authoritative: when prose first arrives,
+// firstMessageRole is (re)set to THAT turn's role together with firstMessageText,
+// and both freeze. A textless genuine opener (a pure tool_use turn) only records
+// its role as a FALLBACK so a transcript with no extractable prose still reports
+// who spoke first; a later prose turn of a different role overwrites that
+// fallback role along with the text it carries. Once firstMessageText is set,
+// nothing overwrites either field. Powers the preview card's "First:" line
+// alongside lastMessageText's "Last:".
+function absorbFirstMessage(
+  scan: TranscriptScan,
+  obj: Record<string, unknown>,
+  role: 'user' | 'assistant',
+): void {
+  if (role === 'user' && isToolResultFeedback((obj as { message?: unknown }).message)) {
+    return;
+  }
+  if (scan.firstMessageText !== null) {
+    return;
+  }
+  const text = extractMessageText((obj as { message?: unknown }).message);
+  if (isNonEmpty(text)) {
+    // Prose turn: it owns both fields. Overwrites any fallback role left by a
+    // textless opener so role and text always describe the same speaker.
+    scan.firstMessageRole = role;
+    scan.firstMessageText = truncate((text as string).trim(), MAX_LAST_MESSAGE_LENGTH);
+    return;
+  }
+  // Textless genuine opener: record the role only as a fallback (first such turn
+  // wins) until a prose turn supplies the authoritative role+text.
+  if (scan.firstMessageRole === null) {
+    scan.firstMessageRole = role;
+  }
 }
 
 // Absorb the LAST user/assistant turn's text and role (LAST-wins, overwritten
@@ -368,8 +411,11 @@ function absorbFirstUserText(scan: TranscriptScan, obj: Record<string, unknown>)
 }
 
 // A Claude message can be a string, or { content: string }, or
-// { content: Array<{ type, text }> }. Extract the first text content.
-function extractMessageText(message: unknown): string | null {
+// { content: Array<{ type, text }> }. Extract the first text content. Exported so
+// the on-demand body reader (src/claude/bodyReader.ts) shares the SAME message
+// shape understanding the title/snippet absorbers use, keeping one parser for the
+// message-body grammar rather than a divergent second one.
+export function extractMessageText(message: unknown): string | null {
   if (typeof message === 'string') {
     return message;
   }

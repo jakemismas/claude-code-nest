@@ -86,6 +86,12 @@ import {
   ScanPrimable,
   refreshWithProgress,
 } from './commands/refreshScanCommands';
+import {
+  PREVIEW_CHAT_COMMAND,
+  PreviewChatDeps,
+  previewChatBody,
+} from './commands/previewChatCommand';
+import { ChatRecord } from './model/types';
 
 // Entry point for the Claude Code Nest extension. Slice 0 contributes the
 // claudeNest Activity Bar view container and the claudeNest.flat chat list, and
@@ -178,7 +184,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const runRefreshScan = (provider: ScanPrimable, scanLabel: string): Promise<void> =>
     refreshWithProgress({ provider, ui: refreshScanUi, scanLabel });
 
-  const flatProvider = new FlatProvider(workspacePath);
+  const flatProvider = new FlatProvider(workspacePath, store);
   const flatView = vscode.window.createTreeView('claudeNest.flat', {
     treeDataProvider: flatProvider,
     showCollapseAll: false,
@@ -603,6 +609,30 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // The "Preview Full Chat" command (Slice 1): the on-demand single-chat body
+  // reader's production caller. It opens the clicked chat's FULL prose in a
+  // read-only editor document by reading ONE transcript via bodyReader and
+  // discarding the bodies. The pure formatter and orchestrator live in
+  // previewChatCommand.ts; here we wire the real document open. Fires from a chat
+  // row in any view (Chats, Folders, Tags occurrence), each of which carries the
+  // shared ChatRecord on .record.
+  const previewChatDeps: PreviewChatDeps = {
+    openPreview: async (content: string) => {
+      const doc = await vscode.workspace.openTextDocument({ content, language: 'markdown' });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    },
+    showInfo: (message: string) => void vscode.window.showInformationMessage(message),
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      PREVIEW_CHAT_COMMAND,
+      (item?: FlatChatItem | ChatMemberItem | ChatOccurrenceItem) => {
+        const record = chatRecordFrom(item);
+        return record ? previewChatBody(previewChatDeps, record) : undefined;
+      },
+    ),
+  );
+
   // The Settings gear (Slice 7): opens a CSP-locked, nonce-scripted WebviewPanel
   // that reads and surgically edits cleanupPeriodDays in Claude's settings.json,
   // routed through the read-only chokepoint. context.extensionUri is needed so the
@@ -717,6 +747,23 @@ export function deactivate(): Thenable<void> | void {
   if (store) {
     return store.flush();
   }
+}
+
+// Recover the shared ChatRecord from a clicked chat row in any view (Chats,
+// Folders member, Tags occurrence). All three wrappers dereference the ONE shared
+// ChatRecord (ARCHITECTURE.md tree binding rule). A non-chat node yields undefined,
+// so the Preview Full Chat command is a no-op on a folder/tag/group row.
+function chatRecordFrom(
+  item?: FlatChatItem | ChatMemberItem | ChatOccurrenceItem,
+): ChatRecord | undefined {
+  if (
+    item instanceof FlatChatItem ||
+    item instanceof ChatMemberItem ||
+    item instanceof ChatOccurrenceItem
+  ) {
+    return item.record;
+  }
+  return undefined;
 }
 
 // Recover a PromotableGroup from a clicked Smart Groups row. Only a bucket row
