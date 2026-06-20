@@ -194,6 +194,12 @@
         "icon": "$(preview)"
       },
       {
+        "command": "claudeNest.previewArchivedChat",
+        "title": "Preview Archived Copy",
+        "category": "Claude Code Nest",
+        "icon": "$(preview)"
+      },
+      {
         "command": "claudeNest.refreshFolders",
         "title": "Refresh Folders",
         "category": "Claude Code Nest",
@@ -563,6 +569,16 @@
           "group": "3_curation@3"
         },
         {
+          "command": "claudeNest.previewArchivedChat",
+          "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
+          "group": "0_open@1"
+        },
+        {
+          "command": "claudeNest.previewArchivedChat",
+          "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
+          "group": "inline"
+        },
+        {
           "command": "claudeNest.starChat",
           "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
           "group": "3_curation@1"
@@ -605,6 +621,10 @@
         },
         {
           "command": "claudeNest.previewChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.previewArchivedChat",
           "when": "false"
         },
         {

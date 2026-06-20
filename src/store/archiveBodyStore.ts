@@ -162,19 +162,38 @@ export async function updateStarFlag(
   });
 }
 
+// A live-store backstop the prune consults BEFORE deleting a copy. Given a copy's
+// sessionId, it reports whether the LIVE synced state still protects that chat,
+// i.e. the chat is still userArchived and either starred or otherwise must not lose
+// its only durable form. Returns true to FORCE keep regardless of the copy's own
+// recorded {archivedAt, starred}. Optional: when absent, prune falls back to the
+// copy's recorded snapshot alone (the historical behavior).
+//
+// This closes the drift hole: the copy's recorded `starred` is updated only by
+// updateStarFlag, which is best-effort (a swallowed write failure, a star applied
+// where the copy never landed, or a star synced from another device that never
+// touched this install's copy can all leave the copy's snapshot stale-false while
+// the live synced flag is true). Trusting only the on-disk snapshot would then prune
+// a copy the user explicitly starred (the documented "do not lose this" signal),
+// which is silent, permanent loss of the chat's survival mechanism. The backstop
+// reads the live synced flag so a starred-but-stale-snapshot copy is never deleted.
+export type LiveProtectionCheck = (sessionId: string) => boolean;
+
 // Prune body copies whose retention window has lapsed, using the PURE policy
 // (archiveRetention.decideRetention) over each copy's own recorded {archivedAt,
 // starred} and the supplied keepWindowDays + now. STARRED copies are exempt
 // (decideRetention returns 'keep'), and keepWindowDays <= 0 keeps everything.
 // Lists the archive dir through exportIO.listDirectory, reads each copy's envelope
 // for its retention inputs, and deletes only the ones the policy returns 'prune'
-// for. Returns the sessionIds pruned. Best-effort throughout: a listing or
-// per-file failure is swallowed so a prune pass never breaks activation or a
-// command.
+// for AND the live-store backstop does not protect. Returns the sessionIds pruned.
+// Best-effort throughout: a listing or per-file failure is swallowed so a prune
+// pass never breaks activation or a command, and a throwing backstop fails SAFE
+// (the copy is kept).
 export async function pruneArchivedBodies(
   globalStorageUri: vscode.Uri,
   keepWindowDays: number,
   now: number,
+  isLiveProtected?: LiveProtectionCheck,
 ): Promise<string[]> {
   const pruned: string[] = [];
   let entries: [string, vscode.FileType][];
@@ -198,10 +217,25 @@ export async function pruneArchivedBodies(
       keepWindowDays,
       now,
     });
-    if (decision === 'prune') {
-      await deleteArchivedBody(globalStorageUri, sessionId);
-      pruned.push(sessionId);
+    if (decision !== 'prune') {
+      continue;
     }
+    // The copy's own snapshot says prune. Before deleting, consult the live synced
+    // state: a star (or other protection) that never reached this copy must still
+    // exempt it. A throwing backstop fails safe toward KEEP.
+    if (isLiveProtected !== undefined) {
+      let protectedLive: boolean;
+      try {
+        protectedLive = isLiveProtected(sessionId);
+      } catch {
+        protectedLive = true;
+      }
+      if (protectedLive) {
+        continue;
+      }
+    }
+    await deleteArchivedBody(globalStorageUri, sessionId);
+    pruned.push(sessionId);
   }
   return pruned;
 }

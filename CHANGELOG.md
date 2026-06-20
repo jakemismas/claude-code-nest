@@ -119,7 +119,26 @@ Keep a Changelog, and the project adheres to semantic versioning.
   is rejected and writes nothing), the commands (the synced-flag writes, the
   archivedAt coupling, best-effort copy on write failure, and restore semantics),
   and the Archive provider asserting it lists by the SYNCED userArchived flag and
-  NOT the local-only orphan-reconcile flag.
+  NOT the local-only orphan-reconcile flag. Three follow-on enhancements close
+  gaps in the same slice: (1) the STAR badge now renders on every primary chat
+  surface (Chats, Folders, Tags), not only in the Archive view, so starring a chat
+  gives feedback everywhere it appears; each provider reads the synced
+  ChatMeta.starred via a shared resolveStarred and folds it into the row reuse key
+  so a toggle re-renders the affected rows. (2) A "Preview Archived Copy" command
+  (claudeNest.previewArchivedChat) opens the Nest-owned body copy by sessionId so a
+  cleaned-up archived chat stays readable after Claude removes its transcript; it
+  is the default click for an archived row whose transcript is gone and a context
+  action on every archived row, and it routes through the SAME pure formatter as
+  the live preview so the two outputs are identical. (3) A live-store backstop now
+  guards the prune: before deleting a copy the pure policy marked prune,
+  pruneArchivedBodies re-checks the live synced state and force-keeps a copy that is
+  still userArchived and starred, covering the case where the copy's own snapshot
+  drifted stale-false (a swallowed star-flag write, a star applied where the copy
+  never landed, or a star synced from another device); a throwing check fails safe
+  toward keep. New headless unit tests cover the star badge on all three surfaces,
+  the archived-copy preview orchestration (present, missing, and empty copy), and
+  the backstop (protected stale copy kept, unprotected copy still pruned, throwing
+  check fails safe).
 
 ## [0.0.1] - 2026-06-17
 

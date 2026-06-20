@@ -61,12 +61,17 @@ describe('Polish: activation and empty-state (electron host)', () => {
     assert.ok(ext, 'expected jakemismas.claude-code-nest to be loaded in the host');
   });
 
-  it('registers the four claudeNest views and the activitybar container', () => {
+  it('registers the claudeNest views and the activitybar container', () => {
     const manifest = readManifest();
     const contributes = manifest.contributes as Record<string, unknown>;
     const views = (contributes.views as Record<string, Array<{ id: string }>>).claudeNest;
     const ids = views.map((v) => v.id).sort();
+    // The full contributed view set: the four tree views, the archive tree view
+    // (Slice 4), and the chatsPreview webview POC (Slice 6 staging). Asserted as the
+    // exact set so adding or dropping a view forces this gate to be revisited.
     assert.deepStrictEqual(ids, [
+      'claudeNest.archive',
+      'claudeNest.chatsPreview',
       'claudeNest.flat',
       'claudeNest.folders',
       'claudeNest.smartGroups',
@@ -90,12 +95,14 @@ describe('Polish: activation and empty-state (electron host)', () => {
       'claudeNest.folders',
       'claudeNest.tags',
       'claudeNest.smartGroups',
+      'claudeNest.archive',
     ]) {
       const contents = byView.get(view);
       assert.ok(contents, 'expected a viewsWelcome for ' + view);
       assert.ok(
         contents.includes('No Claude Code chats found') ||
-          contents.toLowerCase().includes('smart groups are read-only'),
+          contents.toLowerCase().includes('smart groups are read-only') ||
+          contents.includes('No archived chats'),
         'empty-state for ' + view + ' should explain the no-sessions state',
       );
       // The empty state must not attribute the absence to a Claude failure.

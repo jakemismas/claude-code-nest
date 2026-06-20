@@ -208,6 +208,43 @@ describe('archiveBodyStore.pruneArchivedBodies (pure retention over recorded cop
     const pruned = await pruneArchivedBodies(uri(STORAGE) as never, 7, NOW);
     assert.deepStrictEqual(pruned, []);
   });
+
+  // DRIFT GUARD (data-loss finding): a copy's recorded starred can be stale-false
+  // while the LIVE synced flag is true (a swallowed updateStarFlag write, a star
+  // applied where the copy never landed, or a cross-device star). Without the
+  // backstop the prune would delete that copy past the window. The backstop reads
+  // the live synced state and forces keep.
+  it('does NOT prune a past-window unstarred-on-disk copy that the live backstop protects', async () => {
+    await seedThree();
+    // old-unstarred's copy snapshot says starred:false, but the live store says the
+    // user starred it. The backstop must keep it.
+    const liveStarred = new Set<string>(['old-unstarred']);
+    const pruned = await pruneArchivedBodies(
+      uri(STORAGE) as never,
+      7,
+      NOW,
+      (sessionId) => liveStarred.has(sessionId),
+    );
+    assert.deepStrictEqual(pruned, [], 'the live-protected copy is kept despite a stale snapshot');
+    assert.ok(
+      !vscodeHarness.deletes.includes(STORAGE + '/archive/old-unstarred.json'),
+      'the starred-live copy was not deleted',
+    );
+  });
+
+  it('still prunes a past-window copy the live backstop does NOT protect', async () => {
+    await seedThree();
+    const pruned = await pruneArchivedBodies(uri(STORAGE) as never, 7, NOW, () => false);
+    assert.deepStrictEqual(pruned, ['old-unstarred'], 'an unprotected past-window copy still prunes');
+  });
+
+  it('fails SAFE (keeps the copy) when the live backstop throws', async () => {
+    await seedThree();
+    const pruned = await pruneArchivedBodies(uri(STORAGE) as never, 7, NOW, () => {
+      throw new Error('store read failed');
+    });
+    assert.deepStrictEqual(pruned, [], 'a throwing backstop keeps every otherwise-prunable copy');
+  });
 });
 
 // The GUARD test: the body target resolves under globalStorage, and the same guard
