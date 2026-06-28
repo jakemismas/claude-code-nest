@@ -55,11 +55,16 @@ function makeProvider(): { provider: { refresh(): void }; refreshCount: () => nu
 }
 
 // An in-memory archive-body IO double recording what the commands wrote/deleted.
+// transcriptPresent controls the read-only transcript-existence seam restore gates
+// its body-copy delete on; it defaults to true (the live transcript is present, the
+// historical behavior) and a test flips it false to model the copy-only row.
 interface BodyIoSpy {
   written: { sessionId: string; archivedAt: number; starred: boolean; bodies: ChatMessageBody[]; title: string }[];
   deleted: string[];
   starFlags: { sessionId: string; starred: boolean }[];
   writeResult: boolean;
+  transcriptPresent: boolean;
+  existenceChecks: string[];
 }
 
 function makeDeps(
@@ -68,7 +73,14 @@ function makeDeps(
   projectKey: string | undefined,
   bodyToRead: ChatMessageBody[] = [],
 ): { deps: CurationCommandDeps; io: BodyIoSpy } {
-  const io: BodyIoSpy = { written: [], deleted: [], starFlags: [], writeResult: true };
+  const io: BodyIoSpy = {
+    written: [],
+    deleted: [],
+    starFlags: [],
+    writeResult: true,
+    transcriptPresent: true,
+    existenceChecks: [],
+  };
   const deps: CurationCommandDeps = {
     store,
     provider,
@@ -81,6 +93,10 @@ function makeDeps(
     deleteBody: (sessionId) => {
       io.deleted.push(sessionId);
       return Promise.resolve();
+    },
+    transcriptExists: (filePath) => {
+      io.existenceChecks.push(filePath);
+      return io.transcriptPresent;
     },
     updateBodyStarFlag: (sessionId, starred) => {
       io.starFlags.push({ sessionId, starred });
@@ -177,6 +193,7 @@ describe('curationCommands.restoreChat', () => {
     assert.strictEqual(store.getProjectMeta(PK).chats.c1.archivedAt, NOW);
 
     const { deps, io } = makeDeps(store, provider, PK);
+    // The live transcript is present (default), so the redundant copy may be deleted.
     await restoreChat(deps, target('c1'));
     const chat = store.getProjectMeta(PK).chats.c1;
     assert.strictEqual(chat.userArchived, false, 'archive flag cleared');
@@ -184,6 +201,47 @@ describe('curationCommands.restoreChat', () => {
     assert.strictEqual(chat.starred, true, 'star survives a restore (independent)');
     assert.deepStrictEqual(io.deleted, ['c1'], 'the now-redundant body copy is deleted');
     assert.strictEqual(refreshCount(), 1);
+  });
+
+  // DATA-LOSS GUARD: restore is reachable on a copy-only archived row (a userArchived
+  // chat whose transcript Claude cleaned up out of band; curationTargetFrom yields an
+  // EMPTY filePath for it). The body copy is then the sole surviving form, so restore
+  // must NOT delete it. An empty filePath is treated as absent with NO filesystem
+  // touch.
+  it('a COPY-ONLY restore (empty filePath, transcript gone) KEEPS the body copy', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    store.setChatArchived(PK, 'gone', true);
+    await store.flush();
+
+    const { deps, io } = makeDeps(store, provider, PK);
+    io.transcriptPresent = false; // immaterial: empty filePath short-circuits the check
+    const copyOnlyTarget: CurationTarget = { sessionId: 'gone', filePath: '', title: 'gone' };
+    await restoreChat(deps, copyOnlyTarget);
+
+    const chat = store.getProjectMeta(PK).chats.gone;
+    assert.strictEqual(chat.userArchived, false, 'archive flag still cleared');
+    assert.deepStrictEqual(io.deleted, [], 'the SOLE surviving copy is NOT deleted');
+    assert.deepStrictEqual(io.existenceChecks, [], 'an empty filePath short-circuits with no fs touch');
+    assert.strictEqual(refreshCount(), 1);
+  });
+
+  // The transcript can vanish out of band between the scan and the restore click, so a
+  // present-looking row (non-empty filePath) must still re-check existence and KEEP
+  // the copy when the file is actually gone.
+  it('a row with a filePath whose transcript is GONE keeps the copy (existence re-checked)', async () => {
+    const store = makeStore();
+    const { provider } = makeProvider();
+    store.setChatArchived(PK, 'c1', true);
+    await store.flush();
+
+    const { deps, io } = makeDeps(store, provider, PK);
+    io.transcriptPresent = false;
+    await restoreChat(deps, target('c1'));
+
+    assert.deepStrictEqual(io.existenceChecks, ['/x/c1.jsonl'], 'existence was re-checked for a non-empty filePath');
+    assert.deepStrictEqual(io.deleted, [], 'copy kept because the transcript is actually gone');
+    assert.strictEqual(store.getProjectMeta(PK).chats.c1.userArchived, false);
   });
 });
 
