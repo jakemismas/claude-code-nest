@@ -65,6 +65,12 @@ export interface CurationCommandDeps {
   // Delete the Nest-owned body copy (on restore). Wired to
   // archiveBodyStore.deleteArchivedBody. Best-effort.
   deleteBody: (sessionId: string) => Promise<void>;
+  // Report whether the underlying Claude transcript still exists on disk. READ-ONLY
+  // (a stat/exists check, never a write/rename/delete under ~/.claude/projects).
+  // Wired to a filesystem existence check in extension.ts; a test supplies a stub.
+  // Restore consults this to decide whether the now-redundant body copy may be
+  // deleted: deleting it is only safe when the original transcript survives.
+  transcriptExists: (filePath: string) => boolean;
   // Update the starred flag recorded on an existing body copy so a later prune
   // reads the right exemption. Wired to archiveBodyStore.updateStarFlag.
   updateBodyStarFlag: (sessionId: string, starred: boolean) => Promise<void>;
@@ -155,8 +161,19 @@ export async function archiveChat(deps: CurationCommandDeps, target: CurationTar
 
 // Restore an archived chat: clear the SYNCED userArchived flag
 // (store.setChatArchived(false), which also clears archivedAt per the coupling),
-// independent of starred (the star survives a restore). Delete the now-redundant
-// Nest-owned body copy. Refreshes once after the flush.
+// independent of starred (the star survives a restore).
+//
+// BODY-COPY GUARD (data-loss): the Nest-owned body copy is only "now-redundant" when
+// the original transcript still exists; deleting it is then safe because Claude's
+// live transcript carries the same content. But restore is reachable on a "copy
+// only" archived row (archiveProvider: a userArchived chat whose transcript Claude
+// already cleaned up out of band; curationTargetFrom yields an empty filePath for
+// it). On such a row the body copy is the SOLE surviving form of the conversation,
+// so deleting it would make the chat permanently unrecoverable. Gate the delete on
+// transcript presence: keep the copy whenever the transcript is absent. The check is
+// read-only (an existence test under ~/.claude/projects, never a write/rename/delete),
+// so the read-only invariant holds. An empty filePath (cleaned-up row) is treated as
+// absent without a filesystem touch.
 export async function restoreChat(deps: CurationCommandDeps, target: CurationTarget): Promise<void> {
   const projectKey = deps.getProjectKey();
   if (projectKey === undefined) {
@@ -167,6 +184,11 @@ export async function restoreChat(deps: CurationCommandDeps, target: CurationTar
   // untouched.
   deps.store.setChatArchived(projectKey, target.sessionId, false);
   await deps.store.flush();
-  await deps.deleteBody(target.sessionId);
+  // Only delete the redundant copy when the live transcript survives. When the
+  // transcript is gone (copy-only row), KEEP the copy so the chat stays readable.
+  const present = target.filePath.length > 0 && deps.transcriptExists(target.filePath);
+  if (present) {
+    await deps.deleteBody(target.sessionId);
+  }
   deps.provider.refresh();
 }

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { FlatProvider, FlatChatItem, OPEN_CHAT_COMMAND } from './views/flatProvider';
 import {
   FoldersProvider,
@@ -759,6 +760,17 @@ export function activate(context: vscode.ExtensionContext): void {
     readBody: (filePath: string) => readTranscriptBodies(filePath),
     writeBody: (envelope) => writeArchivedBody(context.globalStorageUri, envelope),
     deleteBody: (sessionId: string) => deleteArchivedBody(context.globalStorageUri, sessionId),
+    // READ-ONLY existence check (fs.existsSync is not a write verb, so it clears the
+    // read-only lint bank). Restore uses this to gate the body-copy delete: on a
+    // copy-only archived row whose transcript Claude already cleaned up, the copy is
+    // the sole surviving form, so it must be kept.
+    transcriptExists: (filePath: string) => {
+      try {
+        return fs.existsSync(filePath);
+      } catch {
+        return false;
+      }
+    },
     updateBodyStarFlag: (sessionId: string, starred: boolean) =>
       updateStarFlag(context.globalStorageUri, sessionId, starred),
     now: () => Date.now(),
