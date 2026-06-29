@@ -136,6 +136,23 @@ export interface LocalProjectMeta {
   chats: { [chatId: string]: LocalChatState };
 }
 
+// The only color shape this schema accepts: a 6-digit hex triplet (#rrggbb),
+// the exact form the native color picker emits. A folder color travels in a
+// SYNCED, importable library document, so it is attacker-influenceable; it later
+// reaches a CSS sink in the webview (background: var(--chip-color)) where a value
+// like url(https://evil/x) would become an exfiltration beacon. The strict
+// pattern admits nothing but a hex color, so no CSS token can ride through. A
+// 3-digit (#fff) or named (red) value is intentionally rejected: the picker never
+// emits them, so dropping them costs nothing and keeps the rule simple. Shared
+// with the webview host's coerce() so both boundaries enforce one rule.
+export const COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+
+// True when a value is a string in the strict #rrggbb color shape. Used at the
+// normalize boundary (and the webview host) to drop any other color verbatim.
+export function isValidColor(value: unknown): value is string {
+  return typeof value === 'string' && COLOR_PATTERN.test(value);
+}
+
 // The allowed shape of a record id (folder id, tag id, chat id): one to 64
 // characters from the URL-safe alphabet. Note this pattern ALONE still admits the
 // bare Object.prototype member names (constructor, prototype, toString, valueOf,
@@ -331,8 +348,11 @@ function normalizeFolder(id: string, value: unknown): Folder | null {
     order: typeof value.order === 'number' ? value.order : 0,
   };
   // color is an optional curation scalar: carry it through when present so it is
-  // not stripped on every read/migrate, default-absent otherwise.
-  if (typeof value.color === 'string') {
+  // not stripped on every read/migrate, default-absent otherwise. Validate it
+  // against the strict #rrggbb shape (isValidColor); a value that is not a hex
+  // color is DROPPED here so an untrusted imported library document cannot smuggle
+  // a CSS token (e.g. url(...)) through to the webview's --chip-color sink.
+  if (isValidColor(value.color)) {
     folder.color = value.color;
   }
   return folder;

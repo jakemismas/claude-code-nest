@@ -206,7 +206,7 @@ describe('schema curation scalars (Slice 3): normalize round-trip and additive m
     const doc = {
       schemaVersion: SCHEMA_VERSION,
       folders: {
-        colored: { id: 'colored', name: 'C', parentId: null, order: 0, color: '#abc' },
+        colored: { id: 'colored', name: 'C', parentId: null, order: 0, color: '#aabbcc' },
         plain: { id: 'plain', name: 'P', parentId: null, order: 1 },
       },
       tags: {},
@@ -215,7 +215,7 @@ describe('schema curation scalars (Slice 3): normalize round-trip and additive m
       deviceId: 'd',
     };
     const meta = migrateProjectMeta(doc, DEVICE, NOW);
-    assert.strictEqual(meta.folders.colored.color, '#abc');
+    assert.strictEqual(meta.folders.colored.color, '#aabbcc');
     // Absent color is omitted, not defaulted to a value.
     assert.strictEqual('color' in meta.folders.plain, false);
   });
@@ -231,6 +231,35 @@ describe('schema curation scalars (Slice 3): normalize round-trip and additive m
     };
     const meta = migrateProjectMeta(doc, DEVICE, NOW);
     assert.strictEqual('color' in meta.folders.f, false);
+  });
+
+  it('keeps a strict #rrggbb Folder.color and drops any non-matching string', () => {
+    // A folder color travels in a synced, importable library document and later
+    // reaches a CSS sink (background: var(--chip-color)) in the webview. Only the
+    // exact #rrggbb form the native picker emits may survive normalize; anything
+    // else (a CSS url() exfil token, a named color, a 3-digit hex, a bad hex) is
+    // dropped at the boundary so no CSS token can ride through.
+    function colorOf(value: unknown): string | undefined {
+      const doc = {
+        schemaVersion: SCHEMA_VERSION,
+        folders: { f: { id: 'f', name: 'F', parentId: null, order: 0, color: value } },
+        tags: {},
+        chats: {},
+        updatedAt: 1,
+        deviceId: 'd',
+      };
+      return migrateProjectMeta(doc, DEVICE, NOW).folders.f.color;
+    }
+    // A valid 6-digit hex color is kept verbatim.
+    assert.strictEqual(colorOf('#aabbcc'), '#aabbcc');
+    // The CSS exfiltration payload from the finding is dropped (color omitted).
+    assert.strictEqual(colorOf('url(https://evil/x)'), undefined);
+    // A named color is dropped (the picker never emits one).
+    assert.strictEqual(colorOf('red'), undefined);
+    // A 3-digit hex is intentionally rejected by the strict pattern.
+    assert.strictEqual(colorOf('#fff'), undefined);
+    // A malformed hex (non-hex digits) is dropped.
+    assert.strictEqual(colorOf('#GGGGGG'), undefined);
   });
 
   it('carries chat starred/userArchived/archivedAt through normalize when present', () => {
