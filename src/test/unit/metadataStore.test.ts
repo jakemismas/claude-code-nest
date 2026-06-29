@@ -65,7 +65,7 @@ describe('MetadataStore CRUD (folders, tags, chats, links)', () => {
   it('upserts and deletes a tag, pruning it from chats', async () => {
     const mem = new FakeMemento();
     const store = makeStore(mem);
-    store.upsertTag(PK, { id: 't1', label: 'urgent', color: '#f00' });
+    store.upsertTag(PK, { id: 't1', label: 'urgent', color: '#aabbcc' });
     store.addChatTag(PK, 'chatX', 't1');
     await store.flush();
     assert.deepStrictEqual(store.getProjectMeta(PK).chats.chatX.tags, ['t1']);

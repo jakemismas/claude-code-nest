@@ -214,7 +214,7 @@ describe('orgPanelModel tag chips and row tags', () => {
     const records = [record({ sessionId: 'a' }), record({ sessionId: 'b' })];
     const m = meta({
       tags: {
-        t1: { id: 't1', label: 'urgent', color: '#f00' },
+        t1: { id: 't1', label: 'urgent', color: '#aabbcc' },
         t2: { id: 't2', label: 'idea' },
         t3: { id: 't3', label: 'unused' },
       },
@@ -229,7 +229,7 @@ describe('orgPanelModel tag chips and row tags', () => {
     const t2 = byId.get('t2');
     assert.ok(t1 && t2, 'chips for t1 and t2 exist');
     assert.strictEqual(t1.count, 2);
-    assert.strictEqual(t1.color, '#f00');
+    assert.strictEqual(t1.color, '#aabbcc');
     assert.strictEqual(t2.count, 1);
     assert.ok(!byId.has('t3'), 'a tag with zero carrying chats is omitted');
   });

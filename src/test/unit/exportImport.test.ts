@@ -64,14 +64,14 @@ describe('exportImport mergeProjectMeta: tags union by id', () => {
     });
     const file = proj({
       tags: {
-        t: { id: 't', label: 'FILE', color: '#fff' },
+        t: { id: 't', label: 'FILE', color: '#aabbcc' },
         u: { id: 'u', label: 'NEW' },
       },
       updatedAt: 20,
     });
     const r = mergeProjectMeta('pk', live, file);
     assert.strictEqual(r.merged.tags.t.label, 'FILE');
-    assert.strictEqual(r.merged.tags.t.color, '#fff');
+    assert.strictEqual(r.merged.tags.t.color, '#aabbcc');
     assert.strictEqual(r.merged.tags.u.label, 'NEW');
   });
 });

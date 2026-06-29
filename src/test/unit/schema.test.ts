@@ -94,7 +94,7 @@ describe('schema migrateProjectMeta (defensive, total)', () => {
         notObject: 5,
       },
       tags: {
-        good: { id: 'good', label: 'keep', color: '#fff', junk: true },
+        good: { id: 'good', label: 'keep', color: '#aabbcc', junk: true },
         labelless: { id: 'labelless' },
       },
       chats: {
@@ -124,7 +124,7 @@ describe('schema migrateProjectMeta (defensive, total)', () => {
     // Tag without a label dropped.
     assert.ok('good' in meta.tags);
     assert.ok(!('labelless' in meta.tags));
-    assert.strictEqual(meta.tags.good.color, '#fff');
+    assert.strictEqual(meta.tags.good.color, '#aabbcc');
     // Non-string tag ids filtered out of the chat's tag array.
     assert.deepStrictEqual(meta.chats.good.tags, ['good', 'x']);
     // Malformed links dropped; an unknown kind coerces to 'related'.
@@ -249,6 +249,37 @@ describe('schema curation scalars (Slice 3): normalize round-trip and additive m
         deviceId: 'd',
       };
       return migrateProjectMeta(doc, DEVICE, NOW).folders.f.color;
+    }
+    // A valid 6-digit hex color is kept verbatim.
+    assert.strictEqual(colorOf('#aabbcc'), '#aabbcc');
+    // The CSS exfiltration payload from the finding is dropped (color omitted).
+    assert.strictEqual(colorOf('url(https://evil/x)'), undefined);
+    // A named color is dropped (the picker never emits one).
+    assert.strictEqual(colorOf('red'), undefined);
+    // A 3-digit hex is intentionally rejected by the strict pattern.
+    assert.strictEqual(colorOf('#fff'), undefined);
+    // A malformed hex (non-hex digits) is dropped.
+    assert.strictEqual(colorOf('#GGGGGG'), undefined);
+  });
+
+  it('keeps a strict #rrggbb Tag.color and drops any non-matching string', () => {
+    // A tag color travels the SAME attacker-influenceable synced/import path as a
+    // folder color and reaches the SAME --chip-color CSS sink (buildTagChips ->
+    // media/orgPanel.js). normalizeTag is the sole boundary (tag color has no
+    // postMessage setter), so it must enforce the strict #rrggbb shape exactly as
+    // normalizeFolder does: only the hex form the native picker emits survives;
+    // anything else (a CSS url() exfil token, a named color, a 3-digit hex, a bad
+    // hex) is dropped at the boundary so no CSS token can ride through.
+    function colorOf(value: unknown): string | undefined {
+      const doc = {
+        schemaVersion: SCHEMA_VERSION,
+        folders: {},
+        tags: { t: { id: 't', label: 'T', color: value } },
+        chats: {},
+        updatedAt: 1,
+        deviceId: 'd',
+      };
+      return migrateProjectMeta(doc, DEVICE, NOW).tags.t.color;
     }
     // A valid 6-digit hex color is kept verbatim.
     assert.strictEqual(colorOf('#aabbcc'), '#aabbcc');
