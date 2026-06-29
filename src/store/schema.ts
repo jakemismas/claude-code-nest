@@ -397,7 +397,15 @@ function normalizeTag(id: string, value: unknown): Tag | null {
     return null;
   }
   const tag: Tag = { id, label };
-  if (typeof value.color === 'string') {
+  // color is an optional curation scalar: carry it through when present so it is
+  // not stripped on every read/migrate, default-absent otherwise. Validate it
+  // against the strict #rrggbb shape (isValidColor); a value that is not a hex
+  // color is DROPPED here so an untrusted imported library document cannot smuggle
+  // a CSS token (e.g. url(...)) through to the webview's --chip-color sink. A tag
+  // color reaches the SAME --chip-color CSS sink as a folder color (buildTagChips
+  // -> media/orgPanel.js), and tag color has no postMessage setter, so this is the
+  // sole boundary; it mirrors normalizeFolder exactly.
+  if (isValidColor(value.color)) {
     tag.color = value.color;
   }
   return tag;

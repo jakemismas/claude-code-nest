@@ -169,7 +169,7 @@ describe('schemaMigrate buildEnvelope (round-trip foundation)', () => {
     const original = {
       'c--proj': projectWith({
         folders: { f1: { id: 'f1', name: 'Inbox', parentId: null, order: 0 } },
-        tags: { t1: { id: 't1', label: 'urgent', color: '#f00' } },
+        tags: { t1: { id: 't1', label: 'urgent', color: '#aabbcc' } },
         chats: {
           c1: {
             folderId: 'f1',
@@ -193,7 +193,7 @@ describe('schemaMigrate buildEnvelope (round-trip foundation)', () => {
     const norm = migrateEnvelope(v.envelope, DEVICE, NOW);
     const proj = norm.projects['c--proj'];
     assert.strictEqual(proj.folders.f1.name, 'Inbox');
-    assert.strictEqual(proj.tags.t1.color, '#f00');
+    assert.strictEqual(proj.tags.t1.color, '#aabbcc');
     assert.deepStrictEqual(proj.chats.c1.tags, ['t1']);
     assert.deepStrictEqual(proj.chats.c1.links, [
       { targetChatId: 'c2', kind: 'parent' },
