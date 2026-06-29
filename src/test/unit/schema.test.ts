@@ -318,3 +318,86 @@ describe('schema curation scalars (Slice 3): normalize round-trip and additive m
     assert.strictEqual('starred' in meta.chats.c, false);
   });
 });
+
+describe('schema normalizeChat record-id validation (data-integrity hardening)', () => {
+  // An imported library document is untrusted input. The id alphabet admits the
+  // bare Object.prototype member names (constructor, prototype, toString,
+  // valueOf, hasOwnProperty), which would resolve to inherited values at a
+  // downstream bare-object lookup and produce phantom folder/tag labels. The
+  // normalize boundary must reject a folderId or tag id that is not in the safe
+  // record-id shape, mirroring how it already drops other malformed fields.
+  function chatDoc(chat: Record<string, unknown>) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {},
+      tags: {},
+      chats: { c: chat },
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+  }
+
+  it('drops a folderId of "constructor" (prototype name) to null', () => {
+    const meta = migrateProjectMeta(
+      chatDoc({ folderId: 'constructor', tags: [], links: [], updatedAt: 10, deviceId: 'd' }),
+      DEVICE,
+      NOW,
+    );
+    assert.strictEqual(meta.chats.c.folderId, null);
+  });
+
+  it('drops a prototype-name tag id but keeps a valid one', () => {
+    const meta = migrateProjectMeta(
+      chatDoc({
+        folderId: null,
+        tags: ['toString', 'realtag'],
+        links: [],
+        updatedAt: 10,
+        deviceId: 'd',
+      }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(meta.chats.c.tags, ['realtag']);
+  });
+
+  it('keeps a well-formed folderId unchanged', () => {
+    const meta = migrateProjectMeta(
+      chatDoc({ folderId: 'folder_1', tags: [], links: [], updatedAt: 10, deviceId: 'd' }),
+      DEVICE,
+      NOW,
+    );
+    assert.strictEqual(meta.chats.c.folderId, 'folder_1');
+  });
+
+  it('drops a malformed folderId (too long / illegal chars) to null', () => {
+    const tooLong = 'a'.repeat(65);
+    const longMeta = migrateProjectMeta(
+      chatDoc({ folderId: tooLong, tags: [], links: [], updatedAt: 10, deviceId: 'd' }),
+      DEVICE,
+      NOW,
+    );
+    assert.strictEqual(longMeta.chats.c.folderId, null);
+    const illegalMeta = migrateProjectMeta(
+      chatDoc({ folderId: 'has space', tags: [], links: [], updatedAt: 10, deviceId: 'd' }),
+      DEVICE,
+      NOW,
+    );
+    assert.strictEqual(illegalMeta.chats.c.folderId, null);
+  });
+
+  it('filters every prototype-name and malformed tag id, keeping only safe ones', () => {
+    const meta = migrateProjectMeta(
+      chatDoc({
+        folderId: null,
+        tags: ['constructor', 'prototype', 'valueOf', 'hasOwnProperty', '', 'good-1', 'good_2'],
+        links: [],
+        updatedAt: 10,
+        deviceId: 'd',
+      }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(meta.chats.c.tags, ['good-1', 'good_2']);
+  });
+});

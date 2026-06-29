@@ -136,6 +136,45 @@ export interface LocalProjectMeta {
   chats: { [chatId: string]: LocalChatState };
 }
 
+// The allowed shape of a record id (folder id, tag id, chat id): one to 64
+// characters from the URL-safe alphabet. Note this pattern ALONE still admits the
+// bare Object.prototype member names (constructor, prototype, toString, valueOf,
+// hasOwnProperty); isSafeRecordId rejects those separately because they are the
+// actual hazard at the downstream bare-object resolve sites.
+const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+// Object.prototype member names that pass ID_PATTERN but resolve to an INHERITED
+// value at a bare-object index (e.g. meta.folders['constructor'] returns the
+// Object constructor, not undefined). The resolve sites (rollup/tokenRollup.ts,
+// views/orgPanelModel.ts, views/chatMeta.ts) index the folders/tags maps with a
+// stored id and treat a non-undefined hit as a real record, so one of these ids
+// surviving normalize produces a phantom "Object" folder/tag label and mis-files
+// the chat. A minted id is a UUID/prefixed-hex (idFactory.ts) and is never one of
+// these, so rejecting them at the normalize boundary drops only untrusted garbage.
+const PROTOTYPE_RECORD_IDS = new Set<string>([
+  'constructor',
+  'prototype',
+  '__proto__',
+  'toString',
+  'valueOf',
+  'hasOwnProperty',
+  'isPrototypeOf',
+  'propertyIsEnumerable',
+  'toLocaleString',
+]);
+
+// True when a value is a string in the allowed record-id shape AND is not an
+// Object.prototype member name. Used at the normalize boundary to drop a folder
+// reference or tag id an untrusted imported document carries in a malformed or
+// prototype-confusing form.
+function isSafeRecordId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    ID_PATTERN.test(value) &&
+    !PROTOTYPE_RECORD_IDS.has(value)
+  );
+}
+
 // A fresh, empty synced document for a project. updatedAt + deviceId are stamped
 // by the caller at write time; an empty document records the supplied stamp.
 export function emptyProjectMeta(deviceId: string, now: number): ProjectMeta {
@@ -322,14 +361,20 @@ function normalizeChat(
   if (!isObject(value)) {
     return null;
   }
+  // Tag ids are references into the tags map; keep only the ones in the safe
+  // record-id shape so a malformed or prototype-name entry from an untrusted
+  // imported document cannot ride through and confuse a downstream lookup.
   const tags = Array.isArray(value.tags)
-    ? value.tags.filter((t): t is string => typeof t === 'string')
+    ? value.tags.filter((t): t is string => isSafeRecordId(t))
     : [];
   const links = Array.isArray(value.links)
     ? value.links.map(normalizeLink).filter((l): l is Link => l !== null)
     : [];
   const chat: ChatMeta = {
-    folderId: typeof value.folderId === 'string' ? value.folderId : null,
+    // folderId is a reference into the folders map; an unfiled chat is null.
+    // Validate the format the same way: drop a malformed or prototype-name
+    // folderId to null rather than carry it into a downstream folder lookup.
+    folderId: isSafeRecordId(value.folderId) ? value.folderId : null,
     tags,
     links,
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : now,
