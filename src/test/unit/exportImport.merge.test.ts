@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { Folder, ProjectMeta, emptyProjectMeta } from '../../store/schema';
+import { ChatMeta, Folder, ProjectMeta, emptyProjectMeta } from '../../store/schema';
 import { mergeProjectMeta } from '../../store/exportImport';
 
 // Pure-logic unit tests for the Slice 3 per-scalar LWW extension of
@@ -358,5 +358,74 @@ describe('exportImport mergeProjectMeta: Folder.color LWW (document-level)', () 
     const file = proj({ folders: coloredFolder('#fff'), updatedAt: 20 });
     const r = mergeProjectMeta('pk', live, file);
     assert.strictEqual(r.merged.folders.a.color, '#fff');
+  });
+});
+
+describe('exportImport mergeProjectMeta: drops unsafe file-side MAP KEYS (path-traversal + prototype)', () => {
+  // The merge re-keys merged.folders/tags/chats with the FILE-side map key
+  // verbatim. mergeProjectMeta is public and called directly on import/reconcile,
+  // so it must gate every file key the same way the normalize boundary does: an
+  // untrusted '../../x' or prototype-name key must never re-enter the merged
+  // document (a chat key reaches the archive body-file path sink).
+  function chatRec(updatedAt = 20): ChatMeta {
+    return { folderId: null, tags: [], links: [], updatedAt, deviceId: 'd' };
+  }
+
+  it('drops a file chat whose KEY is a path-traversal string, keeping a valid sibling', () => {
+    const uuid = '0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+    const live = proj({ updatedAt: 10 });
+    const file = proj({
+      updatedAt: 20,
+      chats: {
+        '../../../../Users/victim/evil': chatRec(),
+        [uuid]: chatRec(),
+      },
+    });
+    const merged = mergeProjectMeta('pk', live, file).merged;
+    assert.deepStrictEqual(Object.keys(merged.chats), [uuid], 'only the UUID-keyed chat merges in');
+  });
+
+  it('drops file folder/tag keys that are prototype names, never adding a phantom record', () => {
+    const live = proj({ updatedAt: 10 });
+    const file = proj({
+      updatedAt: 20,
+      folders: { constructor: { id: 'constructor', name: 'Phantom', parentId: null, order: 0 } },
+      tags: { toString: { id: 'toString', label: 'Phantom' } },
+    });
+    const merged = mergeProjectMeta('pk', live, file).merged;
+    assert.deepStrictEqual(Object.keys(merged.folders), []);
+    assert.deepStrictEqual(Object.keys(merged.tags), []);
+  });
+
+  it('an import whose ONLY entries are unsafe-keyed merges as a no-op (changed=false)', () => {
+    const live = proj({ updatedAt: 10 });
+    // Build the unsafe-keyed map with explicit OWN keys. A literal `__proto__:`
+    // would set the prototype rather than an own key, so define it as an own key
+    // to model a genuine attacker-authored map.
+    const evilChats: { [k: string]: ChatMeta } = { '../escape': chatRec() };
+    Object.defineProperty(evilChats, 'constructor', {
+      value: chatRec(),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    const file = proj({ updatedAt: 20, chats: evilChats });
+    const result = mergeProjectMeta('pk', live, file);
+    assert.deepStrictEqual(Object.keys(result.merged.chats), []);
+    assert.strictEqual(result.changed, false, 'dropping all unsafe keys changes nothing');
+  });
+
+  it('PRESERVES a valid file-side UUID/minted key on merge (no real data lost)', () => {
+    const uuid = '0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+    const folderId = 'f-18f0a-1a2b3c4d5e6f';
+    const live = proj({ updatedAt: 10 });
+    const file = proj({
+      updatedAt: 20,
+      folders: { [folderId]: { id: folderId, name: 'Inbox', parentId: null, order: 0 } },
+      chats: { [uuid]: chatRec() },
+    });
+    const merged = mergeProjectMeta('pk', live, file).merged;
+    assert.deepStrictEqual(Object.keys(merged.folders), [folderId]);
+    assert.deepStrictEqual(Object.keys(merged.chats), [uuid]);
   });
 });

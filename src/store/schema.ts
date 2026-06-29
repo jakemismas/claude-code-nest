@@ -183,8 +183,13 @@ const PROTOTYPE_RECORD_IDS = new Set<string>([
 // True when a value is a string in the allowed record-id shape AND is not an
 // Object.prototype member name. Used at the normalize boundary to drop a folder
 // reference or tag id an untrusted imported document carries in a malformed or
-// prototype-confusing form.
-function isSafeRecordId(value: unknown): value is string {
+// prototype-confusing form. Exported because the SAME rule must gate the MAP KEYS
+// (not just the references) here, the merge-side keys in exportImport.ts, and the
+// archive body-file sessionId in archiveBodyStore.ts: an untrusted map key like
+// '../../../x' otherwise reaches a filesystem path sink (Uri.joinPath collapses
+// '..' and escapes globalStorage), and a prototype-name key survives as a phantom
+// own-record. Confining every boundary to this one predicate is the primary fix.
+export function isSafeRecordId(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     ID_PATTERN.test(value) &&
@@ -293,9 +298,28 @@ function normalizeProjectMeta(
   deviceId: string,
   now: number,
 ): ProjectMeta {
-  const folders: { [id: string]: Folder } = {};
+  // Build the three id-keyed maps with a NULL prototype (defense in depth): a bare
+  // {} inherits Object.prototype, so an attacker map KEY like 'constructor' or
+  // '__proto__' would resolve to an inherited value at a downstream bare-object
+  // index even if it never became an own key. A null-proto map has no inherited
+  // members, so a non-own index is always undefined. The key validation below is
+  // the PRIMARY fix; this prototype hygiene is the backstop. The maps still
+  // serialize as plain JSON objects on a synced/exported write.
+  //
+  // EVERY map KEY is now gated by isSafeRecordId, not just the references inside a
+  // record. The map key is the id an attacker-authored import or a foreign-device
+  // synced document re-keys a record under, and a chat's key flows verbatim to the
+  // archive body-file path sink (archiveBodyStore.bodyFileUri). A key like
+  // '../../../../Users/victim/evil' or a prototype name is DROPPED here (the whole
+  // entry), so it can never reach that sink or produce a phantom record. A
+  // legitimate id (a UUID session id, a minted folder/tag id) passes unchanged, so
+  // no real record is lost.
+  const folders: { [id: string]: Folder } = Object.create(null) as { [id: string]: Folder };
   if (isObject(raw.folders)) {
     for (const [id, value] of Object.entries(raw.folders)) {
+      if (!isSafeRecordId(id)) {
+        continue;
+      }
       const folder = normalizeFolder(id, value);
       if (folder !== null) {
         folders[id] = folder;
@@ -303,9 +327,12 @@ function normalizeProjectMeta(
     }
   }
 
-  const tags: { [id: string]: Tag } = {};
+  const tags: { [id: string]: Tag } = Object.create(null) as { [id: string]: Tag };
   if (isObject(raw.tags)) {
     for (const [id, value] of Object.entries(raw.tags)) {
+      if (!isSafeRecordId(id)) {
+        continue;
+      }
       const tag = normalizeTag(id, value);
       if (tag !== null) {
         tags[id] = tag;
@@ -313,9 +340,12 @@ function normalizeProjectMeta(
     }
   }
 
-  const chats: { [id: string]: ChatMeta } = {};
+  const chats: { [id: string]: ChatMeta } = Object.create(null) as { [id: string]: ChatMeta };
   if (isObject(raw.chats)) {
     for (const [id, value] of Object.entries(raw.chats)) {
+      if (!isSafeRecordId(id)) {
+        continue;
+      }
       const chat = normalizeChat(value, deviceId, now);
       if (chat !== null) {
         chats[id] = chat;
