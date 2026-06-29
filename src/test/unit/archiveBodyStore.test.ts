@@ -20,6 +20,8 @@ import {
   claudeProjectsRoot,
 } from '../../store/exportPathGuard';
 import { MS_PER_DAY } from '../../store/archiveRetention';
+import { MetadataStore } from '../../store/metadataStore';
+import { FakeMemento } from './fakeMemento';
 
 // Headless tests for the vscode-THIN Nest-owned archived-body store
 // (src/store/archiveBodyStore.ts). It persists/reads/prunes ONLY through exportIO
@@ -244,6 +246,74 @@ describe('archiveBodyStore.pruneArchivedBodies (pure retention over recorded cop
       throw new Error('store read failed');
     });
     assert.deepStrictEqual(pruned, [], 'a throwing backstop keeps every otherwise-prunable copy');
+  });
+
+  // DATA-LOSS GUARD ("archive means keep"): the prod backstop (extension.ts
+  // isArchivedCopyLiveProtected) force-keeps ANY chat that is still userArchived,
+  // regardless of starred. The hole this closes: archivedAt is a synced scalar under
+  // per-record LWW, so a foreign device can win an OLDER archivedAt that drives a
+  // copy's recorded snapshot past the keep-window even though THIS user still wants the
+  // chat archived; before the fix the backstop only force-kept when ALSO starred, so an
+  // UNstarred-but-archived chat's sole surviving copy could be pruned. This test drives
+  // the prune through a backstop built from a real MetadataStore, mirroring the prod
+  // predicate exactly, and asserts an unstarred-but-archived chat is kept.
+  describe('live backstop force-keeps any userArchived chat, regardless of starred', () => {
+    const DEVICE = 'dev-prune-backstop';
+    const PK = 'c--Users-Tester-prune-backstop';
+
+    function makeStore(): MetadataStore {
+      return new MetadataStore(new FakeMemento(), { deviceId: DEVICE, debounceMs: 0, now: () => NOW });
+    }
+
+    // The production backstop predicate, lifted from extension.ts: force-keep when the
+    // live synced ChatMeta is still userArchived (no longer gated on starred).
+    function liveProtectedFrom(store: MetadataStore): (sessionId: string) => boolean {
+      return (sessionId) => store.getProjectMeta(PK).chats[sessionId]?.userArchived === true;
+    }
+
+    it('does NOT prune a past-window UNSTARRED copy when the live chat is still userArchived', async () => {
+      await seedThree();
+      const store = makeStore();
+      // old-unstarred's on-disk snapshot is unstarred and past the 7d window, AND the
+      // live store records it as userArchived but NOT starred. Pre-fix this was pruned
+      // (backstop required starred too); post-fix the archive flag alone protects it.
+      store.setChatArchived(PK, 'old-unstarred', true);
+      await store.flush();
+      assert.strictEqual(store.getProjectMeta(PK).chats['old-unstarred'].starred, undefined);
+
+      const pruned = await pruneArchivedBodies(uri(STORAGE) as never, 7, NOW, liveProtectedFrom(store));
+      assert.deepStrictEqual(pruned, [], 'an unstarred-but-archived chat is force-kept');
+      assert.ok(
+        !vscodeHarness.deletes.includes(STORAGE + '/archive/old-unstarred.json'),
+        'the only surviving copy of the unstarred archived chat was not deleted',
+      );
+    });
+
+    it('also keeps a past-window STARRED archived chat (existing starred-kept behavior holds)', async () => {
+      await seedThree();
+      const store = makeStore();
+      // old-starred is archived and starred in the live store; it must stay kept.
+      store.setChatStarred(PK, 'old-starred', true);
+      store.setChatArchived(PK, 'old-starred', true);
+      await store.flush();
+
+      const pruned = await pruneArchivedBodies(uri(STORAGE) as never, 7, NOW, liveProtectedFrom(store));
+      assert.ok(!pruned.includes('old-starred'), 'the starred archived chat is still kept');
+      assert.ok(!vscodeHarness.deletes.includes(STORAGE + '/archive/old-starred.json'));
+    });
+
+    it('still prunes a past-window copy whose live chat is no longer userArchived', async () => {
+      await seedThree();
+      const store = makeStore();
+      // old-unstarred was restored in the live store (userArchived cleared), so the
+      // backstop no longer protects it and the lapsed copy is reclaimable.
+      store.setChatArchived(PK, 'old-unstarred', true);
+      store.setChatArchived(PK, 'old-unstarred', false);
+      await store.flush();
+
+      const pruned = await pruneArchivedBodies(uri(STORAGE) as never, 7, NOW, liveProtectedFrom(store));
+      assert.deepStrictEqual(pruned, ['old-unstarred'], 'a no-longer-archived lapsed copy still prunes');
+    });
   });
 });
 
