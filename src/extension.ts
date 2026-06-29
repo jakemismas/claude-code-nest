@@ -802,17 +802,18 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // The live-store backstop for the prune. A body copy carries its OWN snapshot of
-  // starred, kept current only best-effort (updateStarFlag swallows failures, a star
-  // applied where the copy never landed, or a star synced from another device that
-  // never touched this install's copy can all leave the snapshot stale-false while
-  // the live synced flag is true). So before deleting a copy whose snapshot says
-  // prune, re-check the LIVE synced state: if the chat is still userArchived AND
-  // starred, force keep. Starring is the user's explicit "do not lose this" signal,
-  // and the copy is the chat's only durable form after Claude's cleanup, so a
-  // stale-snapshot star must never let the prune delete it. Reads the synced meta
-  // (no write, so the sync surface is unchanged). Resolves the project key on demand;
-  // when no project is resolved, nothing is protected (the prune then trusts the copy
-  // snapshot alone, as before).
+  // {archivedAt, starred}, kept current only best-effort, and archivedAt is a synced
+  // scalar arbitrated by per-record LWW: a foreign device can win an OLDER archivedAt
+  // that drives the copy's recorded snapshot past the keep-window even though THIS
+  // user still wants the chat archived. So before deleting a copy whose snapshot says
+  // prune, re-check the LIVE synced state: if the chat is still userArchived, force
+  // keep, regardless of starred. Archive itself is the user's "keep this" signal (a
+  // star is a stronger emphasis, not the only thing worth keeping), and after Claude's
+  // cleanup the copy is the chat's only durable form, so an unstarred-but-archived
+  // chat must never be pruned out from under a foreign-LWW-adopted older archivedAt.
+  // Reads the synced meta (no write, so the sync surface is unchanged). Resolves the
+  // project key on demand; when no project is resolved, nothing is protected (the
+  // prune then trusts the copy snapshot alone, as before).
   const isArchivedCopyLiveProtected = (sessionId: string): boolean => {
     const projectKey = foldersProvider.resolveProjectKey();
     if (projectKey === undefined) {
@@ -822,7 +823,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (chat === undefined) {
       return false;
     }
-    return chat.userArchived === true && chat.starred === true;
+    return chat.userArchived === true;
   };
 
   // Prune lapsed body copies on activation (best-effort, fire-and-forget): a copy
