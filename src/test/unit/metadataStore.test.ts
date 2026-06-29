@@ -742,9 +742,12 @@ describe('MetadataStore curation scalar setters (Slice 3: star, archive, folder 
     const mem = new FakeMemento();
     const store = makeStore(mem);
     store.upsertFolder(PK, { id: 'f1', name: 'F', parentId: null, order: 0 });
-    store.setFolderColor(PK, 'f1', '#abc');
+    // Use a strict #rrggbb color: it must survive the flush + re-read round trip
+    // (the read path re-normalizes through migrateProjectMeta, which drops any
+    // non-#rrggbb color).
+    store.setFolderColor(PK, 'f1', '#aabbcc');
     await store.flush();
-    assert.strictEqual(store.getProjectMeta(PK).folders.f1.color, '#abc');
+    assert.strictEqual(store.getProjectMeta(PK).folders.f1.color, '#aabbcc');
 
     store.setFolderColor(PK, 'f1', null);
     await store.flush();

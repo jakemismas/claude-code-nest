@@ -3,7 +3,7 @@ import { ChatRecord } from '../model/types';
 import { scanChats } from '../claude/chatScanner';
 import { readTranscriptBodies } from '../claude/bodyReader';
 import { MetadataStore } from '../store/metadataStore';
-import { ProjectMeta } from '../store/schema';
+import { ProjectMeta, isValidColor } from '../store/schema';
 import { OPEN_CHAT_COMMAND } from './flatProvider';
 import { tokenBadge } from './chatTooltip';
 import { relativeTime } from './relativeTime';
@@ -516,7 +516,11 @@ function coerce(raw: unknown): Inbound | null {
     return { type: 'renameFolder', folderId: obj.folderId, name: obj.name };
   }
   if (obj.type === 'setFolderColor' && typeof obj.folderId === 'string') {
-    const color = typeof obj.color === 'string' && obj.color.length > 0 ? obj.color : null;
+    // Accept only a strict #rrggbb color (isValidColor); anything else (including
+    // a CSS token like url(...) a tampered webview message could carry) falls to
+    // null, which the store treats as a clear. This mirrors the normalizeFolder
+    // boundary so a color can never reach the --chip-color CSS sink unvalidated.
+    const color = isValidColor(obj.color) ? obj.color : null;
     return { type: 'setFolderColor', folderId: obj.folderId, color };
   }
   if (obj.type === 'deleteFolder' && typeof obj.folderId === 'string') {
