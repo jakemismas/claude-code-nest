@@ -38,6 +38,7 @@ import {
   Link,
   ProjectMeta,
   Tag,
+  isSafeRecordId,
 } from './schema';
 import { NormalizedEnvelope } from './schemaMigrate';
 
@@ -106,6 +107,15 @@ export function mergeProjectMeta(
 
   // ---- Folders: union by id; same-id conflict -> higher document updatedAt wins.
   for (const [folderId, fileFolder] of Object.entries(file.folders)) {
+    // SKIP any file-side key that fails the record-id check, the same way the
+    // normalize boundary drops it. A merge re-keys merged.folders[folderId] with
+    // this raw key verbatim, so an untrusted '../../x' or prototype-name key would
+    // otherwise re-enter the document on import/reconcile and reach the downstream
+    // path sink. The normalize pass already gates a migrated import, but
+    // mergeProjectMeta is also called directly (and is public), so it must gate too.
+    if (!isSafeRecordId(folderId)) {
+      continue;
+    }
     const liveFolder = merged.folders[folderId];
     if (!liveFolder) {
       merged.folders[folderId] = cloneFolder(fileFolder);
@@ -123,6 +133,11 @@ export function mergeProjectMeta(
 
   // ---- Tags: union by id; same-id conflict -> higher document updatedAt wins.
   for (const [tagId, fileTag] of Object.entries(file.tags)) {
+    // SKIP an unsafe file-side key (see the folders loop note); the merge re-keys
+    // merged.tags[tagId] with it verbatim otherwise.
+    if (!isSafeRecordId(tagId)) {
+      continue;
+    }
     const liveTag = merged.tags[tagId];
     if (!liveTag) {
       merged.tags[tagId] = cloneTag(fileTag);
@@ -143,6 +158,14 @@ export function mergeProjectMeta(
   //               recorded as a folderConflict.
   const folderConflicts: string[] = [];
   for (const [chatId, fileChat] of Object.entries(file.chats)) {
+    // SKIP an unsafe file-side chat KEY. This is the CRITICAL boundary: a chat key
+    // flows verbatim to the archive body-file path (archiveBodyStore.bodyFileUri),
+    // where Uri.joinPath collapses '..' and escapes globalStorage. A key like
+    // '../../../../Users/victim/evil' must never re-enter the merged document and
+    // reach readArchivedBody (auto-fired on every Archive-view refresh).
+    if (!isSafeRecordId(chatId)) {
+      continue;
+    }
     const liveChat = merged.chats[chatId];
     if (!liveChat) {
       merged.chats[chatId] = cloneChat(fileChat);

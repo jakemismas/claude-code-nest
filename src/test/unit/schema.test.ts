@@ -430,3 +430,117 @@ describe('schema normalizeChat record-id validation (data-integrity hardening)',
     assert.deepStrictEqual(meta.chats.c.tags, ['good-1', 'good_2']);
   });
 });
+
+describe('schema normalizeProjectMeta MAP-KEY validation (path-traversal + prototype hardening)', () => {
+  // The CRITICAL boundary: a normalize pass re-keys folders/tags/chats with the
+  // RAW imported/synced map KEY verbatim. An attacker-authored import or a
+  // foreign-device synced document can introduce a record under a path-traversal
+  // key ('../../../../Users/victim/evil') or a prototype-member name. The chat key
+  // flows to the archive body-file path sink, where Uri.joinPath collapses '..' and
+  // escapes globalStorage. Every map KEY (not just the references inside a record)
+  // must be dropped here when it fails the safe record-id shape.
+  function docWith(maps: {
+    folders?: Record<string, unknown>;
+    tags?: Record<string, unknown>;
+    chats?: Record<string, unknown>;
+  }) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      folders: maps.folders ?? {},
+      tags: maps.tags ?? {},
+      chats: maps.chats ?? {},
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+  }
+
+  function chat(): Record<string, unknown> {
+    return { folderId: null, tags: [], links: [], updatedAt: 10, deviceId: 'd' };
+  }
+  function folder(name: string): Record<string, unknown> {
+    return { name, parentId: null, order: 0 };
+  }
+  function tag(label: string): Record<string, unknown> {
+    return { label };
+  }
+
+  it('drops a chat whose MAP KEY is a path-traversal string', () => {
+    const meta = migrateProjectMeta(
+      docWith({ chats: { '../../../../Users/victim/evil': chat() } }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(Object.keys(meta.chats), [], 'the traversal-keyed chat is dropped');
+  });
+
+  it('drops a folder/tag/chat whose MAP KEY is the prototype name "constructor"', () => {
+    const meta = migrateProjectMeta(
+      docWith({
+        folders: { constructor: folder('Phantom') },
+        tags: { constructor: tag('Phantom') },
+        chats: { constructor: chat() },
+      }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(Object.keys(meta.folders), []);
+    assert.deepStrictEqual(Object.keys(meta.tags), []);
+    assert.deepStrictEqual(Object.keys(meta.chats), []);
+    // The dropped key must NOT survive as a phantom own key, and the bare-object
+    // index must not resolve to an inherited member (null-proto backstop).
+    assert.strictEqual('constructor' in meta.folders, false);
+    assert.strictEqual(meta.chats['constructor' as keyof typeof meta.chats], undefined);
+  });
+
+  it('drops a "__proto__" map key without polluting the prototype', () => {
+    // A literal `__proto__:` sets the prototype, not an own key, so define it as a
+    // genuine OWN enumerable key to model the attacker map Object.entries iterates.
+    const evilFolders: Record<string, unknown> = {};
+    Object.defineProperty(evilFolders, '__proto__', {
+      value: folder('Polluter'),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    const meta = migrateProjectMeta(docWith({ folders: evilFolders }), DEVICE, NOW);
+    assert.deepStrictEqual(Object.keys(meta.folders), []);
+    // The global Object prototype was not mutated by the malicious key.
+    assert.strictEqual(({} as Record<string, unknown>).order, undefined);
+  });
+
+  it('PRESERVES a valid UUID chat key and minted folder/tag keys (no real data lost)', () => {
+    const uuid = '0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+    const folderId = 'f-18f0a-1a2b3c4d5e6f';
+    const tagId = 't-18f0a-9a8b7c6d5e4f';
+    const meta = migrateProjectMeta(
+      docWith({
+        folders: { [folderId]: folder('Inbox') },
+        tags: { [tagId]: tag('urgent') },
+        chats: { [uuid]: { ...chat(), folderId, tags: [tagId] } },
+      }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(Object.keys(meta.folders), [folderId]);
+    assert.deepStrictEqual(Object.keys(meta.tags), [tagId]);
+    assert.deepStrictEqual(Object.keys(meta.chats), [uuid]);
+    assert.strictEqual(meta.chats[uuid].folderId, folderId);
+    assert.deepStrictEqual(meta.chats[uuid].tags, [tagId]);
+  });
+
+  it('drops only the unsafe-keyed entries and keeps the safe ones alongside', () => {
+    const uuid = '0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+    const meta = migrateProjectMeta(
+      docWith({
+        chats: {
+          '../escape': chat(),
+          [uuid]: chat(),
+          hasOwnProperty: chat(),
+        },
+      }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(Object.keys(meta.chats), [uuid], 'only the UUID-keyed chat survives');
+  });
+});

@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import * as exportIO from './exportIO';
 import { ChatMessageBody } from '../claude/bodyReader';
 import { decideRetention } from './archiveRetention';
+import { isSafeRecordId } from './schema';
 
 // vscode-THIN persistence for the Nest-owned ARCHIVED CHAT BODY copy (Slice 4
 // s2-star-archive). When the user archives a chat, the full transcript body is
@@ -53,15 +55,66 @@ export interface ArchivedBodyEnvelope {
   bodies: ChatMessageBody[];
 }
 
+// Thrown when a body-file sessionId is not a safe record id, or when the resolved
+// path would escape the archive directory. A path-traversal sessionId
+// ('../../../x') reaches a filesystem sink here (Uri.joinPath collapses '..'), so
+// the path is built ONLY after both guards pass. Every caller wraps the build in a
+// try/catch and fails safe (no write, no delete, null read), so a thrown guard is
+// a no-op for the command, never a crash.
+export class ArchivePathError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ArchivePathError';
+  }
+}
+
 // The directory Uri the archive copies live under (globalStorageUri/archive).
 function archiveDir(globalStorageUri: vscode.Uri): vscode.Uri {
   return vscode.Uri.joinPath(globalStorageUri, ARCHIVE_DIR);
 }
 
-// The full Uri of one chat's body-copy file. sessionId is a UUID (separator-free),
-// so it is a safe filename with no encoding needed.
+// Confine a resolved body-file fsPath UNDER the archive directory. Normalizes both
+// sides (lexical resolve; on win32 also case-fold to match NTFS's
+// case-insensitivity, mirroring exportPathGuard.canonicalize) and requires the
+// candidate to sit strictly below the dir, never to equal it or escape it. This is
+// the defense-in-depth layer asked for on TOP of the existing
+// assertNotUnderClaudeProjects guard inside exportIO: even if a future change let an
+// unsafe id slip the isSafeRecordId check, a path that resolves outside the archive
+// dir is rejected here before any IO. Pure string math over fsPath, no IO.
+function isUnderArchiveDir(dirFsPath: string, candidateFsPath: string): boolean {
+  let dir = path.normalize(path.resolve(dirFsPath));
+  let candidate = path.normalize(path.resolve(candidateFsPath));
+  if (process.platform === 'win32') {
+    dir = dir.toLowerCase();
+    candidate = candidate.toLowerCase();
+  }
+  return candidate.startsWith(dir + path.sep);
+}
+
+// The full Uri of one chat's body-copy file. A legitimate sessionId is a UUID
+// (separator-free) that passes isSafeRecordId, so a safe filename needs no
+// encoding. An UNSAFE sessionId (a path-traversal string, a prototype name, an
+// over-long or illegal value from an untrusted import/sync that re-keyed a chat
+// under it) is REJECTED here, before the path is built, so it can never reach the
+// filesystem sink. As defense in depth the resolved path is then asserted to stay
+// UNDER the archive dir, so a future bypass of the id check still cannot escape
+// globalStorage. Throws ArchivePathError on either failure; callers fail safe.
 function bodyFileUri(globalStorageUri: vscode.Uri, sessionId: string): vscode.Uri {
-  return vscode.Uri.joinPath(archiveDir(globalStorageUri), sessionId + '.json');
+  if (!isSafeRecordId(sessionId)) {
+    throw new ArchivePathError(
+      'Refusing to build an archive body path for an unsafe sessionId: ' +
+        JSON.stringify(sessionId),
+    );
+  }
+  const dir = archiveDir(globalStorageUri);
+  const fileUri = vscode.Uri.joinPath(dir, sessionId + '.json');
+  if (!isUnderArchiveDir(dir.fsPath, fileUri.fsPath)) {
+    throw new ArchivePathError(
+      'Refusing an archive body path that resolves outside the archive dir: ' +
+        fileUri.fsPath,
+    );
+  }
+  return fileUri;
 }
 
 // Write (or overwrite) the Nest-owned body copy for one archived chat. Creates the
@@ -254,7 +307,8 @@ function isEnvelope(value: unknown): value is ArchivedBodyEnvelope {
 // fsPath one chat's body copy resolves to under a given globalStorage path, so a
 // test can assert it is under globalStorage and that assertNotUnderClaudeProjects
 // throws when globalStorage is (pathologically) a projects path. Pure string join
-// over fsPath, no IO.
+// over fsPath, no IO. Throws ArchivePathError when sessionId is unsafe or resolves
+// outside the archive dir (the bodyFileUri guards), which a test can assert.
 export function archivedBodyPath(globalStorageUri: vscode.Uri, sessionId: string): string {
   return bodyFileUri(globalStorageUri, sessionId).fsPath;
 }

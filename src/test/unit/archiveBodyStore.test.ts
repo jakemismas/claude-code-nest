@@ -12,6 +12,7 @@ import {
   updateStarFlag,
   pruneArchivedBodies,
   archivedBodyPath,
+  ArchivePathError,
 } from '../../store/archiveBodyStore';
 import { ChatMessageBody } from '../../claude/bodyReader';
 import {
@@ -353,5 +354,85 @@ describe('archiveBodyStore target is guarded under globalStorage, never under ~/
       0,
       'no body file is written under ~/.claude/projects',
     );
+  });
+});
+
+// PATH-TRAVERSAL GUARD (CRITICAL finding): a chat sessionId can arrive from an
+// untrusted import/sync that re-keyed a chat under a path-traversal or
+// prototype-name id. That id flows verbatim to bodyFileUri, where Uri.joinPath
+// collapses '..' and would escape globalStorage. The body store validates the
+// sessionId with the same record-id check as the schema boundary, and as defense
+// in depth asserts the resolved path stays UNDER the archive dir. A legitimate
+// UUID sessionId passes; an unsafe one is a safe no-op (no write/delete, null read)
+// because every caller wraps the path build in a try/catch.
+describe('archiveBodyStore refuses an unsafe or escaping sessionId (path-traversal confinement)', () => {
+  beforeEach(() => vscodeHarness.reset());
+
+  const VALID = '0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+
+  it('writeArchivedBody writes NOTHING for a path-traversal sessionId and returns false', async () => {
+    const ok = await writeArchivedBody(uri(STORAGE) as never, {
+      sessionId: '../../../../Users/victim/evil',
+      title: 't',
+      archivedAt: NOW,
+      starred: false,
+      bodies: bodies(),
+    });
+    assert.strictEqual(ok, false, 'an unsafe sessionId write is refused, never throws');
+    assert.strictEqual(vscodeHarness.writes.length, 0, 'no file written outside the archive dir');
+  });
+
+  it('writeArchivedBody writes NOTHING for a prototype-name sessionId', async () => {
+    const ok = await writeArchivedBody(uri(STORAGE) as never, {
+      sessionId: 'constructor',
+      title: 't',
+      archivedAt: NOW,
+      starred: false,
+      bodies: bodies(),
+    });
+    assert.strictEqual(ok, false);
+    assert.strictEqual(vscodeHarness.writes.length, 0);
+  });
+
+  it('readArchivedBody returns null (never throws) for an unsafe sessionId', async () => {
+    const env = await readArchivedBody(uri(STORAGE) as never, '../../escape');
+    assert.strictEqual(env, null);
+  });
+
+  it('deleteArchivedBody is a no-op (no delete, no throw) for an unsafe sessionId', async () => {
+    await deleteArchivedBody(uri(STORAGE) as never, '../../escape');
+    assert.strictEqual(vscodeHarness.deletes.length, 0, 'nothing deleted outside the archive dir');
+  });
+
+  it('a valid UUID sessionId still writes and reads normally (no real data lost)', async () => {
+    const ok = await writeArchivedBody(uri(STORAGE) as never, {
+      sessionId: VALID,
+      title: 'A chat',
+      archivedAt: NOW,
+      starred: false,
+      bodies: bodies(),
+    });
+    assert.strictEqual(ok, true);
+    assert.strictEqual(vscodeHarness.writes[0].path, STORAGE + '/archive/' + VALID + '.json');
+    const env = await readArchivedBody(uri(STORAGE) as never, VALID);
+    assert.ok(env !== null);
+    assert.strictEqual(env.sessionId, VALID);
+  });
+
+  it('archivedBodyPath THROWS ArchivePathError for an unsafe sessionId', () => {
+    assert.throws(
+      () => archivedBodyPath(uri(STORAGE) as never, '../../../etc/passwd'),
+      (e: unknown) => e instanceof ArchivePathError,
+      'an unsafe sessionId is rejected before a path is built',
+    );
+    assert.throws(
+      () => archivedBodyPath(uri(STORAGE) as never, 'constructor'),
+      (e: unknown) => e instanceof ArchivePathError,
+    );
+  });
+
+  it('archivedBodyPath returns the confined path for a valid sessionId', () => {
+    const fsPath = archivedBodyPath(uri(STORAGE) as never, VALID);
+    assert.strictEqual(fsPath, STORAGE + '/archive/' + VALID + '.json');
   });
 });
