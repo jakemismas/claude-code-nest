@@ -10,18 +10,36 @@ own smoke section; check the ones whose slice is recorded in CHANGELOG.md.
 
 ## Install the packaged VSIX
 
-The shipped artifact is `claude-code-nest-0.0.1.vsix` in the repo root.
+The shipped artifact is `claude-code-nest-0.1.0.vsix` in the repo root.
 
 1. From a terminal, install it directly:
-   `code --install-extension claude-code-nest-0.0.1.vsix`. Or in VSCode, open the
+   `code --install-extension claude-code-nest-0.1.0.vsix`. Or in VSCode, open the
    Extensions view, use the `...` menu, choose "Install from VSIX...", and select
-   `claude-code-nest-0.0.1.vsix`.
+   `claude-code-nest-0.1.0.vsix`.
 2. If you need to rebuild the artifact from source instead, run
-   `npx vsce package --no-dependencies` (produces `claude-code-nest-0.0.1.vsix`),
-   or `npm run package` (produces `nest-build-check.vsix`, the build-check name).
+   `npx vsce package --no-dependencies -o claude-code-nest-0.1.0.vsix`, or
+   `npm run package` (produces `nest-build-check.vsix`, the build-check name).
 3. Reload the window when prompted.
 4. Open a folder that has Claude Code sessions under `~/.claude/projects/` (for
    example this repo's own workspace), so the extension has chats to list.
+
+## What to run
+
+This file carries two waves of checks. The 0.0.1 slice sections (Slice 0 through
+Slice 9) cover the views, storage, folders, tags, drag-and-drop, links, smart
+groups, settings, export/import, and polish that the first release shipped. The
+"Sprint 2 (v0.1.0)" section adds the checks for the second release: the tier-A
+reader, the lazy body reader and hover preview, full-text search, the curation
+scalars, star/archive, per-chat export, the token rollup, and the org panel that
+is now the PRIMARY surface. Run both waves on a v0.1.0 install.
+
+Note on the org panel migration: in v0.1.0 the Organize panel (a webview) is the
+primary surface and the native Folders and Tags TREES are GONE. The Slice 2
+(Folders) and Slice 3 (Tags) sections below still describe the underlying
+single-home and many-to-many membership rules, which are unchanged, but you now
+exercise them through the Organize panel and the flat Chats fallback rather than
+the retired trees. The Chats (Preview) proof-of-concept webview is also gone,
+superseded by the org panel.
 
 ## The read-only invariant (assert on every session)
 
@@ -382,6 +400,127 @@ transcripts read-only and writes nothing.
    reporter in the codebase (no `@vscode/extension-telemetry` dependency, no
    `createTelemetryLogger` call); the only user-visible output is the in-window
    toasts and the views.
+
+## Sprint 2 (v0.1.0): consolidated manual smoke checklist
+
+These are the new checks for the v0.1.0 release, drawn from each Sprint 2 slice's
+manual-smoke steps. The pure logic behind every item is covered by the headless
+unit suite (`npm test`); the steps below are the only verification of the
+vscode-bound surfaces. The read-only invariant above applies throughout: nothing
+under `~/.claude/projects/` may change mtime or content, and the only sanctioned
+write anywhere under `~/.claude` is the single-key `settings.json` edit. Every
+other Nest write (archive copies, exports, the search index) lands in the
+extension's own global storage through the `exportIO` chokepoint, which refuses
+any target under `~/.claude/projects/`.
+
+Pixel-exactness note: the org panel, hover card, and search rows are built to
+`UI-SPEC.md`, whose visual target is `media/mockups/sidebar-mockup.html`. Open
+that file in a browser (it has a Comfortable and a Compact frame) and compare it
+against the rendered panel by eye. This is a human visual check only; there is no
+automated pixel gate, because the build agent cannot see its own rendered webview.
+
+### S2-0: Tier-A reader renders unchanged
+
+1. Install v0.1.0 on a workspace with Claude Code sessions. Confirm the views
+   render and behave exactly as before: the tier-A summary reader is read-only and
+   adds no visible change of its own. No transcript under `~/.claude/projects/`
+   changed.
+
+### S2-1: Lazy body reader, token badge, and hover preview
+
+1. Hover a chat row (in the Organize panel or the flat Chats view). Confirm a rich
+   preview card appears showing the chat's folder, age, token total, the FULL tag
+   set, the models used, the files-touched count, and BOTH a first and a last
+   message snippet.
+2. Confirm every chat row shows a `~`token badge beside its relative time, and that
+   the same summary appears on the Organize panel rows.
+3. Run "Preview Full Chat" on a chat row. Confirm it opens that one chat's full
+   text in a read-only editor document. The body is read on demand and discarded;
+   no transcript is written.
+
+### S2-2: Full-text content search
+
+1. In the Organize panel search box, switch to the "Search content" mode and type
+   a query that matches some chats' content. Confirm matching chats rank by
+   relevance and each shows a matched-context snippet under its title.
+2. Clear the query and confirm the full list is restored.
+3. The search index lives in the extension's global storage, is never synced, and
+   is never written under `~/.claude/projects/`; confirm no transcript changed.
+
+### S2-3: Curation scalars (no UI of its own)
+
+1. This slice is store behavior only and is fully covered headless. It is exercised
+   indirectly by the star/archive checks below (the synced starred, userArchived,
+   archivedAt, and folder color scalars). No separate manual step.
+
+### S2-4: Star, archive, restore, and the cleaned-up-copy survival case
+
+1. Star a chat from a chat row. Confirm the star badge appears on every surface the
+   chat shows on (Organize panel, flat Chats, and the Archive view), not just one.
+   Unstar it and confirm the badge clears everywhere.
+2. Archive a chat. Confirm it moves into the Archive view, and that a Nest-owned
+   body copy is written under the extension's global storage
+   (`globalStorage/archive/<sessionId>.json`).
+3. Cleaned-up-copy survival (the headline case): with a chat archived, delete its
+   underlying transcript from `~/.claude/projects/` out of band, then Refresh.
+   Confirm the chat still appears in the Archive view with its stored title, and
+   that "Preview Archived Copy" still opens its body from the Nest-owned copy. This
+   proves the archived chat survives Claude Code's own cleanup.
+4. Restore the chat from the Archive view. Confirm it leaves the Archive view, the
+   archived copy is removed, and any star you set survives the restore.
+5. Keep window: confirm the `Claude Code Nest > Archive Keep Window Days` setting
+   (`7`, `30`, `90`, or `0` for never; default `30`) is present. Starred archived
+   chats are always kept regardless of the window.
+6. Confirm nothing under `~/.claude/projects/` changed through any of the above.
+
+### S2-5: Per-chat export and the guarded-path refusal
+
+1. Run "Export Chat..." on a chat row and pick Markdown. Confirm the saved file has
+   a YAML front-matter org layer (title, folder, full tag set, starred flag, link
+   ids, models, counts, and the token totals) followed by the readable transcript
+   as labeled You/Claude turns.
+2. Export the same chat as JSON. Confirm the file is a single versioned,
+   round-trippable document.
+3. Guarded-path refusal: in the save dialog, aim the export at a path under
+   `~/.claude/projects/`. Confirm the write is REFUSED by the guard rather than
+   overwriting a transcript (no transcript file is created or changed).
+
+### S2-6: Token cost rollup
+
+1. Run "Show Token Cost Rollup" from a view-title action. Confirm a read-only
+   report opens summing each chat's token total by folder and by tag.
+2. Confirm the by-FOLDER totals partition the library (each chat counted once in
+   its single home folder or the Unfiled bucket), and that the by-TAG totals count
+   a chat once per EACH of its tags, so a multi-tag chat adds its full total to
+   every tag bucket and the by-tag sum can exceed the library total. Confirm the
+   report carries the note explaining this so it does not read as a double-count
+   bug. The report shows tokens only, never dollars.
+
+### S2-7: Org panel as the primary surface
+
+1. Open the Nest panel. Confirm the "Organize" panel is the PRIMARY view, with a
+   Starred section, a Questions section (chats whose last turn was yours, LABELED a
+   scan-time heuristic, not a live signal), the single-home folder hierarchy with
+   per-folder color and counts, and an always-present Unsorted bucket.
+2. Tag filter chips: click one or more tag chips and confirm the panel filters to
+   chats carrying those tags; clicking again clears the filter.
+3. Sort and density: switch sort (newest, oldest, name) and density (comfortable,
+   compact) and confirm both take effect; confirm density persists across a reload.
+4. Folder color: set a folder's color from its right-click actions menu and confirm
+   the row shows the color.
+5. Rename: double-click a folder (or press Enter on it) and rename it in place;
+   confirm chats under it stay put.
+6. Drag-to-unfile: drag a chat onto the Unsorted section (or empty space) and
+   confirm it unfiles; drag a chat onto a folder to set its home; drag a chat onto
+   a tag chip to apply that tag.
+7. Keyboard and screen reader: confirm full keyboard navigation works (arrow keys
+   move focus through the ARIA tree, Enter/Space activates a row, a single roving
+   tabindex, a visible focus ring) and that rows carry sensible ARIA labels.
+8. Flat Chats fallback: confirm the flat Chats view still lists every session
+   newest-first and still works as the accessible fallback.
+9. Retired trees gone: confirm the old native Folders and Tags TREES no longer
+   appear in the panel (superseded by the Organize panel), and that the Chats
+   (Preview) proof-of-concept webview is gone too.
 
 ## Integration tests (deferred)
 
