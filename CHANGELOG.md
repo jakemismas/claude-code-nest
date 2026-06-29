@@ -5,6 +5,8 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-28
+
 ### Added
 
 - Sprint 2 baseline (in progress, not part of the 0.0.1 release): a Chats

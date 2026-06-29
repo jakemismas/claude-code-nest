@@ -28,3 +28,8 @@ FEATURES.md
 V2-RESEARCH.md
 UI-SPEC.md
 media/mockups/**
+.github/**
+setup-issue-tracking.sh
+.cc-review-tmp/**
+CLAUDE.md
+media/focus-glow-demo.html
