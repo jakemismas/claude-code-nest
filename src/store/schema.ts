@@ -197,6 +197,32 @@ export function isSafeRecordId(value: unknown): value is string {
   );
 }
 
+// Defense-in-depth backstop for the write path. A JSON.parse(JSON.stringify(...))
+// clone re-attaches Object.prototype to the folders/tags/chats maps, voiding the
+// null-prototype hygiene normalizeProjectMeta builds in. This rebuilds those three
+// maps as Object.create(null) in place on a freshly-cloned document, copying only
+// own enumerable entries, so a non-own index (a prototype-name key that slipped a
+// gate) resolves to undefined instead of an inherited Object member, and a write
+// through one of those maps can never reach Object.prototype. The maps still
+// serialize as plain JSON objects, so a synced/exported write is unchanged.
+// Mutates and returns the supplied document (callers pass their own fresh clone).
+export function nullProtoMaps(meta: ProjectMeta): ProjectMeta {
+  meta.folders = rebuildNullProto(meta.folders);
+  meta.tags = rebuildNullProto(meta.tags);
+  meta.chats = rebuildNullProto(meta.chats);
+  return meta;
+}
+
+function rebuildNullProto<T>(source: { [k: string]: T }): { [k: string]: T } {
+  const out: { [k: string]: T } = Object.create(null) as { [k: string]: T };
+  if (source) {
+    for (const key of Object.keys(source)) {
+      out[key] = source[key];
+    }
+  }
+  return out;
+}
+
 // A fresh, empty synced document for a project. updatedAt + deviceId are stamped
 // by the caller at write time; an empty document records the supplied stamp.
 export function emptyProjectMeta(deviceId: string, now: number): ProjectMeta {

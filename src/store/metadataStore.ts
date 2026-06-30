@@ -31,8 +31,10 @@ import {
   emptyLocalProjectMeta,
   emptyProjectMeta,
   isMetaKey,
+  isSafeRecordId,
   metaKeyFor,
   migrateProjectMeta,
+  nullProtoMaps,
 } from './schema';
 import { shadowKeyFor } from './reconcileSync';
 
@@ -164,7 +166,12 @@ export class MetadataStore {
   // does NOT register the key for sync; only a write does, because reading a
   // never-written project should not expand the sync surface.
   getProjectMeta(projectKey: string): ProjectMeta {
-    return this.cloneForMutation(this.readBase(projectKey));
+    // Hand readers a plain structural clone, preserving the historical public
+    // contract that the id-keyed maps serialize/compare as ordinary JSON objects.
+    // The null-prototype backstop is applied to the INTERNAL staging copy that
+    // mutations index into (cloneForMutation, via mutate), not to this read copy,
+    // so a reader's deepStrictEqual against a bare {} still holds.
+    return JSON.parse(JSON.stringify(this.readBase(projectKey))) as ProjectMeta;
   }
 
   // The current authoritative document for a project, without a defensive copy.
@@ -201,12 +208,24 @@ export class MetadataStore {
   // ---- schedules a debounced serialized flush.
 
   upsertFolder(projectKey: string, folder: Folder): void {
+    // Gate the caller-supplied record id at the sink: an id failing isSafeRecordId
+    // (a prototype name like '__proto__'/'constructor', a path-traversal token, or
+    // an over-long/illegal value) is a safe no-op before it can index or re-key the
+    // folders map. The normalize/merge boundaries already drop such ids; this is the
+    // store-level chokepoint so a clone that reattached Object.prototype to the map
+    // cannot turn a bad id into a global prototype write.
+    if (!isSafeRecordId(folder.id)) {
+      return;
+    }
     this.mutate(projectKey, (meta) => {
       meta.folders[folder.id] = { ...folder };
     });
   }
 
   deleteFolder(projectKey: string, folderId: string): void {
+    if (!isSafeRecordId(folderId)) {
+      return;
+    }
     this.mutate(projectKey, (meta) => {
       delete meta.folders[folderId];
       // Detach any chat whose home was this folder. Each detached chat is
@@ -221,12 +240,18 @@ export class MetadataStore {
   }
 
   upsertTag(projectKey: string, tag: Tag): void {
+    if (!isSafeRecordId(tag.id)) {
+      return;
+    }
     this.mutate(projectKey, (meta) => {
       meta.tags[tag.id] = { ...tag };
     });
   }
 
   deleteTag(projectKey: string, tagId: string): void {
+    if (!isSafeRecordId(tagId)) {
+      return;
+    }
     this.mutate(projectKey, (meta) => {
       delete meta.tags[tagId];
       for (const chat of Object.values(meta.chats)) {
@@ -240,18 +265,34 @@ export class MetadataStore {
   }
 
   // Set a chat's single home folder (null to unfile). Creates the chat record if
-  // absent.
+  // absent. An unsafe chatId is a no-op (ensureChat returns null). A non-null
+  // folderId that is itself unsafe is a no-op too: it is a reference into the
+  // folders map that downstream resolve sites index, so storing a prototype name
+  // here would re-create the exact phantom-record/prototype hazard the normalize
+  // boundary drops; null (unfile) is always allowed.
   setChatFolder(projectKey: string, chatId: string, folderId: string | null): void {
+    if (folderId !== null && !isSafeRecordId(folderId)) {
+      return;
+    }
     this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
+      if (chat === null) {
+        return;
+      }
       chat.folderId = folderId;
       this.stampRecord(chat);
     });
   }
 
   addChatTag(projectKey: string, chatId: string, tagId: string): void {
+    if (!isSafeRecordId(tagId)) {
+      return;
+    }
     this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
+      if (chat === null) {
+        return;
+      }
       if (!chat.tags.includes(tagId)) {
         chat.tags.push(tagId);
         this.stampRecord(chat);
@@ -262,6 +303,9 @@ export class MetadataStore {
   removeChatTag(projectKey: string, chatId: string, tagId: string): void {
     this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
+      if (chat === null) {
+        return;
+      }
       const next = chat.tags.filter((t) => t !== tagId);
       if (next.length !== chat.tags.length) {
         chat.tags = next;
@@ -271,8 +315,16 @@ export class MetadataStore {
   }
 
   addLink(projectKey: string, chatId: string, link: Link): void {
+    // targetChatId is a reference into the chats map (a downstream resolve site
+    // indexes it); reject an unsafe target the same way the chatId index is gated.
+    if (!isSafeRecordId(link.targetChatId)) {
+      return;
+    }
     this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
+      if (chat === null) {
+        return;
+      }
       const exists = chat.links.some(
         (l) => l.targetChatId === link.targetChatId && l.kind === link.kind,
       );
@@ -286,6 +338,9 @@ export class MetadataStore {
   removeLink(projectKey: string, chatId: string, targetChatId: string, kind: Link['kind']): void {
     this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
+      if (chat === null) {
+        return;
+      }
       const next = chat.links.filter(
         (l) => !(l.targetChatId === targetChatId && l.kind === kind),
       );
@@ -302,6 +357,9 @@ export class MetadataStore {
   setChatStarred(projectKey: string, chatId: string, starred: boolean): void {
     this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
+      if (chat === null) {
+        return;
+      }
       chat.starred = starred;
       this.stampRecord(chat);
     });
@@ -314,6 +372,9 @@ export class MetadataStore {
   setChatArchived(projectKey: string, chatId: string, archived: boolean): void {
     this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
+      if (chat === null) {
+        return;
+      }
       chat.userArchived = archived;
       if (archived) {
         chat.archivedAt = this.now();
@@ -328,6 +389,9 @@ export class MetadataStore {
   // must exist; a call for an unknown folder is a no-op (folders are created via
   // upsertFolder). Coalesces into the pending write.
   setFolderColor(projectKey: string, folderId: string, color: string | null): void {
+    if (!isSafeRecordId(folderId)) {
+      return;
+    }
     this.mutate(projectKey, (meta) => {
       const folder = meta.folders[folderId];
       if (!folder) {
@@ -349,7 +413,7 @@ export class MetadataStore {
     // Deep-copy the supplied collections so the staged pending document never
     // aliases the caller's live objects (a later caller mutation must not leak
     // into the store before the next flush). mutate then re-stamps the project.
-    const copy = JSON.parse(JSON.stringify(meta)) as ProjectMeta;
+    const copy = nullProtoMaps(JSON.parse(JSON.stringify(meta)) as ProjectMeta);
     this.mutate(projectKey, (current) => {
       current.schemaVersion = copy.schemaVersion;
       current.folders = copy.folders;
@@ -431,7 +495,15 @@ export class MetadataStore {
 
   // ---- Internals.
 
-  private ensureChat(meta: ProjectMeta, chatId: string): ChatMeta {
+  // The universal chat-id chokepoint. Returns null for an unsafe chatId so every
+  // caller becomes a safe no-op before the id can index or re-key the chats map
+  // (a chat key also flows verbatim to the archive body-file path sink). A safe id
+  // resolves or creates the record as before, so legitimate UUID/minted ids work
+  // unchanged.
+  private ensureChat(meta: ProjectMeta, chatId: string): ChatMeta | null {
+    if (!isSafeRecordId(chatId)) {
+      return null;
+    }
     let chat = meta.chats[chatId];
     if (!chat) {
       chat = {
@@ -468,7 +540,13 @@ export class MetadataStore {
   private cloneForMutation(meta: ProjectMeta): ProjectMeta {
     // A structural clone so a staged pending document is never aliased to the
     // value previously returned to a reader. The shapes are plain JSON.
-    return JSON.parse(JSON.stringify(meta)) as ProjectMeta;
+    //
+    // The JSON round-trip re-attaches Object.prototype to the folders/tags/chats
+    // maps, which would void the null-prototype backstop normalize builds. Rebuild
+    // those maps with a null prototype so the documented defense in depth actually
+    // holds on every mutation's working copy (the id gates above are the primary
+    // protection; this is the secondary one).
+    return nullProtoMaps(JSON.parse(JSON.stringify(meta)) as ProjectMeta);
   }
 
   private scheduleFlush(): void {
