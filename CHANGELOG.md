@@ -230,6 +230,26 @@ Keep a Changelog, and the project adheres to semantic versioning.
   slice-2 vendored-module contract (MiniSearch is vendored under
   out/search/vendor/ and shipped by the package step, not an npm dependency).
 
+### Security
+
+- Pre-release security audit (Sprint 2): a 10-lens adversarial security council
+  reviewed the entire Sprint 2 change set over three rounds, and every actionable
+  finding was fixed before release. A critical archive path-traversal (arbitrary
+  file read, write, or delete via an unvalidated chat-id map key reaching
+  vscode.Uri.joinPath) is closed by validating every untrusted folder/tag/chat map
+  key at the normalize and merge boundaries and confining archive body IO under the
+  archive directory (#54). Record-id and color validation, which initially covered
+  only reference ids and folder color, now also covers map keys and tag color (#44,
+  #52, #54, #56). A defense-in-depth gap where JSON cloning reattached Object
+  prototype to the store maps is closed by gating ids at the store mutation sinks
+  and rebuilding cloned maps with a null prototype (#58). A restore data-loss that
+  deleted the only surviving archived copy of a cleaned-up chat (#48), an archive
+  prune that could drop a wanted copy (#50), and a lockfile/manifest drift (#46)
+  are also fixed. The final pass reported zero actionable findings; 18 minor
+  hardening notes are tracked in #59. The repository is public and was confirmed
+  free of committed secrets, with synthetic-only test fixtures, no network calls,
+  and no telemetry.
+
 ## [0.0.1] - 2026-06-17
 
 First packaged release. Ships all ten dependency-ordered slices (0 through 9):
