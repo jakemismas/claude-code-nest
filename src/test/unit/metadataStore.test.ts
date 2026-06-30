@@ -774,3 +774,179 @@ describe('MetadataStore curation scalar setters (Slice 3: star, archive, folder 
     assert.strictEqual(typeof chat.archivedAt, 'number');
   });
 });
+
+// Defense-in-depth: the store mutation methods take a caller-supplied record id
+// (chat/folder/tag) and index or re-key the folders/tags/chats maps with it. The
+// normalize/merge boundaries already gate ids, but the write-path clones use
+// JSON.parse(JSON.stringify(...)), which re-attaches Object.prototype to those
+// maps; on a normal-prototype map an unsafe id like '__proto__' would write onto
+// Object.prototype globally. These tests assert the SINK gate: an unsafe id is a
+// safe no-op and Object.prototype is never polluted, while a valid id still works.
+describe('MetadataStore record-id sink gating (prototype-pollution backstop)', () => {
+  const UNSAFE_IDS = ['__proto__', 'constructor', 'prototype', '../x', '', 'a:b'];
+
+  // Snapshot the bare-Object props the polluting payloads would write, so a leak
+  // is detectable on a fresh {} after each mutation.
+  function assertProtoClean(): void {
+    const bare = {} as Record<string, unknown>;
+    assert.strictEqual(bare.folderId, undefined, 'Object.prototype.folderId leaked');
+    assert.strictEqual(bare.color, undefined, 'Object.prototype.color leaked');
+    assert.strictEqual(bare.name, undefined, 'Object.prototype.name leaked');
+    assert.strictEqual(bare.starred, undefined, 'Object.prototype.starred leaked');
+    assert.strictEqual(bare.userArchived, undefined, 'Object.prototype.userArchived leaked');
+  }
+
+  it('upsertFolder with an unsafe id is a no-op and does not pollute the prototype', async () => {
+    const store = makeStore(new FakeMemento());
+    for (const id of UNSAFE_IDS) {
+      store.upsertFolder(PK, { id, name: 'Polluter', parentId: null, order: 0 });
+    }
+    await store.flush();
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).folders), []);
+    assertProtoClean();
+  });
+
+  it('upsertTag with an unsafe id is a no-op and does not pollute the prototype', async () => {
+    const store = makeStore(new FakeMemento());
+    for (const id of UNSAFE_IDS) {
+      store.upsertTag(PK, { id, label: 'Polluter' });
+    }
+    await store.flush();
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).tags), []);
+    assertProtoClean();
+  });
+
+  it('setChatFolder with an unsafe chatId is a no-op (creates no phantom chat)', async () => {
+    const store = makeStore(new FakeMemento());
+    for (const id of UNSAFE_IDS) {
+      store.setChatFolder(PK, id, 'f1');
+    }
+    await store.flush();
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).chats), []);
+    assertProtoClean();
+  });
+
+  it('setChatFolder with an unsafe folderId reference is a no-op', async () => {
+    const store = makeStore(new FakeMemento());
+    store.setChatFolder(PK, 'good-chat', '__proto__');
+    await store.flush();
+    // The chat was NOT created from a mutation that would store a prototype-name
+    // folderId reference (the whole call is gated before ensureChat).
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).chats), []);
+    assertProtoClean();
+  });
+
+  it('addChatTag/removeChatTag with an unsafe chatId or tagId is a no-op', async () => {
+    const store = makeStore(new FakeMemento());
+    for (const id of UNSAFE_IDS) {
+      store.addChatTag(PK, id, 't1');
+      store.addChatTag(PK, 'good-chat', id);
+      store.removeChatTag(PK, id, 't1');
+    }
+    await store.flush();
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).chats), []);
+    assertProtoClean();
+  });
+
+  it('addLink/removeLink with an unsafe chatId or targetChatId is a no-op', async () => {
+    const store = makeStore(new FakeMemento());
+    for (const id of UNSAFE_IDS) {
+      store.addLink(PK, id, { targetChatId: 'good-target', kind: 'related' });
+      store.addLink(PK, 'good-chat', { targetChatId: id, kind: 'related' });
+      store.removeLink(PK, id, 'good-target', 'related');
+    }
+    await store.flush();
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).chats), []);
+    assertProtoClean();
+  });
+
+  it('setChatStarred/setChatArchived with an unsafe chatId is a no-op', async () => {
+    const store = makeStore(new FakeMemento());
+    for (const id of UNSAFE_IDS) {
+      store.setChatStarred(PK, id, true);
+      store.setChatArchived(PK, id, true);
+    }
+    await store.flush();
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).chats), []);
+    assertProtoClean();
+  });
+
+  it('setFolderColor with an unsafe folderId is a no-op (no prototype color write)', async () => {
+    const store = makeStore(new FakeMemento());
+    for (const id of UNSAFE_IDS) {
+      store.setFolderColor(PK, id, '#aabbcc');
+    }
+    await store.flush();
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).folders), []);
+    assertProtoClean();
+  });
+
+  it('deleteFolder/deleteTag with an unsafe id is a no-op (no prototype delete)', async () => {
+    const store = makeStore(new FakeMemento());
+    store.upsertFolder(PK, { id: 'f1', name: 'Inbox', parentId: null, order: 0 });
+    store.upsertTag(PK, { id: 't1', label: 'urgent' });
+    await store.flush();
+    for (const id of UNSAFE_IDS) {
+      store.deleteFolder(PK, id);
+      store.deleteTag(PK, id);
+    }
+    await store.flush();
+    const meta = store.getProjectMeta(PK);
+    assert.deepStrictEqual(Object.keys(meta.folders), ['f1']);
+    assert.deepStrictEqual(Object.keys(meta.tags), ['t1']);
+    assertProtoClean();
+  });
+
+  it('survives an unsafe id driven through a genuine own __proto__ folder record', async () => {
+    // Model the attacker payload precisely: a folder record whose id field is a
+    // real own '__proto__' value (set via defineProperty, since a literal would set
+    // the prototype). upsertFolder must reject it at the sink.
+    const evil: { id: string; name: string; parentId: null; order: number } = {
+      id: 'placeholder',
+      name: 'Polluter',
+      parentId: null,
+      order: 0,
+    };
+    Object.defineProperty(evil, 'id', { value: '__proto__', enumerable: true });
+    const store = makeStore(new FakeMemento());
+    store.upsertFolder(PK, evil);
+    await store.flush();
+    assert.deepStrictEqual(Object.keys(store.getProjectMeta(PK).folders), []);
+    assertProtoClean();
+  });
+
+  it('a valid UUID/minted id still mutates correctly after the gate', async () => {
+    const uuid = '0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+    const folderId = 'f-18f0a-1a2b3c4d5e6f';
+    const tagId = 't-18f0a-9a8b7c6d5e4f';
+    const store = makeStore(new FakeMemento());
+    store.upsertFolder(PK, { id: folderId, name: 'Inbox', parentId: null, order: 0 });
+    store.upsertTag(PK, { id: tagId, label: 'urgent' });
+    store.setChatFolder(PK, uuid, folderId);
+    store.addChatTag(PK, uuid, tagId);
+    store.setChatStarred(PK, uuid, true);
+    store.setFolderColor(PK, folderId, '#aabbcc');
+    await store.flush();
+
+    const meta = store.getProjectMeta(PK);
+    assert.deepStrictEqual(Object.keys(meta.folders), [folderId]);
+    assert.deepStrictEqual(Object.keys(meta.tags), [tagId]);
+    assert.deepStrictEqual(Object.keys(meta.chats), [uuid]);
+    assert.strictEqual(meta.chats[uuid].folderId, folderId);
+    assert.deepStrictEqual(meta.chats[uuid].tags, [tagId]);
+    assert.strictEqual(meta.chats[uuid].starred, true);
+    assert.strictEqual(meta.folders[folderId].color, '#aabbcc');
+  });
+
+  it('getProjectMeta hands readers ordinary JSON maps (prior public contract)', async () => {
+    // The null-prototype backstop is applied to the INTERNAL staging copy, NOT the
+    // reader copy, so a consumer's deepStrictEqual against a bare {} still holds and
+    // the maps serialize as ordinary objects.
+    const store = makeStore(new FakeMemento());
+    store.upsertFolder(PK, { id: 'f1', name: 'Inbox', parentId: null, order: 0 });
+    await store.flush();
+    const meta = store.getProjectMeta(PK);
+    assert.strictEqual(Object.getPrototypeOf(meta.folders), Object.prototype);
+    assert.deepStrictEqual(Object.keys(meta.folders), ['f1']);
+  });
+});

@@ -1,10 +1,12 @@
 import * as assert from 'assert';
 import {
+  ProjectMeta,
   SCHEMA_VERSION,
   emptyProjectMeta,
   isMetaKey,
   metaKeyFor,
   migrateProjectMeta,
+  nullProtoMaps,
   projectKeyFromMetaKey,
 } from '../../store/schema';
 
@@ -573,5 +575,66 @@ describe('schema normalizeProjectMeta MAP-KEY validation (path-traversal + proto
       NOW,
     );
     assert.deepStrictEqual(Object.keys(meta.chats), [uuid], 'only the UUID-keyed chat survives');
+  });
+});
+
+describe('schema nullProtoMaps (write-path defense-in-depth backstop)', () => {
+  // The write-path clones use JSON.parse(JSON.stringify(...)), which re-attaches
+  // Object.prototype to the folders/tags/chats maps and voids the null-prototype
+  // hygiene normalize builds. nullProtoMaps rebuilds those three maps with a null
+  // prototype after such a clone so an unsafe index can never reach an inherited
+  // Object member, and a write through the map cannot land on Object.prototype.
+  function cloned(meta: ProjectMeta): ProjectMeta {
+    // Model the exact clone the store/merge sites perform before the backstop.
+    return JSON.parse(JSON.stringify(meta)) as ProjectMeta;
+  }
+
+  it('rebuilds folders/tags/chats with a null prototype after a JSON clone', () => {
+    const base = emptyProjectMeta(DEVICE, NOW);
+    base.folders.f1 = { id: 'f1', name: 'Inbox', parentId: null, order: 0 };
+    const clone = cloned(base);
+    // After the JSON round-trip the maps inherit Object.prototype again.
+    assert.strictEqual(Object.getPrototypeOf(clone.folders), Object.prototype);
+
+    const fixed = nullProtoMaps(clone);
+    assert.strictEqual(Object.getPrototypeOf(fixed.folders), null);
+    assert.strictEqual(Object.getPrototypeOf(fixed.tags), null);
+    assert.strictEqual(Object.getPrototypeOf(fixed.chats), null);
+    // A non-own prototype-name index now resolves to undefined, not the inherited
+    // Object member it would have on a normal-prototype map.
+    assert.strictEqual(
+      (fixed.folders as Record<string, unknown>).constructor,
+      undefined,
+    );
+    assert.strictEqual(
+      (fixed.chats as Record<string, unknown>).hasOwnProperty,
+      undefined,
+    );
+  });
+
+  it('preserves every own entry and the other document fields unchanged', () => {
+    const base = emptyProjectMeta(DEVICE, NOW);
+    base.folders.f1 = { id: 'f1', name: 'Inbox', parentId: null, order: 0 };
+    base.tags.t1 = { id: 't1', label: 'urgent' };
+    base.chats.c1 = {
+      folderId: 'f1',
+      tags: ['t1'],
+      links: [],
+      updatedAt: NOW,
+      deviceId: DEVICE,
+    };
+    const fixed = nullProtoMaps(cloned(base));
+    assert.deepStrictEqual(Object.keys(fixed.folders), ['f1']);
+    assert.deepStrictEqual(Object.keys(fixed.tags), ['t1']);
+    assert.deepStrictEqual(Object.keys(fixed.chats), ['c1']);
+    assert.strictEqual(fixed.folders.f1.name, 'Inbox');
+    assert.strictEqual(fixed.chats.c1.folderId, 'f1');
+    assert.strictEqual(fixed.schemaVersion, SCHEMA_VERSION);
+    assert.strictEqual(fixed.deviceId, DEVICE);
+    // The maps still JSON-serialize as ordinary objects (sync/export unchanged).
+    assert.strictEqual(
+      JSON.stringify(fixed.folders),
+      JSON.stringify({ f1: { id: 'f1', name: 'Inbox', parentId: null, order: 0 } }),
+    );
   });
 });

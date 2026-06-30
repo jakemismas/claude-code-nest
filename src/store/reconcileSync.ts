@@ -175,6 +175,13 @@ function isForeignWrite(
 }
 
 function snapshot(meta: ProjectMeta, deviceId: string): SyncShadow {
+  // A plain structural clone. The shadow is NOT a mutation sink: it is only ever
+  // (a) JSON-serialized to the non-synced shadow key, where a null prototype would
+  // serialize identically anyway, or (b) passed as the BASE into mergeProjectMeta,
+  // which gates every key with isSafeRecordId and rebuilds its own working maps
+  // with a null prototype. So the backstop belongs at those sinks (cloneForMutation
+  // and the merge), not here; keeping this a plain clone preserves the shadow's
+  // ordinary-object shape for the structural metaEqual diff.
   return {
     meta: JSON.parse(JSON.stringify(meta)) as ProjectMeta,
     deviceId,

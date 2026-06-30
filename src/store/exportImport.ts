@@ -39,6 +39,7 @@ import {
   ProjectMeta,
   Tag,
   isSafeRecordId,
+  nullProtoMaps,
 } from './schema';
 import { NormalizedEnvelope } from './schemaMigrate';
 
@@ -100,8 +101,13 @@ export function mergeProjectMeta(
   file: ProjectMeta,
 ): ProjectMergeResult {
   // Start from a deep copy of the live document so the result is independent of
-  // both inputs and putProjectMeta can re-stamp it freely.
-  const merged: ProjectMeta = JSON.parse(JSON.stringify(live)) as ProjectMeta;
+  // both inputs and putProjectMeta can re-stamp it freely. The JSON round-trip
+  // re-attaches Object.prototype to the three id-keyed maps; rebuild them with a
+  // null prototype so the defense-in-depth backstop holds for the merged document
+  // (the per-key isSafeRecordId gates below are the primary protection).
+  const merged: ProjectMeta = nullProtoMaps(
+    JSON.parse(JSON.stringify(live)) as ProjectMeta,
+  );
 
   let changed = false;
 
