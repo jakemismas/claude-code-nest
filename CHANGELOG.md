@@ -224,8 +224,11 @@ Keep a Changelog, and the project adheres to semantic versioning.
   non-view services (project-key resolution, the link target pick list, the token
   rollup seam, reveal/home resolution); the pure drop reducer, the native
   drag-and-drop controller, and the cross-tree drag stash are unchanged and still
-  unit-tested. Tag removal remains reachable via the "Tag Chats..." multi-select
-  toggle on the flat Chats view. The proof-of-concept Chats (Preview) WebviewView
+  unit-tested. The Export Chat, token rollup, star, and archive commands that the
+  per-slice Added entries above describe on the Chats, Folders, and Tags views ship
+  in v0.1.0 on the kept flat Chats view, the Organize panel, and the Archive view;
+  only the Folders and Tags tree surfaces themselves are removed. Tag removal remains
+  reachable via the "Tag Chats..." multi-select toggle on the flat Chats view. The proof-of-concept Chats (Preview) WebviewView
   (claudeNest.chatsPreview) is removed, superseded by the org panel; its
   content-search machinery moved into the org panel host. The unused
   "minisearch" entry in package.json "dependencies" was removed to match the

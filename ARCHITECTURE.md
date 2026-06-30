@@ -12,6 +12,54 @@ chat transcripts for a single project. It contributes its own Activity Bar view
 container (claudeNest) and never modifies Claude's data beyond one sanctioned,
 guarded settings write.
 
+## Module map (navigation index)
+
+The extension is one vscode entry point (src/extension.ts) wiring pure, vscode-free
+logic modules to thin vscode-bound surfaces. The unit gate imports only the
+vscode-free modules. This index says where each binding contract below lives.
+
+- Read path (vscode-free): src/claude/jsonlReader.ts is the SOLE transcript parser;
+  src/claude/chatScanner.ts is the SOLE file reader (globs *.jsonl); src/claude/
+  bodyReader.ts reads one chat's bodies on demand and discards them; src/claude/
+  projectKeyResolver.ts encodes the project key.
+- Store and sync (vscode-free logic, thin memento adapter in extension.ts):
+  src/store/metadataStore.ts (the synced nest.meta.v1::<projectKey> document and the
+  local-only nest.local.v1 orphan document), schema.ts/schemaMigrate.ts (migration and
+  the per-scalar LWW arbiter mergeProjectMeta), reconcile.ts (orphan reconcile),
+  reconcileSync.ts (cross-machine reconcile against the local nest.shadow.v1 shadow),
+  exportImport.ts/autoExport.ts (backup), deviceId.ts.
+- Write carve-outs (the ONLY two modules exempt from the eslint write-ban bank):
+  src/settings/claudeSettingsIO.ts (the one sanctioned ~/.claude write, path-asserted)
+  and src/store/exportIO.ts (globalStorage and user-chosen export targets). Both go
+  through src/store/exportPathGuard.ts (assertNotUnderClaudeProjects, the pure,
+  headless-tested guard).
+- Id grammar and models (vscode-free): src/model/idFactory.ts (minting plus the
+  separator and sentinel guard), folderTree.ts, occurrence.ts, untagged.ts, links.ts,
+  types.ts.
+- Drag and drop: src/dnd/dropReducer.ts is the FROZEN pure interpretation contract
+  (never modified after slice 6); dndController.ts (native tree, retired from wiring
+  but kept and unit-tested), dragContext.ts (cross-tree stash, native path only),
+  webviewDropAdapter.ts (the org-panel extraction shell), dropPayload.ts.
+- Search (host-only): src/search/searchIndex.ts (vscode-free) and searchStore.ts
+  (persists via exportIO to globalStorage, never synced). MiniSearch is vendored at
+  src/search/vendor/minisearch.js and copied to out/ by the compile step, never an npm
+  dependency.
+- Smart groups (vscode-free signals): src/smart/smartGroupEngine.ts plus
+  src/smart/signals/{pr,ticket,branch,forkLineage,bucket}.ts.
+- Export and rollup (pure): src/export/chatExport.ts, src/rollup/tokenRollup.ts,
+  src/rollup/rollupReport.ts.
+- View surfaces: the live views are the org panel (src/views/orgPanelWebview.ts plus
+  the pure orgPanelModel.ts), the flat Chats tree (flatProvider.ts), Smart Groups
+  (smartGroupsProvider.ts), and Archive (archiveProvider.ts). FoldersProvider.ts and
+  TagsProvider.ts are KEPT as non-view services (project-key resolution, link target
+  pick list, the tokenTotalsByChat rollup seam, reveal and home resolution) since slice
+  6 retired their trees; chatTooltip.ts/chatMeta.ts/relativeTime.ts/linkDecoration.ts
+  are vscode-free view helpers.
+- Commands: src/commands/* are vscode-thin orchestrators over the pure modules above
+  (folders, tags, tagging, links, curation, export, rollup, export-import,
+  promote-smart-group, preview, refresh-scan); src/settings/settingsWebview.ts is the
+  vscode-bound settings panel.
+
 ## Ground-truth calibration (verified against the real files, read-only)
 
 - Filename equals sessionId (a UUID). The chat scanner globs *.jsonl only.
@@ -645,9 +693,13 @@ id. Rationale and rules:
 
 ## Git landing strategy
 
-Direct-to-main with explicit author and a normalized local committer, both Jake
+PR-per-slice with explicit author and a normalized local committer, both Jake
 Mismas <jake@jakemismas.com>. No AI author or co-author trailer, no generated-by
-markers. Each tested slice commits straight to main and pushes, carrying the
-trailer `Nest-Slice: <id> (<order>)`. A slice counts as done only after a
-confirmed push verified on the remote. The gitignored .nest-build-state.json is
-never staged or committed.
+markers. Each tested slice lands on its own branch `slice/<id>`, opens a PR
+against the protected main branch, and merges; the engine resumes by scanning
+origin/main for the trailer. Each slice commit carries the trailer
+`Nest-Slice: <id> (<order>)` plus a `Fixes #<issue>` line so the merge closes its
+issue. A slice counts as done only after the merge is verified on origin/main.
+The gitignored .nest-build-state.json is never staged or committed. Sprint 1
+shipped v0.0.1 and Sprint 2 shipped v0.1.0 this way; SPRINT-2-PLAN.md holds the
+engine's landing contract.
