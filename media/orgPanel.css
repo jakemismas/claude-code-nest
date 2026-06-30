@@ -151,6 +151,19 @@ body {
   cursor: default;
 }
 
+/* Folder headers are focusable treeitems in the roving-tabindex set (orgPanel.js
+   makeSectionHeader sets role="treeitem" and the keyboard handler moves DOM focus
+   onto them), so they need the same visible app focus ring as chat rows. Without
+   this rule a focused folder header fell back to the inconsistent UA outline, which
+   UI-SPEC.md treats as an accessibility miss, not polish. */
+.nest-section-header[data-kind="folder"]:focus,
+.nest-section-header[data-kind="folder"][tabindex="0"]:focus-visible {
+  outline: none;
+  background: var(--nest-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--nest-accent);
+  border-radius: 4px;
+}
+
 .nest-section-header.nest-drop-over {
   background: var(--nest-accent-soft);
   outline: 2px dashed var(--nest-accent);
