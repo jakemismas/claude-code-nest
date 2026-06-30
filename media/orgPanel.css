@@ -202,6 +202,43 @@ body {
   background: var(--nest-accent);
 }
 
+/* The disclosure chevron on a collapsible folder header (issue #64). The header's
+   aria-expanded carries the state for assistive tech; this is the visual cue. The
+   header click rename is unaffected because the chevron click stops propagation. */
+.nest-folder-chevron {
+  flex: 0 0 auto;
+  width: 12px;
+  font-size: 10px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.nest-folder-chevron:hover {
+  opacity: 1;
+}
+
+/* The "collapse one level" toolbar control. A text button styled like the other
+   controls in the row, not the accent-filled primary icon button. */
+.nest-collapse-level {
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.nest-collapse-level:hover {
+  background: var(--nest-accent-soft);
+}
+
+.nest-collapse-level:focus-visible {
+  outline: 1px solid var(--nest-accent);
+}
+
 .nest-rename-input {
   font-size: 11px;
   padding: 1px 4px;

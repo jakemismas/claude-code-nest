@@ -73,7 +73,7 @@ type Inbound =
   | { type: 'renameFolder'; folderId: string; name: string }
   | { type: 'setFolderColor'; folderId: string; color: string | null }
   | { type: 'deleteFolder'; folderId: string }
-  | { type: 'setState'; sort?: string; density?: string };
+  | { type: 'setState'; sort?: string; density?: string; collapsedFolders?: string[] };
 
 // The injectable command seams the org panel needs, wired in extension.ts to the
 // existing store/command paths so the webview never couples to the command layer
@@ -98,6 +98,11 @@ export interface OrgPanelStateStore {
 
 const SORT_KEY = 'claudeNest.orgPanel.sort';
 const DENSITY_KEY = 'claudeNest.orgPanel.density';
+// The collapsed-folder set, persisted per workspace as a JSON-encoded string array
+// of folder ids (issue #64). Workspace-local and NEVER synced, exactly like sort
+// and density: it lives only on workspaceState through stateStore and is never
+// added to setKeysForSync or the nest.meta.v1 sync surface.
+const COLLAPSED_KEY = 'claudeNest.orgPanel.collapsedFolders';
 
 export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
@@ -170,7 +175,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     } else if (msg.type === 'deleteFolder') {
       void this.onDeleteFolder(msg.folderId);
     } else if (msg.type === 'setState') {
-      this.onSetState(msg.sort, msg.density);
+      this.onSetState(msg.sort, msg.density, msg.collapsedFolders);
     }
   }
 
@@ -208,12 +213,19 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     await this.actions.deleteFolder(folderId);
   }
 
-  private onSetState(sort: string | undefined, density: string | undefined): void {
+  private onSetState(
+    sort: string | undefined,
+    density: string | undefined,
+    collapsedFolders: string[] | undefined,
+  ): void {
     if (sort !== undefined) {
       this.stateStore.set(SORT_KEY, sort);
     }
     if (density !== undefined) {
       this.stateStore.set(DENSITY_KEY, density);
+    }
+    if (collapsedFolders !== undefined) {
+      this.stateStore.set(COLLAPSED_KEY, JSON.stringify(collapsedFolders));
     }
   }
 
@@ -225,7 +237,28 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       type: 'state',
       sort: this.stateStore.get(SORT_KEY) ?? 'newest',
       density: this.stateStore.get(DENSITY_KEY) ?? 'comfortable',
+      collapsedFolders: this.readCollapsedFolders(),
     });
+  }
+
+  // Read and parse the persisted collapsed-folder id set. Tolerant: a missing,
+  // malformed, or non-array value yields an empty list (nothing collapsed) so a
+  // corrupt memento never throws or seeds a bogus state.
+  private readCollapsedFolders(): string[] {
+    const raw = this.stateStore.get(COLLAPSED_KEY);
+    if (raw === undefined) {
+      return [];
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((v): v is string => typeof v === 'string');
   }
 
   private postSections(): void {
@@ -468,6 +501,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       <input id="contentMode" type="checkbox" />
       <span>Search content</span>
     </label>
+    <button id="collapseLevel" type="button" class="nest-control nest-collapse-level" aria-label="Collapse one folder level">Collapse one level</button>
   </div>
   <div id="chips" class="nest-chips" role="group" aria-label="Tag filters"></div>
   <div id="list" class="nest-tree" role="tree" aria-label="Organized chats" tabindex="0"></div>
@@ -493,6 +527,7 @@ function coerce(raw: unknown): Inbound | null {
     color?: unknown;
     sort?: unknown;
     density?: unknown;
+    collapsedFolders?: unknown;
   };
   if (obj.type === 'ready') {
     return { type: 'ready' };
@@ -527,10 +562,17 @@ function coerce(raw: unknown): Inbound | null {
     return { type: 'deleteFolder', folderId: obj.folderId };
   }
   if (obj.type === 'setState') {
+    // collapsedFolders is accepted only as an array of strings; anything else
+    // (including a tampered webview message carrying non-strings) is dropped to
+    // undefined so the persisted value is always a clean string-id array.
+    const collapsedFolders = Array.isArray(obj.collapsedFolders)
+      ? obj.collapsedFolders.filter((v): v is string => typeof v === 'string')
+      : undefined;
     return {
       type: 'setState',
       sort: typeof obj.sort === 'string' ? obj.sort : undefined,
       density: typeof obj.density === 'string' ? obj.density : undefined,
+      collapsedFolders,
     };
   }
   return null;

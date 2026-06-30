@@ -20,6 +20,7 @@
   const sortEl = document.getElementById('sort');
   const densityEl = document.getElementById('density');
   const contentModeEl = document.getElementById('contentMode');
+  const collapseLevelEl = document.getElementById('collapseLevel');
 
   // The latest host-posted section model.
   let sections = { starred: [], questions: [], folders: [], tags: [] };
@@ -38,6 +39,14 @@
   // Sort and density, hydrated from the host's persisted state on 'state'.
   let sortMode = 'newest';
   let densityMode = 'comfortable';
+
+  // The collapsed-folder id set (issue #64), seeded from the host's persisted
+  // state on 'state' and posted back via setState whenever it changes. A folder id
+  // here renders its header with aria-expanded="false", hides its role="group"
+  // body, and hides every descendant folder section so the hidden rows are never
+  // in the DOM (so they cannot receive the roving tabindex). Workspace-local and
+  // never synced, mirroring sort/density.
+  const collapsedFolders = new Set();
 
   // The dragged chat ids for an in-flight in-panel drag (fully in-process; the
   // drop posts these straight to the host). Cleared on dragend.
@@ -228,10 +237,14 @@
   // Render one section (a header plus a role="group" of rows). A folder section is
   // also a DROP TARGET: dropping chats onto it files them there (or unfiles on the
   // synthetic Unsorted bucket). The header of a real folder is double-click
-  // renameable and right-click recolorable.
+  // renameable and right-click recolorable. A REAL folder section is collapsible
+  // (issue #64): collapsed hides its body and is reflected by aria-expanded on the
+  // header. The synthetic Unsorted catch-all and the cross-cutting Starred and
+  // Questions sections are not collapsible.
   function renderSection(opts) {
     const { key, label, rows, depth, folderId, color, synthetic, heuristic, droppable } = opts;
     const visible = sortRows(rows.filter(rowMatches));
+    const collapsed = droppable && !synthetic && collapsedFolders.has(folderId);
     // Cross-cutting sections (Starred, Questions) hide entirely when empty
     // (UI-SPEC). Folder sections always render so the hierarchy and drop targets
     // stay visible, EXCEPT a non-Unsorted folder with no visible rows under an
@@ -246,10 +259,25 @@
       header.style.paddingLeft = 8 + depth * 12 + 'px';
       header.dataset.dropFolderId = folderId;
       if (!synthetic) {
-        // A real folder header is a navigable, actionable tree row: role="treeitem"
-        // so it joins the roving-tabindex set, with aria-level for nesting depth and
-        // an accessible name. Enter/Space opens an in-place rename; double-click
-        // renames; right-click opens the folder actions menu.
+        // A real folder header is a navigable, actionable, COLLAPSIBLE tree row:
+        // role="treeitem" so it joins the roving-tabindex set, with aria-level for
+        // nesting depth and an accessible name. Enter/Space opens an in-place rename;
+        // double-click renames; right-click opens the folder actions menu. The
+        // disclosure chevron toggles collapse (issue #64) and stops propagation so a
+        // chevron click never triggers rename. The synthetic Unsorted bucket is a
+        // catch-all, not a nested folder, so it is NOT collapsible and never reaches
+        // this block: it gets no chevron, no aria-expanded, and no treeitem role,
+        // only the drop target below.
+        const chevron = document.createElement('span');
+        chevron.className = 'nest-folder-chevron';
+        chevron.setAttribute('aria-hidden', 'true');
+        chevron.textContent = collapsed ? '▸' : '▾';
+        chevron.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleCollapse(folderId);
+        });
+        header.insertBefore(chevron, header.firstChild);
+        header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         header.dataset.renameFolderId = folderId;
         header.setAttribute('role', 'treeitem');
         header.setAttribute('aria-level', String(depth + 1));
@@ -257,6 +285,7 @@
         header.setAttribute('tabindex', '-1');
         header.dataset.kind = 'folder';
         header.dataset.id = 'folder:' + folderId;
+        header.dataset.folderDepth = String(depth);
         header.title = 'Enter to rename. Right-click for folder actions.';
         header.addEventListener('dblclick', () => beginRename(header, folderId, label));
         header.addEventListener('contextmenu', (e) => {
@@ -268,11 +297,28 @@
     }
     listEl.appendChild(header);
 
+    // A collapsed folder renders no body group, so its chat rows are not in the
+    // DOM and cannot receive the roving tabindex; ArrowUp/Down skip them because
+    // focusableRows() only sees rendered treeitems. The header stays a drop target
+    // (attachDropTarget above), so a collapsed folder still accepts drops. The
+    // caller (renderTree) also skips this folder's descendant folder sections.
+    if (collapsed) {
+      return;
+    }
+
     const group = document.createElement('div');
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', label);
     for (const row of visible) {
-      group.appendChild(makeRow(row, depth));
+      const rowEl = makeRow(row, depth);
+      if (droppable) {
+        // Tag each chat row with its owning folder id so ArrowLeft resolves the
+        // parent by id, not by a backward DOM scan. The scan would mis-resolve an
+        // unfiled chat (whose synthetic Unsorted header is not a treeitem) to the
+        // previous real folder header.
+        rowEl.dataset.parentFolderId = folderId;
+      }
+      group.appendChild(rowEl);
     }
     if (droppable) {
       // The group is also a drop target so dropping anywhere in the folder's body
@@ -318,7 +364,20 @@
       droppable: false,
       heuristic: true,
     });
+    // The folders array is a pre-order flattening (each folder followed by its
+    // descendants, deeper depth first). When a folder is collapsed we skip every
+    // following entry whose depth is greater than the collapsed folder's depth, so
+    // the whole collapsed subtree (its rows and all descendant folder sections) is
+    // omitted from the DOM. hideDeeperThan is the depth of the shallowest collapsed
+    // ancestor we are currently inside; reset once we exit that subtree.
+    let hideDeeperThan = Infinity;
     for (const folder of sections.folders) {
+      if (folder.depth <= hideDeeperThan) {
+        hideDeeperThan = Infinity;
+      }
+      if (folder.depth > hideDeeperThan) {
+        continue;
+      }
       renderSection({
         key: 'folder:' + folder.folderId,
         label: folder.name,
@@ -329,8 +388,189 @@
         synthetic: folder.synthetic,
         droppable: true,
       });
+      if (collapsedFolders.has(folder.folderId)) {
+        hideDeeperThan = folder.depth;
+      }
     }
     restoreFocus();
+  }
+
+  // ---- collapse / expand (issue #64) ----
+
+  // Persist the collapsed set to the host (workspace-local, never synced) and
+  // re-render so the change shows. Sorted for a stable serialized value.
+  function persistCollapsed() {
+    vscode.postMessage({ type: 'setState', collapsedFolders: Array.from(collapsedFolders).sort() });
+  }
+
+  // Toggle one folder's collapsed state, keeping the roving focus on its header so
+  // a keyboard user is not stranded after the subtree re-renders.
+  function toggleCollapse(folderId) {
+    setCollapsed(folderId, !collapsedFolders.has(folderId));
+  }
+
+  function setCollapsed(folderId, collapsed) {
+    const had = collapsedFolders.has(folderId);
+    if (collapsed === had) {
+      return;
+    }
+    if (collapsed) {
+      collapsedFolders.add(folderId);
+    } else {
+      collapsedFolders.delete(folderId);
+    }
+    focusedId = 'folder:' + folderId;
+    persistCollapsed();
+    render();
+    refocusById('folder:' + folderId);
+  }
+
+  // Whether a folder section at index i in sections.folders has at least one
+  // descendant folder. The pre-order flattening guarantees a folder's first
+  // descendant (if any) is the very next entry at depth+1, so a deeper next entry
+  // means a child folder exists.
+  function folderHasChild(i) {
+    const here = sections.folders[i];
+    const next = sections.folders[i + 1];
+    return !!(next && next.depth > here.depth);
+  }
+
+  // "Collapse one level": collapse the deepest currently-open VISIBLE folder level.
+  // A folder is a candidate only when it is expanded, NOT hidden inside a collapsed
+  // ancestor, AND has a descendant folder (collapsing a leaf folder removes no
+  // nesting level). Mirrors the unit-tested pure helper deepestOpenLevelToCollapse
+  // in src/views/orgPanelCollapse.ts. A no-op when nothing qualifies (the visible
+  // tree is already collapsed to a single level).
+  function collapseDeepestOpenLevel() {
+    // Nothing to fold while content search shows flat results; acting here would
+    // mutate and persist collapsed state with no visible effect.
+    if (isContentSearchActive()) {
+      return;
+    }
+    const hidden = computeHiddenFolders();
+    let deepest = -1;
+    for (let i = 0; i < sections.folders.length; i++) {
+      const f = sections.folders[i];
+      if (!hidden[i] && !collapsedFolders.has(f.folderId) && folderHasChild(i) && f.depth > deepest) {
+        deepest = f.depth;
+      }
+    }
+    if (deepest < 0) {
+      return;
+    }
+    let changed = false;
+    for (let i = 0; i < sections.folders.length; i++) {
+      const f = sections.folders[i];
+      if (!hidden[i] && !collapsedFolders.has(f.folderId) && folderHasChild(i) && f.depth === deepest) {
+        collapsedFolders.add(f.folderId);
+        changed = true;
+      }
+    }
+    if (changed) {
+      persistCollapsed();
+      render();
+    }
+  }
+
+  // Per-index flag: true when a folder sits inside a collapsed ancestor and is thus
+  // not on screen, computed with the same pre-order hideDeeperThan rule renderTree
+  // uses to omit collapsed subtrees. Keeps "collapse one level" acting only on the
+  // folders the user can actually see.
+  function computeHiddenFolders() {
+    const hidden = new Array(sections.folders.length).fill(false);
+    let hideDeeperThan = Infinity;
+    for (let i = 0; i < sections.folders.length; i++) {
+      const f = sections.folders[i];
+      if (f.depth <= hideDeeperThan) {
+        hideDeeperThan = Infinity;
+      }
+      if (f.depth > hideDeeperThan) {
+        hidden[i] = true;
+        continue;
+      }
+      if (collapsedFolders.has(f.folderId)) {
+        hideDeeperThan = f.depth;
+      }
+    }
+    return hidden;
+  }
+
+  // The folder header that is the parent of a given treeitem row (a chat row or a
+  // folder header), used by ArrowLeft. Walks the rendered rows backwards from the
+  // row to the nearest preceding folder header at a shallower aria-level.
+  function parentFolderHeaderOf(el) {
+    const rows = focusableRows();
+    const idx = rows.indexOf(el);
+    if (idx <= 0) {
+      return null;
+    }
+    const level = rowLevel(el);
+    for (let i = idx - 1; i >= 0; i--) {
+      const candidate = rows[i];
+      if (candidate.dataset.kind === 'folder' && rowLevel(candidate) < level) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  // The focusable folder header for a given folder id, or null when none is
+  // rendered (the synthetic Unsorted bucket has no treeitem header). ArrowLeft uses
+  // this to move a chat row to its OWNING folder by id, avoiding the backward DOM
+  // scan that would mis-resolve an unfiled chat to an unrelated preceding folder.
+  function parentFolderHeaderById(folderId) {
+    if (!folderId) {
+      return null;
+    }
+    const rows = focusableRows();
+    return rows.find((r) => r.dataset.kind === 'folder' && r.dataset.id === 'folder:' + folderId) || null;
+  }
+
+  // A treeitem's nesting level: a folder header carries aria-level (depth + 1); a
+  // chat row has none, so it is treated as one level below its containing folder
+  // header. The fallback keeps ArrowLeft from a chat row resolving to its folder.
+  function rowLevel(el) {
+    const attr = el.getAttribute && el.getAttribute('aria-level');
+    if (attr) {
+      return parseInt(attr, 10);
+    }
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  // The folder id for a focusable folder header (a real folder treeitem), else
+  // null. Only real folder headers carry renameFolderId; the synthetic Unsorted
+  // header is not a treeitem and never reaches the keyboard handler.
+  function folderIdOf(el) {
+    if (el && el.dataset && el.dataset.kind === 'folder' && el.dataset.renameFolderId) {
+      return el.dataset.renameFolderId;
+    }
+    return null;
+  }
+
+  // ArrowRight on an expanded folder moves focus to its first child. In the
+  // rendered DOM the first child is the very next focusable row, but only when it
+  // is actually nested deeper than this folder (an empty expanded folder has no
+  // child, so focus stays put).
+  function moveToFirstChild(folderHeader) {
+    const rows = focusableRows();
+    const idx = rows.indexOf(folderHeader);
+    if (idx === -1 || idx + 1 >= rows.length) {
+      return;
+    }
+    const next = rows[idx + 1];
+    if (rowLevel(next) > rowLevel(folderHeader)) {
+      setFocus(next);
+    }
+  }
+
+  // Re-focus the row with the given dataset.id after a re-render, falling back to
+  // the roving entry point when it is gone (e.g. it scrolled out under a filter).
+  function refocusById(id) {
+    const rows = focusableRows();
+    const target = rows.find((r) => r.dataset.id === id);
+    if (target) {
+      setFocus(target);
+    }
   }
 
   // Content-search render: ranked rows in score order, no grouping.
@@ -357,8 +597,14 @@
     restoreFocus();
   }
 
+  // Content search shows flat ranked results instead of the folder tree, so the
+  // collapse controls have nothing to act on while it is active.
+  function isContentSearchActive() {
+    return contentMode() && filterEl.value.trim().length > 0;
+  }
+
   function render() {
-    if (contentMode() && filterEl.value.trim().length > 0) {
+    if (isContentSearchActive()) {
       renderSearch();
     } else {
       renderTree();
@@ -639,6 +885,38 @@
       if (rows.length) {
         setFocus(rows[rows.length - 1]);
       }
+    } else if (e.key === 'ArrowRight' && isRow) {
+      // ARIA tree pattern: on a collapsed folder, expand; on an expanded folder,
+      // move to its first child; on anything else, do nothing.
+      e.preventDefault();
+      const folderId = folderIdOf(active);
+      if (folderId !== null) {
+        if (active.getAttribute('aria-expanded') === 'false') {
+          setCollapsed(folderId, false);
+        } else {
+          moveToFirstChild(active);
+        }
+      }
+    } else if (e.key === 'ArrowLeft' && isRow) {
+      // ARIA tree pattern: on an expanded folder, collapse; on a collapsed folder
+      // or a non-folder row, move focus to the parent folder header. A chat row
+      // resolves its parent by its owning folder id (set in renderSection), not a
+      // backward DOM scan, so an unfiled chat does not jump to an unrelated sibling
+      // folder; the synthetic Unsorted bucket has no focusable header, so an
+      // unfiled chat's ArrowLeft is a no-op.
+      e.preventDefault();
+      const folderId = folderIdOf(active);
+      if (folderId !== null && active.getAttribute('aria-expanded') === 'true') {
+        setCollapsed(folderId, true);
+      } else {
+        const parent =
+          active.dataset.kind === 'folder'
+            ? parentFolderHeaderOf(active)
+            : parentFolderHeaderById(active.dataset.parentFolderId);
+        if (parent) {
+          setFocus(parent);
+        }
+      }
     } else if ((e.key === 'Enter' || e.key === ' ') && isRow) {
       e.preventDefault();
       if (active.dataset.kind === 'chat') {
@@ -712,6 +990,20 @@
           activeTags.delete(t);
         }
       }
+      // Drop collapsed-folder ids whose folder no longer exists (e.g. it was
+      // deleted) so the persisted set does not accumulate dead ids; re-persist only
+      // when it actually changed, to avoid write churn on every refresh.
+      const liveFolders = new Set((sections.folders || []).map((f) => f.folderId));
+      let prunedCollapsed = false;
+      for (const id of Array.from(collapsedFolders)) {
+        if (!liveFolders.has(id)) {
+          collapsedFolders.delete(id);
+          prunedCollapsed = true;
+        }
+      }
+      if (prunedCollapsed) {
+        persistCollapsed();
+      }
       renderChips();
       render();
     } else if (msg.type === 'searchResults' && Array.isArray(msg.rows)) {
@@ -726,6 +1018,14 @@
     } else if (msg.type === 'state') {
       sortMode = msg.sort || 'newest';
       densityMode = msg.density || 'comfortable';
+      collapsedFolders.clear();
+      if (Array.isArray(msg.collapsedFolders)) {
+        for (const id of msg.collapsedFolders) {
+          if (typeof id === 'string') {
+            collapsedFolders.add(id);
+          }
+        }
+      }
       if (sortEl) {
         sortEl.value = sortMode;
       }
@@ -781,6 +1081,9 @@
       vscode.postMessage({ type: 'setState', density: densityMode });
       render();
     });
+  }
+  if (collapseLevelEl) {
+    collapseLevelEl.addEventListener('click', collapseDeepestOpenLevel);
   }
 
   vscode.postMessage({ type: 'ready' });
