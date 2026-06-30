@@ -748,12 +748,4 @@ export class MetadataStore {
   }
 }
 
-// Default factory: a store with the production 150ms debounce.
-export function createMetadataStore(
-  memento: SyncMemento,
-  deviceId: string,
-): MetadataStore {
-  return new MetadataStore(memento, { deviceId });
-}
-
 export { emptyProjectMeta };
