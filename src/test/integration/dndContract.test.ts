@@ -1,6 +1,4 @@
 import * as assert from 'assert';
-import * as path from 'path';
-import * as fs from 'fs';
 import * as vscode from 'vscode';
 
 import {
@@ -8,7 +6,7 @@ import {
   FOLDERS_RESERVED_MIME,
   TAGS_RESERVED_MIME,
 } from '../../dnd/dndController';
-import { NEST_CHAT_MIME } from '../../dnd/dropReducer';
+import { NEST_CHAT_MIME, DropTargetView } from '../../dnd/dropReducer';
 import { clearDrag } from '../../dnd/dragContext';
 import {
   MetadataStore,
@@ -50,9 +48,13 @@ import { ChatRecord } from '../../model/types';
 //   2. The controller's node-dispatch helpers (chatIdsFromSource, resolveTarget)
 //      using `instanceof vscode.TreeItem` subclasses (FolderItem, ChatMemberItem,
 //      TagItem, ChatOccurrenceItem), which only have real prototypes in the host.
-//   3. The reserved-MIME literals equaling the value VSCode auto-derives from the
-//      contributed view ids in package.json (application/vnd.code.tree.<id>),
-//      cross-checked against the manifest the host actually loads.
+//   3. The reserved-MIME literals equaling the value VSCode auto-derives from a
+//      view id (application/vnd.code.tree.<id>), cross-checked against the FROZEN
+//      DropTargetView literals in dropReducer.ts. The native Folders and Tags trees
+//      were RETIRED in slice 6 (the org panel webview owns drag-and-drop now), so
+//      those view ids are no longer contributed in the manifest; the native
+//      controller and its reserved MIMEs are KEPT and still derive from the frozen
+//      'claudeNest.folders' / 'claudeNest.tags' target-view strings.
 //
 // The headless dropReducer / dropPayload unit tests cover the pure interpretation
 // and tolerant payload parsing; this test covers the host seam they cannot.
@@ -87,20 +89,15 @@ function reservedMimeForViewId(viewId: string): string {
   return 'application/vnd.code.tree.' + viewId.toLowerCase();
 }
 
-function readContributedViewIds(): { folders: string; tags: string } {
-  // Read the SAME package.json the host loaded as the Extension Manifest. The repo
-  // root is three levels up from out/test/integration.
-  const manifestPath = path.resolve(__dirname, '../../../package.json');
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
-    contributes: { views: { claudeNest: { id: string }[] } };
-  };
-  const views = manifest.contributes.views.claudeNest;
-  const folders = views.find((v) => v.id === 'claudeNest.folders');
-  const tags = views.find((v) => v.id === 'claudeNest.tags');
-  assert.ok(folders, 'package.json must contribute the claudeNest.folders view');
-  assert.ok(tags, 'package.json must contribute the claudeNest.tags view');
-  return { folders: folders.id, tags: tags.id };
-}
+// The FROZEN drop-target view ids the native controller uses. The native Folders
+// and Tags trees were retired in slice 6, so these are no longer contributed in
+// package.json; they live on as the dropReducer DropTargetView contract, and the
+// native controller's reserved MIMEs are still derived from them. The annotation
+// pins them to the frozen union, so a change to DropTargetView fails the build here.
+const FROZEN_TARGET_VIEWS: { folders: DropTargetView; tags: DropTargetView } = {
+  folders: 'claudeNest.folders',
+  tags: 'claudeNest.tags',
+};
 
 const PROJECT_KEY = 'integration-test-project';
 
@@ -161,29 +158,19 @@ function buildHarness() {
 }
 
 describe('Slice 4 drag-and-drop controller registration and MIME contract (electron host)', () => {
-  it('both views register a real TreeDragAndDropController', () => {
+  it('both controllers expose a valid TreeDragAndDropController shape (native trees retired)', () => {
+    // Slice 6 retired the native Folders and Tags trees (the org panel webview owns
+    // drag-and-drop now), so the controllers are no longer attached via
+    // createTreeView; createTreeView on the uncontributed view ids would throw. The
+    // controllers themselves are KEPT and unit-tested, so assert the host accepts
+    // their shape: the drag and drop MIME arrays plus the handleDrag/handleDrop
+    // methods.
     const { foldersDnd, tagsDnd } = buildHarness();
-    // The createTreeView option accepts a TreeDragAndDropController; constructing a
-    // real tree view with each controller proves the host accepts the shape (and
-    // disposes cleanly). This is the "controllers register" assertion.
-    const foldersProvider = new FoldersProvider(undefined, buildHarness().store);
-    const tagsProvider = new TagsProvider(undefined, buildHarness().store);
-    const foldersView = vscode.window.createTreeView('claudeNest.folders', {
-      treeDataProvider: foldersProvider,
-      dragAndDropController: foldersDnd,
-      canSelectMany: true,
-    });
-    const tagsView = vscode.window.createTreeView('claudeNest.tags', {
-      treeDataProvider: tagsProvider,
-      dragAndDropController: tagsDnd,
-      canSelectMany: true,
-    });
-    try {
-      assert.ok(foldersView, 'Folders tree view created with a DnD controller');
-      assert.ok(tagsView, 'Tags tree view created with a DnD controller');
-    } finally {
-      foldersView.dispose();
-      tagsView.dispose();
+    for (const ctrl of [foldersDnd, tagsDnd]) {
+      assert.ok(Array.isArray(ctrl.dragMimeTypes), 'dragMimeTypes is an array');
+      assert.ok(Array.isArray(ctrl.dropMimeTypes), 'dropMimeTypes is an array');
+      assert.strictEqual(typeof ctrl.handleDrag, 'function', 'handleDrag is callable');
+      assert.strictEqual(typeof ctrl.handleDrop, 'function', 'handleDrop is callable');
     }
   });
 
@@ -212,8 +199,8 @@ describe('Slice 4 drag-and-drop controller registration and MIME contract (elect
     }
   });
 
-  it('the reserved-MIME literals equal application/vnd.code.tree.<viewidlowercase> derived from package.json', () => {
-    const ids = readContributedViewIds();
+  it('the reserved-MIME literals equal application/vnd.code.tree.<viewidlowercase> derived from the frozen DropTargetView ids', () => {
+    const ids = FROZEN_TARGET_VIEWS;
     assert.strictEqual(FOLDERS_RESERVED_MIME, reservedMimeForViewId(ids.folders));
     assert.strictEqual(TAGS_RESERVED_MIME, reservedMimeForViewId(ids.tags));
     // And the controllers actually carry those literals.

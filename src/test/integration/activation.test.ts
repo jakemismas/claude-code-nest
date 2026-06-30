@@ -66,16 +66,16 @@ describe('Polish: activation and empty-state (electron host)', () => {
     const contributes = manifest.contributes as Record<string, unknown>;
     const views = (contributes.views as Record<string, Array<{ id: string }>>).claudeNest;
     const ids = views.map((v) => v.id).sort();
-    // The full contributed view set: the four tree views, the archive tree view
-    // (Slice 4), and the chatsPreview webview POC (Slice 6 staging). Asserted as the
-    // exact set so adding or dropping a view forces this gate to be revisited.
+    // The full contributed view set after the slice 6 retirement: the org panel
+    // webview (the primary surface), the flat Chats tree (the accessible fallback),
+    // Smart Groups, and Archive. The native Folders and Tags trees and the
+    // chatsPreview POC were retired. Asserted as the exact set so adding or dropping
+    // a view forces this gate to be revisited.
     assert.deepStrictEqual(ids, [
       'claudeNest.archive',
-      'claudeNest.chatsPreview',
       'claudeNest.flat',
-      'claudeNest.folders',
+      'claudeNest.orgPanel',
       'claudeNest.smartGroups',
-      'claudeNest.tags',
     ]);
     const containers = contributes.viewsContainers as {
       activitybar: Array<{ id: string; icon: string }>;
@@ -92,8 +92,6 @@ describe('Polish: activation and empty-state (electron host)', () => {
     const byView = new Map(welcome.map((w) => [w.view, w.contents]));
     for (const view of [
       'claudeNest.flat',
-      'claudeNest.folders',
-      'claudeNest.tags',
       'claudeNest.smartGroups',
       'claudeNest.archive',
     ]) {
