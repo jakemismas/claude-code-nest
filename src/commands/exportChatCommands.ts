@@ -23,15 +23,6 @@ export const EXPORT_CHAT_COMMAND = 'claudeNest.exportChat';
 // formatter.
 export type ExportFormat = 'markdown' | 'json';
 
-// A chosen save target plus the format. The dialog seam returns null when the user
-// cancels.
-export interface ExportSaveTarget {
-  // The opaque target the writeFile seam understands (a vscode.Uri in production; a
-  // string path in a test). Kept as unknown so this module stays vscode-free.
-  target: unknown;
-  format: ExportFormat;
-}
-
 export interface ExportChatDeps {
   // Pick the export format (Markdown or JSON). extension.ts wires a QuickPick; a
   // test supplies a fixed choice. Returns null on cancel.

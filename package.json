@@ -273,7 +273,7 @@
       },
       {
         "command": "claudeNest.openSettings",
-        "title": "Claude Code Nest Settings",
+        "title": "Settings",
         "category": "Claude Code Nest",
         "icon": "$(gear)"
       },
