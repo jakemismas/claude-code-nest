@@ -711,8 +711,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // Read the configured keep-window (the extension's FIRST contributes.configuration
   // value) in the vscode-thin layer and coerce it to a plain keepWindowDays number
   // here, so the pure archiveRetention policy never reads getConfiguration (slice
-  // patch "KEEP-WINDOW SETTING MECHANISM"). Re-read on each prune so a settings
-  // change takes effect without a reload.
+  // patch "KEEP-WINDOW SETTING MECHANISM"). Evaluated at each prune invocation, which
+  // currently runs once per activation, so a mid-session settings change applies on
+  // the next window reload.
   const keepWindowDays = (): number =>
     coerceKeepWindowDays(
       vscode.workspace.getConfiguration('claudeNest').get<number>('archiveKeepWindowDays'),
