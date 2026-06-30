@@ -11,8 +11,9 @@ find and revisit any chat without it ever touching Claude's transcripts.
 - **Organize panel.** The primary view, with a Starred section, a Questions
   section (chats whose last turn was yours, a scan-time heuristic labeled as such),
   a single-home folder hierarchy with per-folder color and counts, and an
-  always-present Unsorted bucket. Tag filter chips, sort, density modes, folder
-  rename, drag-to-unfile, and in-panel drag-and-drop.
+  always-present Unsorted bucket. Folders are collapsible (with a collapse-one-level
+  control and full keyboard navigation). Tag filter chips, sort, density modes,
+  folder rename, drag-to-unfile, and in-panel drag-and-drop.
 - **Full-text content search.** Search across chat content from the Organize
   panel and see a matched-context snippet under each result. Clearing the query
   restores the full list.
@@ -47,7 +48,7 @@ best-effort, last-writer-wins basis, with a JSON export as the authoritative bac
 
 Install the packaged VSIX:
 
-- From a terminal: `code --install-extension claude-code-nest-0.1.0.vsix`
+- From a terminal: `code --install-extension claude-code-nest-0.1.1.vsix`
 - Or in VS Code: open the Extensions view, use the `...` menu, choose **Install
   from VSIX...**, and select `claude-code-nest-0.1.0.vsix`
 
@@ -88,7 +89,7 @@ The most common ones are also surfaced as view-title buttons or row actions:
 - **Export Chat...**, **Export Library to JSON...**, and **Import Library from JSON...**
   move your data in and out.
 - **Show Token Cost Rollup** opens the by-folder and by-tag token report.
-- **Claude Code Nest Settings** opens the `cleanupPeriodDays` panel.
+- **Settings** (shown as "Claude Code Nest: Settings") opens the `cleanupPeriodDays` panel.
 
 ## Data and privacy
 
