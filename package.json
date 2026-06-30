@@ -513,6 +513,14 @@
           "when": "false"
         },
         {
+          "command": "claudeNest.refreshFolders",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.refreshTags",
+          "when": "false"
+        },
+        {
           "command": "claudeNest.previewChat",
           "when": "false"
         },
