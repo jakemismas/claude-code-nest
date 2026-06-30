@@ -2,7 +2,7 @@
   "name": "claude-code-nest",
   "displayName": "Claude Code Nest",
   "description": "A read-only organizer for your Claude Code chat history: folders, tags, links, full-text search, archive, export, and read-only smart groups in the VS Code sidebar.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "jakemismas",
   "license": "MIT",
   "icon": "media/icon.png",

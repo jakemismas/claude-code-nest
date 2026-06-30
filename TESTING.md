@@ -515,12 +515,20 @@ automated pixel gate, because the build agent cannot see its own rendered webvie
    a tag chip to apply that tag.
 7. Keyboard and screen reader: confirm full keyboard navigation works (arrow keys
    move focus through the ARIA tree, Enter/Space activates a row, a single roving
-   tabindex, a visible focus ring) and that rows carry sensible ARIA labels.
+   tabindex, a visible focus ring on BOTH chat rows and folder headers) and that
+   rows carry sensible ARIA labels.
 8. Flat Chats fallback: confirm the flat Chats view still lists every session
    newest-first and still works as the accessible fallback.
 9. Retired trees gone: confirm the old native Folders and Tags TREES no longer
    appear in the panel (superseded by the Organize panel), and that the Chats
    (Preview) proof-of-concept webview is gone too.
+10. Collapsible folders: click a folder's chevron to collapse it and confirm its
+    chats and any subfolders hide, then expand it and confirm they return. With a
+    folder header focused, press ArrowLeft to collapse (or move to the parent) and
+    ArrowRight to expand (or move to the first child). Click "Collapse one level"
+    and confirm the deepest open folder level folds. Collapse a folder, reload the
+    window, and confirm it stays collapsed (state persists per workspace, not
+    synced). Confirm the always-present Unsorted bucket has no collapse chevron.
 
 ## Integration tests (deferred)
 

@@ -5,6 +5,46 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-30
+
+A verify-and-polish pass over the released 0.1.0 plus the collapsible-folders
+feature, folded into the Sprint 2 work item (#16).
+
+### Added
+
+- Collapsible folder sections in the Organize panel (#64): each real folder
+  section collapses and expands with a disclosure chevron and aria-expanded, the
+  full ARIA tree keyboard pattern (ArrowRight expands a collapsed folder or moves
+  to its first child, ArrowLeft collapses an expanded folder or moves to the
+  parent), and a "collapse one level" control that folds the deepest open visible
+  level. The collapsed set persists per workspace and is never synced, mirroring
+  sort and density. The synthetic Unsorted catch-all stays always expanded.
+
+### Changed
+
+- The Settings command title is now "Settings" (#67), so the command palette
+  shows "Claude Code Nest: Settings" instead of repeating the product name. The
+  command id and the settings editor tab title are unchanged.
+- The orphaned Refresh Folders and Refresh Tags commands, left without a tree
+  after the slice 6 retirement, are hidden from the command palette (#69). The
+  kept non-view providers' refresh is still callable internally.
+- ARCHITECTURE.md gained a module map and its Git landing strategy was corrected
+  to PR-per-slice; SPRINT-2-PLAN.md and the CHANGELOG were reconciled with the
+  shipped surfaces, and an inaccurate prune comment was fixed (#63, #66).
+- The deferred host-only integration tests were updated to the post-slice-6 view
+  set (#68); the frozen dropReducer DropTargetView literals are unchanged.
+
+### Fixed
+
+- Org-panel folder headers, which are focusable tree items, now show the same
+  accent focus ring as chat rows (#62), so keyboard focus is consistent across
+  the tree and matches the UI-SPEC accessibility criterion.
+
+### Removed
+
+- Two dead exports (the unused ExportSaveTarget interface and the
+  createMetadataStore factory) were removed (#67). No behavior change.
+
 ## [0.1.0] - 2026-06-28
 
 ### Added
