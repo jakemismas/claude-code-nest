@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#1f1d1a;}
+  @keyframes ccblink{0%,100%{opacity:1;}50%{opacity:0.25;}}
+  *::-webkit-scrollbar{width:9px;height:9px;}
+  *::-webkit-scrollbar-thumb{background:#D8D3C7;border-radius:6px;border:2px solid transparent;background-clip:content-box;}
+  *::-webkit-scrollbar-thumb:hover{background:#C5BFB1;background-clip:content-box;}
+</style>
+</helmet>
+
+<div style="position:fixed;inset:0;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#F4F2EC;">
+
+  <div style="height:36px;flex:none;display:flex;align-items:center;padding:0 14px;background:#ECE9E1;border-bottom:1px solid #DEDACE;">
+    <div style="display:flex;gap:8px;">
+      <span style="width:12px;height:12px;border-radius:50%;background:#E0685C;"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#E5B43E;"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#69B95B;"></span>
+    </div>
+    <span style="flex:1;text-align:center;font-size:12px;color:#8C887E;letter-spacing:0.2px;">claude-chat-organizer — Visual Studio Code</span>
+    <span style="width:54px;"></span>
+  </div>
+
+  <div style="flex:1;min-height:0;display:flex;">
+    <!-- activity bar -->
+    <div style="width:50px;flex:none;background:#E6E3DB;border-right:1px solid #DCD8CC;display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:4px;">
+      <div style="width:50px;display:flex;justify-content:center;padding:8px 0;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#86827A" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="1.5"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/></svg></div>
+      <div style="width:50px;display:flex;justify-content:center;padding:8px 0;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#86827A" stroke-width="1.6"><circle cx="10" cy="10" r="6"/><line x1="14.5" y1="14.5" x2="20" y2="20" stroke-linecap="round"/></svg></div>
+      <div style="width:50px;display:flex;justify-content:center;padding:8px 0;"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#86827A" stroke-width="1.6"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="8" r="2.4"/><path d="M6 8.4v7.2M8.2 6.4c6 0 7.6 1 7.6 3.6"/></svg></div>
+      <div style="flex:1;"></div>
+      <div style="width:50px;display:flex;justify-content:center;padding:9px 0;position:relative;margin-bottom:8px;">
+        <span style="position:absolute;left:0;top:6px;bottom:6px;width:2.5px;border-radius:2px;background:#d97757;"></span>
+        <span style="width:24px;height:24px;border-radius:7px;background:#d97757;box-shadow:0 2px 6px rgba(193,95,60,.4);"></span>
+      </div>
+    </div>
+
+    <!-- ================= SIDEBAR ================= -->
+    <div style="{{ sidebarStyle }}">
+
+      <div style="display:flex;align-items:center;gap:2px;padding:9px 9px 6px;flex:none;">
+        <span onClick="{{ newChat }}" title="New session" style-hover="background:#c6613f;" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:6px;cursor:pointer;color:#fff;background:#d97757;font-size:12.5px;font-weight:600;white-space:nowrap;"><span style="font-size:15px;font-weight:300;line-height:1;">+</span>New session</span>
+        <span style="flex:1;"></span>
+        <span onClick="{{ toggleSettings }}" title="Settings" style-hover="background:#EEEBE2;" style="{{ cogBtnStyle }}">⚙</span>
+        <div style="position:relative;">
+          <span onClick="{{ toggleSort }}" title="Sort" style-hover="background:#EEEBE2;" style="width:27px;height:27px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#6E6A60;font-size:15px;">⇅</span>
+          <sc-if value="{{ sortOpen }}">
+            <div style="position:absolute;right:0;top:31px;z-index:42;background:#fff;border:1px solid #E6E2D9;border-radius:8px;box-shadow:0 10px 28px rgba(40,33,20,0.16);padding:5px;min-width:140px;">
+              <div style="padding:4px 9px 5px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">SORT BY</div>
+              <sc-for list="{{ sortItems }}" as="it" hint-placeholder-count="3">
+                <div onClick="{{ it.onClick }}" style-hover="background:#F4F2EA;" style="display:flex;align-items:center;justify-content:space-between;padding:6px 9px;border-radius:4px;cursor:pointer;font-size:12.5px;color:#2B2A27;">
+                  <span>{{ it.label }}</span>
+                  <sc-if value="{{ it.active }}"><span style="color:#d97757;font-size:12px;">✓</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div style="position:relative;padding:0 9px 8px;flex:none;">
+        <span style="position:absolute;left:19px;top:7px;pointer-events:none;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#A6A294" stroke-width="1.6"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke="#A6A294" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </span>
+        <input value="{{ search }}" onInput="{{ onSearch }}" placeholder="Search chats & messages" style="width:100%;box-sizing:border-box;padding:7px 28px 7px 31px;border-radius:6px;border:1px solid #E4E0D6;background:#FBFAF6;font-size:13px;color:#2B2A27;outline:none;font-family:inherit;transition:border-color 160ms ease,box-shadow 160ms ease;" style-focus="border-color:#d97757;box-shadow:0 0 0 1px #d97757,0 0 14px 2px rgba(217,119,87,0.35);background:#fff;" />
+        <sc-if value="{{ searchActive }}">
+          <span onClick="{{ clearSearch }}" style-hover="background:#E8E5DC;" style="position:absolute;right:16px;top:6px;width:19px;height:19px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#8C887E;font-size:13px;">×</span>
+        </sc-if>
+      </div>
+
+      <div style="display:flex;gap:5px;padding:0 9px 9px;overflow-x:auto;flex:none;scrollbar-width:none;">
+        <sc-for list="{{ tagChips }}" as="t" hint-placeholder-count="5">
+          <span onClick="{{ t.onClick }}" style="{{ t.style }}"><span style="{{ t.dotStyle }}"></span>{{ t.label }}</span>
+        </sc-for>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:0 6px 14px;">
+
+        <sc-if value="{{ filtering }}">
+          <div style="padding:5px 8px 3px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">{{ resultCount }} RESULTS</div>
+          <sc-for list="{{ results }}" as="chat" hint-placeholder-count="4">
+            <div draggable="true" onClick="{{ chat.onOpen }}" onContextMenu="{{ chat.onContext }}" onMouseEnter="{{ chat.onHover }}" onMouseLeave="{{ chat.onHoverEnd }}" onDragStart="{{ chat.onDragStart }}" onDragEnd="{{ chat.onDragEnd }}" style="{{ chat.rowStyle }}" style-hover="background:{{ chat.hoverBg }};" title="{{ chat.title }}">
+              <div style="display:flex;align-items:center;gap:7px;width:100%;">
+                <span style="width:15px;flex:none;display:inline-flex;align-items:center;justify-content:center;">
+                  <sc-if value="{{ chat.statusQuestion }}"><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#d97757;color:#fff;font-size:9px;font-weight:700;line-height:1;animation:ccblink 1.15s ease-in-out infinite;">?</span></sc-if>
+                  <sc-if value="{{ chat.statusDone }}"><span style="width:8px;height:8px;border-radius:50%;background:#d97757;"></span></sc-if>
+                </span>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ chat.title }}</span>
+                <sc-if value="{{ chat.hasFolderLabel }}"><span style="flex:none;font-size:10.5px;color:#B0AB9E;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;">{{ chat.folderLabel }}</span></sc-if>
+                <span style="display:flex;gap:4px;align-items:center;flex:none;">
+                  <sc-for list="{{ chat.tags }}" as="t" hint-placeholder-count="1"><span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:500;white-space:nowrap;background:{{ t.bg }};color:{{ t.color }};">{{ t.label }}</span></sc-for>
+                </span>
+                <span style="flex:none;font-size:10.5px;color:#A8A398;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:42px;text-align:right;">{{ chat.time }}</span>
+                <sc-if value="{{ chat.starred }}"><span onClick="{{ chat.onToggleStar }}" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#d97757;">★</span></sc-if>
+                <sc-if value="{{ chat.notStarred }}"><span onClick="{{ chat.onToggleStar }}" style-hover="color:#d97757;" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#D6D0C2;">☆</span></sc-if>
+              </div>
+              <sc-if value="{{ chat.hasSnippet }}"><div style="padding-left:22px;font-size:11px;line-height:1.4;color:#9A958A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;">{{ chat.snippet }}</div></sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noResults }}">
+            <div style="padding:30px 12px;text-align:center;color:#B0AB9E;font-size:12.5px;">No chats match your search.</div>
+          </sc-if>
+        </sc-if>
+
+        <sc-if value="{{ notFiltering }}" hint-placeholder-val="{{ true }}">
+
+          <sc-if value="{{ starredShown }}">
+            <div style="padding:7px 8px 3px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">STARRED</div>
+            <sc-for list="{{ starred }}" as="chat" hint-placeholder-count="2">
+              <div draggable="true" onClick="{{ chat.onOpen }}" onContextMenu="{{ chat.onContext }}" onMouseEnter="{{ chat.onHover }}" onMouseLeave="{{ chat.onHoverEnd }}" onDragStart="{{ chat.onDragStart }}" onDragEnd="{{ chat.onDragEnd }}" style="{{ chat.rowStyle }}" style-hover="background:{{ chat.hoverBg }};" title="{{ chat.title }}">
+                <div style="display:flex;align-items:center;gap:7px;width:100%;">
+                  <span style="width:15px;flex:none;display:inline-flex;align-items:center;justify-content:center;">
+                    <sc-if value="{{ chat.statusQuestion }}"><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#d97757;color:#fff;font-size:9px;font-weight:700;line-height:1;animation:ccblink 1.15s ease-in-out infinite;">?</span></sc-if>
+                    <sc-if value="{{ chat.statusDone }}"><span style="width:8px;height:8px;border-radius:50%;background:#d97757;"></span></sc-if>
+                  </span>
+                  <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ chat.title }}</span>
+                  <span style="display:flex;gap:4px;align-items:center;flex:none;">
+                    <sc-for list="{{ chat.tags }}" as="t" hint-placeholder-count="1"><span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:500;white-space:nowrap;background:{{ t.bg }};color:{{ t.color }};">{{ t.label }}</span></sc-for>
+                  </span>
+                  <span style="flex:none;font-size:10.5px;color:#A8A398;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:42px;text-align:right;">{{ chat.time }}</span>
+                  <sc-if value="{{ chat.starred }}"><span onClick="{{ chat.onToggleStar }}" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#d97757;">★</span></sc-if>
+                  <sc-if value="{{ chat.notStarred }}"><span onClick="{{ chat.onToggleStar }}" style-hover="color:#d97757;" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#D6D0C2;">☆</span></sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </sc-if>
+
+          <sc-if value="{{ questionsShown }}">
+            <div style="padding:9px 8px 3px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">QUESTIONS</div>
+            <sc-for list="{{ questions }}" as="chat" hint-placeholder-count="2">
+              <div draggable="true" onClick="{{ chat.onOpen }}" onContextMenu="{{ chat.onContext }}" onMouseEnter="{{ chat.onHover }}" onMouseLeave="{{ chat.onHoverEnd }}" onDragStart="{{ chat.onDragStart }}" onDragEnd="{{ chat.onDragEnd }}" style="{{ chat.rowStyle }}" style-hover="background:{{ chat.hoverBg }};" title="{{ chat.title }}">
+                <div style="display:flex;align-items:center;gap:7px;width:100%;">
+                  <span style="width:15px;flex:none;display:inline-flex;align-items:center;justify-content:center;">
+                    <sc-if value="{{ chat.statusQuestion }}"><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#d97757;color:#fff;font-size:9px;font-weight:700;line-height:1;animation:ccblink 1.15s ease-in-out infinite;">?</span></sc-if>
+                  </span>
+                  <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ chat.title }}</span>
+                  <sc-if value="{{ chat.hasFolderLabel }}"><span style="flex:none;font-size:10.5px;color:#B0AB9E;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;">{{ chat.folderLabel }}</span></sc-if>
+                  <span style="display:flex;gap:4px;align-items:center;flex:none;">
+                    <sc-for list="{{ chat.tags }}" as="t" hint-placeholder-count="1"><span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:500;white-space:nowrap;background:{{ t.bg }};color:{{ t.color }};">{{ t.label }}</span></sc-for>
+                  </span>
+                  <span style="flex:none;font-size:10.5px;color:#A8A398;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:42px;text-align:right;">{{ chat.time }}</span>
+                  <sc-if value="{{ chat.starred }}"><span onClick="{{ chat.onToggleStar }}" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#d97757;">★</span></sc-if>
+                  <sc-if value="{{ chat.notStarred }}"><span onClick="{{ chat.onToggleStar }}" style-hover="color:#d97757;" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#D6D0C2;">☆</span></sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </sc-if>
+
+          <sc-if value="{{ foldersEnabled }}">
+          <div style="display:flex;align-items:center;padding:9px 8px 3px;">
+            <span style="flex:1;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">FOLDERS</span>
+            <span onClick="{{ openNewFolder }}" title="New folder" style-hover="background:#EEEBE2;color:#6E6A60;" style="width:19px;height:19px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#AEA99C;font-size:13px;">＋</span>
+            <span onClick="{{ collapseLevel }}" title="Collapse one level" style-hover="background:#EEEBE2;color:#6E6A60;" style="width:19px;height:19px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#AEA99C;font-size:11px;">⌃</span>
+          </div>
+          <sc-for list="{{ topFolders }}" as="f" hint-placeholder-count="3">
+            <div onClick="{{ f.onToggle }}" onDoubleClick="{{ f.onRename }}" onContextMenu="{{ f.onContext }}" onDragOver="{{ f.onOver }}" onDrop="{{ f.onDrop }}" onDragLeave="{{ f.onLeave }}" style="{{ f.rowStyle }}" style-hover="background:#F0EEE6;">
+              <span style="width:10px;font-size:9px;color:#9A968B;flex:none;">{{ f.chevron }}</span>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="{{ f.color }}" style="flex:none;"><path d="M1.4 4.1c0-.66.54-1.2 1.2-1.2h3.05c.4 0 .77.19 1 .52l.5.7c.23.33.6.52 1 .52h4.45c.66 0 1.2.54 1.2 1.2v6.35c0 .66-.54 1.2-1.2 1.2H2.6c-.66 0-1.2-.54-1.2-1.2z"/></svg>
+              <sc-if value="{{ f.renaming }}">
+                <input value="{{ renameValue }}" onClick="{{ stopProp }}" onInput="{{ onRenameInput }}" onKeyDown="{{ onRenameKey }}" onBlur="{{ commitRename }}" autofocus="true" style="flex:1;min-width:0;box-sizing:border-box;padding:1px 5px;border-radius:4px;border:1px solid #d97757;background:#fff;font-size:13px;font-weight:600;color:#2B2A27;outline:none;font-family:inherit;" />
+              </sc-if>
+              <sc-if value="{{ f.notRenaming }}">
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ f.name }}</span>
+                <span style="font-size:11px;color:#B0AB9E;font-weight:500;flex:none;">{{ f.count }}</span>
+              </sc-if>
+            </div>
+            <sc-if value="{{ f.expanded }}">
+              <sc-for list="{{ f.children }}" as="c" hint-placeholder-count="2">
+                <div onClick="{{ c.onToggle }}" onDoubleClick="{{ c.onRename }}" onContextMenu="{{ c.onContext }}" onDragOver="{{ c.onOver }}" onDrop="{{ c.onDrop }}" onDragLeave="{{ c.onLeave }}" style="{{ c.rowStyle }}" style-hover="background:#F0EEE6;">
+                  <span style="width:10px;font-size:9px;color:#9A968B;flex:none;">{{ c.chevron }}</span>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="{{ c.color }}" style="flex:none;"><path d="M1.4 4.1c0-.66.54-1.2 1.2-1.2h3.05c.4 0 .77.19 1 .52l.5.7c.23.33.6.52 1 .52h4.45c.66 0 1.2.54 1.2 1.2v6.35c0 .66-.54 1.2-1.2 1.2H2.6c-.66 0-1.2-.54-1.2-1.2z"/></svg>
+                  <sc-if value="{{ c.renaming }}">
+                    <input value="{{ renameValue }}" onClick="{{ stopProp }}" onInput="{{ onRenameInput }}" onKeyDown="{{ onRenameKey }}" onBlur="{{ commitRename }}" autofocus="true" style="flex:1;min-width:0;box-sizing:border-box;padding:1px 5px;border-radius:4px;border:1px solid #d97757;background:#fff;font-size:13px;font-weight:600;color:#2B2A27;outline:none;font-family:inherit;" />
+                  </sc-if>
+                  <sc-if value="{{ c.notRenaming }}">
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ c.name }}</span>
+                    <span style="font-size:11px;color:#B0AB9E;font-weight:500;flex:none;">{{ c.count }}</span>
+                  </sc-if>
+                </div>
+                <sc-if value="{{ c.expanded }}">
+                  <sc-for list="{{ c.chats }}" as="chat" hint-placeholder-count="2">
+                    <div draggable="true" onClick="{{ chat.onOpen }}" onContextMenu="{{ chat.onContext }}" onMouseEnter="{{ chat.onHover }}" onMouseLeave="{{ chat.onHoverEnd }}" onDragStart="{{ chat.onDragStart }}" onDragEnd="{{ chat.onDragEnd }}" style="{{ chat.rowStyle }}" style-hover="background:{{ chat.hoverBg }};" title="{{ chat.title }}">
+                      <div style="display:flex;align-items:center;gap:7px;width:100%;">
+                        <span style="width:15px;flex:none;display:inline-flex;align-items:center;justify-content:center;">
+                          <sc-if value="{{ chat.statusQuestion }}"><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#d97757;color:#fff;font-size:9px;font-weight:700;line-height:1;animation:ccblink 1.15s ease-in-out infinite;">?</span></sc-if>
+                          <sc-if value="{{ chat.statusDone }}"><span style="width:8px;height:8px;border-radius:50%;background:#d97757;"></span></sc-if>
+                        </span>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ chat.title }}</span>
+                        <span style="display:flex;gap:4px;align-items:center;flex:none;">
+                          <sc-for list="{{ chat.tags }}" as="t" hint-placeholder-count="1"><span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:500;white-space:nowrap;background:{{ t.bg }};color:{{ t.color }};">{{ t.label }}</span></sc-for>
+                        </span>
+                        <span style="flex:none;font-size:10.5px;color:#A8A398;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:42px;text-align:right;">{{ chat.time }}</span>
+                        <sc-if value="{{ chat.starred }}"><span onClick="{{ chat.onToggleStar }}" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#d97757;">★</span></sc-if>
+                        <sc-if value="{{ chat.notStarred }}"><span onClick="{{ chat.onToggleStar }}" style-hover="color:#d97757;" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#D6D0C2;">☆</span></sc-if>
+                      </div>
+                    </div>
+                  </sc-for>
+                </sc-if>
+              </sc-for>
+              <sc-for list="{{ f.chats }}" as="chat" hint-placeholder-count="2">
+                <div draggable="true" onClick="{{ chat.onOpen }}" onContextMenu="{{ chat.onContext }}" onMouseEnter="{{ chat.onHover }}" onMouseLeave="{{ chat.onHoverEnd }}" onDragStart="{{ chat.onDragStart }}" onDragEnd="{{ chat.onDragEnd }}" style="{{ chat.rowStyle }}" style-hover="background:{{ chat.hoverBg }};" title="{{ chat.title }}">
+                  <div style="display:flex;align-items:center;gap:7px;width:100%;">
+                    <span style="width:15px;flex:none;display:inline-flex;align-items:center;justify-content:center;">
+                      <sc-if value="{{ chat.statusQuestion }}"><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#d97757;color:#fff;font-size:9px;font-weight:700;line-height:1;animation:ccblink 1.15s ease-in-out infinite;">?</span></sc-if>
+                      <sc-if value="{{ chat.statusDone }}"><span style="width:8px;height:8px;border-radius:50%;background:#d97757;"></span></sc-if>
+                    </span>
+                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ chat.title }}</span>
+                    <span style="display:flex;gap:4px;align-items:center;flex:none;">
+                      <sc-for list="{{ chat.tags }}" as="t" hint-placeholder-count="1"><span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:500;white-space:nowrap;background:{{ t.bg }};color:{{ t.color }};">{{ t.label }}</span></sc-for>
+                    </span>
+                    <span style="flex:none;font-size:10.5px;color:#A8A398;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:42px;text-align:right;">{{ chat.time }}</span>
+                    <sc-if value="{{ chat.starred }}"><span onClick="{{ chat.onToggleStar }}" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#d97757;">★</span></sc-if>
+                    <sc-if value="{{ chat.notStarred }}"><span onClick="{{ chat.onToggleStar }}" style-hover="color:#d97757;" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#D6D0C2;">☆</span></sc-if>
+                  </div>
+                </div>
+              </sc-for>
+            </sc-if>
+          </sc-for>
+          </sc-if>
+
+          <sc-if value="{{ recentEnabled }}">
+          <div onDragOver="{{ onRecentOver }}" onDrop="{{ onRecentDrop }}" onDragLeave="{{ onRecentLeave }}" style="{{ recentHeaderStyle }}">UNSORTED</div>
+          <sc-for list="{{ unfiled }}" as="chat" hint-placeholder-count="3">
+            <div draggable="true" onClick="{{ chat.onOpen }}" onContextMenu="{{ chat.onContext }}" onMouseEnter="{{ chat.onHover }}" onMouseLeave="{{ chat.onHoverEnd }}" onDragStart="{{ chat.onDragStart }}" onDragEnd="{{ chat.onDragEnd }}" style="{{ chat.rowStyle }}" style-hover="background:{{ chat.hoverBg }};" title="{{ chat.title }}">
+              <div style="display:flex;align-items:center;gap:7px;width:100%;">
+                <span style="width:15px;flex:none;display:inline-flex;align-items:center;justify-content:center;">
+                  <sc-if value="{{ chat.statusQuestion }}"><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#d97757;color:#fff;font-size:9px;font-weight:700;line-height:1;animation:ccblink 1.15s ease-in-out infinite;">?</span></sc-if>
+                  <sc-if value="{{ chat.statusDone }}"><span style="width:8px;height:8px;border-radius:50%;background:#d97757;"></span></sc-if>
+                </span>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ chat.title }}</span>
+                <span style="display:flex;gap:4px;align-items:center;flex:none;">
+                  <sc-for list="{{ chat.tags }}" as="t" hint-placeholder-count="1"><span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:500;white-space:nowrap;background:{{ t.bg }};color:{{ t.color }};">{{ t.label }}</span></sc-for>
+                </span>
+                <span style="flex:none;font-size:10.5px;color:#A8A398;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:42px;text-align:right;">{{ chat.time }}</span>
+                <sc-if value="{{ chat.starred }}"><span onClick="{{ chat.onToggleStar }}" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#d97757;">★</span></sc-if>
+                <sc-if value="{{ chat.notStarred }}"><span onClick="{{ chat.onToggleStar }}" style-hover="color:#d97757;" style="font-size:12px;cursor:pointer;flex:none;width:15px;text-align:center;color:#D6D0C2;">☆</span></sc-if>
+              </div>
+            </div>
+          </sc-for>
+          </sc-if>
+
+        </sc-if>
+
+        <sc-if value="{{ hasArchived }}">
+          <div onClick="{{ openArchive }}" style-hover="background:#F0EEE6;color:#6E6A60;" style="display:flex;align-items:center;gap:7px;margin-top:10px;padding:7px 8px;border-radius:4px;cursor:pointer;color:#9A968B;font-size:12px;">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="3" rx="0.6"/><path d="M3 6.5v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-6"/><line x1="6.5" y1="9" x2="9.5" y2="9" stroke-linecap="round"/></svg>
+            <span style="flex:1;">Archived</span>
+            <span style="color:#B0AB9E;font-weight:500;">{{ archivedCount }}</span>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ settingsOpen }}">
+        <div style="position:absolute;inset:0;z-index:45;background:#FCFBF8;display:flex;flex-direction:column;">
+          <div style="display:flex;align-items:center;gap:6px;padding:11px 11px 10px;border-bottom:1px solid #ECE8DF;flex:none;">
+            <span onClick="{{ closeSettings }}" title="Back" style-hover="background:#EEEBE2;" style="width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#6E6A60;font-size:19px;line-height:1;">‹</span>
+            <span style="font-family:Newsreader,Georgia,serif;font-size:16px;font-weight:600;color:#26241F;">Settings</span>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:16px 15px 22px;">
+            <div style="font-size:10.5px;letter-spacing:0.6px;color:#AEA99C;font-weight:700;margin-bottom:9px;">ARCHIVING</div>
+            <div style="font-size:13px;color:#2B2A27;margin-bottom:7px;">Keep chats for</div>
+            <select value="{{ archiveAfter }}" onChange="{{ onArchiveChange }}" style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid #E4E0D6;background:#FBFAF6;font-size:13px;color:#2B2A27;font-family:inherit;cursor:pointer;outline:none;">
+              <option value="7 days">7 days</option>
+              <option value="14 days">14 days</option>
+              <option value="30 days">30 days</option>
+              <option value="90 days">90 days</option>
+              <option value="1 year">1 year</option>
+              <option value="Never">Never archive</option>
+            </select>
+            <div style="font-size:11.5px;color:#A8A398;margin-top:7px;line-height:1.5;">Chats older than this are moved to Archive automatically.</div>
+            <div style="height:1px;background:#ECE8DF;margin:18px 0 14px;"></div>
+            <div style="font-size:10.5px;letter-spacing:0.6px;color:#AEA99C;font-weight:700;margin-bottom:2px;">SIDEBAR SECTIONS</div>
+            <div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid #F1EDE4;">
+              <div style="flex:1;"><div style="font-size:13px;color:#2B2A27;">Starred</div><div style="font-size:11.5px;color:#A8A398;margin-top:1px;">Show starred chats at the top</div></div>
+              <span onClick="{{ toggleStarredSec }}" style="{{ starredSwitch.track }}"><span style="{{ starredSwitch.thumb }}"></span></span>
+            </div>
+            <div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid #F1EDE4;">
+              <div style="flex:1;"><div style="font-size:13px;color:#2B2A27;">Questions</div><div style="font-size:11.5px;color:#A8A398;margin-top:1px;">Surface chats awaiting your reply</div></div>
+              <span onClick="{{ toggleQuestionsSec }}" style="{{ questionsSwitch.track }}"><span style="{{ questionsSwitch.thumb }}"></span></span>
+            </div>
+            <div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid #F1EDE4;">
+              <div style="flex:1;"><div style="font-size:13px;color:#2B2A27;">Folders</div><div style="font-size:11.5px;color:#A8A398;margin-top:1px;">Show the folder tree</div></div>
+              <span onClick="{{ toggleFoldersSec }}" style="{{ foldersSwitch.track }}"><span style="{{ foldersSwitch.thumb }}"></span></span>
+            </div>
+            <div style="display:flex;align-items:center;padding:11px 0;">
+              <div style="flex:1;"><div style="font-size:13px;color:#2B2A27;">Unsorted</div><div style="font-size:11.5px;color:#A8A398;margin-top:1px;">Show chats not in a folder</div></div>
+              <span onClick="{{ toggleRecentSec }}" style="{{ recentSwitch.track }}"><span style="{{ recentSwitch.thumb }}"></span></span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ archiveOpen }}">
+        <div style="position:absolute;inset:0;z-index:46;background:#FCFBF8;display:flex;flex-direction:column;">
+          <div style="display:flex;align-items:center;gap:6px;padding:11px 11px 10px;border-bottom:1px solid #ECE8DF;flex:none;">
+            <span onClick="{{ closeArchive }}" title="Back" style-hover="background:#EEEBE2;" style="width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#6E6A60;font-size:19px;line-height:1;">‹</span>
+            <span style="font-family:Newsreader,Georgia,serif;font-size:16px;font-weight:600;color:#26241F;">Archived</span>
+            <span style="font-size:11.5px;color:#B0AB9E;font-weight:500;">{{ archivedCount }}</span>
+          </div>
+          <div style="padding:9px 13px 7px;font-size:11.5px;color:#A8A398;line-height:1.5;flex:none;">Chats kept past your {{ archiveAfter }} window. Starred chats are never archived.</div>
+          <div style="position:relative;padding:0 11px 9px;flex:none;">
+            <span style="position:absolute;left:21px;top:7px;pointer-events:none;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#A6A294" stroke-width="1.6"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke="#A6A294" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </span>
+            <input value="{{ archiveSearch }}" onInput="{{ onArchiveSearch }}" placeholder="Search archived" style="width:100%;box-sizing:border-box;padding:7px 28px 7px 31px;border-radius:6px;border:1px solid #E4E0D6;background:#FBFAF6;font-size:13px;color:#2B2A27;outline:none;font-family:inherit;transition:border-color 160ms ease,box-shadow 160ms ease;" style-focus="border-color:#A6A294;box-shadow:0 0 0 1px #A6A294,0 0 14px 2px rgba(120,114,102,0.30);background:#fff;" />
+            <sc-if value="{{ archiveSearchActive }}">
+              <span onClick="{{ clearArchiveSearch }}" style-hover="background:#E8E5DC;" style="position:absolute;right:18px;top:6px;width:19px;height:19px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#8C887E;font-size:13px;">×</span>
+            </sc-if>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:2px 9px 16px;">
+            <sc-for list="{{ archivedItems }}" as="a" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:5px;" style-hover="background:#F0EEE6;">
+                <span style="flex:1;min-width:0;">
+                  <span style="display:block;font-size:13px;color:#2B2A27;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ a.title }}</span>
+                  <span style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+                    <span style="font-size:10.5px;color:#B0AB9E;">{{ a.folderLabel }}</span>
+                    <span style="font-size:10.5px;color:#C2BCAE;">·</span>
+                    <span style="font-size:10.5px;color:#B0AB9E;">{{ a.time }}</span>
+                  </span>
+                </span>
+                <span onClick="{{ a.onExport }}" title="Export Markdown" style-hover="background:#EEEBE2;color:#6E6A60;" style="flex:none;width:25px;height:25px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#A8A398;font-size:14px;">⤓</span>
+                <span onClick="{{ a.onRestore }}" style-hover="background:#d97757;color:#fff;border-color:#d97757;" style="flex:none;padding:3px 10px;border-radius:6px;border:1px solid #E2DED4;background:#fff;color:#8A857A;font-size:11.5px;font-weight:600;cursor:pointer;">Restore</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ archiveEmpty }}">
+              <div style="padding:30px 12px;text-align:center;color:#B0AB9E;font-size:12.5px;">{{ archiveEmptyMsg }}</div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <!-- empty editor area (no chat window) -->
+    <div style="flex:1;min-width:0;background:#fff;display:flex;align-items:center;justify-content:center;color:#CFC9BC;font-size:13px;">Editor</div>
+
+  </div>
+</div>
+
+<!-- overlays -->
+<sc-if value="{{ sortOpen }}"><div onClick="{{ toggleSort }}" style="position:fixed;inset:0;z-index:41;"></div></sc-if>
+
+<sc-if value="{{ previewOpen }}">
+  <div onMouseEnter="{{ keepPreview }}" onMouseLeave="{{ endPreview }}" style="{{ previewStyle }}">
+    <div style="font-size:13.5px;font-weight:600;color:#23211C;line-height:1.3;margin-bottom:3px;">{{ preview.title }}</div>
+    <div style="display:flex;align-items:center;gap:7px;font-size:11px;color:#A8A398;margin-bottom:9px;">
+      <span>{{ preview.folderLabel }}</span><span>·</span><span>{{ preview.time }}</span><span>·</span><span>{{ preview.tokensLabel }}</span>
+    </div>
+    <sc-if value="{{ preview.hasTags }}">
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">
+        <sc-for list="{{ preview.tags }}" as="t" hint-placeholder-count="2">
+          <span style="display:inline-block;padding:1px 7px;border-radius:4px;font-size:10.5px;font-weight:500;background:{{ t.bg }};color:{{ t.color }};">{{ t.label }}</span>
+        </sc-for>
+      </div>
+    </sc-if>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <sc-for list="{{ preview.lines }}" as="l" hint-placeholder-count="2">
+        <div>
+          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.4px;color:{{ l.labelColor }};margin-bottom:2px;">{{ l.roleLabel }}</div>
+          <div style="font-size:11.5px;line-height:1.5;color:#5A564E;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">{{ l.text }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ ctxOpen }}">
+  <div onClick="{{ closeCtx }}" onContextMenu="{{ closeCtx }}" style="position:fixed;inset:0;z-index:55;"></div>
+  <div style="{{ ctxStyle }}">
+
+    <sc-if value="{{ ctxListMode }}">
+      <div style="padding:5px 10px 6px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">TAGS</div>
+      <sc-for list="{{ ctxTagItems }}" as="it" hint-placeholder-count="4">
+        <div onClick="{{ it.onClick }}" style-hover="background:#F4F2EA;" style="display:flex;align-items:center;gap:9px;padding:6px 10px;cursor:pointer;font-size:12.5px;color:#2B2A27;border-radius:4px;">
+          <span style="{{ it.dotStyle }}"></span>
+          <span style="flex:1;">{{ it.label }}</span>
+          <span style="color:#d97757;font-size:12px;width:12px;">{{ it.check }}</span>
+        </div>
+      </sc-for>
+      <div style="height:1px;background:#EEEBE2;margin:5px 6px;"></div>
+      <div onClick="{{ startNewTag }}" style-hover="background:#F4F2EA;" style="display:flex;align-items:center;gap:9px;padding:6px 10px;cursor:pointer;font-size:12.5px;color:#d97757;font-weight:600;border-radius:4px;">＋ Create new tag</div>
+      <div style="height:1px;background:#EEEBE2;margin:5px 6px;"></div>
+      <div onClick="{{ exportMd }}" style-hover="background:#F4F2EA;" style="display:flex;align-items:center;gap:9px;padding:6px 10px;cursor:pointer;font-size:12.5px;color:#2B2A27;border-radius:4px;">⤓ Export as Markdown</div>
+      <div onClick="{{ exportJson }}" style-hover="background:#F4F2EA;" style="display:flex;align-items:center;gap:9px;padding:6px 10px;cursor:pointer;font-size:12.5px;color:#2B2A27;border-radius:4px;">⤓ Export as JSON</div>
+      <sc-if value="{{ ctxChatArchivable }}">
+        <div style="height:1px;background:#EEEBE2;margin:5px 6px;"></div>
+        <div onClick="{{ onArchiveCtx }}" style-hover="background:#F4F2EA;" style="display:flex;align-items:center;gap:9px;padding:6px 10px;cursor:pointer;font-size:12.5px;color:#2B2A27;border-radius:4px;">🗄 Archive chat</div>
+      </sc-if>
+      <sc-if value="{{ ctxChatStarredNote }}">
+        <div style="height:1px;background:#EEEBE2;margin:5px 6px;"></div>
+        <div style="padding:6px 10px;font-size:11.5px;color:#B0AB9E;line-height:1.4;">★ Starred chats are kept and never archived.</div>
+      </sc-if>
+    </sc-if>
+
+    <sc-if value="{{ ctxNewTagMode }}">
+      <div style="padding:5px 10px 7px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">NEW TAG</div>
+      <div style="padding:0 8px;">
+        <input value="{{ ctxTagName }}" onInput="{{ onCtxTagName }}" placeholder="Tag name" autofocus="true" style="width:100%;box-sizing:border-box;padding:6px 9px;border-radius:5px;border:1px solid #E4E0D6;background:#FBFAF6;font-size:12.5px;color:#2B2A27;outline:none;font-family:inherit;" />
+        <div style="display:flex;flex-wrap:wrap;gap:7px;padding:10px 1px 4px;">
+          <sc-for list="{{ ctxColorSwatches }}" as="sw" hint-placeholder-count="8">
+            <span onClick="{{ sw.onClick }}" style="{{ sw.style }}"></span>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0 6px;">
+          <span onClick="{{ commitNewTag }}" style-hover="background:#c6613f;" style="flex:1;text-align:center;padding:6px 0;border-radius:5px;background:#d97757;color:#fff;font-size:12.5px;font-weight:600;cursor:pointer;">Add tag</span>
+          <span onClick="{{ cancelNewTag }}" style="padding:6px 10px;font-size:12.5px;color:#8C887E;cursor:pointer;">Cancel</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ ctxFolderMode }}">
+      <div style="padding:5px 10px 7px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">FOLDER COLOR</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;padding:0 10px 9px;max-width:170px;">
+        <sc-for list="{{ folderColorSwatches }}" as="sw" hint-placeholder-count="8">
+          <span onClick="{{ sw.onClick }}" style="{{ sw.style }}"></span>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ ctxNewFolderMode }}">
+      <div style="padding:5px 10px 7px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;">NEW FOLDER</div>
+      <div style="padding:0 8px 4px;">
+        <input value="{{ ctxTagName }}" onInput="{{ onCtxTagName }}" autofocus="true" placeholder="Folder name" style="width:100%;box-sizing:border-box;padding:6px 9px;border-radius:5px;border:1px solid #E4E0D6;background:#FBFAF6;font-size:12.5px;color:#2B2A27;outline:none;font-family:inherit;" />
+        <div style="display:flex;align-items:center;gap:8px;padding:9px 0 6px;">
+          <span onClick="{{ commitNewFolder }}" style-hover="background:#c6613f;" style="flex:1;text-align:center;padding:6px 0;border-radius:5px;background:#d97757;color:#fff;font-size:12.5px;font-weight:600;cursor:pointer;">Create</span>
+          <span onClick="{{ closeCtx }}" style="padding:6px 10px;font-size:12.5px;color:#8C887E;cursor:pointer;">Cancel</span>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+</sc-if>
+
+<template id="__bundler_thumbnail" data-bg-color="#E7E5DF">
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="#E7E5DF"/><rect x="30" y="30" width="40" height="40" rx="9" fill="#d97757"/></svg>
+</template>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  COLORS = ['#d97757', '#c6613f', '#B14F36', '#9A6B1E', '#5E7148', '#3F7572', '#4F6582', '#7B5C82'];
+
+  state = {
+    search: '', activeTags: [], sort: 'date', sortOpen: false, settingsOpen: false,
+    expanded: { work: true, 'work-api': true, 'work-ui': false, personal: true, experiments: false },
+    activeId: 'c1', dragId: null, dropFolder: null,
+    archiveAfter: '30 days', showStarred: true, showQuestions: true, showFolders: true, showRecent: true,
+    archiveOpen: false, archiveSearch: '',
+    renamingId: null, renameValue: '',
+    hoverId: null, hoverX: 0, hoverY: 0,
+    ctx: null, ctxX: 0, ctxY: 0, ctxNewTag: false, ctxTagName: '', ctxTagColor: '#d97757',
+    tags: [
+      { id: 'bug', label: 'bug', color: '#B14F36' },
+      { id: 'feature', label: 'feature', color: '#9A6B1E' },
+      { id: 'refactor', label: 'refactor', color: '#5E7148' },
+      { id: 'research', label: 'research', color: '#4F6582' },
+      { id: 'idea', label: 'idea', color: '#7B5C82' },
+      { id: 'docs', label: 'docs', color: '#3F7572' },
+    ],
+    folders: [
+      { id: 'work', name: 'Work', parent: null, color: '#C2A56E' },
+      { id: 'work-api', name: 'Backend API', parent: 'work', color: '#C2A56E' },
+      { id: 'work-ui', name: 'Frontend', parent: 'work', color: '#C2A56E' },
+      { id: 'personal', name: 'Personal', parent: null, color: '#C2A56E' },
+      { id: 'experiments', name: 'Experiments', parent: null, color: '#C2A56E' },
+    ],
+    chats: [
+      { id: 'c1', title: 'Refactor auth middleware', folder: 'work-api', tags: ['refactor', 'bug'], starred: true, mins: 35, tokens: 48200, status: 'done', messages: [
+        { role: 'user', text: 'The auth middleware verifies the JWT on every request but it is getting messy. Can you refactor it to fail fast and attach the user?' },
+        { role: 'assistant', text: 'I split it into a guard clause for the missing token and an async verifyToken call. If the header is absent we return 401 immediately, otherwise we decode and attach req.user before calling next().' },
+      ] },
+      { id: 'c2', title: 'Rate limiter design', folder: 'work-api', tags: ['feature'], starred: false, mins: 180, tokens: 22100, status: 'question', messages: [
+        { role: 'user', text: 'I want a token-bucket rate limiter backed by Redis for the public API.' },
+        { role: 'assistant', text: 'A sliding-window counter in Redis is simpler to reason about here. Do you want per-IP limits, per-API-key limits, or both?' },
+      ] },
+      { id: 'c3', title: 'Fix N+1 query in orders endpoint', folder: 'work-api', tags: ['bug'], starred: false, mins: 1500, tokens: 31000, messages: [
+        { role: 'user', text: 'The orders list endpoint is slow — looks like it loads line items one query at a time.' },
+        { role: 'assistant', text: 'Classic N+1. I added an eager join so line items load in a single query, dropping it from 200+ queries to 2.' },
+      ] },
+      { id: 'c4', title: 'Sidebar drag-and-drop', folder: 'work-ui', tags: ['feature', 'idea'], starred: false, mins: 90, tokens: 64000, messages: [
+        { role: 'user', text: 'Implement drag-and-drop so chats can be dropped into folders in the sidebar.' },
+        { role: 'assistant', text: 'Used native HTML5 drag events with a dropFolder highlight state. On drop we reassign the chat folder id.' },
+      ] },
+      { id: 'c5', title: 'Dark mode design tokens', folder: 'work-ui', tags: ['refactor'], starred: false, mins: 4320, tokens: 12000, messages: [
+        { role: 'user', text: 'Lets define semantic color tokens so dark mode is a swap, not a rewrite.' },
+        { role: 'assistant', text: 'Defined surface, text, and accent tokens with light/dark values.' },
+      ] },
+      { id: 'c6', title: 'Trip itinerary — Japan', folder: 'personal', tags: ['idea'], starred: true, mins: 60, tokens: 18000, messages: [
+        { role: 'user', text: 'Help me plan 10 days in Japan, Tokyo and Kyoto, food-focused.' },
+        { role: 'assistant', text: 'Five days in Tokyo, four in Kyoto with a day trip to Nara.' },
+      ] },
+      { id: 'c7', title: 'Resume rewrite', folder: 'personal', tags: [], starred: false, mins: 10080, tokens: 9000, archived: true, messages: [
+        { role: 'user', text: 'Rewrite my resume summary to emphasize backend and infra work.' },
+        { role: 'assistant', text: 'Tightened the summary to three lines leading with distributed systems and reliability impact.' },
+      ] },
+      { id: 'c8', title: 'Vector DB benchmarks', folder: 'experiments', tags: ['research'], starred: false, mins: 240, tokens: 40000, status: 'done', messages: [
+        { role: 'user', text: 'Benchmark pgvector against a dedicated vector database for our embedding workload.' },
+        { role: 'assistant', text: 'At a million vectors pgvector held up well for recall but the dedicated store won on p99 latency.' },
+      ] },
+      { id: 'c9', title: 'Prompt caching tests', folder: 'experiments', tags: ['research', 'feature'], starred: false, mins: 720, tokens: 27000, messages: [
+        { role: 'user', text: 'Measure how much prompt caching saves on our long system prompt.' },
+        { role: 'assistant', text: 'Caching the static system prefix cut input token cost by about 80% on repeat calls.' },
+      ] },
+      { id: 'c10', title: 'Webhook retry strategy', folder: null, tags: ['docs'], starred: false, mins: 15, tokens: 14000, status: 'question', messages: [
+        { role: 'user', text: 'How should we retry failed outbound webhooks without hammering the receiver?' },
+        { role: 'assistant', text: 'Exponential backoff with jitter and a dead-letter queue after the max attempts.' },
+      ] },
+      { id: 'c11', title: 'CSS grid cheatsheet', folder: null, tags: ['docs', 'idea'], starred: false, mins: 2880, tokens: 7000, messages: [
+        { role: 'user', text: 'Give me a quick CSS grid cheatsheet for common layouts.' },
+        { role: 'assistant', text: 'Covered the holy-grail layout, auto-fit cards with minmax, and centering.' },
+      ] },
+      { id: 'c12', title: 'Onboarding flow copy', folder: null, tags: [], starred: false, mins: 50000, tokens: 5000, archived: true, messages: [
+        { role: 'user', text: 'Draft friendly onboarding copy for the first three setup steps.' },
+        { role: 'assistant', text: 'Wrote three short, encouraging steps that focus on one action each.' },
+      ] },
+    ],
+  };
+
+  hexToRgba(hex, a) { const h = hex.replace('#', ''); const r = parseInt(h.substring(0, 2), 16), g = parseInt(h.substring(2, 4), 16), b = parseInt(h.substring(4, 6), 16); return `rgba(${r},${g},${b},${a})`; }
+  tagMap() { const m = {}; this.state.tags.forEach(t => m[t.id] = t); return m; }
+  fmtK(n) { if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K'; return '' + n; }
+
+  relTime(mins) {
+    if (mins < 2) return 'now';
+    if (mins < 60) return mins + 'm';
+    if (mins < 1440) return Math.round(mins / 60) + 'h';
+    if (mins < 10080) return Math.round(mins / 1440) + 'd';
+    if (mins < 43200) return Math.round(mins / 10080) + 'w';
+    return Math.round(mins / 43200) + 'mo';
+  }
+
+  folderPath(fid) {
+    if (!fid) return '';
+    const F = this.state.folders;
+    const f = F.find(x => x.id === fid);
+    if (!f) return '';
+    if (f.parent) { const p = F.find(x => x.id === f.parent); return (p ? p.name + ' / ' : '') + f.name; }
+    return f.name;
+  }
+
+  sortChats(arr) {
+    const m = this.state.sort, a = [...arr];
+    if (m === 'name') a.sort((x, y) => x.title.localeCompare(y.title));
+    else if (m === 'oldest') a.sort((x, y) => y.mins - x.mins);
+    else a.sort((x, y) => x.mins - y.mins);
+    return a;
+  }
+
+  openChat(id) { this.setState({ activeId: id, hoverId: null }); }
+  toggleStar(id) { this.setState(s => ({ chats: s.chats.map(c => c.id === id ? { ...c, starred: !c.starred, archived: !c.starred ? false : c.archived } : c) })); }
+  archiveChat(id) { this.setState(s => ({ chats: s.chats.map(c => c.id === id ? { ...c, archived: true } : c), ctx: null })); }
+  restoreChat(id) { this.setState(s => ({ chats: s.chats.map(c => c.id === id ? { ...c, archived: false } : c) })); }
+  openArchive() { this.setState({ archiveOpen: true, settingsOpen: false, archiveSearch: '' }); }
+  closeArchive() { this.setState({ archiveOpen: false, archiveSearch: '' }); }
+  toggleSort() { this.setState(s => ({ sortOpen: !s.sortOpen, settingsOpen: false })); }
+  setSort(m) { this.setState({ sort: m, sortOpen: false }); }
+  toggleSettings() { this.setState(s => ({ settingsOpen: !s.settingsOpen, sortOpen: false })); }
+  toggleFolder(id) { this.setState(s => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] } })); }
+  toggleTagFilter(id) { this.setState(s => ({ activeTags: s.activeTags.includes(id) ? s.activeTags.filter(x => x !== id) : [...s.activeTags, id] })); }
+  onSearch(e) { this.setState({ search: e.target.value }); }
+  clearSearch() { this.setState({ search: '' }); }
+  newChat() { const id = 'n' + Date.now(); this.setState(s => ({ chats: [{ id, title: 'Untitled chat', folder: null, tags: [], starred: false, mins: 0, tokens: 0, status: 'question', messages: [{ role: 'user', text: '' }] }, ...s.chats], activeId: id, search: '', activeTags: [] })); }
+
+  openNewFolder(e) { if (e && e.stopPropagation) e.stopPropagation(); this.setState({ ctx: { type: 'newfolder' }, ctxX: Math.min(e.clientX, window.innerWidth - 200), ctxY: Math.min(e.clientY, window.innerHeight - 130), ctxTagName: '' }); }
+  commitNewFolder() { const name = this.state.ctxTagName.trim(); if (!name) return; const id = 'f' + Date.now(); this.setState(s => ({ folders: [...s.folders, { id, name, parent: null, color: '#C2A56E' }], expanded: { ...s.expanded, [id]: true }, ctx: null })); }
+  collapseLevel() {
+    this.setState(s => {
+      const e = { ...s.expanded };
+      const childExp = s.folders.filter(f => f.parent && e[f.id]);
+      const topExp = s.folders.filter(f => !f.parent && e[f.id]);
+      if (childExp.length) childExp.forEach(f => e[f.id] = false);
+      else if (topExp.length) topExp.forEach(f => e[f.id] = false);
+      else s.folders.forEach(f => e[f.id] = true);
+      return { expanded: e };
+    });
+  }
+  onArchiveChange(e) { this.setState({ archiveAfter: e.target.value }); }
+  toggleSection(key) { this.setState(s => ({ [key]: !s[key] })); }
+  startRename(id, name, e) { if (e && e.stopPropagation) e.stopPropagation(); this.setState({ renamingId: id, renameValue: name }); }
+  onRenameInput(e) { this.setState({ renameValue: e.target.value }); }
+  commitRename() { this.setState(s => { const v = s.renameValue.trim(); return { folders: v ? s.folders.map(f => f.id === s.renamingId ? { ...f, name: v } : f) : s.folders, renamingId: null, renameValue: '' }; }); }
+  cancelRename() { this.setState({ renamingId: null, renameValue: '' }); }
+  onRenameKey(e) { if (e.key === 'Enter') { e.preventDefault(); this.commitRename(); } else if (e.key === 'Escape') { this.cancelRename(); } }
+
+  onDragStart(e, id) { try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); } catch (_) {} this.setState({ dragId: id, hoverId: null }); }
+  onDragEnd() { this.setState({ dragId: null, dropFolder: null }); }
+  onFolderOver(e, fid) { e.preventDefault(); if (this.state.dropFolder !== fid) this.setState({ dropFolder: fid }); }
+  onFolderDrop(e, fid) { e.preventDefault(); const id = this.state.dragId; if (id) this.setState(s => ({ chats: s.chats.map(c => c.id === id ? { ...c, folder: fid } : c), dragId: null, dropFolder: null })); }
+  onFolderLeave(fid) { if (this.state.dropFolder === fid) this.setState({ dropFolder: null }); }
+
+  onRowHover(id, e) { clearTimeout(this.hideTimer); this.setState({ hoverId: id, hoverX: e.clientX, hoverY: e.clientY }); }
+  onRowHoverEnd() { this.hideTimer = setTimeout(() => this.setState({ hoverId: null }), 130); }
+  keepPreview() { clearTimeout(this.hideTimer); }
+  endPreview() { this.setState({ hoverId: null }); }
+
+  openCtx(type, id, e) { e.preventDefault(); if (e.stopPropagation) e.stopPropagation(); this.setState({ ctx: { type, id }, ctxX: Math.min(e.clientX, window.innerWidth - 210), ctxY: Math.min(e.clientY, window.innerHeight - 320), ctxNewTag: false, ctxTagName: '', ctxTagColor: '#d97757', hoverId: null }); }
+  closeCtx() { this.setState({ ctx: null, ctxNewTag: false }); }
+  startNewTag() { this.setState({ ctxNewTag: true }); }
+  cancelNewTag() { this.setState({ ctxNewTag: false, ctxTagName: '' }); }
+  onCtxTagName(e) { this.setState({ ctxTagName: e.target.value }); }
+  setCtxColor(col) { this.setState({ ctxTagColor: col }); }
+  toggleChatTag(chatId, tagId) { this.setState(s => ({ chats: s.chats.map(c => c.id === chatId ? { ...c, tags: c.tags.includes(tagId) ? c.tags.filter(t => t !== tagId) : [...c.tags, tagId] } : c) })); }
+  commitNewTag() {
+    const name = this.state.ctxTagName.trim(); if (!name) return;
+    const id = 't' + Date.now();
+    this.setState(s => { const chatId = s.ctx ? s.ctx.id : null; return { tags: [...s.tags, { id, label: name, color: s.ctxTagColor }], chats: s.chats.map(c => c.id === chatId ? { ...c, tags: [...c.tags, id] } : c), ctxNewTag: false, ctxTagName: '' }; });
+  }
+  setFolderColor(col) { this.setState(s => { const fid = s.ctx ? s.ctx.id : null; return { folders: s.folders.map(f => f.id === fid ? { ...f, color: col } : f), ctx: null }; }); }
+
+  exportChat(id, fmt) {
+    const c = this.state.chats.find(x => x.id === id); if (!c) return;
+    let data, mime, ext;
+    if (fmt === 'json') { data = JSON.stringify({ title: c.title, tags: c.tags, tokens: c.tokens, messages: c.messages || [] }, null, 2); mime = 'application/json'; ext = 'json'; }
+    else { data = `# ${c.title}\n\n` + (c.messages || []).map(m => `**${m.role === 'user' ? 'You' : 'Claude'}:** ${m.text}`).join('\n\n') + '\n'; mime = 'text/markdown'; ext = 'md'; }
+    try {
+      const a = document.createElement('a');
+      a.href = 'data:' + mime + ';charset=utf-8,' + encodeURIComponent(data);
+      a.download = c.title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() + '.' + ext;
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (_) {}
+    this.setState({ ctx: null });
+  }
+
+  folderRowStyle(fid, indent, T) {
+    const drop = this.state.dropFolder === fid;
+    const base = `display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;border-radius:4px;padding-top:${T.padY};padding-bottom:${T.padY};padding-right:8px;padding-left:${indent}px;font-size:${T.fs};font-weight:600;color:#3A3833;`;
+    return base + (drop ? 'background:#FAE6DC;box-shadow:inset 0 0 0 1.5px #d97757;' : 'background:transparent;');
+  }
+
+  makeView(c, depth, T, indents, tm, snippet) {
+    const S = this.state;
+    const indent = indents[depth] != null ? indents[depth] : indents[0];
+    const active = S.activeId === c.id;
+    const dragging = S.dragId === c.id;
+    let bg = 'transparent', extra = '', hoverBg = '#F0EEE6';
+    if (active) { bg = '#F6E5DB'; extra = 'box-shadow:inset 2px 0 0 #d97757;'; hoverBg = '#F6E5DB'; }
+    if (dragging) extra += 'opacity:0.4;';
+    const rowStyle = `display:flex;flex-direction:column;gap:1px;border-radius:4px;cursor:pointer;user-select:none;padding-top:${T.padY};padding-bottom:${T.padY};padding-right:8px;padding-left:${indent}px;font-size:${T.fs};line-height:1.35;color:#2B2A27;background:${bg};${extra}`;
+    const fl = this.folderPath(c.folder);
+    return {
+      id: c.id, title: c.title, time: this.relTime(c.mins), starred: c.starred, notStarred: !c.starred,
+      statusQuestion: c.status === 'question', statusDone: c.status === 'done',
+      folderLabel: fl, hasFolderLabel: !!fl, hoverBg,
+      hasSnippet: !!snippet, snippet: snippet || '',
+      tags: c.tags.map(t => tm[t]).filter(Boolean).map(t => ({ label: t.label, color: t.color, bg: this.hexToRgba(t.color, 0.15) })),
+      rowStyle,
+      onOpen: () => this.openChat(c.id),
+      onToggleStar: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.toggleStar(c.id); },
+      onContext: (e) => this.openCtx('chat', c.id, e),
+      onHover: (e) => this.onRowHover(c.id, e),
+      onHoverEnd: () => this.onRowHoverEnd(),
+      onDragStart: (e) => this.onDragStart(e, c.id),
+      onDragEnd: () => this.onDragEnd(),
+    };
+  }
+
+  snippetFor(c, q) {
+    if (!c.messages) return null;
+    const m = c.messages.find(x => x.text.toLowerCase().includes(q));
+    if (!m) return null;
+    const idx = m.text.toLowerCase().indexOf(q);
+    const start = Math.max(0, idx - 24);
+    const seg = (start > 0 ? '…' : '') + m.text.slice(start, idx + q.length + 40).trim() + '…';
+    return (m.role === 'user' ? 'You: ' : 'Claude: ') + seg;
+  }
+
+  renderVals() {
+    const S = this.state;
+    const T = { padY: '5px', fs: '13px' };
+    const indents = [11, 29, 47];
+    const tm = this.tagMap();
+    const q = S.search.trim().toLowerCase();
+    const filtering = q !== '' || S.activeTags.length > 0;
+
+    const passFilter = (c) => {
+      if (S.activeTags.length > 0 && !c.tags.some(t => S.activeTags.includes(t))) return false;
+      if (q) { const inTitle = c.title.toLowerCase().includes(q); const inMsg = c.messages && c.messages.some(m => m.text.toLowerCase().includes(q)); if (!inTitle && !inMsg) return false; }
+      return true;
+    };
+
+    let results = [], starred = [], questions = [], topFolders = [], unfiled = [], resultCount = 0;
+    const live = S.chats.filter(c => !c.archived);
+    const allArchived = S.chats.filter(c => c.archived);
+    const aq = S.archiveSearch.trim().toLowerCase();
+    const archivedChats = this.sortChats(allArchived.filter(c => !aq || c.title.toLowerCase().includes(aq)));
+
+    if (filtering) {
+      const f = this.sortChats(live.filter(passFilter));
+      results = f.map(c => this.makeView(c, 0, T, indents, tm, q && !c.title.toLowerCase().includes(q) ? this.snippetFor(c, q) : null));
+      resultCount = results.length;
+    } else {
+      starred = this.sortChats(live.filter(c => c.starred)).map(c => this.makeView(c, 0, T, indents, tm));
+      questions = this.sortChats(live.filter(c => c.status === 'question')).map(c => this.makeView(c, 0, T, indents, tm));
+      const top = S.folders.filter(f => f.parent === null);
+      const folderChats = (fid, depth) => this.sortChats(live.filter(c => c.folder === fid)).map(c => this.makeView(c, depth, T, indents, tm));
+      const countIn = (fid) => { const subs = S.folders.filter(f => f.parent === fid).map(f => f.id); return live.filter(c => c.folder === fid || subs.includes(c.folder)).length; };
+      topFolders = top.map(f => {
+        const expanded = !!S.expanded[f.id];
+        const children = S.folders.filter(ch => ch.parent === f.id).map(ch => {
+          const cexp = !!S.expanded[ch.id];
+          return {
+            id: ch.id, name: ch.name, expanded: cexp, color: ch.color,
+            renaming: S.renamingId === ch.id, notRenaming: S.renamingId !== ch.id, onRename: (e) => this.startRename(ch.id, ch.name, e),
+            count: live.filter(c => c.folder === ch.id).length,
+            chats: cexp ? folderChats(ch.id, 2) : [],
+            chevron: cexp ? '▾' : '▸',
+            rowStyle: this.folderRowStyle(ch.id, indents[1], T),
+            onToggle: () => this.toggleFolder(ch.id),
+            onContext: (e) => this.openCtx('folder', ch.id, e),
+            onOver: (e) => this.onFolderOver(e, ch.id), onDrop: (e) => this.onFolderDrop(e, ch.id), onLeave: () => this.onFolderLeave(ch.id),
+          };
+        });
+        return {
+          id: f.id, name: f.name, expanded, color: f.color,
+          renaming: S.renamingId === f.id, notRenaming: S.renamingId !== f.id, onRename: (e) => this.startRename(f.id, f.name, e),
+          count: countIn(f.id), children,
+          chats: expanded ? folderChats(f.id, 1) : [],
+          chevron: expanded ? '▾' : '▸',
+          rowStyle: this.folderRowStyle(f.id, indents[0], T),
+          onToggle: () => this.toggleFolder(f.id),
+          onContext: (e) => this.openCtx('folder', f.id, e),
+          onOver: (e) => this.onFolderOver(e, f.id), onDrop: (e) => this.onFolderDrop(e, f.id), onLeave: () => this.onFolderLeave(f.id),
+        };
+      });
+      unfiled = this.sortChats(live.filter(c => !c.folder)).map(c => this.makeView(c, 0, T, indents, tm));
+    }
+
+    const tagChips = S.tags.map(t => {
+      const on = S.activeTags.includes(t.id);
+      const style = on
+        ? `display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:4px;font-size:11.5px;font-weight:500;cursor:pointer;background:${this.hexToRgba(t.color, 0.15)};color:${t.color};border:1px solid ${this.hexToRgba(t.color, 0.45)};white-space:nowrap;flex:none;`
+        : `display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:4px;font-size:11.5px;font-weight:500;cursor:pointer;background:transparent;color:#8C887E;border:1px solid #E2DED4;white-space:nowrap;flex:none;`;
+      return { id: t.id, label: t.label, style, dotStyle: `width:7px;height:7px;border-radius:50%;background:${t.color};flex:none;`, onClick: () => this.toggleTagFilter(t.id) };
+    });
+
+    const sortMeta = { date: 'Newest first', oldest: 'Oldest first', name: 'Name (A–Z)' };
+    const sortItems = ['date', 'oldest', 'name'].map(k => ({ key: k, label: sortMeta[k], active: S.sort === k, onClick: () => this.setSort(k) }));
+
+    const ctxOpen = S.ctx !== null;
+    const ctxIsChat = ctxOpen && S.ctx.type === 'chat';
+    const ctxIsFolder = ctxOpen && S.ctx.type === 'folder';
+    let ctxTagItems = [];
+    const ctxChat = ctxIsChat ? S.chats.find(c => c.id === S.ctx.id) : null;
+    const ctxChatArchivable = !!ctxChat && !ctxChat.archived && !ctxChat.starred;
+    const ctxChatStarredNote = !!ctxChat && ctxChat.starred;
+    if (ctxIsChat) {
+      const chat = ctxChat;
+      ctxTagItems = S.tags.map(t => ({ label: t.label, dotStyle: `width:10px;height:10px;border-radius:3px;background:${t.color};flex:none;`, check: chat && chat.tags.includes(t.id) ? '✓' : '', onClick: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.toggleChatTag(S.ctx.id, t.id); } }));
+    }
+    const swatch = (col, sel, onClick) => ({ onClick, style: `width:22px;height:22px;border-radius:5px;cursor:pointer;background:${col};box-shadow:${sel ? '0 0 0 2px #fff, 0 0 0 4px ' + col : 'inset 0 0 0 1px rgba(0,0,0,0.08)'};` });
+    const ctxColorSwatches = this.COLORS.map(col => swatch(col, col === S.ctxTagColor, () => this.setCtxColor(col)));
+    const curFolder = ctxIsFolder ? S.folders.find(f => f.id === S.ctx.id) : null;
+    const folderColorSwatches = this.COLORS.map(col => swatch(col, curFolder && curFolder.color === col, () => this.setFolderColor(col)));
+
+    const sw = (on) => ({ track: `position:relative;width:34px;height:19px;border-radius:999px;background:${on ? '#d97757' : '#D6D0C2'};cursor:pointer;flex:none;`, thumb: `position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.2);transform:translateX(${on ? '15px' : '0px'});transition:transform .15s;` });
+
+    const dropRecent = S.dropFolder === '__recent__';
+    const recentHeaderStyle = `display:flex;align-items:center;gap:5px;padding:11px 8px 3px;font-size:10px;letter-spacing:0.7px;color:#AEA99C;font-weight:600;border-radius:4px;` + (dropRecent ? 'background:#FAE6DC;box-shadow:inset 0 0 0 1.5px #d97757;color:#A55B3F;' : '');
+
+    const archivedItems = archivedChats.map(c => ({
+      id: c.id, title: c.title, time: this.relTime(c.mins), folderLabel: this.folderPath(c.folder) || 'Unsorted',
+      onRestore: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.restoreChat(c.id); },
+      onExport: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.exportChat(c.id, 'md'); },
+    }));
+
+    const hv = S.hoverId ? S.chats.find(c => c.id === S.hoverId) : null;
+    let preview = null;
+    if (hv) {
+      const firstUser = (hv.messages || []).find(m => m.role === 'user');
+      const lastAsst = [...(hv.messages || [])].reverse().find(m => m.role === 'assistant');
+      const lines = [];
+      if (firstUser) lines.push({ roleLabel: 'YOU', labelColor: '#8A857A', text: firstUser.text });
+      if (lastAsst) lines.push({ roleLabel: 'CLAUDE', labelColor: '#C15F3C', text: lastAsst.text });
+      preview = {
+        title: hv.title, folderLabel: this.folderPath(hv.folder) || 'Unsorted', time: this.relTime(hv.mins),
+        tokensLabel: this.fmtK(hv.tokens) + ' tok',
+        tags: hv.tags.map(t => tm[t]).filter(Boolean).map(t => ({ label: t.label, color: t.color, bg: this.hexToRgba(t.color, 0.15) })),
+        hasTags: hv.tags.length > 0, lines,
+      };
+    }
+    const pvLeft = Math.min(S.hoverX + 16, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 290);
+    const pvTop = Math.max(10, Math.min(S.hoverY - 16, (typeof window !== 'undefined' ? window.innerHeight : 800) - 220));
+
+    return {
+      sidebarStyle: `width:320px;flex:none;display:flex;flex-direction:column;background:#FCFBF8;border-right:1px solid #E6E2D9;position:relative;overflow:hidden;`,
+      search: S.search, searchActive: S.search.length > 0, onSearch: (e) => this.onSearch(e), clearSearch: () => this.clearSearch(),
+      tagChips,
+      cogBtnStyle: `width:27px;height:27px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;color:${S.settingsOpen ? '#d97757' : '#6E6A60'};background:${S.settingsOpen ? '#F5EAE3' : 'transparent'};`,
+      settingsOpen: S.settingsOpen, toggleSettings: () => this.toggleSettings(), closeSettings: () => this.setState({ settingsOpen: false }),
+      openNewFolder: (e) => this.openNewFolder(e), collapseLevel: () => this.collapseLevel(),
+      archiveAfter: S.archiveAfter, onArchiveChange: (e) => this.onArchiveChange(e),
+      archiveOpen: S.archiveOpen, openArchive: () => this.openArchive(), closeArchive: () => this.closeArchive(),
+      archiveSearch: S.archiveSearch, archiveSearchActive: S.archiveSearch.length > 0, onArchiveSearch: (e) => this.setState({ archiveSearch: e.target.value }), clearArchiveSearch: () => this.setState({ archiveSearch: '' }),
+      archivedItems, archivedCount: allArchived.length, hasArchived: allArchived.length > 0, archiveEmpty: archivedChats.length === 0,
+      archiveEmptyMsg: aq ? 'No archived chats match your search.' : 'Nothing archived.',
+      starredSwitch: sw(S.showStarred), questionsSwitch: sw(S.showQuestions), foldersSwitch: sw(S.showFolders), recentSwitch: sw(S.showRecent),
+      toggleStarredSec: () => this.toggleSection('showStarred'), toggleQuestionsSec: () => this.toggleSection('showQuestions'), toggleFoldersSec: () => this.toggleSection('showFolders'), toggleRecentSec: () => this.toggleSection('showRecent'),
+      foldersEnabled: S.showFolders, recentEnabled: S.showRecent,
+      questions, questionsShown: !filtering && S.showQuestions && questions.length > 0,
+      sortOpen: S.sortOpen, toggleSort: () => this.toggleSort(), sortItems,
+      newChat: () => this.newChat(),
+      filtering, notFiltering: !filtering,
+      results, resultCount, noResults: filtering && results.length === 0,
+      starred, starredShown: !filtering && S.showStarred && starred.length > 0,
+      topFolders, unfiled, recentHeaderStyle,
+      onRecentOver: (e) => { e.preventDefault(); if (S.dropFolder !== '__recent__') this.setState({ dropFolder: '__recent__' }); },
+      onRecentDrop: (e) => { e.preventDefault(); const id = S.dragId; if (id) this.setState(st => ({ chats: st.chats.map(c => c.id === id ? { ...c, folder: null } : c), dragId: null, dropFolder: null })); },
+      onRecentLeave: () => { if (S.dropFolder === '__recent__') this.setState({ dropFolder: null }); },
+      renameValue: S.renameValue, onRenameInput: (e) => this.onRenameInput(e), onRenameKey: (e) => this.onRenameKey(e), commitRename: () => this.commitRename(), stopProp: (e) => { if (e && e.stopPropagation) e.stopPropagation(); },
+      previewOpen: !!preview, preview, keepPreview: () => this.keepPreview(), endPreview: () => this.endPreview(),
+      previewStyle: `position:fixed;left:${pvLeft}px;top:${pvTop}px;z-index:60;width:270px;background:#fff;border:1px solid #E6E2D9;border-radius:11px;box-shadow:0 14px 38px rgba(40,33,20,0.20);padding:13px 14px;pointer-events:auto;`,
+      ctxOpen, closeCtx: () => this.closeCtx(),
+      ctxListMode: ctxIsChat && !S.ctxNewTag, ctxNewTagMode: ctxIsChat && S.ctxNewTag, ctxFolderMode: ctxIsFolder, ctxNewFolderMode: ctxOpen && S.ctx.type === 'newfolder',
+      ctxTagItems, startNewTag: () => this.startNewTag(), cancelNewTag: () => this.cancelNewTag(),
+      ctxTagName: S.ctxTagName, onCtxTagName: (e) => this.onCtxTagName(e), commitNewTag: () => this.commitNewTag(), commitNewFolder: () => this.commitNewFolder(),
+      ctxColorSwatches, folderColorSwatches,
+      ctxChatArchivable, ctxChatStarredNote, onArchiveCtx: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.archiveChat(S.ctx.id); },
+      exportMd: () => this.exportChat(S.ctx.id, 'md'), exportJson: () => this.exportChat(S.ctx.id, 'json'),
+      ctxStyle: `position:fixed;left:${S.ctxX}px;top:${S.ctxY}px;z-index:56;background:#fff;border:1px solid #E6E2D9;border-radius:8px;box-shadow:0 12px 32px rgba(40,33,20,0.18);padding:5px;min-width:200px;`,
+    };
+  }
+}
+</script>
+</body>
+</html>

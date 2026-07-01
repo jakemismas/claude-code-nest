@@ -1,62 +1,91 @@
-# Sprint 2 UI design reference (sidebar org panel)
+# UI-SPEC.md: the binding UI contract (Sprint 3, "One Panel")
 
-The visual target for the sidebar work (slices 1, 2, and 6) is the mockup at
-`media/mockups/sidebar-mockup.html`. Open it in a browser to see the two density frames
-(Comfortable and Compact) rendered with the intended layout, palette, and card anatomy.
+Status: BINDING for Sprint 3 and later. Supersedes the Sprint 2 UI-SPEC (which bound
+slices to media/mockups/sidebar-mockup.html; that mockup is retired as a design
+authority and kept only for history).
 
-Scope: this spec covers the SIDEBAR / org panel only. The "Chat window" tab in the source
-mockup (context-health bar, compact button, live token readout, transcript, composer) is
-dropped as impossible for a third-party extension; see DECISIONS.md and V2-RESEARCH.md.
+## The design authority
 
-Fidelity rule: build to the INTENT below, not to the pixel. The build agent cannot see its
-own rendered webview, so visual exactness is a human smoke check in TESTING.md, never an
-automated gate. The adversarial review must not churn on cosmetic mismatches it cannot verify.
+The definitive visual and behavioral reference is the Claude-design handoff bundle at
+`media/design/`:
 
-## Theme and palette
+- `media/design/ChatSidebar.html`: the self-contained working prototype. Open it in a
+  browser; it IS the spec. When prose and prototype disagree, the prototype wins unless
+  the deviation table below says otherwise.
+- `media/design/README.md`: the handoff prose (fidelity contract, design tokens, section
+  anatomy, interactions, state model). All colors, spacing, typography, radii, shadows,
+  and animations in it are FINAL and are to be matched verbatim.
+- `media/design/reference/`: reference screenshots of the prototype rendered at 320px
+  (produced by the visual harness slice; the fidelity comparison baseline).
 
-- Light theme, Claude clay accent `#d97757` as the single brand highlight (selection bar,
-  active item, primary affordance).
-- Prefer VS Code theme CSS variables for surfaces, text, and borders so the panel adapts to
-  the user's theme; use the clay accent as the deliberate brand overlay on top.
-- Custom scrollbars and subtle card shadows are acceptable; keep contrast accessible.
+The product is ONE VS Code sidebar view (the existing `claudeNest.orgPanel` webview,
+rebuilt to this design). No other Nest view survives the sprint: the flat Chats tree,
+Smart Groups tree, Archive tree, and the settings editor tab are all retired. Settings
+and Archive live INSIDE the panel as full-panel overlay sub-pages per the handoff.
 
-## Density modes
+## Fidelity rules
 
-- Two modes, toggled and persisted: Comfortable (spacious rows, visible tag labels, relaxed
-  vertical rhythm) and Compact (dense rows, more chats on screen, smaller type).
-- The same data and structure render in both; only spacing, type scale, and chip verbosity change.
+- The handoff palette is hardcoded verbatim (user decision, 2026-07-01). The panel does
+  NOT read VS Code theme tokens; it renders the warm light design identically on every
+  theme, including dark themes. Theme adaptation is explicitly out of scope this sprint.
+- Section order, row anatomy, paddings, font sizes, colors, radii, shadows, the focus
+  glows (orange main, gray archive), the drop highlight, and the popover styling follow
+  `media/design/README.md` exactly.
+- The Newsreader serif for sub-page headings is bundled in the VSIX and loaded from the
+  extension's local resources (never from the network; CSP and the telemetry-free rule
+  both forbid a Google Fonts fetch). If bundling fails, fall back to a local serif stack.
+- Every UI slice must pass the screenshot harness comparison against
+  `media/design/reference/` before its review is dry.
 
-## Row and card anatomy
+## Data mapping (design concept to Nest source)
 
-- A chat row shows: title (truncated, single line), relative time, and a `~`token badge.
-- Colored tag chips on the row (labels in Comfortable, dots or compressed chips in Compact).
-- Hover preview card adds: folder, age, `~`token total, full tag set, and a first/last message
-  snippet. This is the rich preview from slice 1; it is a preview, not a transcript renderer.
+| Design concept | Nest source |
+|---|---|
+| Chat title, age | Existing scan snapshot (`ChatRecord`); age formatted 35m / 3h / 1d / 2w / 1mo |
+| Full-text search over messages | Tier-A text plus the MiniSearch index over on-demand bodies (`src/search/`) |
+| Body-match snippet (`You: ... / Claude: ...`) | Search result snippet builder, role-prefixed |
+| Tags, tag colors | Metadata store tags (synced); the 8-color handoff palette becomes the swatch picker |
+| Folders, subfolders, folder color | Metadata store folders (synced). Data supports deeper nesting; the UI renders and creates at most one sublevel per the design; deeper legacy folders render clamped at depth 2, never destroyed |
+| Starred | `ChatMeta.starred` (synced) |
+| Archived | `ChatMeta.userArchived` + `archivedAt` (synced) plus the Nest-owned body copy in globalStorage |
+| `status: 'question'` (blinking ? badge) | Unread assistant turn whose text asks something (question mark or input request near the end) |
+| `status: 'done'` (solid dot) | Unread assistant turn that is not a question (see read-state below) |
+| Tokens in hover card (`NNk tok`) | Tier-A `tokenTotals`, labeled approximate |
+| New session button | Best-effort launch of a new Claude Code chat via the `claude-vscode.*` contributed commands or the public URI handler, with a graceful failure message |
+| Open chat (row click sets active) | Existing resume-by-URI launch; active detection is the Tabs-API label-match heuristic (named chats only) |
+| Auto-archive ("chats older than N days move to Archive") | Nest org-layer auto-archive at the keep-window setting; default keep-window follows the user's effective Claude `cleanupPeriodDays` (30 if unset); a body copy is taken at archive time; starred chats are never auto-archived but receive a protective body copy before Claude's deletion age |
 
-## Sections (top to bottom)
+## Read state (new, local-only)
 
-1. Starred (pinned chats; hidden entirely when none).
-2. Questions (chats awaiting your reply; a scan-time heuristic labelled as such, not live;
-   hidden when none). See slice 6.
-3. Folders (nested, collapsible; each folder shows its color and chat count; a "collapse one
-   level" control).
-4. Unsorted (catch-all for chats with no folder; always present).
+Per-device `lastSeenAt` per chat, stored in workspace/global Memento state, NEVER synced
+(like sort and collapse state). The unread dot and the Questions badge show when the last
+message is an assistant turn newer than `lastSeenAt`. Cleared by: opening the chat
+through Nest, the chat's tab gaining focus (label-match, named chats only), or a newer
+user message in the transcript. Known accepted gap: reading an unnamed chat directly in
+Claude's UI without replying does not clear it.
 
-A flat recency grouping (Today, This week, and so on) is the existing chatsPreview behavior and
-is the home for search results.
+## Agreed deviations from the handoff (do not flag these in review)
 
-## Controls
+1. Panel width: 320px is the design target, but VS Code controls sidebar width; the
+   layout must stay sane from about 260px to 480px. Reference screenshots are 320px.
+2. The `status: 'done'` dot maps to "unread assistant reply that is not a question"
+   (user decision, 2026-07-01); rows the user has seen show an empty status slot.
+3. The blinking `?` animation is disabled under `prefers-reduced-motion` (static badge).
+4. Active-row highlight is best-effort (tab label heuristic); when no active chat can be
+   identified, no row is highlighted.
+5. The webview keeps its full keyboard and ARIA tree implementation (focus order, roles,
+   Enter/Space activation, arrow navigation, visible focus ring) even though the handoff
+   does not mention accessibility; the panel is now Nest's only surface.
+6. "New session" and "open chat" ride undocumented Claude Code contact points and may
+   degrade gracefully (toast on failure) rather than being guaranteed.
+7. Export downloads become VS Code save dialogs through the existing exportIO chokepoint.
+8. The prototype's in-memory state is replaced by the existing metadata store, sync, and
+   settings machinery; UI-only state (sort, collapsed set, section toggles, read state,
+   archive search) is local Memento state, never synced.
 
-- Full-text search box; results show a matching snippet under the title (slice 2).
-- Tag filter chips: clickable, colored, combinable with search.
-- Sort: Newest first, Oldest first, Name (A-Z).
-- Folders: create via name prompt; double-click to rename; right-click to set color;
-  drag-and-drop chats between folders; drop on Unsorted to unfile.
-- Click a row to open or resume the chat through the existing URI handler.
+## The read-only line (unchanged, sacred)
 
-## Accessibility (acceptance criteria for slice 6, not polish)
-
-- ARIA tree semantics (role tree / treeitem / group), correct focus order, roving tabindex.
-- Full keyboard navigation: arrow keys to move, Enter or Space to activate, a visible focus ring.
-- The native flat Chats TreeView is kept as the accessible fallback while the org panel is the
-  primary webview surface.
+Nothing in this design writes, renames, moves, or deletes under `~/.claude/projects/`.
+Auto-archive is an org-layer flag plus a Nest-owned body copy in globalStorage. All file
+writes go through the settings chokepoint or exportIO behind
+`assertNotUnderClaudeProjects`.
