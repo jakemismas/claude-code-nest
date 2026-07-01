@@ -1,6 +1,6 @@
 export const meta = {
   name: "nest-slice-build",
-  description: "Autonomous per-slice build loop for the Claude Code Nest VSCode extension: fit review with a council to break design forks, build, a three-lens-plus-completeness adversarial review that loops fix-and-reverify until dry, an independent test gate, then a PR-per-slice merge to main with verified Jake authorship; ends by packaging the VSIX and writing TESTING.md. Sequential across slices. Optionally runs a 10-lens pre-release security council over the whole change set before the release slice when args.securityCouncil is set. Auto-resolves reversible design forks (recording each in DECISIONS.md); hard-stops only on an irreversible or data-loss fork, a surviving safety finding after the fix loop (per-slice or security), broken git identity, or a failed landing.",
+  description: "Autonomous per-slice build loop for the Claude Code Nest VSCode extension: fit review with a council to break design forks, build, a four-lens-plus-completeness adversarial review (correctness, integration, read-only/data-integrity, untrusted-input security, plus a screenshot-harness visual-fidelity lens on UI slices) whose completeness critic audits the slice's GitHub-issue acceptance criteria and whose fix passes sweep the whole sibling class of every finding, looping fix-and-reverify until dry, an independent test gate, then a PR-per-slice merge to main (PR body carries Fixes #issue) with verified Jake authorship; ends by packaging the VSIX and writing TESTING.md. Sequential across slices. Optionally runs a 10-lens pre-release security council over the whole change set before the release slice when args.securityCouncil is set. Auto-resolves reversible design forks (recording each in DECISIONS.md); hard-stops only on an irreversible or data-loss fork, a surviving safety finding after the fix loop (per-slice or security), broken git identity, or a failed landing.",
   phases: [
     { title: "Preflight" },
     { title: "Fit Review" },
@@ -54,7 +54,7 @@ const critiqueSchema = {
   type: "object", additionalProperties: false,
   required: ["lens", "summary", "findings"],
   properties: {
-    lens: { type: "string", enum: ["correctness-build-health", "integration-fit", "read-only-data-integrity", "completeness"] },
+    lens: { type: "string", enum: ["correctness-build-health", "integration-fit", "read-only-data-integrity", "untrusted-input-security", "visual-fidelity", "completeness"] },
     summary: { type: "string" },
     findings: {
       type: "array",
@@ -64,7 +64,7 @@ const critiqueSchema = {
         properties: {
           title: { type: "string" },
           severity: { type: "string", enum: ["critical", "major", "minor", "nit"] },
-          category: { type: "string", enum: ["correctness", "build", "integration", "read-only", "data-loss", "completeness", "other"] },
+          category: { type: "string", enum: ["correctness", "build", "integration", "read-only", "data-loss", "security", "visual", "completeness", "other"] },
           file: { type: "string" },
           detail: { type: "string" },
           confidence: { type: "number", minimum: 0, maximum: 1 }
@@ -121,6 +121,7 @@ class HaltError {
   constructor(message, context) { this.name = "HaltError"; this.message = message; this.context = context; }
 }
 function isHalt(e) { return e && e.name === "HaltError"; }
+let PLAN_DOC = "PLAN.md"; // overridden from args.planDoc in main
 function lowestMissingOrder(completed, n) {
   const have = new Set(completed || []);
   for (let i = 0; i < n; i++) if (!have.has(i)) return i;
@@ -151,11 +152,11 @@ async function runCouncil(slice, fit) {
   const angles = [
     "the simplest resolution that still ships a working slice",
     "the most robust resolution against the binding design rules and data integrity",
-    "the resolution most faithful to PLAN.md and ARCHITECTURE.md"
+    "the resolution most faithful to " + PLAN_DOC + ", UI-SPEC.md, and ARCHITECTURE.md"
   ];
   const proposals = await parallel(angles.map((a, idx) => () =>
     agent("DESIGN COUNCIL proposer " + (idx + 1) + ". A fit review flagged this design fork for slice " +
-      slice.id + ":\n" + fit.summary + "\nRead ARCHITECTURE.md and PLAN.md (read-only). Propose " + a +
+      slice.id + ":\n" + fit.summary + "\nRead ARCHITECTURE.md, UI-SPEC.md, and " + PLAN_DOC + " (read-only). Propose " + a +
       ". State the concrete decision and its trade-offs.",
       { label: "council-propose-" + (idx + 1) + ":" + slice.id, phase: "Council" })));
   return await agent(
@@ -183,10 +184,12 @@ async function runSecurityCouncil(cfg, floor) {
     round += 1;
     phase("Security Council");
     const reviews = await parallel(SECURITY_LENSES.map((L) => () =>
-      agent("SECURITY COUNCIL reviewer, lens " + L.name + ". REFUTE the safety of the entire Sprint 2 change set: " +
-        "diff origin/main against the v0.0.1 release tag (or commit 44174c8 if that tag is absent) and read the " +
-        "changed files. Lens focus: " + L.detail + " Report findings; mark an exploitable issue severity critical " +
-        "and a likely-but-unproven one major. Round " + round + ".",
+      agent("SECURITY COUNCIL reviewer, lens " + L.name + ". REFUTE the safety of the entire " +
+        (cfg.changeSetLabel || "sprint") + " change set: diff origin/main against the baseline ref '" +
+        (cfg.baselineRef || "v0.0.1") + "' and read the changed files. Lens focus: " + L.detail +
+        " Report findings; mark an exploitable issue severity critical and a likely-but-unproven one major. " +
+        "For every finding, also name its sibling class (every equivalent boundary carrying the same flaw " +
+        "pattern) so the fix pass can sweep the class, not the instance. Round " + round + ".",
         { schema: critiqueSchema, label: "sec-" + L.key + ":r" + round, phase: "Security Council" })));
     const findings = aggregateFindings(reviews);
     const actionable = findings.filter(f => f.severity === "critical" || f.severity === "major");
@@ -217,6 +220,9 @@ try {
   const PER_SLICE_FLOOR = (A && A.perSliceFloor) ? A.perSliceFloor : 300000;
   const MAX_FIX_ROUNDS = (A && A.maxFixRounds) ? A.maxFixRounds : 3;
   const COUNCIL_MIN = (A && A.councilMinConfidence) ? A.councilMinConfidence : 0.6;
+  PLAN_DOC = (A && A.planDoc) ? A.planDoc : "PLAN.md";
+  const SEC_ID = (A && A.securityCouncil && A.securityCouncil.trailerId) ? A.securityCouncil.trailerId : "sprint-2";
+  const SEC_TRAILER = "Nest-Security: " + SEC_ID + " (audit)";
 
   // Resume detection must key on THIS run's exact id+order trailers, not order alone: a prior sprint can have
   // landed orders 0..n on origin/main, so counting any Nest-Slice trailer by order would mark this run done.
@@ -231,7 +237,7 @@ try {
     "with any OTHER id, such as a prior sprint's, does NOT count toward completedOrders. Verify against " +
     "origin/main with git log origin/main, not just local log. " +
     "3) treeClean from git status --porcelain, ignoring .nest-build-state.json. 4) securityDone: true if a " +
-    "commit carrying the trailer 'Nest-Security: sprint-2 (audit)' is present on origin/main, else false. " +
+    "commit carrying the trailer '" + SEC_TRAILER + "' is present on origin/main, else false. " +
     "Modify nothing.",
     { schema: preflightSchema, label: "preflight", phase: "Preflight" });
   if (pf == null) throw new HaltError("Preflight agent died", { stage: "preflight" });
@@ -284,13 +290,13 @@ try {
           { stage: "security", actionable: sec.actionable, budgetHit: !!sec.budget, fixDied: !!sec.fixDied });
       }
       const secLand = await agent(
-        "Land the Sprint 2 security audit on main via a PR. If the council made code fixes the working tree has " +
+        "Land the pre-release security audit on main via a PR. If the council made code fixes the working tree has " +
         "changes: stage them and add a CHANGELOG note (and update ARCHITECTURE.md if a binding contract changed). " +
         "If there were NO code fixes, still create a marker by appending a dated 'Security audit: no actionable " +
         "findings' line under the CHANGELOG.md [Unreleased] section. Either way commit as Jake via local git config " +
         "(NO --author, NO GIT_AUTHOR_*/GIT_COMMITTER_* overrides, NO AI co-author trailer; subject under 70 chars; " +
-        "no em or en dashes; no emoji) with the trailer 'Nest-Security: sprint-2 (audit)'. Create branch " +
-        "'security/sprint-2-audit', push it, open a PR with 'gh pr create --base main', merge with 'gh pr merge " +
+        "no em or en dashes; no emoji) with the trailer '" + SEC_TRAILER + "'. Create branch " +
+        "'security/" + SEC_ID + "-audit', push it, open a PR with 'gh pr create --base main', merge with 'gh pr merge " +
         "--merge --delete-branch', then sync local main with 'git fetch origin' + 'git checkout main' + 'git merge " +
         "--ff-only origin/main'. NEVER put 'git push' and the word main in the SAME shell command; run them as " +
         "separate commands. The PR body must include 'Fixes #" + (securityCfg.issue || 0) + "'. Verify the " +
@@ -361,12 +367,17 @@ try {
       "accepted patches:\n" + JSON.stringify(mergedPlan) + "\nNever create scratch, probe, throwaway, or " +
       "lint-test files under src/ or out/; they break the tsc and eslint gates and can ship in the VSIX. If you " +
       "must create a temporary file to verify a rule, put it under .claude-working/ (gitignored) and remove it " +
-      "when done. Run the compile to confirm it builds. Do NOT git " +
-      "add, commit, or push. No em dashes, en dashes, or emojis in code or docs.",
+      "when done. Run the compile to confirm it builds. " +
+      (slice.visualCheck ? "This is a UI slice bound to the design reference (media/design/ChatSidebar.html, " +
+      "media/design/README.md, UI-SPEC.md). After building, run '" + slice.visualCheck + "' to produce the " +
+      "harness screenshots, READ them (the Read tool renders images) side by side with the reference " +
+      "screenshots under media/design/reference/, and iterate until the rendered panel matches the design " +
+      "before handing to review. " : "") +
+      "Do NOT git add, commit, or push. No em dashes, en dashes, or emojis in code or docs.",
       { label: "build:" + slice.id, phase: "Build" });
     if (build == null) throw new HaltError("Build agent died for " + slice.id, { stage: "build", slice: slice.id });
 
-    // ---- Loop-until-dry: review (3 lenses + completeness) then fix, up to MAX_FIX_ROUNDS ----
+    // ---- Loop-until-dry: review (4 lenses + optional visual + completeness) then fix, up to MAX_FIX_ROUNDS ----
     let round = 0;
     while (true) {
       round += 1;
@@ -385,8 +396,31 @@ try {
           "bypass the read-only chokepoint, or lose or corrupt the metadata store. Mark such findings category " +
           "read-only or data-loss and severity critical. Read the files. Slice " + slice.id + ". Round " + round + ".",
           { schema: critiqueSchema, label: "rev-readonly:" + slice.id, phase: "Review" }),
-        () => agent("COMPLETENESS critic, lens completeness. What did the slice MISS versus its plan and DoD: " +
-          "an unimplemented acceptance item, an untested pure-logic unit, a missing edge case, a doc not " +
+        () => agent("Adversarial REVIEW, lens untrusted-input-security. REFUTE the safety of every boundary " +
+          "this slice touches where untrusted data enters the extension: transcript-derived strings rendered " +
+          "in a webview (verify escaping, the CSP, and the nonce), webview postMessage handlers (EVERY field " +
+          "validated: record ids via the isSafeRecordId gate, colors via strict hex, map keys before any map " +
+          "write or vscode.Uri.joinPath), imported or synced JSON (prototype pollution, unvalidated map keys), " +
+          "and any filesystem path derived from untrusted input (traversal past the export/archive guards). " +
+          "Verify the WHOLE CLASS at each boundary, not single instances: check ALL map keys, ALL id sinks, " +
+          "ALL color fields, ALL render interpolations, and say so in the finding detail. category security; " +
+          "an exploitable path is critical, a likely-but-unproven one major. Read the diff and files. Slice " +
+          slice.id + ". Round " + round + ".",
+          { schema: critiqueSchema, label: "rev-security:" + slice.id, phase: "Review" }),
+        ...(slice.visualCheck ? [() => agent("Adversarial REVIEW, lens visual-fidelity. REFUTE that the " +
+          "rendered panel matches the binding design reference (media/design/ChatSidebar.html distilled in " +
+          "media/design/README.md and UI-SPEC.md). Run '" + slice.visualCheck + "' to produce fresh harness " +
+          "screenshots, then READ them (the Read tool renders images) next to the reference screenshots under " +
+          "media/design/reference/ and compare layout, spacing, colors, typography, and interaction states " +
+          "this slice ships. A visible mismatch against a specified token, metric, or layout is major; a " +
+          "broken or missing element is critical; do NOT flag the agreed deviations listed in UI-SPEC.md. " +
+          "category visual. Slice " + slice.id + ". Round " + round + ".",
+          { schema: critiqueSchema, label: "rev-visual:" + slice.id, phase: "Review" })] : []),
+        () => agent("COMPLETENESS critic, lens completeness. What did the slice MISS versus its plan, its " +
+          "GitHub issue, and the DoD: " + (slice.issue ? "run 'gh issue view " + slice.issue + "' and check " +
+          "EVERY acceptance-criteria checkbox in the issue body against the actual diff; an unmet or " +
+          "partially met criterion is a major finding named after its checkbox text. Also flag " : "flag ") +
+          "an unimplemented plan item, an untested pure-logic unit, a missing edge case, a doc not " +
           "updated. List gaps as findings. Slice " + slice.id + ". Round " + round + ".",
           { schema: critiqueSchema, label: "rev-completeness:" + slice.id, phase: "Review" })
       ]);
@@ -407,8 +441,15 @@ try {
       phase("Fix");
       const fix = await agent(
         "FIX PASS (round " + round + " of up to " + MAX_FIX_ROUNDS + "). Resolve ALL of these actionable " +
-        "findings, then re-check by rebuilding AND running the slice tests (" + (slice.testCommand || "npm test") +
-        "). Report buildPasses, testsPass, and any remainingFindings. Findings:\n" + JSON.stringify(actionable) +
+        "findings. CLASS-SWEEP RULE (non-negotiable, learned from the Sprint 2 map-key critical): for every " +
+        "finding, fix the NAMED instance AND sweep its entire sibling class, meaning the same flaw pattern at " +
+        "every equivalent boundary (all map keys if one map key is flagged, all id sinks if one id is flagged, " +
+        "all color fields if one color is flagged, all render sites if one interpolation is flagged); a " +
+        "finding is not resolved while any sibling still carries the flaw, and the re-review will check the " +
+        "class. Then re-check by rebuilding AND running the slice tests (" + (slice.testCommand || "npm test") +
+        ")." + (slice.visualCheck ? " If any finding was visual, re-run '" + slice.visualCheck + "' and READ " +
+        "the screenshots to confirm the fix before reporting." : "") +
+        " Report buildPasses, testsPass, and any remainingFindings. Findings:\n" + JSON.stringify(actionable) +
         "\nKeep any scratch or probe files under .claude-working/ (gitignored), never under src/ or out/, and " +
         "remove them before reporting. Do NOT commit or push.",
         { schema: fixResultSchema, label: "fix:" + slice.id + ":r" + round, phase: "Fix" });
@@ -444,7 +485,8 @@ try {
       "imperative, under 70 chars, no emoji, no em or en dashes, NO AI co-author trailer, NO generated-by " +
       "marker. Append trailer 'Nest-Slice: " + slice.id + " (" + i + ")'. 4) Push the branch with " +
       "'git push -u origin slice/" + slice.id + "', open a PR into main with 'gh pr create --base main --head " +
-      "slice/" + slice.id + " --title <subject> --body <short body>', then merge it with a MERGE COMMIT so the " +
+      "slice/" + slice.id + " --title <subject> --body <short body" + (slice.issue ? "; the body MUST contain " +
+      "a line 'Fixes #" + slice.issue + "' so the merge closes the slice issue" : "") + ">', then merge it with a MERGE COMMIT so the " +
       "slice commit lands on main unchanged: 'gh pr merge --merge --delete-branch' (pass the PR number or url). " +
       "Do NOT push to main directly. 5) Sync local main WITHOUT any force command (git reset --hard is blocked " +
       "by the hook): 'git fetch origin', 'git checkout main', then 'git merge --ff-only origin/main' (local " +
@@ -470,7 +512,7 @@ try {
     "RELEASE AND HANDOFF. 1) Ensure README and CHANGELOG reflect the finished extension. 2) Package the VSIX " +
     "(npx vsce package) and report its path. 3) Write TESTING.md at the repo root: how to install the VSIX " +
     "(code --install-extension <path>, or the Extensions: Install from VSIX command), and the consolidated " +
-    "manual smoke checklist drawn from every slice's smoke steps in PLAN.md, since UI smoke needs a human. " +
+    "manual smoke checklist drawn from every slice's smoke steps in " + PLAN_DOC + ", since UI smoke needs a human. " +
     "4) Land it on main via a PR (direct pushes to main are blocked): commit on a branch 'slice/handoff' " +
     "with author and committer both Jake (local config; no --author flag, no AI trailer, no generated-by " +
     "marker, no em or en dashes, no emoji), push the branch, open a PR into main with gh, merge it with " +
