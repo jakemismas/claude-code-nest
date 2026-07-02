@@ -97,9 +97,10 @@ function makeUri(fsPath: string): FakeUri {
 
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 
-// Minimal TreeView/Webview primitives so a provider module (flatProvider,
-// chatTooltip) that extends/constructs these can be require()d under the headless
-// runner. Only the construction surface those modules touch is implemented.
+// Minimal TreeView/Webview primitives so a provider module (foldersProvider,
+// archiveProvider, chatTooltip) that extends/constructs these can be require()d
+// under the headless runner. Only the construction surface those modules touch is
+// implemented.
 const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
 
 class TreeItem {

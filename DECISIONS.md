@@ -868,3 +868,79 @@ every refresh closure so the primary surface re-renders on any mutation. The ret
 chatsPreviewWebview.ts and its media files are deleted (superseded), and its content-search
 refresh-during-build race regression test is re-pointed at orgPanelWebview.ts (the machinery moved
 verbatim). All resolutions are reversible and visible in the diff. Closes issue #23.
+
+## 2026-07-01 Slice s3a-view-consolidation: retire the Chats and Smart Groups trees (one panel)
+
+Fork context: SPRINT-3-PLAN.md part 1 slice 0 (issue #78) with five accepted fit
+patches. The org panel becomes the ONLY browsing surface per UI-SPEC.md deviation 5,
+superseding the slice-6 "flat Chats tree kept as the accessible fallback" contract;
+ARCHITECTURE.md was updated so reviewers do not flag the retirement. Autonomous,
+reversible choices made inside the patch scope:
+
+(a) OPEN_CHAT_COMMAND rehomed to src/launch/uriLauncher.ts (the module implementing
+the open), not a new file: the constant sits next to the launcher it names, the
+module stays vscode-free, and all five importers (orgPanelWebview, archiveProvider,
+foldersProvider, tagsProvider, linkDecoration) plus extension.ts re-point there.
+
+(b) claudeNest.refresh KEPT and retargeted (patch offered retarget-or-delete):
+it primes the kept FoldersProvider snapshot under the cancellable progress UI
+(that snapshot backs the link pick list, the rollup seam, and project-key
+resolution), then re-posts the org panel section model so the sole surface
+re-renders. The walkthrough openView step now links it as plain "Refresh".
+
+(c) The smart-groups walkthrough STEP is removed outright (not merely de-linked)
+and media/walkthrough/smart-groups.md is deleted: the step described a retired
+surface and a kept-but-linkless step would ship stale guidance plus an
+unreferenced media file, violating the sprint's clean-retirement rule. The full
+walkthrough rework remains s3c-docs-a11y.
+
+(d) Promote commands stay registered and palette-hidden, now accepting a
+structurally validated plain {name, memberChatIds} argument (nothing mints
+SmartBucketItem any more); promoteDeps resolves the project key through
+FoldersProvider. src/smart/* (engine + signals) is kept per the plan's module
+list: pure, unit-tested, and available to a future in-panel surface.
+
+(e) The no-arg unlink palette path offers ONE pick entry per linked child, labeled
+with its DESIGNATED parent, because unlinkChat removes exactly the designated-
+parent nesting; offering every raw (source, target) pair would let a user pick an
+entry whose removal detaches a different visible nesting. Broken children are
+offered so dangling links stay cleanable (mirroring the retired tree's broken-row
+Unlink).
+
+(f) Star/archive of LIVE chats is an ACCEPTED interim gap (patch 2): the panel has
+no such affordance until s3a-row-anatomy and s3b-context-menu, and no unplanned
+affordance was added; the Archive view still covers archived-row curation. The
+smoke check for this slice is folders/tags/DnD plus archived-row star/restore.
+
+All data, the synced schema, and stored ids are untouched; chatStarBadge tests
+re-point at the kept folders/tags node builders and the activation integration
+test asserts the exact two-view set (orgPanel, archive). Closes issue #78.
+
+### 2026-07-02 Slice s3a-view-consolidation: salvage-landing ratification
+
+The autonomous engine died on a session limit before any per-slice review ran, and
+a first salvage verify loop died mid-reverify on the same limit; both were infra
+failures, not code defects. The build was landed via a manual multi-lens salvage
+after the limit reset. Rulings recorded here so the landing is not self-certified:
+
+(g) RATIFIED the item (f) interim gap. Five independent adversarial lenses
+(correctness, read-only/data-integrity, untrusted-input security, completeness,
+integration) re-verified the tree; read-only confirmed all starred/archived data
+survives and stays reachable (Starred section renders, Archive view curates), and
+completeness confirmed none of issue #78's five acceptance criteria require a
+live-chat star/archive affordance. The gap is reversible (star returns in
+s3a-row-anatomy, archive/export in s3b-context-menu per SPRINT-3-PLAN.md) and is
+not a data-loss or read-only finding, so it is an accepted reversible fork, not a
+hard-stop.
+
+(h) FIXED one real slice-introduced defect the salvage found: retiring the flat
+and smart-groups trees stripped the view menus off claudeNest.refresh,
+claudeNest.linkToChat, and claudeNest.unlinkChat, leaving the Command Palette as
+their only surface. Under the declared engines floor ^1.66.0 (< 1.74, before
+implicit command activation) a cold palette invocation would fail with "command
+not found". The whole palette-only class now declares onCommand activation events
+(matching the existing openSettings/exportLibrary/importLibrary pattern), guarded
+by a new engines-aware assertion in src/test/unit/commandSurfaces.test.ts.
+
+Gates green at landing: tsc --noEmit clean, eslint clean, 796 unit tests passing,
+vsce package clean (80 files).

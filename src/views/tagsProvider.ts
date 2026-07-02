@@ -15,7 +15,7 @@ import {
   assembleTagsTree,
   isUntaggedId,
 } from '../model/untagged';
-import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { ScanPrimable } from '../commands/refreshScanCommands';
 import { ProjectMeta } from '../store/schema';
 import { buildChatTooltip, tokenBadge } from './chatTooltip';
@@ -98,7 +98,7 @@ export class ChatOccurrenceItem extends vscode.TreeItem {
     this.contextValue = 'claudeNest.tagChat';
     // A starred chat swaps the chat icon for the star so the curation state is
     // visible here too, not only after the chat is archived (matching the Archive
-    // and flat views). ThemeIcon cannot composite glyphs, so the star replaces the
+    // view). ThemeIcon cannot composite glyphs, so the star replaces the
     // default comment-discussion icon.
     this.iconPath = new vscode.ThemeIcon(starred ? 'star-full' : 'comment-discussion');
     this.command = {
@@ -316,7 +316,7 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
   }
 
   // Sort a tag's occurrences newest-chat-first (no timestamp sorts last), matching
-  // the flat and folders views. The pure model leaves chat order to the view
+  // the folders members. The pure model leaves chat order to the view
   // because timestamps live outside it.
   private sortedOccurrences(occurrences: ChatOccurrence[]): ChatOccurrence[] {
     return [...occurrences].sort((a, b) => {
@@ -354,8 +354,8 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
 }
 
 // An occurrence row's description: relative time plus the ~token badge (from the
-// tier-A token totals on the snapshot record; no body read). Matches the flat and
-// folders views so every surface reads identically.
+// tier-A token totals on the snapshot record; no body read). Matches the folders
+// members so every row builder reads identically.
 function chatRowDescription(record: ChatRecord): string {
   const rel = relativeTime(record.timestamp);
   const badge = tokenBadge(record);

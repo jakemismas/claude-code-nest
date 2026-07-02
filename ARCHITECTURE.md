@@ -7,10 +7,13 @@ the binding rules below. Keep this file updated as slices land.
 ## Overview
 
 Claude Code Nest is a VSCode extension that overlays a virtual organization
-layer (folders, tags, links, smart groups, and a settings editor) on Claude Code
-chat transcripts for a single project. It contributes its own Activity Bar view
+layer (folders, tags, links, and a settings editor) on Claude Code chat
+transcripts for a single project. It contributes its own Activity Bar view
 container (claudeNest) and never modifies Claude's data beyond one sanctioned,
-guarded settings write.
+guarded settings write. Since Sprint 3 slice s3a-view-consolidation the org
+panel webview is the SOLE browsing surface (UI-SPEC.md deviation 5); the
+Archive tree and the settings editor tab survive only until part 2 ships their
+in-panel replacements.
 
 ## Module map (navigation index)
 
@@ -45,16 +48,22 @@ vscode-free modules. This index says where each binding contract below lives.
   src/search/vendor/minisearch.js and copied to out/ by the compile step, never an npm
   dependency.
 - Smart groups (vscode-free signals): src/smart/smartGroupEngine.ts plus
-  src/smart/signals/{pr,ticket,branch,forkLineage,bucket}.ts.
+  src/smart/signals/{pr,ticket,branch,forkLineage,bucket}.ts. The Smart Groups
+  TREE was retired in slice s3a-view-consolidation; the engine and the promote
+  commands (programmatic, palette-hidden) remain for a future in-panel surface.
 - Export and rollup (pure): src/export/chatExport.ts, src/rollup/tokenRollup.ts,
   src/rollup/rollupReport.ts.
-- View surfaces: the live views are the org panel (src/views/orgPanelWebview.ts plus
-  the pure orgPanelModel.ts), the flat Chats tree (flatProvider.ts), Smart Groups
-  (smartGroupsProvider.ts), and Archive (archiveProvider.ts). FoldersProvider.ts and
-  TagsProvider.ts are KEPT as non-view services (project-key resolution, link target
-  pick list, the tokenTotalsByChat rollup seam, reveal and home resolution) since slice
-  6 retired their trees; chatTooltip.ts/chatMeta.ts/relativeTime.ts/linkDecoration.ts
-  are vscode-free view helpers.
+- View surfaces (post s3a-view-consolidation, UI-SPEC.md deviation 5): the live
+  views are the org panel (src/views/orgPanelWebview.ts plus the pure
+  orgPanelModel.ts), the SOLE browsing surface, and Archive (archiveProvider.ts),
+  which survives until part 2 ships the in-panel Archive overlay. The flat Chats
+  tree (flatProvider.ts) and Smart Groups tree (smartGroupsProvider.ts) are
+  DELETED; the OPEN_CHAT_COMMAND id now lives in src/launch/uriLauncher.ts.
+  FoldersProvider.ts and TagsProvider.ts are KEPT as non-view services
+  (project-key resolution, link target pick list, the tokenTotalsByChat rollup
+  seam, reveal and home resolution) since slice 6 retired their trees;
+  chatTooltip.ts/chatMeta.ts/relativeTime.ts/linkDecoration.ts are vscode-free
+  view helpers.
 - Commands: src/commands/* are vscode-thin orchestrators over the pure modules above
   (folders, tags, tagging, links, curation, export, rollup, export-import,
   promote-smart-group, preview, refresh-scan); src/settings/settingsWebview.ts is the
@@ -167,20 +176,20 @@ tier-A scan, never the full body); models and the files-touched count are additi
 context. tokenBadge in the same module is the single source of the row's ~token
 description so the badge and the card's token line agree.
 
-To feed the builder REAL folder/tag values in every view, FlatProvider carries the
-same MetadataStore constructor dependency FoldersProvider and TagsProvider already
-have (extension.ts). On each render it resolves the project key on demand
-(resolveProjectKey, mirroring the other two providers so the lookup recovers
-without a window reload), reads the project meta ONCE per render, and resolves each
-row's folder name and tag set (src/views/chatMeta.ts resolveFolderName /
-resolveTagLabels) at the call site before handing those plain values to
-buildChatTooltip. The store read is tolerant: an unresolved key leaves folder/tags
-empty and the card renders "Unfiled"/"none" rather than throwing, keeping the
-never-throw-out-of-getChildren rule. So the flat view shows the SAME full card as
-the Folders and Tags views, not a degraded ChatRecord-only subset (DECISIONS.md
-2026-06-19 Slice 1). The node memoization key (nodeReuseKey) now folds in the
-folder name and tag labels so a re-file or tag edit rebuilds the row's node and its
-tooltip while an unchanged row keeps its object.
+To feed the builder REAL folder/tag values, each provider resolves the project key
+on demand (resolveProjectKey, so the lookup recovers without a window reload),
+reads the project meta ONCE per render, and resolves each row's folder name and
+tag set (src/views/chatMeta.ts resolveFolderName / resolveTagLabels) at the call
+site before handing those plain values to buildChatTooltip. The store read is
+tolerant: an unresolved key leaves folder/tags empty and the card renders
+"Unfiled"/"none" rather than throwing, keeping the never-throw-out-of-getChildren
+rule (DECISIONS.md 2026-06-19 Slice 1). Each kept builder folds the card inputs
+into its node memoization key (cardFolderName/cardTagsSignature) so a re-file or
+tag edit rebuilds the row's node and its tooltip while an unchanged row keeps its
+object. (The flat Chats tree, this card's original third surface, was retired in
+slice s3a-view-consolidation, and the kept builders now ride the view-less
+folders/tags services, so no attached view renders the card until the s3b
+in-panel hover card lands; the rule continues to bind the kept node builders.)
 
 ## Search-index location (Sprint 2, slice 2) — binding
 
@@ -288,8 +297,8 @@ synced/local flag separation.
   form after Claude's cleanup, so a stale-snapshot star must never let the prune delete
   it.
 - The Archive view registers WITHOUT a dragAndDropController (read-mostly;
-  archive/restore are commands, not drops), matching the smartGroups view shape, and
-  takes the same (workspacePath, store) deps as FoldersProvider, resolving the
+  archive/restore are commands, not drops; the retired smartGroups view shared this
+  shape) and takes the same (workspacePath, store) deps as FoldersProvider, resolving the
   project key on demand. getChildren(undefined) returns [] and never throws; an
   onView:claudeNest.archive activationEvent and a viewsWelcome empty-state entry back
   the view. An archived chat whose transcript was cleaned up out of band still lists
@@ -301,14 +310,16 @@ synced/local flag separation.
   reads the copy by sessionId and routes through the SAME pure formatter as the live
   preview (formatPreviewLines), so the two renderings are byte-identical; a missing or
   empty copy surfaces an info notice, never a blank document.
-- The STAR BADGE renders on EVERY primary chat surface (flat, folders, tags), not
-  only in the Archive view. Each provider resolves the SYNCED ChatMeta.starred via the
-  shared resolveStarred(meta, chatId) (never the local orphan state) and swaps the row
+- The STAR BADGE renders on every chat-row node builder (folders members, tags
+  occurrences, archived rows; the flat tree carried it too until its retirement in
+  slice s3a-view-consolidation, and the org panel renders starred state its own
+  way). Each builder resolves the SYNCED ChatMeta.starred via the shared
+  resolveStarred(meta, chatId) (never the local orphan state) and swaps the row
   icon to star-full when set. ThemeIcon cannot composite two glyphs, so the star
-  replaces the default comment-discussion icon. Each provider folds starred into its
-  node reuse key (flat) or cardStarred field (folders, tags) so a star toggle rebuilds
-  exactly the affected rows and re-renders the badge on the next refresh.
-  See DECISIONS.md Slice s2-star-archive.
+  replaces the default comment-discussion icon. Each builder folds starred into
+  its reuse key (cardStarred field) so a star toggle rebuilds exactly the affected
+  rows and re-renders the badge on the next refresh. See DECISIONS.md Slice
+  s2-star-archive.
 
 ## Per-chat export and token rollup (Sprint 2, slice 5) — binding
 
@@ -359,10 +370,11 @@ the rollup stays an honest, vscode-free reduction.
 - The ROLLUP UI SURFACE is the lightest that meets the AC: a read-only virtual
   document built from the pure reducer + renderer output, opened by the vscode-thin
   showTokenRollup command. No webview/CSP dependency. The claudeNest.showTokenRollup
-  command is contributed with a view/title entry on the flat/folders/tags views and is
-  available in the command palette; claudeNest.exportChat is a chat-row context action
-  (flat/folders/tags) gated out of the palette (it needs a target), mirroring the
-  Slice 4 curation-command contributions. See DECISIONS.md Slice s2-export-and-rollup.
+  command rides the org panel's view/title menu and the command palette (its tree
+  view/title homes retired with their views); claudeNest.exportChat stays gated out
+  of the palette (it needs a target) and, since s3a-view-consolidation, waits for
+  the in-panel context menu (s3b) to regain a surface. See DECISIONS.md Slice
+  s2-export-and-rollup.
 
 ## Org panel as the primary view (Sprint 2, slice 6) — binding
 
@@ -370,9 +382,14 @@ Slice 6 promotes the chatsPreview proof-of-concept to the PRIMARY organization
 surface: a single CSP-locked, nonce-scripted WebviewView (claudeNest.orgPanel,
 "Organize") that renders sections, tag chips, sort, density, per-folder color,
 folder rename, and drag-and-drop. The native Folders and Tags TreeViews are
-RETIRED; the flat Chats TreeView is KEPT as the accessible fallback. These rules
-are binding so the re-platform cannot violate the read-only invariant, the
-DnD-shell-only contract, or the unit-gate split.
+RETIRED. Slice 6 kept the flat Chats TreeView as the accessible fallback, but
+Sprint 3 slice s3a-view-consolidation SUPERSEDES that per UI-SPEC.md deviation 5:
+the flat Chats and Smart Groups trees are retired and the org panel's own
+keyboard + ARIA tree implementation is the accessibility story, making the panel
+the SOLE browsing surface. Reviewers must NOT flag that retirement as an
+architecture violation. The remaining rules are binding so the re-platform cannot
+violate the read-only invariant, the DnD-shell-only contract, or the unit-gate
+split.
 
 - THE DnD-SHELL-ONLY CONTRACT. src/dnd/dropReducer.ts is NOT modified by this
   slice (sprint-wide hard rule, SPRINT-2-PLAN:73). The only new code on the drop
@@ -429,14 +446,17 @@ DnD-shell-only contract, or the unit-gate split.
 - ACCESSIBILITY IS AN ACCEPTANCE CRITERION. The list is role="tree" with
   role="treeitem" rows under role="group" sections, a single roving tabindex (one
   focusable row at a time), arrow-key navigation (Up/Down/Home/End), Enter/Space
-  activation, and a visible focus ring (CSS). The native flat Chats TreeView is kept
-  as the accessible fallback while the org panel is the primary surface.
+  activation, and a visible focus ring (CSS). Since s3a-view-consolidation there
+  is NO native fallback tree: the org panel's ARIA tree IS the accessibility
+  surface (UI-SPEC.md deviation 5), so this criterion is load-bearing.
 - THE LINK NESTING TREE IS NOT RENDERED IN THE ORG PANEL (deferred, reversible).
   The Folders tree rendered linked children; the org panel does not yet have a link
-  surface. linkToChat stays reachable (a flat-view chat-row context action), and the
-  linkToChat/unlinkChat commands and the pure links model remain intact for a future
-  org-panel link surface; until then unlink has no row to fire from. See DECISIONS.md
-  Slice s2-org-panel-webview.
+  surface. Since s3a-view-consolidation both commands are PALETTE-callable with
+  no-arg quick-pick paths (linkCommands.ts linkToChatFromPalette picks the source
+  chat; unlinkChatFromPalette picks among the project's current designated-parent
+  links, the exact nesting unlinkChat removes), and the pure links model remains
+  intact for a future org-panel link surface. See DECISIONS.md Slice
+  s2-org-panel-webview and s3a-view-consolidation.
 
 ## Read-only invariant (the sacred constraint)
 
@@ -552,14 +572,14 @@ handler. If the extension fails, Claude must be entirely unaffected.
     of store-mutation intents; the controller extracts that plain data from the
     real DataTransfer and drop target, then applies the intents. dndController.ts
     imports the reducer.
-  - The two controllers are constructed in extension.ts and passed to each
+  - The two controllers were constructed in extension.ts and passed to each
     createTreeView's dragAndDropController option (they are NOT self-registering).
     Both the foldersView and tagsView createTreeView calls set canSelectMany:true
     (required so a multi-chat drag carries every selected chat) AND the
-    dragAndDropController option. The flat (Chats) view ALSO sets canSelectMany:true
-    but has NO dragAndDropController: there it only enables ctrl/shift multi-select
-    for the contributed "Tag Chats..." command (the multi-select batching TESTING.md
-    Slice 4 step 3 verifies), not a drag path.
+    dragAndDropController option. (Historical: those trees, and later the flat
+    Chats tree that reused canSelectMany for multi-select tagging, are retired;
+    the controllers remain unit-tested but unwired. In-panel DnD goes through
+    webviewDropAdapter.)
 - Refresh coalescing: batch a multi-select mutation into ONE store write and fire
   onDidChangeTreeData once (targeted to affected parents where possible).
   Implement the batch via the store's EXISTING mutation coalescing, NOT a new batch
@@ -567,34 +587,36 @@ handler. If the extension fails, Claude must be entirely unaffected.
   store.addChatTag calls (which coalesce into one pending write), then a single
   await store.flush() and a single provider.refresh() (the same shape as
   deleteFolder's cascade).
-- Empty state: getChildren(undefined) returns [] and a viewsWelcome contribution
-  shows the no-sessions message. Never throw out of getChildren. (Slice 9 Polish
-  VERIFIED this unchanged across all four providers and the four viewsWelcome
-  entries, and added the progress/cancellation path WITHOUT making getChildren or
+- Empty state: getChildren(undefined) returns [] and, for the remaining Archive
+  tree, a viewsWelcome contribution shows the empty-state message (the org panel
+  webview owns its own empty state). Never throw out of getChildren. (Slice 9
+  Polish VERIFIED this across the then-four providers and viewsWelcome entries,
+  and added the progress/cancellation path WITHOUT making getChildren or
   getParent async: those stay synchronous on the memoized snapshot, and an explicit
   Refresh command primes that snapshot under vscode.window.withProgress with a
   CancellationToken via the ScanPrimable.primeSnapshot seam, then fires
   onDidChangeTreeData once. The scanner stays vscode-free: scanChats takes optional
   plain-callback {onProgress, shouldCancel} that the vscode layer supplies. The scan
   is synchronous, so cancellation takes effect on a re-issued refresh, not mid-scan;
-  see DECISIONS.md Slice 9. FlatProvider gained the same memoized-snapshot shape the
-  other three providers already had so priming it caches the scan, and (Sprint 2)
-  the same MetadataStore dependency so its hover card resolves the real folder and
-  full tag set rather than a degraded subset; see the on-demand body reader and
-  rich hover card section above.)
+  see DECISIONS.md Slice 9. Since s3a-view-consolidation the palette Refresh primes
+  the KEPT FoldersProvider snapshot, then re-posts the org panel's section model,
+  so the sole browsing surface re-renders under the same progress UI; the contract
+  continues to bind the kept ScanPrimable services and the Archive tree.)
 - Separator-namespace discipline: tag, folder, and chat ids are generated free of
   ':', '#', '>'. Enforce in the id factory. The synthetic-node sentinels live in
   the same id-space but are NOT mintable and are excluded from the factory's
   mintable set: '__unfiled__' (Folders), '__untagged__' (Tags), and the four Smart
   Groups signal-group ids '__smart_pr__' / '__smart_ticket__' / '__smart_branch__'
-  / '__smart_fork__' (Slice 6). The Smart Groups view adds a TWO-char '::' bucket-id
-  namespace on top of the three single-char composite separators: a bucket row is
-  `${groupId}::${bucketKey}` and a chat row under it is `${bucketNodeId}::${chatId}`.
-  This namespace is reserved ONLY under a '__smart_*__' group prefix that no other
-  view mints, and smart-group ids are never fed to the single-':' tag-occurrence
-  parser (the view treats a bucket key as opaque and stores memberChatIds directly
-  rather than splitting the id), so it does not collide with the parsed
-  composite-id grammars. See DECISIONS.md (Slice 6 sentinels and '::' namespace).
+  / '__smart_fork__' (Slice 6). The Smart Groups engine adds a TWO-char '::'
+  bucket-id namespace on top of the three single-char composite separators: a
+  bucket node is `${groupId}::${bucketKey}` and a chat node under it is
+  `${bucketNodeId}::${chatId}`. This namespace is reserved ONLY under a
+  '__smart_*__' group prefix that nothing else mints, and smart-group ids are
+  never fed to the single-':' tag-occurrence parser, so it does not collide with
+  the parsed composite-id grammars. (The Smart Groups TREE was retired in
+  s3a-view-consolidation; the sentinel and namespace reservations stay binding on
+  the id factory so stored ids can never collide with them.) See DECISIONS.md
+  (Slice 6 sentinels and '::' namespace).
 
 ## Data integrity, read-only, and settings rules
 

@@ -6,7 +6,9 @@ import {
   LinkCommandUi,
   ChatPickItem,
   linkToChat,
+  linkToChatFromPalette,
   unlinkChat,
+  unlinkChatFromPalette,
 } from '../../commands/linkCommands';
 import { LinkedChild, linkedChildId } from '../../model/links';
 import type { Link } from '../../store/schema';
@@ -237,6 +239,130 @@ describe('unlinkChat', () => {
     const store = makeStore();
     const { provider, refreshCount } = makeProvider();
     await unlinkChat(makeDeps(store, provider, makeUi({}), undefined, ['A', 'B']), childArg('A', 'B'));
+    assert.strictEqual(refreshCount(), 0);
+  });
+});
+
+// The no-arg palette paths (slice s3a-view-consolidation): with the trees retired,
+// the palette supplies no source row, so linkToChat first picks the source and
+// unlink picks among the project's current designated-parent links.
+
+describe('linkToChatFromPalette', () => {
+  it('guards when no project is resolved and shows an error', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    const ui = makeUi({ kinds: ['parent'], chats: [{ chatId: 'A' }, { chatId: 'B' }] });
+    await linkToChatFromPalette(makeDeps(store, provider, ui, undefined, ['A', 'B']));
+    assert.strictEqual(ui.errors.length, 1);
+    assert.strictEqual(refreshCount(), 0);
+  });
+
+  it('errors when fewer than two chats exist (nothing linkable)', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    const ui = makeUi({});
+    await linkToChatFromPalette(makeDeps(store, provider, ui, PK, ['A']));
+    assert.strictEqual(ui.errors.length, 1);
+    assert.strictEqual(ui.pickChatCalls.length, 0, 'no source pick with one chat');
+    assert.strictEqual(refreshCount(), 0);
+  });
+
+  it('picks the source, then delegates to linkToChat (source excluded from targets)', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    // Pick 1: the source (A). Pick 2 (inside linkToChat): the target (B).
+    const ui = makeUi({ kinds: ['parent'], chats: [{ chatId: 'A' }, { chatId: 'B' }] });
+    await linkToChatFromPalette(makeDeps(store, provider, ui, PK, ['A', 'B', 'C']));
+    assert.strictEqual(ui.pickChatCalls.length, 2);
+    const sourceOffer = ui.pickChatCalls[0].items.map((i) => i.chatId).sort();
+    assert.deepStrictEqual(sourceOffer, ['A', 'B', 'C'], 'every chat is a candidate source');
+    const targetOffer = ui.pickChatCalls[1].items.map((i) => i.chatId).sort();
+    assert.deepStrictEqual(targetOffer, ['B', 'C'], 'the chosen source is excluded');
+    assert.deepStrictEqual(store.getProjectMeta(PK).chats.A.links, [
+      { targetChatId: 'B', kind: 'parent' },
+    ]);
+    assert.strictEqual(refreshCount(), 1);
+  });
+
+  it('does nothing when the source pick is cancelled', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    const ui = makeUi({ kinds: ['parent'], chats: [undefined] });
+    await linkToChatFromPalette(makeDeps(store, provider, ui, PK, ['A', 'B']));
+    assert.deepStrictEqual(store.getProjectMeta(PK).chats, {});
+    assert.strictEqual(refreshCount(), 0);
+  });
+});
+
+describe('unlinkChatFromPalette', () => {
+  it('guards when no project is resolved and shows an error', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    const ui = makeUi({});
+    await unlinkChatFromPalette(makeDeps(store, provider, ui, undefined, ['A', 'B']));
+    assert.strictEqual(ui.errors.length, 1);
+    assert.strictEqual(refreshCount(), 0);
+  });
+
+  it('shows an info notice when there is no parent link to unlink', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    // A related link produces no nesting, so it is not offered.
+    store.addLink(PK, 'A', { targetChatId: 'B', kind: 'related' });
+    await store.flush();
+    const ui = makeUi({});
+    await unlinkChatFromPalette(makeDeps(store, provider, ui, PK, ['A', 'B']));
+    assert.strictEqual(ui.infos.length, 1);
+    assert.strictEqual(ui.pickChatCalls.length, 0);
+    assert.strictEqual(refreshCount(), 0);
+  });
+
+  it('offers one entry per linked child labeled with its designated parent and unlinks the chosen one', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    // Both A and Z list B as a parent target; the designated parent is A
+    // (smallest), so the single entry for B names A and the unlink removes A's
+    // link, leaving Z's intact (B nests under Z on the next render).
+    store.addLink(PK, 'Z', { targetChatId: 'B', kind: 'parent' });
+    store.addLink(PK, 'A', { targetChatId: 'B', kind: 'parent' });
+    await store.flush();
+    const ui = makeUi({ chats: [{ chatId: 'B' }] });
+    await unlinkChatFromPalette(makeDeps(store, provider, ui, PK, ['A', 'B', 'Z']));
+    assert.strictEqual(ui.pickChatCalls.length, 1);
+    const items = ui.pickChatCalls[0].items;
+    assert.strictEqual(items.length, 1, 'one entry per linked child');
+    assert.strictEqual(items[0].chatId, 'B');
+    assert.strictEqual(items[0].label, 'Chat B');
+    assert.strictEqual(items[0].description, 'nested under Chat A');
+    const meta = store.getProjectMeta(PK);
+    assert.deepStrictEqual(meta.chats.A.links, [], 'designated parent A had its link removed');
+    assert.deepStrictEqual(meta.chats.Z.links, [{ targetChatId: 'B', kind: 'parent' }]);
+    assert.strictEqual(refreshCount(), 1);
+  });
+
+  it('offers a BROKEN child (missing record) so a dangling link stays cleanable', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    store.addLink(PK, 'A', { targetChatId: 'GONE', kind: 'parent' });
+    await store.flush();
+    const ui = makeUi({ chats: [{ chatId: 'GONE' }] });
+    await unlinkChatFromPalette(makeDeps(store, provider, ui, PK, ['A']));
+    const items = ui.pickChatCalls[0].items;
+    assert.strictEqual(items[0].label, 'GONE (missing)');
+    assert.deepStrictEqual(store.getProjectMeta(PK).chats.A.links, []);
+    assert.strictEqual(refreshCount(), 1);
+  });
+
+  it('does nothing when the pick is cancelled', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    store.addLink(PK, 'A', { targetChatId: 'B', kind: 'parent' });
+    await store.flush();
+    const ui = makeUi({ chats: [undefined] });
+    await unlinkChatFromPalette(makeDeps(store, provider, ui, PK, ['A', 'B']));
+    assert.deepStrictEqual(store.getProjectMeta(PK).chats.A.links, [
+      { targetChatId: 'B', kind: 'parent' },
+    ]);
     assert.strictEqual(refreshCount(), 0);
   });
 });

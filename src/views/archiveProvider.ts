@@ -5,7 +5,7 @@ import { relativeTime } from './relativeTime';
 import { MetadataStore } from '../store/metadataStore';
 import { ScanPrimable } from '../commands/refreshScanCommands';
 import { ProjectMeta } from '../store/schema';
-import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 
 // The claudeNest.archive tree (Slice 4 s2-star-archive): a flat, read-mostly list

@@ -19,7 +19,7 @@ import {
   restoreChat,
 } from '../../commands/curationCommands';
 import { ArchiveProvider, ArchivedChatItem } from '../../views/archiveProvider';
-import { OPEN_CHAT_COMMAND } from '../../views/flatProvider';
+import { OPEN_CHAT_COMMAND } from '../../launch/uriLauncher';
 import {
   PREVIEW_ARCHIVED_CHAT_COMMAND,
   previewArchivedBody,

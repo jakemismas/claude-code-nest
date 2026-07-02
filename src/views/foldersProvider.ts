@@ -27,7 +27,7 @@ import {
   parseLinkedChildId,
 } from '../model/links';
 import { decorateLinkedChild } from './linkDecoration';
-import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { ScanPrimable } from '../commands/refreshScanCommands';
 import { ProjectMeta } from '../store/schema';
 import { buildChatTooltip, tokenBadge } from './chatTooltip';

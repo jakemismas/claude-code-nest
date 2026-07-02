@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ChatRecord } from '../model/types';
 import { LinkedChild } from '../model/links';
 import { relativeTime } from './relativeTime';
-import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 
 // linkDecoration: the rendering of a linkedChild occurrence in the Folders tree.
 // A linked child renders as a distinct node (composite id `${parentChatId}>link>

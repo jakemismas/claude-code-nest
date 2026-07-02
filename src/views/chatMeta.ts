@@ -3,9 +3,10 @@ import { ProjectMeta } from '../store/schema';
 // Small PURE resolvers that turn a project's curation document plus a chatId into
 // the plain folder NAME and the full tag LABEL set the hover card needs. The
 // providers already read ProjectMeta at their render call site; these centralize
-// the name/label lookup so all three views (flat, folders, tags) feed
-// buildChatTooltip the SAME values rather than each re-deriving them. vscode-free:
-// it operates on the plain schema shape, so it stays in the headless unit gate.
+// the name/label lookup so every chat-row builder (the kept folders/tags services;
+// the flat tree, while it existed) feeds buildChatTooltip the SAME values rather
+// than each re-deriving them. vscode-free: it operates on the plain schema shape,
+// so it stays in the headless unit gate.
 
 // The resolved home-folder name for a chat, or null when the chat is unfiled, its
 // folder no longer resolves, or there is no meta. The hover card renders null as
@@ -29,10 +30,10 @@ export function resolveFolderName(
 
 // Whether a chat carries the SYNCED ChatMeta.starred curation flag. False when the
 // chat has no meta entry, the flag is absent/false, or there is no meta at all. The
-// primary chat surfaces (flat, folders, tags) render a star icon for a starred row
-// so the user gets the same star feedback the Archive view shows, not only after a
-// chat is archived. Reads the SAME synced flag the star command writes and the
-// Archive view reads; it never consults the local-only orphan state.
+// chat-row builders (folders members, tags occurrences) render a star icon for a
+// starred row so the user gets the same star feedback the Archive view shows, not
+// only after a chat is archived. Reads the SAME synced flag the star command writes
+// and the Archive view reads; it never consults the local-only orphan state.
 export function resolveStarred(
   meta: ProjectMeta | undefined,
   chatId: string,
