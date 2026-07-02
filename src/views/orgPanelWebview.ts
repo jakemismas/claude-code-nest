@@ -4,7 +4,7 @@ import { scanChats } from '../claude/chatScanner';
 import { readTranscriptBodies } from '../claude/bodyReader';
 import { MetadataStore } from '../store/metadataStore';
 import { ProjectMeta, isValidColor } from '../store/schema';
-import { OPEN_CHAT_COMMAND } from './flatProvider';
+import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { tokenBadge } from './chatTooltip';
 import { relativeTime } from './relativeTime';
 import { buildSections, OrgSections } from './orgPanelModel';
@@ -22,9 +22,11 @@ import { handleWebviewDrop, WebviewDropDeps } from '../dnd/webviewDropAdapter';
 // the section model (Starred, Questions heuristic, the folder hierarchy with
 // per-folder color, Unsorted), tag filter chips, sort and density controls,
 // double-click folder rename, and webview drag-and-drop that REUSES the unchanged
-// pure dropReducer through webviewDropAdapter (the DnD-shell-only contract). The
-// native flat Chats TreeView is kept as the accessible fallback; the native
-// Folders and Tags trees are retired (extension.ts no longer creates them).
+// pure dropReducer through webviewDropAdapter (the DnD-shell-only contract).
+// Since slice s3a-view-consolidation this panel is the SOLE browsing surface
+// (UI-SPEC.md deviation 5): the native flat Chats and Smart Groups trees are
+// retired like the Folders and Tags trees before them, and this panel's own
+// keyboard + ARIA tree implementation is the accessibility story.
 //
 // Build contract honored:
 // - CSP-locked, nonce-scripted, localResourceRoots pinned to the media dir; the

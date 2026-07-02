@@ -41,6 +41,18 @@ exercise them through the Organize panel and the flat Chats fallback rather than
 the retired trees. The Chats (Preview) proof-of-concept webview is also gone,
 superseded by the org panel.
 
+Note on the one-panel consolidation (Sprint 3, slice s3a, unreleased): on a build
+that includes s3a-view-consolidation, the flat Chats and Smart Groups TREES are
+GONE too, and the Organize panel is the ONLY browsing surface (only the Archive
+view and the Settings tab ride alongside it). Earlier steps that hover a chat row
+for the rich preview card, run "Preview Full Chat" or "Export Chat..." from a
+chat row, star or archive a LIVE chat, or exercise the flat or Smart Groups views
+have no UI surface on such a build until the Sprint 3 part-2 in-panel hover card
+and context menu land; skip those steps there (the commands and the card builder
+stay registered and unit-tested). The per-row ~token badge still shows on
+Organize panel rows, and every Archive view step still applies. See the Sprint 3
+checklist below.
+
 ## The read-only invariant (assert on every session)
 
 Before and after exercising the extension, confirm nothing under
@@ -530,6 +542,31 @@ automated pixel gate, because the build agent cannot see its own rendered webvie
     window, and confirm it stays collapsed (state persists per workspace, not
     synced). Confirm the always-present Unsorted bucket has no collapse chevron.
 
+## Sprint 3 (unreleased): manual smoke checklist
+
+### S3A-0: One-panel view consolidation
+
+1. Open the Nest panel. Confirm exactly TWO views: the Organize panel (the sole
+   browsing surface) and the Archive view. The flat Chats and Smart Groups trees
+   are gone, and no welcome view, view-title button, or context menu references
+   them.
+2. Confirm the Organize panel still lists, opens, searches, files, tags, sorts,
+   and drags chats exactly as in S2-7 (clicking a row still opens or resumes the
+   session through the public URI handler).
+3. Run "Link to Chat..." from the Command Palette with nothing selected. Confirm
+   it quick-picks the source chat before offering the target. Run "Unlink" the
+   same way and confirm it quick-picks a linked child to unlink from its parent.
+4. Run "Refresh" from the palette. Confirm it re-scans under a cancellable
+   progress indicator and the Organize panel re-renders.
+5. Confirm the Archive view still works end to end (the S2-4 steps): archived
+   rows list, and Preview Archived Copy, Star/Unstar, and Restore all run from
+   the row's context menu.
+6. Interim gaps (accepted; they land later in Sprint 3): no hover preview card,
+   no Preview Full Chat, no per-chat Export Chat..., and no star/archive of a
+   LIVE chat anywhere in the UI. Confirm none of these appear in the palette or
+   on any surviving surface, and that the per-row ~token badge still shows.
+7. Confirm nothing under `~/.claude/projects/` changed.
+
 ## Integration tests (deferred)
 
 The electron-host integration tests (`npm run test:integration`) need a VSCode
@@ -581,14 +618,17 @@ the headless gate). It asserts:
 - The extension is present as a loaded extension in the host
   (`vscode.extensions.getExtension('jakemismas.claude-code-nest')`), proving the
   host loaded this manifest.
-- The four `claudeNest` views and the activitybar container are contributed, read
-  from the SAME `package.json` the host loaded as the Extension Manifest.
-- A `viewsWelcome` empty-state ships for every one of the four views and none of
-  the welcome strings blames Claude for the empty state.
+- The contributed `claudeNest` view set and the activitybar container, read from
+  the SAME `package.json` the host loaded as the Extension Manifest (since slice
+  s3a-view-consolidation, exactly the Organize webview plus the Archive tree,
+  asserted as the exact set).
+- A `viewsWelcome` empty-state ships for the Archive tree (the only remaining
+  TreeView), no welcome targets a retired view id, and no welcome string blames
+  Claude for the empty state.
 - The raster gallery icon (`media/icon.png`) and the getting-started walkthrough
   (with multiple steps) are contributed and the icon file exists.
-- `getChildren(undefined)` returns `[]` and never throws for all four providers
-  when no project resolves, and `primeSnapshot` (the progress-scan entry point)
-  also does not throw on an absent project. This is the host-side confirmation of
-  the empty-state contract the headless unit suite proves in the pure scan/provider
-  layer.
+- `getChildren(undefined)` returns `[]` and never throws for the kept non-view
+  folders/tags services when no project resolves, and `primeSnapshot` (the
+  progress-scan entry point) also does not throw on an absent project. This is
+  the host-side confirmation of the empty-state contract the headless unit suite
+  proves in the pure scan/provider layer.

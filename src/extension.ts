@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { FlatProvider, FlatChatItem, OPEN_CHAT_COMMAND } from './views/flatProvider';
 import {
   FoldersProvider,
   FolderItem,
@@ -9,7 +8,7 @@ import {
   FolderTreeNode,
 } from './views/foldersProvider';
 import { OrgPanelProvider, ORG_PANEL_VIEW, OrgPanelActions, OrgPanelStateStore } from './views/orgPanelWebview';
-import { openChat, OpenUri } from './launch/uriLauncher';
+import { OPEN_CHAT_COMMAND, openChat, OpenUri } from './launch/uriLauncher';
 import { MetadataStore, SyncMemento } from './store/metadataStore';
 import { DeviceIdStore, getOrCreateDeviceId } from './store/deviceId';
 import {
@@ -50,14 +49,11 @@ import {
   LinkCommandDeps,
   LinkCommandUi,
   linkToChat,
+  linkToChatFromPalette,
   unlinkChat,
+  unlinkChatFromPalette,
 } from './commands/linkCommands';
 import { Link } from './store/schema';
-import {
-  SmartGroupsProvider,
-  SmartBucketItem,
-  SmartTreeNode,
-} from './views/smartGroupsProvider';
 import {
   PROMOTE_GROUP_TO_FOLDER_COMMAND,
   PROMOTE_GROUP_TO_TAG_COMMAND,
@@ -129,11 +125,13 @@ import { ExportOrgLayer } from './export/chatExport';
 import { writeTextFile } from './store/exportIO';
 import { resolveFolderName, resolveStarred, resolveTagLabels } from './views/chatMeta';
 
-// Entry point for the Claude Code Nest extension. Slice 0 contributes the
-// claudeNest Activity Bar view container and the claudeNest.flat chat list, and
-// wires the open-chat command to Claude's documented URI handler. Slice 1 stands
-// up the MetadataStore over context.globalState. Later slices add the Folders,
-// Tags, Links, Smart Groups, and Settings surfaces here.
+// Entry point for the Claude Code Nest extension. It contributes the claudeNest
+// Activity Bar view container, wires the open-chat command to Claude's documented
+// URI handler, and stands up the MetadataStore over context.globalState. Slice
+// s3a-view-consolidation retired the flat Chats and Smart Groups trees: the org
+// panel webview is the ONLY browsing surface (UI-SPEC.md deviation 5), with the
+// Archive tree and the settings editor tab surviving until part 2 ships their
+// in-panel replacements.
 // The active store, held so deactivate() can await a final flush. VSCode awaits
 // a Thenable returned from deactivate() during shutdown, which is the reliable
 // teardown hook for persisting writes staged within the debounce window.
@@ -228,19 +226,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const runRefreshScan = (provider: ScanPrimable, scanLabel: string): Promise<void> =>
     refreshWithProgress({ provider, ui: refreshScanUi, scanLabel });
 
-  const flatProvider = new FlatProvider(workspacePath, store);
-  const flatView = vscode.window.createTreeView('claudeNest.flat', {
-    treeDataProvider: flatProvider,
-    showCollapseAll: false,
-    // canSelectMany enables ctrl/shift multi-select in the Chats view so the
-    // contributed "Tag Chats..." command receives the full selection and tags
-    // every chosen chat in one batched write (TESTING.md Slice 4 step 3). The flat
-    // view has NO dragAndDropController, so this only unlocks multi-select for the
-    // context-menu/inline tag command, not a drag path.
-    canSelectMany: true,
-  });
-  context.subscriptions.push(flatView);
-
   // The encoded project key (the on-disk projects directory name) is resolved ON
   // DEMAND, not frozen here: it is undefined until Claude Code has created a project
   // dir for this workspace, and the dir can appear after activation. The provider
@@ -318,19 +303,15 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand(
       ASSIGN_CHAT_TO_FOLDER_COMMAND,
-      (item?: FolderTreeNode | FlatChatItem | string) => {
-        // The command fires from EITHER view (PLAN/TESTING: assign from either
-        // list). VSCode passes the right-clicked tree item: a ChatMemberItem from
-        // the Folders view or a FlatChatItem from the Chats view (both contextValue
-        // 'claudeNest.chat'). A bare sessionId string covers a programmatic caller.
+      (item?: FolderTreeNode | string) => {
+        // With the trees retired (slice s3a-view-consolidation) no view mints a
+        // chat row for this command any more; a ChatMemberItem still resolves for
+        // a legacy caller, and a bare sessionId string covers a programmatic one.
         if (typeof item === 'string') {
           return assignChatToFolder(folderDeps, item);
         }
         if (item instanceof ChatMemberItem) {
           return assignChatToFolder(folderDeps, item);
-        }
-        if (item instanceof FlatChatItem) {
-          return assignChatToFolder(folderDeps, item.record.sessionId);
         }
         return undefined;
       },
@@ -349,19 +330,18 @@ export function activate(context: vscode.ExtensionContext): void {
   // the webviewDropAdapter, which reuses the UNCHANGED reduceDrop.
   const tagsProvider = new TagsProvider(workspacePath, store);
 
-  // The PRIMARY org-panel webview (slice s2-org-panel-webview). It supersedes the
-  // retired native Folders and Tags trees: it renders the section model (Starred,
-  // Questions heuristic, the folder hierarchy with per-folder color, Unsorted), tag
-  // filter chips, sort and density modes, folder rename, and webview drag-and-drop.
-  // The drop path reuses the UNCHANGED reduceDrop through webviewDropAdapter, and the
-  // cross-tree dragContext stash is NOT involved (a webview drag is in-process). The
-  // shared refresh closure re-renders the flat Chats tree (the accessible fallback),
-  // the (now view-less) folders/tags services, the archive view, and this panel, and
-  // schedules the opt-in auto-export, so a mutation from any surface keeps all of
-  // them consistent. Constructed after both providers exist so their refresh and
+  // The PRIMARY org-panel webview (slice s2-org-panel-webview; the SOLE browsing
+  // surface since slice s3a-view-consolidation, UI-SPEC.md deviation 5). It renders
+  // the section model (Starred, Questions heuristic, the folder hierarchy with
+  // per-folder color, Unsorted), tag filter chips, sort and density modes, folder
+  // rename, and webview drag-and-drop. The drop path reuses the UNCHANGED
+  // reduceDrop through webviewDropAdapter, and the cross-tree dragContext stash is
+  // NOT involved (a webview drag is in-process). The shared refresh closure
+  // re-renders the (view-less) folders/tags services and this panel, and schedules
+  // the opt-in auto-export, so a mutation from any surface keeps all of them
+  // consistent. Constructed after both providers exist so their refresh and
   // project-key resolution are available.
   const refreshAllOrgSurfaces = (): void => {
-    flatProvider.refresh();
     foldersProvider.refresh();
     tagsProvider.refresh();
     refreshOrgPanel();
@@ -506,9 +486,10 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand(
       ADD_TAG_TO_CHAT_COMMAND,
-      (item?: TagTreeNode | FlatChatItem | ChatMemberItem | string) => {
-        // Fires from EITHER the Folders or Chats view (a chat row) or from the
-        // Tags view (an occurrence). A bare sessionId covers a programmatic caller.
+      (item?: TagTreeNode | ChatMemberItem | string) => {
+        // With the trees retired no view mints these rows any more; the node
+        // branches still resolve for a legacy caller, and a bare sessionId covers
+        // a programmatic one.
         if (typeof item === 'string') {
           return addTagToChat(tagDeps, item);
         }
@@ -516,9 +497,6 @@ export function activate(context: vscode.ExtensionContext): void {
           return addTagToChat(tagDeps, item);
         }
         if (item instanceof ChatMemberItem) {
-          return addTagToChat(tagDeps, item.record.sessionId);
-        }
-        if (item instanceof FlatChatItem) {
           return addTagToChat(tagDeps, item.record.sessionId);
         }
         return undefined;
@@ -563,8 +541,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       TAG_CHATS_COMMAND,
       (
-        item?: TagTreeNode | FolderTreeNode | FlatChatItem | string,
-        selection?: (TagTreeNode | FolderTreeNode | FlatChatItem)[],
+        item?: TagTreeNode | FolderTreeNode | string,
+        selection?: (TagTreeNode | FolderTreeNode)[],
       ) => {
         // VSCode passes the clicked node first and the full multi-selection second
         // for a tree context-menu command. Prefer the selection (so a multi-select
@@ -623,76 +601,63 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       LINK_TO_CHAT_COMMAND,
-      (item?: FolderTreeNode | FlatChatItem | string) => {
-        // Fires from a chat-member row (Folders), a flat row (Chats), or a bare
-        // sessionId. A folder row or a linked-child row is not a valid source.
+      (item?: FolderTreeNode | string) => {
+        // A palette invocation arrives with NO argument (the trees that supplied a
+        // source row are retired): the palette path first quick-picks the source
+        // chat. A bare sessionId or a legacy ChatMemberItem still resolves for a
+        // programmatic caller. A folder or linked-child row is not a valid source.
+        if (item === undefined) {
+          return linkToChatFromPalette(linkDeps);
+        }
         if (typeof item === 'string') {
           return linkToChat(linkDeps, item);
         }
         if (item instanceof ChatMemberItem) {
           return linkToChat(linkDeps, item.record.sessionId);
         }
-        if (item instanceof FlatChatItem) {
-          return linkToChat(linkDeps, item.record.sessionId);
-        }
         return undefined;
       },
     ),
-    vscode.commands.registerCommand(UNLINK_CHAT_COMMAND, (item?: FolderTreeNode) =>
-      item instanceof LinkedChildItem ? unlinkChat(linkDeps, item.child) : undefined,
-    ),
+    vscode.commands.registerCommand(UNLINK_CHAT_COMMAND, (item?: FolderTreeNode) => {
+      // A palette invocation arrives with NO argument: the palette path picks the
+      // linked child to unlink from the project's current parent links. A legacy
+      // LinkedChildItem still resolves for a programmatic caller.
+      if (item === undefined) {
+        return unlinkChatFromPalette(linkDeps);
+      }
+      return item instanceof LinkedChildItem ? unlinkChat(linkDeps, item.child) : undefined;
+    }),
   );
 
-  // The claudeNest.smartGroups view: read-only, recomputed-on-refresh buckets
-  // over the four signals. It scans transcripts (read-only) and writes nothing on
-  // its own; the only mutations are the explicit promote commands below, which
-  // write synced ProjectMeta through the store exactly like the folder/tag
-  // commands. The provider resolves the project key on demand like the others.
-  const smartGroupsProvider = new SmartGroupsProvider(workspacePath);
-  const smartGroupsView = vscode.window.createTreeView('claudeNest.smartGroups', {
-    treeDataProvider: smartGroupsProvider,
-    showCollapseAll: true,
-    // No dragAndDropController: smart groups are read-only and not a drop target.
-  });
-  context.subscriptions.push(smartGroupsView);
-
-  // The promote commands turn a chosen bucket into a real folder/tag. A promote
-  // creates folders/tags and files/tags member chats, then refreshes the affected
-  // views once (folders + tags reflect the new membership; the smart-groups view
-  // refreshes so its description counts stay live). The promote is idempotent both
-  // on chat membership and on group identity (reuse-by-name); see
-  // promoteSmartGroup.ts.
+  // The promote commands turn a described smart-group bucket into a real
+  // folder/tag. The Smart Groups TREE is retired (slice s3a-view-consolidation),
+  // so no view mints a bucket row any more: the commands stay registered (and
+  // palette-hidden) for a PROGRAMMATIC caller passing a plain PromotableGroup
+  // ({name, memberChatIds}), validated structurally below. A promote creates
+  // folders/tags and files/tags member chats, then refreshes the kept surfaces
+  // once. The promote is idempotent both on chat membership and on group identity
+  // (reuse-by-name); see promoteSmartGroup.ts.
   const promoteDeps: PromoteDeps = {
     store,
     provider: {
       refresh: () => {
         foldersProvider.refresh();
         tagsProvider.refresh();
-        smartGroupsProvider.refresh();
         refreshOrgPanel();
         scheduleAutoExport();
       },
     },
-    getProjectKey: () => smartGroupsProvider.resolveProjectKey(),
+    getProjectKey: () => foldersProvider.resolveProjectKey(),
   };
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      PROMOTE_GROUP_TO_FOLDER_COMMAND,
-      (item?: SmartTreeNode) => {
-        const group = promotableFrom(item);
-        return group ? promoteGroupToFolder(promoteDeps, group) : undefined;
-      },
-    ),
-    vscode.commands.registerCommand(
-      PROMOTE_GROUP_TO_TAG_COMMAND,
-      (item?: SmartTreeNode) => {
-        const group = promotableFrom(item);
-        return group ? promoteGroupToTag(promoteDeps, group) : undefined;
-      },
-    ),
-    vscode.commands.registerCommand('claudeNest.refreshSmartGroups', () =>
-      runRefreshScan(smartGroupsProvider, 'smart groups'),
-    ),
+    vscode.commands.registerCommand(PROMOTE_GROUP_TO_FOLDER_COMMAND, (item?: unknown) => {
+      const group = promotableFrom(item);
+      return group ? promoteGroupToFolder(promoteDeps, group) : undefined;
+    }),
+    vscode.commands.registerCommand(PROMOTE_GROUP_TO_TAG_COMMAND, (item?: unknown) => {
+      const group = promotableFrom(item);
+      return group ? promoteGroupToTag(promoteDeps, group) : undefined;
+    }),
   );
 
   // The claudeNest.archive view (Slice 4): a flat, read-mostly list of the chats
@@ -746,7 +711,6 @@ export function activate(context: vscode.ExtensionContext): void {
     store,
     provider: {
       refresh: () => {
-        flatProvider.refresh();
         foldersProvider.refresh();
         tagsProvider.refresh();
         archiveProvider.refresh();
@@ -858,10 +822,15 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // The palette-visible Refresh: prime the kept FoldersProvider snapshot under the
+  // progress UI (it backs the link pick list, the rollup seam, and project-key
+  // resolution), then re-post the org panel's section model so the PRIMARY surface
+  // re-scans and re-renders too (the panel scans on its own refresh).
   context.subscriptions.push(
-    vscode.commands.registerCommand('claudeNest.refresh', () =>
-      runRefreshScan(flatProvider, 'chats'),
-    ),
+    vscode.commands.registerCommand('claudeNest.refresh', async () => {
+      await runRefreshScan(foldersProvider, 'chats');
+      refreshOrgPanel();
+    }),
   );
 
   // The "Preview Full Chat" command (Slice 1): the on-demand single-chat body
@@ -881,7 +850,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       PREVIEW_CHAT_COMMAND,
-      (item?: FlatChatItem | ChatMemberItem | ChatOccurrenceItem) => {
+      (item?: ChatMemberItem | ChatOccurrenceItem) => {
         const record = chatRecordFrom(item);
         return record ? previewChatBody(previewChatDeps, record) : undefined;
       },
@@ -968,7 +937,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       EXPORT_CHAT_COMMAND,
-      (item?: FlatChatItem | ChatMemberItem | ChatOccurrenceItem) => {
+      (item?: ChatMemberItem | ChatOccurrenceItem) => {
         const record = chatRecordFrom(item);
         return record ? exportChat(exportChatDeps, record) : undefined;
       },
@@ -1035,7 +1004,6 @@ export function activate(context: vscode.ExtensionContext): void {
     refresh: () => {
       foldersProvider.refresh();
       tagsProvider.refresh();
-      smartGroupsProvider.refresh();
       archiveProvider.refresh();
     },
   });
@@ -1061,7 +1029,6 @@ export function activate(context: vscode.ExtensionContext): void {
     refresh: () => {
       foldersProvider.refresh();
       tagsProvider.refresh();
-      smartGroupsProvider.refresh();
       archiveProvider.refresh();
       refreshOrgPanel();
       autoExporter.schedule();
@@ -1120,27 +1087,24 @@ export function deactivate(): Thenable<void> | void {
   }
 }
 
-// Recover the shared ChatRecord from a clicked chat row in any view (Chats,
-// Folders member, Tags occurrence). All three wrappers dereference the ONE shared
-// ChatRecord (ARCHITECTURE.md tree binding rule). A non-chat node yields undefined,
-// so the Preview Full Chat command is a no-op on a folder/tag/group row.
+// Recover the shared ChatRecord from a chat-row node (a Folders member or a Tags
+// occurrence, both kept as non-view service node shapes for programmatic callers).
+// Both wrappers dereference the ONE shared ChatRecord (ARCHITECTURE.md tree
+// binding rule). A non-chat node yields undefined, so the Preview Full Chat
+// command is a no-op on a folder/tag row.
 function chatRecordFrom(
-  item?: FlatChatItem | ChatMemberItem | ChatOccurrenceItem,
+  item?: ChatMemberItem | ChatOccurrenceItem,
 ): ChatRecord | undefined {
-  if (
-    item instanceof FlatChatItem ||
-    item instanceof ChatMemberItem ||
-    item instanceof ChatOccurrenceItem
-  ) {
+  if (item instanceof ChatMemberItem || item instanceof ChatOccurrenceItem) {
     return item.record;
   }
   return undefined;
 }
 
 // The chat-row node shapes a curation command (star/unstar/archive/restore) can
-// fire on: a flat row, a folder member, a tags occurrence, or an archived row.
+// fire on: a folder member, a tags occurrence, an archived row, or a bare
+// sessionId from a programmatic caller.
 type CurationClickable =
-  | FlatChatItem
   | ChatMemberItem
   | ChatOccurrenceItem
   | ArchivedChatItem
@@ -1157,11 +1121,7 @@ function curationTargetFrom(item?: CurationClickable): CurationTarget | undefine
   if (typeof item === 'string') {
     return { sessionId: item, filePath: '', title: item };
   }
-  if (
-    item instanceof FlatChatItem ||
-    item instanceof ChatMemberItem ||
-    item instanceof ChatOccurrenceItem
-  ) {
+  if (item instanceof ChatMemberItem || item instanceof ChatOccurrenceItem) {
     return { sessionId: item.record.sessionId, filePath: item.record.filePath, title: item.record.title };
   }
   if (item instanceof ArchivedChatItem) {
@@ -1179,30 +1139,36 @@ function curationTargetFrom(item?: CurationClickable): CurationTarget | undefine
   return undefined;
 }
 
-// Recover a PromotableGroup from a clicked Smart Groups row. Only a bucket row
-// (SmartBucketItem) is promotable; a group row or chat row contributes nothing.
-// The bucket's label becomes the folder name / tag label and its memberChatIds
-// the chats to file/tag.
-function promotableFrom(item?: SmartTreeNode): PromotableGroup | undefined {
-  if (item instanceof SmartBucketItem) {
-    return {
-      name: item.bucket.label,
-      memberChatIds: item.bucket.memberChatIds,
-    };
+// Recover a PromotableGroup from a promote-command argument. The Smart Groups
+// tree that minted bucket rows is retired (slice s3a-view-consolidation), so the
+// only remaining caller is programmatic: a plain {name, memberChatIds} object,
+// validated structurally (memberChatIds must be an array of strings; anything
+// else yields undefined and the command no-ops). The name becomes the folder
+// name / tag label and memberChatIds the chats to file/tag.
+function promotableFrom(item?: unknown): PromotableGroup | undefined {
+  if (typeof item !== 'object' || item === null) {
+    return undefined;
   }
-  return undefined;
+  const candidate = item as { name?: unknown; memberChatIds?: unknown };
+  if (typeof candidate.name !== 'string' || !Array.isArray(candidate.memberChatIds)) {
+    return undefined;
+  }
+  const memberChatIds = candidate.memberChatIds.filter(
+    (v): v is string => typeof v === 'string',
+  );
+  return { name: candidate.name, memberChatIds };
 }
 
-// Recover the dragged/clicked chats' sessionIds from a tag-command invocation.
-// VSCode passes the clicked node first and the full multi-selection second for a
-// tree context-menu command. The selection (when present) wins so a multi-select
-// tags every chosen chat; otherwise the single clicked node is used, then a bare
+// Recover the clicked chats' sessionIds from a tag-command invocation. VSCode
+// passes the clicked node first and the full multi-selection second for a tree
+// context-menu command. The selection (when present) wins so a multi-select tags
+// every chosen chat; otherwise the single clicked node is used, then a bare
 // sessionId string for a programmatic caller. A chat node resolves to its
-// record.sessionId (Folders/Chats) or its occurrence chat (Tags); a folder/tag
+// record.sessionId (a Folders member) or its occurrence chat (Tags); a folder/tag
 // row contributes nothing. The result is de-duplicated in first-seen order.
 function collectChatSessionIds(
-  item: TagTreeNode | FolderTreeNode | FlatChatItem | string | undefined,
-  selection: (TagTreeNode | FolderTreeNode | FlatChatItem)[] | undefined,
+  item: TagTreeNode | FolderTreeNode | string | undefined,
+  selection: (TagTreeNode | FolderTreeNode)[] | undefined,
 ): string[] {
   const nodes =
     selection !== undefined && selection.length > 0
@@ -1218,8 +1184,6 @@ function collectChatSessionIds(
     if (node instanceof ChatOccurrenceItem) {
       ids.push(node.record.sessionId);
     } else if (node instanceof ChatMemberItem) {
-      ids.push(node.record.sessionId);
-    } else if (node instanceof FlatChatItem) {
       ids.push(node.record.sessionId);
     }
   }

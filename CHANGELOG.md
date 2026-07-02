@@ -5,6 +5,34 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- The Organize panel is now the only browsing surface (#78): the flat Chats tree
+  and the Smart Groups tree are retired, per the Sprint 3 one-panel design
+  (UI-SPEC.md deviation 5). The Archive view and the settings editor tab remain
+  until their in-panel replacements ship. FoldersProvider and TagsProvider stay
+  as non-view services (project-key resolution, the link pick list, the token
+  rollup seam); the open-chat command id moved to the URI launcher module.
+- Link to Chat... and Unlink are now fully palette-driven: run with no selection,
+  each quick-picks its chats (the source chat to link from; the linked child to
+  unlink from its designated parent). Unlink is no longer hidden from the palette.
+- The palette Refresh command re-scans under progress and re-renders the Organize
+  panel; the retired trees' Refresh Smart Groups command and their view menus,
+  welcome views, walkthrough step, and activation events were swept out.
+
+### Removed
+
+- The `claudeNest.flat` and `claudeNest.smartGroups` views and every contribution
+  that targeted them. Smart-group promote commands remain registered for
+  programmatic callers but have no UI surface. Star/archive of a live chat has no
+  UI surface until the panel's row actions and context menu land later in Sprint 3
+  (accepted interim gap); the Archive view still covers archived rows. The same
+  interim gap covers the rich hover preview card and the Preview Full Chat and
+  Export Chat... commands, whose last surfaces were the retired trees' rows: the
+  card builder and both commands stay registered and unit-tested, but nothing
+  renders or invokes them until the panel's hover card and context menu land
+  later in Sprint 3. The per-row token badge stays on the Organize panel rows.
+
 ## [0.1.1] - 2026-06-30
 
 A verify-and-polish pass over the released 0.1.0 plus the collapsible-folders

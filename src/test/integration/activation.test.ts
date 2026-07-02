@@ -3,10 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 
-import { FlatProvider } from '../../views/flatProvider';
 import { FoldersProvider } from '../../views/foldersProvider';
 import { TagsProvider } from '../../views/tagsProvider';
-import { SmartGroupsProvider } from '../../views/smartGroupsProvider';
 import { MetadataStore, SyncMemento } from '../../store/metadataStore';
 
 // The DEFERRED electron-host integration test the Polish slice calls for:
@@ -66,16 +64,15 @@ describe('Polish: activation and empty-state (electron host)', () => {
     const contributes = manifest.contributes as Record<string, unknown>;
     const views = (contributes.views as Record<string, Array<{ id: string }>>).claudeNest;
     const ids = views.map((v) => v.id).sort();
-    // The full contributed view set after the slice 6 retirement: the org panel
-    // webview (the primary surface), the flat Chats tree (the accessible fallback),
-    // Smart Groups, and Archive. The native Folders and Tags trees and the
-    // chatsPreview POC were retired. Asserted as the exact set so adding or dropping
-    // a view forces this gate to be revisited.
+    // The contributed view set after slice s3a-view-consolidation: the org panel
+    // webview (the SOLE browsing surface, UI-SPEC.md deviation 5) plus the Archive
+    // tree, which survives until part 2 ships its in-panel replacement. The flat
+    // Chats and Smart Groups trees were retired (the native Folders/Tags trees and
+    // the chatsPreview POC went earlier). Asserted as the exact set so adding or
+    // dropping a view forces this gate to be revisited.
     assert.deepStrictEqual(ids, [
       'claudeNest.archive',
-      'claudeNest.flat',
       'claudeNest.orgPanel',
-      'claudeNest.smartGroups',
     ]);
     const containers = contributes.viewsContainers as {
       activitybar: Array<{ id: string; icon: string }>;
@@ -85,26 +82,29 @@ describe('Polish: activation and empty-state (electron host)', () => {
     assert.strictEqual(container.icon, 'media/nest.svg');
   });
 
-  it('ships a viewsWelcome empty-state for every view, never blaming Claude', () => {
+  it('ships a viewsWelcome empty-state for every tree view, never blaming Claude', () => {
     const manifest = readManifest();
     const contributes = manifest.contributes as Record<string, unknown>;
     const welcome = contributes.viewsWelcome as Array<{ view: string; contents: string }>;
     const byView = new Map(welcome.map((w) => [w.view, w.contents]));
-    for (const view of [
-      'claudeNest.flat',
-      'claudeNest.smartGroups',
-      'claudeNest.archive',
-    ]) {
+    // Archive is the only remaining TreeView (the org panel is a webview and owns
+    // its own empty state; the flat and smartGroups welcomes left with their views).
+    for (const view of ['claudeNest.archive']) {
       const contents = byView.get(view);
       assert.ok(contents, 'expected a viewsWelcome for ' + view);
       assert.ok(
-        contents.includes('No Claude Code chats found') ||
-          contents.toLowerCase().includes('smart groups are read-only') ||
-          contents.includes('No archived chats'),
-        'empty-state for ' + view + ' should explain the no-sessions state',
+        contents.includes('No archived chats'),
+        'empty-state for ' + view + ' should explain the empty state',
       );
       // The empty state must not attribute the absence to a Claude failure.
       assert.ok(!/Claude (failed|broke|crashed|error)/i.test(contents));
+    }
+    // No welcome may target a retired view id.
+    for (const w of welcome) {
+      assert.ok(
+        ['claudeNest.archive'].includes(w.view),
+        'unexpected viewsWelcome for retired view ' + w.view,
+      );
     }
   });
 
@@ -121,27 +121,21 @@ describe('Polish: activation and empty-state (electron host)', () => {
   });
 
   it('getChildren(undefined) returns [] and never throws when no project resolves', () => {
-    // Point every provider at a workspace path that has no on-disk project dir, so
-    // the scan resolves nothing. Each must render empty rather than throw, which is
-    // exactly what the viewsWelcome contribution then surfaces.
+    // Point the kept non-view services at a workspace path that has no on-disk
+    // project dir, so the scan resolves nothing. Each must render empty rather
+    // than throw (the same contract the retired trees honored).
     const noProject = path.join(__dirname, 'no-such-workspace-' + Date.now());
     const store = new MetadataStore(new FakeMemento(), { deviceId: 'test-device' });
 
-    const flat = new FlatProvider(noProject, store, { projectsRoot: noProject });
     const folders = new FoldersProvider(noProject, store, { projectsRoot: noProject });
     const tags = new TagsProvider(noProject, store, { projectsRoot: noProject });
-    const smart = new SmartGroupsProvider(noProject, { projectsRoot: noProject });
 
-    assert.deepStrictEqual(flat.getChildren(undefined), []);
     assert.deepStrictEqual(folders.getChildren(undefined), []);
     assert.deepStrictEqual(tags.getChildren(undefined), []);
-    assert.deepStrictEqual(smart.getChildren(undefined), []);
 
     // Priming under a (no-op) progress scan also must not throw on an absent project.
-    assert.doesNotThrow(() => flat.primeSnapshot({}));
     assert.doesNotThrow(() => folders.primeSnapshot({}));
     assert.doesNotThrow(() => tags.primeSnapshot({}));
-    assert.doesNotThrow(() => smart.primeSnapshot({}));
 
     void store.dispose();
   });

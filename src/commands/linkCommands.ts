@@ -1,6 +1,11 @@
 import { MetadataStore } from '../store/metadataStore';
 import { Link } from '../store/schema';
-import { LinkedChild, designatedParentOf, linksFromChats } from '../model/links';
+import {
+  LinkedChild,
+  designatedParentOf,
+  linkedChildId,
+  linksFromChats,
+} from '../model/links';
 
 // linkCommands: the link-to-chat and unlink commands that manage a chat's links[]
 // (kind 'parent' or 'related'). A kind:'parent' link on a SOURCE chat pointing at a
@@ -113,6 +118,113 @@ export async function linkToChat(
   store.addLink(projectKey, sourceChatId, link);
   await store.flush();
   provider.refresh();
+}
+
+// The PALETTE entry for "Link to Chat..." (slice s3a-view-consolidation): with the
+// flat Chats tree retired, no tree row supplies the source chat any more, so a
+// palette invocation arrives with NO argument. This path first picks the SOURCE
+// chat from the same scanned records the target pick uses, then delegates to
+// linkToChat (which picks the kind and the target). Requires at least two present
+// chats (a source and a distinct target); with fewer there is nothing linkable.
+export async function linkToChatFromPalette(deps: LinkCommandDeps): Promise<void> {
+  const { ui } = deps;
+  const projectKey = deps.getProjectKey();
+  if (projectKey === undefined) {
+    ui.showError('No Claude Code project is resolved for this workspace yet.');
+    return;
+  }
+  const records = deps.getChatRecords();
+  if (records.size < 2) {
+    ui.showError('No other chat to link to.');
+    return;
+  }
+  const sources: ChatPickItem[] = [];
+  for (const [chatId, record] of records) {
+    sources.push({ label: record.title, description: chatId, chatId });
+  }
+  sources.sort((a, b) => a.label.localeCompare(b.label));
+  const choice = await ui.pickChat(
+    sources,
+    'Link from which chat? (the target nests beneath it)',
+  );
+  if (choice === undefined) {
+    return;
+  }
+  await linkToChat(deps, choice.chatId);
+}
+
+// The PALETTE entry for "Unlink" (slice s3a-view-consolidation): with the Folders
+// tree retired nothing mints a linked-child row, so a palette invocation arrives
+// with NO argument. This path enumerates the project's CURRENT parent links as one
+// pick entry per linked CHILD, labeled with its DESIGNATED parent (the exact
+// nesting unlinkChat removes), then delegates to unlinkChat with the chosen child.
+// A broken child (its target chat is no longer on disk) is still offered so a
+// dangling link stays cleanable, mirroring the retired tree's broken-row Unlink.
+export async function unlinkChatFromPalette(deps: LinkCommandDeps): Promise<void> {
+  const { store, ui } = deps;
+  const projectKey = deps.getProjectKey();
+  if (projectKey === undefined) {
+    ui.showError('No Claude Code project is resolved for this workspace yet.');
+    return;
+  }
+  const meta = store.getProjectMeta(projectKey);
+  const links = linksFromChats(meta.chats);
+  const records = deps.getChatRecords();
+
+  const childrenByChatId = new Map<string, LinkedChild>();
+  for (const linkList of Object.values(links)) {
+    for (const link of linkList) {
+      if (link.kind !== 'parent' || childrenByChatId.has(link.targetChatId)) {
+        continue;
+      }
+      const parentChatId = designatedParentOf(links, link.targetChatId);
+      if (parentChatId === null) {
+        // Only self-links point at this target (parentSourcesOf drops them), so it
+        // is not a linked child of anyone; there is no nesting to remove.
+        continue;
+      }
+      childrenByChatId.set(link.targetChatId, {
+        chatId: link.targetChatId,
+        parentChatId,
+        id: linkedChildId(parentChatId, link.targetChatId),
+        depth: 1,
+        broken: !records.has(link.targetChatId),
+      });
+    }
+  }
+  if (childrenByChatId.size === 0) {
+    ui.showInfo('No linked chats to unlink.');
+    return;
+  }
+
+  const items: ChatPickItem[] = [];
+  for (const child of childrenByChatId.values()) {
+    items.push({
+      label: pickTitleOf(records, child.chatId),
+      description: 'nested under ' + pickTitleOf(records, child.parentChatId),
+      chatId: child.chatId,
+    });
+  }
+  items.sort((a, b) => a.label.localeCompare(b.label));
+  const choice = await ui.pickChat(items, 'Unlink which chat from its parent?');
+  if (choice === undefined) {
+    return;
+  }
+  const chosen = childrenByChatId.get(choice.chatId);
+  if (chosen === undefined) {
+    return;
+  }
+  await unlinkChat(deps, chosen);
+}
+
+// The pick-list title for a chat id: its scanned title when present, else the raw
+// id marked missing (a broken link target has no record to resolve a title from).
+function pickTitleOf(
+  records: Map<string, { title: string; timestamp: number | null }>,
+  chatId: string,
+): string {
+  const record = records.get(chatId);
+  return record !== undefined ? record.title : chatId + ' (missing)';
 }
 
 // Unlink a linked-child occurrence: remove the kind:'parent' link from its

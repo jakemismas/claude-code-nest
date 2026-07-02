@@ -1,7 +1,7 @@
 {
   "name": "claude-code-nest",
   "displayName": "Claude Code Nest",
-  "description": "A read-only organizer for your Claude Code chat history: folders, tags, links, full-text search, archive, export, and read-only smart groups in the VS Code sidebar.",
+  "description": "A read-only organizer for your Claude Code chat history: folders, tags, links, full-text search, archive, and export in a single VS Code sidebar panel.",
   "version": "0.1.1",
   "publisher": "jakemismas",
   "license": "MIT",
@@ -36,13 +36,14 @@
   },
   "main": "./out/extension.js",
   "activationEvents": [
-    "onView:claudeNest.flat",
     "onView:claudeNest.orgPanel",
-    "onView:claudeNest.smartGroups",
     "onView:claudeNest.archive",
     "onCommand:claudeNest.openSettings",
     "onCommand:claudeNest.exportLibrary",
-    "onCommand:claudeNest.importLibrary"
+    "onCommand:claudeNest.importLibrary",
+    "onCommand:claudeNest.refresh",
+    "onCommand:claudeNest.linkToChat",
+    "onCommand:claudeNest.unlinkChat"
   ],
   "contributes": {
     "viewsContainers": {
@@ -60,16 +61,6 @@
           "id": "claudeNest.orgPanel",
           "name": "Organize",
           "type": "webview",
-          "contextualTitle": "Claude Code Nest"
-        },
-        {
-          "id": "claudeNest.flat",
-          "name": "Chats",
-          "contextualTitle": "Claude Code Nest"
-        },
-        {
-          "id": "claudeNest.smartGroups",
-          "name": "Smart Groups",
           "contextualTitle": "Claude Code Nest"
         },
         {
@@ -105,12 +96,12 @@
       {
         "id": "claudeNest.gettingStarted",
         "title": "Get Started with Claude Code Nest",
-        "description": "Organize your Claude Code chat sessions into folders, tags, links, and smart groups, all read-only over your transcripts.",
+        "description": "Organize your Claude Code chat sessions into folders, tags, and links, all read-only over your transcripts.",
         "steps": [
           {
             "id": "claudeNest.walkthrough.openView",
             "title": "Open the Nest panel",
-            "description": "Click the Claude Code Nest icon in the Activity Bar to open the Chats, Folders, Tags, and Smart Groups views for the current workspace.\n[Open Chats](command:claudeNest.refresh)",
+            "description": "Click the Claude Code Nest icon in the Activity Bar to open the Organize panel for the current workspace.\n[Refresh](command:claudeNest.refresh)",
             "media": {
               "markdown": "media/walkthrough/open-view.md"
             }
@@ -121,14 +112,6 @@
             "description": "Create a folder or a tag, then drag a chat onto it. A chat has one folder home and any number of tags.\n[New Folder](command:claudeNest.createFolder)\n[New Tag](command:claudeNest.createTag)",
             "media": {
               "markdown": "media/walkthrough/organize.md"
-            }
-          },
-          {
-            "id": "claudeNest.walkthrough.smartGroups",
-            "title": "Explore smart groups",
-            "description": "Smart Groups are read-only buckets computed from your transcripts (pull request, ticket prefix, git branch, fork lineage). Promote a bucket to a real folder or tag when it is useful.\n[Refresh Smart Groups](command:claudeNest.refreshSmartGroups)",
-            "media": {
-              "markdown": "media/walkthrough/smart-groups.md"
             }
           },
           {
@@ -144,16 +127,8 @@
     ],
     "viewsWelcome": [
       {
-        "view": "claudeNest.flat",
-        "contents": "No Claude Code chats found for this workspace yet.\nOpen a folder that has Claude Code sessions, then refresh.\n[Refresh](command:claudeNest.refresh)"
-      },
-      {
-        "view": "claudeNest.smartGroups",
-        "contents": "No Claude Code chats found for this workspace yet.\nSmart Groups are read-only buckets computed from your transcripts (pull request, ticket prefix, git branch, fork lineage).\n[Refresh](command:claudeNest.refreshSmartGroups)"
-      },
-      {
         "view": "claudeNest.archive",
-        "contents": "No archived chats.\nArchive a chat from the Chats, Folders, or Tags view to keep a Nest-owned copy that survives Claude Code cleanup. Restore it here anytime.\n[Refresh](command:claudeNest.refreshArchive)"
+        "contents": "No archived chats.\nArchiving keeps a Nest-owned copy of a chat that survives Claude Code cleanup. Restore it here anytime.\n[Refresh](command:claudeNest.refreshArchive)"
       }
     ],
     "commands": [
@@ -254,12 +229,6 @@
         "category": "Claude Code Nest"
       },
       {
-        "command": "claudeNest.refreshSmartGroups",
-        "title": "Refresh Smart Groups",
-        "category": "Claude Code Nest",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "claudeNest.promoteSmartGroupToFolder",
         "title": "Promote to Folder",
         "category": "Claude Code Nest",
@@ -335,11 +304,6 @@
     "menus": {
       "view/title": [
         {
-          "command": "claudeNest.refresh",
-          "when": "view == claudeNest.flat",
-          "group": "navigation"
-        },
-        {
           "command": "claudeNest.createFolder",
           "when": "view == claudeNest.orgPanel",
           "group": "navigation@1"
@@ -348,11 +312,6 @@
           "command": "claudeNest.createTag",
           "when": "view == claudeNest.orgPanel",
           "group": "navigation@2"
-        },
-        {
-          "command": "claudeNest.refreshSmartGroups",
-          "when": "view == claudeNest.smartGroups",
-          "group": "navigation@1"
         },
         {
           "command": "claudeNest.refreshArchive",
@@ -366,16 +325,6 @@
         },
         {
           "command": "claudeNest.openSettings",
-          "when": "view == claudeNest.flat",
-          "group": "navigation@9"
-        },
-        {
-          "command": "claudeNest.openSettings",
-          "when": "view == claudeNest.smartGroups",
-          "group": "navigation@9"
-        },
-        {
-          "command": "claudeNest.openSettings",
           "when": "view == claudeNest.archive",
           "group": "navigation@9"
         },
@@ -393,75 +342,10 @@
           "command": "claudeNest.showTokenRollup",
           "when": "view == claudeNest.orgPanel",
           "group": "9_backup@3"
-        },
-        {
-          "command": "claudeNest.exportLibrary",
-          "when": "view == claudeNest.flat",
-          "group": "9_backup@1"
-        },
-        {
-          "command": "claudeNest.importLibrary",
-          "when": "view == claudeNest.flat",
-          "group": "9_backup@2"
-        },
-        {
-          "command": "claudeNest.showTokenRollup",
-          "when": "view == claudeNest.flat",
-          "group": "9_backup@3"
         }
       ],
       "view/item/context": [
         {
-          "command": "claudeNest.previewChat",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "0_open@1"
-        },
-        {
-          "command": "claudeNest.exportChat",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "0_open@2"
-        },
-        {
-          "command": "claudeNest.assignChatToFolder",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "1_modify@1"
-        },
-        {
-          "command": "claudeNest.addTagToChat",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "1_modify@2"
-        },
-        {
-          "command": "claudeNest.tagChats",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "1_modify@3"
-        },
-        {
-          "command": "claudeNest.tagChats",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "inline"
-        },
-        {
-          "command": "claudeNest.linkToChat",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "2_link@1"
-        },
-        {
-          "command": "claudeNest.starChat",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "3_curation@1"
-        },
-        {
-          "command": "claudeNest.unstarChat",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "3_curation@2"
-        },
-        {
-          "command": "claudeNest.archiveChat",
-          "when": "view == claudeNest.flat && viewItem == claudeNest.chat",
-          "group": "3_curation@3"
-        },
-        {
           "command": "claudeNest.previewArchivedChat",
           "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
           "group": "0_open@1"
@@ -489,21 +373,6 @@
         {
           "command": "claudeNest.restoreChat",
           "when": "view == claudeNest.archive && viewItem == claudeNest.archivedChat",
-          "group": "inline"
-        },
-        {
-          "command": "claudeNest.promoteSmartGroupToFolder",
-          "when": "view == claudeNest.smartGroups && viewItem == claudeNest.smartGroupBucket",
-          "group": "1_promote@1"
-        },
-        {
-          "command": "claudeNest.promoteSmartGroupToTag",
-          "when": "view == claudeNest.smartGroups && viewItem == claudeNest.smartGroupBucket",
-          "group": "1_promote@2"
-        },
-        {
-          "command": "claudeNest.promoteSmartGroupToFolder",
-          "when": "view == claudeNest.smartGroups && viewItem == claudeNest.smartGroupBucket",
           "group": "inline"
         }
       ],
@@ -558,10 +427,6 @@
         },
         {
           "command": "claudeNest.tagChats",
-          "when": "false"
-        },
-        {
-          "command": "claudeNest.unlinkChat",
           "when": "false"
         },
         {

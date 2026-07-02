@@ -17,23 +17,27 @@ find and revisit any chat without it ever touching Claude's transcripts.
 - **Full-text content search.** Search across chat content from the Organize
   panel and see a matched-context snippet under each result. Clearing the query
   restores the full list.
-- **Rich hover previews.** Hover any chat row for a preview card with its folder,
-  age, token total, full tag set, models, files-touched count, and first and last
-  message snippets. Every row also shows a token badge beside its relative time.
-- **Star and archive.** Star a chat to flag it, or archive one to move it into a
-  dedicated Archive view. Archiving keeps a Nest-owned copy of the chat body in
-  the extension's own storage, so the chat survives Claude Code's own cleanup of
-  the transcript folder. Restore returns it and clears the copy.
-- **Per-chat export.** Export one chat to Markdown (a YAML front-matter org layer
-  plus the readable transcript) or JSON (a versioned, round-trippable document).
+- **Token badges.** Every chat row shows a token badge beside its relative time.
+  (The rich hover preview card, with a chat's folder, age, token total, full tag
+  set, models, files-touched count, and first and last message snippets, returns
+  as an in-panel card later in Sprint 3.)
+- **Star and archive.** Starred chats surface in the Starred section; archived
+  chats move into a dedicated Archive view. Archiving keeps a Nest-owned copy of
+  the chat body in the extension's own storage, so the chat survives Claude
+  Code's own cleanup of the transcript folder. Restore returns it and clears the
+  copy. (In-panel star and archive controls for live chats land with the panel's
+  row actions and context menu later in Sprint 3.)
+- **Per-chat export.** One chat to Markdown (a YAML front-matter org layer plus
+  the readable transcript) or JSON (a versioned, round-trippable document). (The
+  Export Chat... action lands back on chat rows with the panel's context menu
+  later in Sprint 3; whole-library export and import work today.)
 - **Token cost rollups.** Sum each chat's token usage by folder and by tag in a
   read-only report. Tokens only, never dollars.
-- **Read-only smart groups.** Auto-computed buckets (pull request, ticket prefix,
-  git branch, fork lineage) you can promote to real folders or tags when useful.
 - **Settings panel.** Read and edit Claude Code's global `cleanupPeriodDays`
   through a single guarded write.
-- **Flat Chats fallback.** A flat, newest-first list of every session, kept as an
-  accessible tree alongside the Organize panel.
+- **One panel.** The Organize panel is the single browsing surface, with full
+  keyboard navigation and ARIA tree semantics built in. Only the Archive view
+  rides alongside it, until its in-panel replacement ships.
 
 Clicking a chat opens or resumes it through Claude Code's public URI handler. Your
 organization is stored per project and follows you across machines on a
@@ -60,10 +64,8 @@ so the extension has chats to list.
 1. Click the Claude Code Nest icon in the Activity Bar to open the panel.
 2. In the **Organize** view, create a folder or a tag, then drag chats onto it. A
    chat has one folder home and any number of tags.
-3. Star the chats you want to keep handy, and archive the ones you want out of the
-   way but still readable.
-4. Use the search box to find a chat by its content.
-5. Run the **Get Started with Claude Code Nest** walkthrough from the Command
+3. Use the search box to find a chat by its content.
+4. Run the **Get Started with Claude Code Nest** walkthrough from the Command
    Palette for a guided tour.
 
 ## Settings
@@ -79,15 +81,16 @@ every workspace.
 
 ## Commands
 
-All commands live under the **Claude Code Nest** category in the Command Palette.
-The most common ones are also surfaced as view-title buttons or row actions:
+Commands live under the **Claude Code Nest** category in the Command Palette, as
+view-title buttons, or as row actions in the Archive view:
 
 - **Refresh** re-scans the transcripts under a cancellable progress indicator.
-- **Preview Full Chat** and **Preview Archived Copy** open a chat as read-only text.
-- **New Folder**, **New Tag**, **Tag Chats...**, and **Link to Chat...** organize chats.
-- **Star Chat**, **Archive Chat**, and **Restore Chat** curate them.
-- **Export Chat...**, **Export Library to JSON...**, and **Import Library from JSON...**
-  move your data in and out.
+- **Preview Archived Copy** opens an archived chat's saved body as read-only text.
+- **New Folder**, **New Tag**, **Link to Chat...**, and **Unlink** organize chats
+  (the link commands quick-pick their chats when run from the palette).
+- **Star Chat** and **Restore Chat** curate archived rows from the Archive view.
+- **Export Library to JSON...** and **Import Library from JSON...** move your
+  library in and out.
 - **Show Token Cost Rollup** opens the by-folder and by-tag token report.
 - **Settings** (shown as "Claude Code Nest: Settings") opens the `cleanupPeriodDays` panel.
 

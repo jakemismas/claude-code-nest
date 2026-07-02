@@ -1,7 +1,7 @@
 // A compact relative-time string for a chat row description. Pure and
 // deterministic: no vscode dependency and an injectable clock, so the headless
 // unit gate can cover the boundary rounding (the null branch, the negative
-// clamp, the 'just now' floor, and each unit rollover). The flat view imports
+// clamp, the 'just now' floor, and each unit rollover). The row builders import
 // this; keeping it vscode-free keeps it in the unit suite.
 //
 // Rollover boundaries (each computed against the same base, not chained):
