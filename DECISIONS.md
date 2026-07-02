@@ -944,3 +944,43 @@ by a new engines-aware assertion in src/test/unit/commandSurfaces.test.ts.
 
 Gates green at landing: tsc --noEmit clean, eslint clean, 796 unit tests passing,
 vsce package clean (80 files).
+
+## 2026-07-02 Slice s3a-visual-harness: browser driver and reference framing
+
+Two reversible forks resolved while building the fidelity harness (issue #79).
+
+(a) HOW TO DRIVE THE HEADLESS BROWSER. The plan says "headless Chrome or Edge" but
+not the mechanism. Options were (1) the browser's built-in `--headless --screenshot`
+CLI, (2) puppeteer/puppeteer-core, or (3) hand-rolled Chrome DevTools Protocol over
+Node built-ins. Chose (3). The CLI cannot run the required "wait for React mount,
+then hide the `#__bundler_thumbnail` placeholder" logic, so it would capture the
+prototype's gray unpack screen (the exact blindness the fit patch warns about).
+Puppeteer would add a dependency: as a real dep it conflicts with the
+zero-runtime-dependency posture and the `--no-dependencies` package proof (same
+reasoning that vendored MiniSearch), and even as a devDependency it is avoidable.
+Node 20+ ships global `fetch` and `WebSocket`, so `scripts/fidelity/screenshot.js`
+speaks CDP directly with zero dependencies. Reversible: the driver is a dev-only
+script excluded from the VSIX; swapping in puppeteer later touches nothing shipped.
+
+(b) WHAT THE PROTOTYPE REFERENCE FRAMES. `media/design/ChatSidebar.html` renders the
+320px sidebar to the right of a ~50px activity-bar rail inside a mock VS Code window,
+so a naive 320px-viewport capture clips the sidebar's right edge and includes window
+chrome. Chose to render the prototype in a wider (560px) viewport and clip the
+capture to the sidebar's own 320px column, so the committed reference
+(`media/design/reference/prototype-320.png`) is a clean panel-only frame at the same
+2x scale as the harness capture, making the by-eye comparison apples-to-apples.
+Reversible: re-run `npm run fidelity` and re-copy to re-baseline if the framing rule
+changes.
+
+Correctness fix found in self-review before handoff: the per-page CDP sender first
+used `Object.create(client)`, which shadows the `nextId` counter per page (each page
+reads the prototype value and writes an own property), so two page sessions minted
+colliding command ids into the shared pending map and a response could resolve the
+wrong promise. Replaced with an explicit `Page` wrapper that delegates to the single
+client instance, so command ids stay globally unique. It happened to work when pages
+run strictly sequentially (pending drains between them) but was latent and wrong.
+
+Gates green: tsc/compile clean, eslint clean (lint scope is src; the script is dev
+tooling outside it), 796 unit tests passing, `vsce package --no-dependencies` clean
+with `scripts/` and `media/design/**` confirmed absent from the .vsix via `vsce ls`.
+Closes issue #79.

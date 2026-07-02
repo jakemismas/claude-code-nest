@@ -713,6 +713,50 @@ id. Rationale and rules:
   ^1.66.0 and @types/vscode is pinned to 1.66.0 to satisfy vsce's engine check.
   The .vsix artifact is gitignored.
 
+## Visual-fidelity harness (Sprint 3, slice s3a-visual-harness) — binding
+
+Sprint 3 rebuilds the org panel to the pixel-exact handoff at `media/design/`
+(UI-SPEC.md). To give the build and review agents EYES on that redesign, a
+standalone screenshot harness renders the real webview asset and the design
+prototype headlessly and writes them to disk for a by-eye comparison. This is the
+visual-fidelity review lens; every UI slice runs it before its review is dry.
+
+- `npm run fidelity` (`scripts/fidelity/screenshot.js`) drives headless Chrome or
+  Edge over the Chrome DevTools Protocol using only Node built-ins (global `fetch`
+  and `WebSocket`, Node 20+). It adds NO npm dependency: the extension is
+  zero-runtime-dependency and packages with `--no-dependencies`, so a bundled
+  puppeteer would either bloat the tree or never ship (and false-pass the install
+  proof), exactly like the vendored-MiniSearch reasoning. It discovers the browser
+  from the standard install paths or a `NEST_FIDELITY_BROWSER` / `CHROME_PATH`
+  override, and FAILS with a clear, actionable message (exit 1) when no browser is
+  found.
+- `scripts/fidelity/harness.html` hosts the REAL shipped panel asset
+  (`media/orgPanel.css` + `media/orgPanel.js`) - never a hand-drawn copy - with a
+  stubbed `acquireVsCodeApi`, the exact static DOM shell `orgPanelWebview.renderHtml`
+  emits, and synthetic mock data posted in the SAME message shape the host posts
+  (`state` then `sections`; see `OrgSections` / `OrgChatRow` in
+  `src/views/orgPanelModel.ts`). The mock is fully synthetic (no real transcript
+  content is committed) and deliberately carries `starred:true` and
+  `awaitingReply:true` rows, per-row `status` (`'question'` -> blinking `?` badge,
+  `'done'` -> solid unread dot; design README line 51), plus colored folders and tag
+  chips, so re-running the harness surfaces every AC1 visual the shipped asset draws
+  (the starred glyph, the done-dot, and the `?` badge from `makeRow` /
+  `.nest-status*`) from the flags the mock sets.
+- The prototype (`media/design/ChatSidebar.html`) embeds a gzip+base64 React bundle
+  behind a full-viewport `#__bundler_thumbnail` unpack placeholder. The driver waits
+  for React to mount, removes the placeholder, and clips the capture to the 320px
+  sidebar column (UI-SPEC.md deviation 1), so the reference is a clean panel-only
+  frame and never the gray unpack screen.
+- Outputs land in `.claude-working/fidelity/` (gitignored): `harness.png` (the real
+  asset) and `prototype.png` (a fresh prototype render). The frozen baseline is
+  committed at `media/design/reference/prototype-320.png` and is what the lens
+  compares against. Pixel diffing is a deliberate non-goal; the gate is
+  reviewer-eye plus the human check.
+- Packaging boundary: the whole `scripts/**` tree and `media/design/**` (which holds
+  the reference images) are excluded from the VSIX via `.vscodeignore`, so neither
+  the harness nor the baselines ever reach a user. The installCheck package proof
+  confirms `scripts/` is absent from the `.vsix`.
+
 ## Git landing strategy
 
 PR-per-slice with explicit author and a normalized local committer, both Jake

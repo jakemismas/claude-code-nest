@@ -5,6 +5,25 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- A visual-fidelity harness for the Sprint 3 redesign (#79). `npm run fidelity`
+  renders the real Organize panel asset (with synthetic mock data) and the design
+  prototype headlessly at the 320px reference width and writes screenshots to
+  `.claude-working/fidelity/` for a by-eye comparison against the committed
+  baselines under `media/design/reference/`. It drives headless Chrome or Edge over
+  the DevTools Protocol using only Node built-ins (no new dependency), and fails
+  with a clear message when no browser is found. The harness, scripts, and
+  reference images are excluded from the packaged extension.
+- A per-row status slot on the Organize panel chat row (#79), the first piece of
+  the Sprint 3 row anatomy: a blinking `?` badge marks a chat whose last turn is an
+  assistant message that asks a question, disabled under reduced motion, with the
+  meaning carried on the row's aria-label. The pure model derives `'question'` only
+  from the tier-A snapshot and deliberately does NOT emit the solid unread `'done'`
+  dot yet (that needs the per-device read-state gate a later slice adds), so real
+  data never fabricates an unread signal; the dot's render path exists and is
+  exercised by the fidelity harness mock.
+
 ### Changed
 
 - The Organize panel is now the only browsing surface (#78): the flat Chats tree
