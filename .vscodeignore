@@ -2,6 +2,7 @@
 .vscode-test/**
 .claude/**
 .claude-working/**
+scripts/**
 **/*.bak
 **/__probe*
 **/__probe*/**

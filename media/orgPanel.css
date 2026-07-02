@@ -300,6 +300,60 @@ body {
   white-space: nowrap;
 }
 
+/* The left status slot (design README line 51; UI-SPEC.md "Chat row"). Always a
+   15px fixed-width slot so titles align whether or not a row carries a status; the
+   glyph inside is a solid 8px dot for status 'done' or a 14px blinking circle with a
+   white '?' for status 'question'. The slot is aria-hidden; the row's aria-label
+   carries the meaning. */
+.nest-status {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nest-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--nest-accent);
+}
+
+.nest-status-question {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--nest-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  animation: ccblink 1.15s ease-in-out infinite;
+}
+
+/* UI-SPEC.md deviation 3: the blinking is disabled under reduced-motion (static
+   badge), so the question status stays legible without animation. */
+@media (prefers-reduced-motion: reduce) {
+  .nest-status-question {
+    animation: none;
+  }
+}
+
+@keyframes ccblink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 .nest-star {
   color: var(--nest-accent);
   flex: 0 0 auto;

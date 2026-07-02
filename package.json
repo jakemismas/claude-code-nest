@@ -465,6 +465,7 @@
     "pretest": "npm run lint && npm run compile",
     "test": "mocha",
     "test:integration": "node ./out/test/integration/runTest.js",
+    "fidelity": "node ./scripts/fidelity/screenshot.js",
     "package": "vsce package --no-dependencies -o nest-build-check.vsix"
   },
   "devDependencies": {

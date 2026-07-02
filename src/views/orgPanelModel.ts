@@ -36,14 +36,26 @@ import { ProjectMeta, Folder } from '../store/schema';
 // reduces to an unfile.
 export const UNSORTED_FOLDER_ID = '__unfiled__';
 
+// The per-row status slot (UI-SPEC.md "Chat row", design README line 51). It drives
+// the left status affordance the panel renders:
+//   'question' -> a blinking '?' badge (an assistant turn that asks something)
+//   'done'     -> a solid unread dot (an unread assistant reply that is not a question)
+//   'none'     -> an empty slot (the user has seen it, or the last turn is the user's)
+// The FULLY-gated live semantics ("unread" relative to the per-device lastSeenAt read
+// state, UI-SPEC.md "Read state") land with the read-state slice; today the pure model
+// derives only the SCAN-TIME approximation it can honestly compute from the tier-A
+// snapshot (lastMessageRole/lastMessageText). See rowStatus below.
+export type RowStatus = 'question' | 'done' | 'none';
+
 // One chat row in the org panel, projected from a ChatRecord plus its curation
 // state. Plain, JSON-serializable data (no vscode, no ChatRecord reference) so it
 // crosses postMessage cleanly. tokens is the formatted ~token badge ('' when no
 // usage). snippet is the tier-A last-message text (null when none). tags is the
 // chat's full resolved tag-label set; tagIds is the parallel id set the DnD shell
 // and chip filter key on. starred and awaitingReply drive the cross-cutting
-// sections. folderId is the chat's resolved single home (the Unsorted sentinel
-// when unfiled), used only by the assembler.
+// sections; status drives the per-row status slot (dot vs '?' badge). folderId is
+// the chat's resolved single home (the Unsorted sentinel when unfiled), used only
+// by the assembler.
 export interface OrgChatRow {
   sessionId: string;
   title: string;
@@ -54,6 +66,7 @@ export interface OrgChatRow {
   tagIds: string[];
   starred: boolean;
   awaitingReply: boolean;
+  status: RowStatus;
 }
 
 // One folder section: the folder's id, name, optional color (slice 3), nesting
@@ -160,7 +173,39 @@ function buildRow(
     // turn was the user's, so Claude has not replied. NOT a live conversation
     // state; the webview labels the section as a heuristic.
     awaitingReply: record.lastMessageRole === 'user',
+    status: rowStatus(record),
   };
+}
+
+// The scan-time status for a chat's status slot. The BINDING live definition
+// (UI-SPEC.md lines 51-52 and "Read state") gates both non-empty states on the last
+// message being an UNREAD assistant turn, i.e. newer than the per-device lastSeenAt.
+// That read-state store is a later slice; until it lands the pure model returns the
+// most it can honestly compute from the tier-A snapshot without inventing a signal:
+//   - 'question' when the last genuine turn is an ASSISTANT turn whose text asks
+//     something (endsWithQuestion), matching the 'question' badge's message shape;
+//   - 'none' otherwise. The 'done' dot is intentionally NOT emitted yet because it
+//     requires the unread (lastSeenAt) gate that does not exist on the snapshot;
+//     emitting a dot for every assistant-last chat would fabricate an unread signal
+//     for chats the user has already read. The read-state slice will re-derive both
+//     states through lastSeenAt and turn this into the full mapping.
+// A user-last chat is 'none' here (it is surfaced as awaitingReply / the Questions
+// section instead, not as a status dot).
+function rowStatus(record: ChatRecord): RowStatus {
+  if (record.lastMessageRole === 'assistant' && endsWithQuestion(record.lastMessageText)) {
+    return 'question';
+  }
+  return 'none';
+}
+
+// Whether a message's (truncated) tier-A text reads as a question: it ends with a
+// question mark (after trailing whitespace), matching the design's "asks something"
+// question-badge trigger. Total and null-safe.
+function endsWithQuestion(text: string | null): boolean {
+  if (text === null) {
+    return false;
+  }
+  return /\?\s*$/.test(text);
 }
 
 // Resolve a chat's single home folder id: its ChatMeta.folderId when it points to

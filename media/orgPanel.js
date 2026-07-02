@@ -147,6 +147,20 @@
 
     const title = document.createElement('div');
     title.className = 'nest-row-title';
+    // The left status slot (design README line 51; UI-SPEC.md "Chat row"): a solid
+    // dot for status 'done' or a blinking '?' badge for status 'question'. Always
+    // present (even when empty) so titles align down the column. The accessible
+    // meaning rides the row's aria-label (rowAriaLabel); the glyph is decorative.
+    const status = document.createElement('span');
+    status.className = 'nest-status';
+    if (row.status === 'question') {
+      status.classList.add('nest-status-question');
+      status.textContent = '?';
+    } else if (row.status === 'done') {
+      status.classList.add('nest-status-dot');
+    }
+    status.setAttribute('aria-hidden', 'true');
+    title.appendChild(status);
     if (row.starred) {
       const star = document.createElement('span');
       star.className = 'nest-star';
@@ -197,6 +211,12 @@
     let label = row.title;
     if (row.starred) {
       label = 'Starred. ' + label;
+    }
+    // The status slot glyph is aria-hidden, so its meaning rides the label instead.
+    if (row.status === 'question') {
+      label = label + '. Has a question awaiting you.';
+    } else if (row.status === 'done') {
+      label = label + '. Unread reply.';
     }
     if (row.awaitingReply) {
       label = label + '. Awaiting your reply (heuristic).';
@@ -591,7 +611,9 @@
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', 'Search results');
     for (const r of searchRows) {
-      group.appendChild(makeRow({ ...r, tags: [], tagIds: [], starred: false, awaitingReply: false }, 0));
+      group.appendChild(
+        makeRow({ ...r, tags: [], tagIds: [], starred: false, awaitingReply: false, status: 'none' }, 0),
+      );
     }
     listEl.appendChild(group);
     restoreFocus();

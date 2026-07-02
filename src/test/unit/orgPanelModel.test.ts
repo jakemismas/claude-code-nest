@@ -91,6 +91,67 @@ describe('orgPanelModel awaiting-reply heuristic', () => {
   });
 });
 
+describe('orgPanelModel row status slot', () => {
+  it("marks an assistant-last chat whose text asks a question as status 'question'", () => {
+    const sections = buildSections(
+      [record({ sessionId: 'q', lastMessageRole: 'assistant', lastMessageText: 'Which option do you want?' })],
+      meta(),
+      badge,
+    );
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.ok(unsorted);
+    assert.strictEqual(unsorted.rows[0].status, 'question');
+  });
+
+  it('tolerates trailing whitespace after the question mark', () => {
+    const sections = buildSections(
+      [record({ sessionId: 'q', lastMessageRole: 'assistant', lastMessageText: 'Ready to proceed?  \n' })],
+      meta(),
+      badge,
+    );
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.strictEqual(unsorted && unsorted.rows[0].status, 'question');
+  });
+
+  it("leaves a non-question assistant-last chat as status 'none' (no fabricated unread dot)", () => {
+    // The 'done' dot needs the not-yet-built lastSeenAt read-state gate; the pure
+    // model must NOT emit a dot for every assistant-last chat.
+    const sections = buildSections(
+      [record({ sessionId: 'a', lastMessageRole: 'assistant', lastMessageText: 'Done, all green.' })],
+      meta(),
+      badge,
+    );
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.strictEqual(unsorted && unsorted.rows[0].status, 'none');
+  });
+
+  it("leaves a user-last chat as status 'none' (it is surfaced via Questions instead)", () => {
+    const sections = buildSections(
+      [record({ sessionId: 'u', lastMessageRole: 'user', lastMessageText: 'Can you fix this?' })],
+      meta(),
+      badge,
+    );
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.strictEqual(unsorted && unsorted.rows[0].status, 'none');
+  });
+
+  it("leaves a role-less or text-less chat as status 'none'", () => {
+    const sections = buildSections(
+      [
+        record({ sessionId: 'n', lastMessageRole: null, lastMessageText: null }),
+        record({ sessionId: 't', lastMessageRole: 'assistant', lastMessageText: null }),
+      ],
+      meta(),
+      badge,
+    );
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.ok(unsorted);
+    for (const r of unsorted.rows) {
+      assert.strictEqual(r.status, 'none');
+    }
+  });
+});
+
 describe('orgPanelModel starred section', () => {
   it('lists starred chats and hides nothing else by starring', () => {
     const records = [record({ sessionId: 's1' }), record({ sessionId: 's2' })];
