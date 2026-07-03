@@ -56,11 +56,14 @@ best-effort, last-writer-wins basis, with a JSON export as the authoritative bac
 
 ## Install
 
-Install the packaged VSIX:
+Install the packaged VSIX (the current repo-root artifact is
+`claude-code-nest-0.1.1-sprint3-part1.vsix`, a mid-sprint build carrying Sprint 3
+Part 1 on top of the released 0.1.1; see [TESTING.md](./TESTING.md) for what it
+does and does not yet include):
 
-- From a terminal: `code --install-extension claude-code-nest-0.1.1.vsix`
+- From a terminal: `code --install-extension claude-code-nest-0.1.1-sprint3-part1.vsix`
 - Or in VS Code: open the Extensions view, use the `...` menu, choose **Install
-  from VSIX...**, and select `claude-code-nest-0.1.0.vsix`
+  from VSIX...**, and select `claude-code-nest-0.1.1-sprint3-part1.vsix`
 
 Reload the window when prompted, then open a folder that has Claude Code sessions
 so the extension has chats to list.

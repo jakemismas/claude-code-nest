@@ -5,6 +5,16 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
+Sprint 3 is Part 1 complete (issues #78 to #83 merged) and NOT yet released. The
+finished v0.2.0 "One Panel" release still needs Part 2 (#84 to #87), Part 3 (#88,
+#89), the human verify gate (#76), and the pre-release security council (#90)
+before the release run (#91) bumps the version and tags. A mid-sprint handoff
+build, `claude-code-nest-0.1.1-sprint3-part1.vsix`, is packaged in the repo root
+for smoke testing the Part 1 surface, and TESTING.md carries the consolidated
+per-slice smoke checklist drawn from SPRINT-3-PLAN.md (landed sections runnable;
+Part 2/Part 3 sections marked not-yet-built). No version bump and no tag accompany
+this handoff.
+
 ### Added
 
 - A visual-fidelity harness for the Sprint 3 redesign (#79). `npm run fidelity`
@@ -53,6 +63,22 @@ Keep a Changelog, and the project adheres to semantic versioning.
   of input-request phrases, and is biased toward NOT flagging a plain statement. The
   row also gains a star toggle that persists, an active-row tint on the chat whose tab
   is focused, and a folder breadcrumb on Questions and search-result rows.
+- The folder tree rebuilt to the Sprint 3 handoff (#82). Each folder header shows a
+  chevron, a color-filled folder glyph (default warm tan `#C2A56E`), a 13px/600 name
+  that ellipsizes, and a chat count that rolls up over subfolders (the chats directly
+  in it plus every descendant), computed in the pure model over the stored hierarchy
+  so it is filter-independent. The native OS color input is replaced by an in-panel
+  8-swatch picker over the handoff palette (with a Default chip), and the bare
+  new-folder prompt by an in-panel name popover with Create/Cancel; both restore focus
+  to their anchor on close. Double-click a header for inline rename. The tree renders
+  at most one visible sublevel: a clamped render depth is emitted while the true depth
+  is carried for collapse bookkeeping, and folder CREATION is capped at one sublevel at
+  the write source, so `A/B/C` creates only `A/B`; deeper LEGACY folders (e.g. synced
+  from an older client) still render, clamped at the second indent tier, and are never
+  modified or lost. The collapse-one-level control folds the deepest open level first
+  and re-expands the whole tree once every level is folded. The frozen dropReducer, the
+  drag drop highlight (`#FAE6DC` with an inset accent ring), the drop-on-Unsorted
+  unfile, and the keyboard/ARIA tree are preserved rather than rebuilt.
 - Full-text search and tag-chip filtering in the Organize panel (#83). Typing in the
   search box now searches chat CONTENT, not just titles: the panel posts a debounced
   query to the host, which ranks chats with the existing host-only MiniSearch index
