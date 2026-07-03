@@ -408,11 +408,14 @@ export function activate(context: vscode.ExtensionContext): void {
       const item = new FolderItem(folder.id, folder.parentId, folder.name, false);
       await deleteFolder(folderDeps, item);
     },
-    createFolder: async (): Promise<void> => {
-      // Reuse the existing createFolder command (its input box + store mutation).
+    createFolder: async (name?: string): Promise<void> => {
+      // Reuse the existing createFolder command (store mutation + slash-path
+      // expansion + the one-sublevel depth cap). When the in-panel "New folder"
+      // popover supplies a name (issue #82 AC3), pass it as presetName so the command
+      // skips its native input box; otherwise it prompts as before.
       // folderDeps.provider.refresh folds in refreshOrgPanel, so the panel
       // re-renders with the new folder after it is created.
-      await createFolder(folderDeps);
+      await createFolder(folderDeps, undefined, name);
     },
     newSession: async (): Promise<void> => {
       // Best-effort launch of a new Claude Code chat via the probed contributed

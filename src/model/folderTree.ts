@@ -30,6 +30,62 @@ export const UNFILED_LABEL = 'Unfiled';
 // expands into a Work folder (parentId null) with a ClientA child.
 export const FOLDER_PATH_SEPARATOR = '/';
 
+// Folder-depth caps for the "one visible sublevel" design (UI-SPEC.md data-mapping
+// row for Folders; issue #82 AC4). Depth is the 0-based nesting depth: a root is 0,
+// its direct child is 1, a grandchild is 2.
+//
+// - MAX_FOLDER_CREATE_DEPTH bounds what the UI CREATES: at most one level of
+//   subfolders, so a newly created leaf folder may sit at depth 1 (a top folder or
+//   its direct child) but never deeper. createFolder enforces this so a slash path
+//   or a right-click-under-a-child cannot mint a depth-2 folder.
+// - MAX_FOLDER_RENDER_DEPTH bounds how DEEP a folder RENDERS: deeper legacy folders
+//   (created before this cap, or arriving via sync from an older client) still
+//   render, clamped to depth 2, and their stored parentId chain is NEVER modified
+//   or lost. The clamp is applied only to the emitted section depth, never to the
+//   data. Render tolerance (2) is one deeper than the create cap (1) so a legacy
+//   grandchild is visible at the 47px tier rather than hidden or destroyed.
+export const MAX_FOLDER_CREATE_DEPTH = 1;
+export const MAX_FOLDER_RENDER_DEPTH = 2;
+
+// Clamp a folder's nesting depth to the render cap (MAX_FOLDER_RENDER_DEPTH) for
+// display. A deeper legacy folder is shown at the cap; its actual depth in the
+// stored hierarchy is untouched (this only affects the indent the UI paints).
+// Negative inputs (a corrupt depth) clamp up to 0. Pure and total.
+export function clampFolderDepth(depth: number): number {
+  if (!Number.isFinite(depth) || depth < 0) {
+    return 0;
+  }
+  return depth > MAX_FOLDER_RENDER_DEPTH ? MAX_FOLDER_RENDER_DEPTH : depth;
+}
+
+// The 0-based depth of a folder id in the stored hierarchy, walking parentId to a
+// root. Bounded against a corrupt cyclic parent chain by a visited set (a cycle
+// terminates and returns the count so far). An id absent from the map is treated as
+// a root (depth 0). Used by createFolder to enforce MAX_FOLDER_CREATE_DEPTH from a
+// right-click parent without re-deriving the whole tree.
+export function folderDepthOf(
+  folders: { [id: string]: Folder },
+  folderId: string | null,
+): number {
+  let depth = 0;
+  const visited = new Set<string>();
+  let current: string | null = folderId;
+  while (current !== null && !visited.has(current)) {
+    const folder: Folder | undefined = folders[current];
+    if (folder === undefined) {
+      break;
+    }
+    visited.add(current);
+    const parentId: string | null = folder.parentId ?? null;
+    if (parentId === null) {
+      break;
+    }
+    depth += 1;
+    current = parentId;
+  }
+  return depth;
+}
+
 // One node in the assembled folder hierarchy. A folder node carries its Folder
 // record and its child folder nodes plus the ids of the chats homed directly in
 // it. The Unfiled bucket is represented as a folder node with id
@@ -102,11 +158,18 @@ export function expandFolderPath(
     mint?: () => string;
     orderFor?: (parentId: string | null) => number;
     startParentId?: string | null;
+    // The maximum 0-based depth a NEWLY minted segment may occupy. Reused existing
+    // segments (already deeper, e.g. a legacy grandchild) are never blocked; only
+    // new minting stops once the next segment would exceed this cap, so the chain is
+    // clamped to the create policy (MAX_FOLDER_CREATE_DEPTH) rather than growing an
+    // unbounded slash path. Omit for no cap (the historical behavior).
+    maxDepth?: number;
   } = {},
 ): ExpandResult {
   const mint = options.mint ?? mintFolderId;
   const orderFor = options.orderFor ?? defaultOrderFor(existing);
   const startParentId = options.startParentId ?? null;
+  const maxDepth = options.maxDepth;
 
   const segments = splitFolderPath(rawPath);
   if (segments.length === 0) {
@@ -120,13 +183,26 @@ export function expandFolderPath(
   // Root the expansion under the clicked parent's authoritative id when supplied,
   // otherwise at the top level (parentId null).
   let parentId: string | null = startParentId;
+  // The 0-based depth of the NEXT segment to place. A top-level start (parentId
+  // null) places its first segment at depth 0; a start under an existing folder
+  // places its first child at that folder's depth + 1.
+  let nextDepth = startParentId === null ? 0 : folderDepthOf(existing, startParentId) + 1;
 
   for (const name of segments) {
     const match = findChildByName(working, parentId, name);
     if (match !== null) {
       chain.push({ folder: match, mintNew: false });
       parentId = match.id;
+      nextDepth += 1;
       continue;
+    }
+    // A missing segment must be minted. Stop clamping the chain once minting the
+    // next segment would exceed the create-depth cap, so a deep slash path or a
+    // create under an already-deep parent cannot grow the tree past one sublevel.
+    // The leaf becomes the deepest allowed segment (an existing one when the whole
+    // remaining tail was over the cap).
+    if (maxDepth !== undefined && nextDepth > maxDepth) {
+      break;
     }
     const folder: Folder = {
       id: mint(),
@@ -137,6 +213,7 @@ export function expandFolderPath(
     working[folder.id] = folder;
     chain.push({ folder, mintNew: true });
     parentId = folder.id;
+    nextDepth += 1;
   }
 
   return { chain, leafFolderId: parentId };

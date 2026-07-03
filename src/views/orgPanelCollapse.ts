@@ -54,3 +54,38 @@ export function deepestOpenLevelToCollapse(folders: readonly CollapseFolderNode[
   }
   return ids;
 }
+
+// The outcome of one "collapse one level" (^) click, so the webview knows whether
+// to add ids to its collapsed Set, clear the Set entirely (re-expand all), or do
+// nothing. This wraps deepestOpenLevelToCollapse to add the design's terminal
+// branch (README line 72, prototype ChatSidebar.dc.html collapseLevel): repeated
+// clicks fold the innermost visible open tier upward, and "once all folded, the
+// next click re-expands all".
+//   { action: 'collapse', ids } -> collapse the deepest visible open tier
+//   { action: 'expandAll' }     -> nothing is collapsible but real folders exist,
+//                                  so the whole tree is folded; clear the set
+//   { action: 'none' }          -> there are no real folders at all (nothing to do)
+export type FoldOneLevelResult =
+  | { action: 'collapse'; ids: string[] }
+  | { action: 'expandAll' }
+  | { action: 'none' };
+
+// Decide the next "collapse one level" action for the current visible hierarchy.
+// hasRealFolders is whether the tree contains at least one non-synthetic folder
+// section (the synthetic Unsorted bucket does not count); it distinguishes the
+// terminal all-folded state (expand all) from a genuinely empty tree (no-op). This
+// stays a PURE decision so the fold-up-then-expand-all cycle is covered by the
+// headless unit gate; the webview owns the collapsed Set and the DOM.
+export function foldOneLevel(
+  folders: readonly CollapseFolderNode[],
+  hasRealFolders: boolean,
+): FoldOneLevelResult {
+  const ids = deepestOpenLevelToCollapse(folders);
+  if (ids.length > 0) {
+    return { action: 'collapse', ids };
+  }
+  // Nothing is collapsible. If the tree has real folders, they are all already
+  // folded to their shallowest level, so the terminal click re-expands them all.
+  // With no real folders there is nothing to fold or expand.
+  return hasRealFolders ? { action: 'expandAll' } : { action: 'none' };
+}

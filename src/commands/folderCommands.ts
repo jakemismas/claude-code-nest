@@ -4,7 +4,9 @@ import {
   descendantFolderIds,
   expandFolderPath,
   findChildByName,
+  folderDepthOf,
   splitFolderPath,
+  MAX_FOLDER_CREATE_DEPTH,
   UNFILED_LABEL,
 } from '../model/folderTree';
 import { assertMintableId } from '../model/idFactory';
@@ -61,12 +63,20 @@ export interface FolderCommandDeps {
 }
 
 // Create a folder from a (possibly slash-nested) name. parentFolderItem, when
-// supplied (right-click "New Folder" on a folder row), prefixes the new chain
-// under that folder. Returns the leaf folder id, or null when cancelled / no
-// project.
+// supplied (right-click "New Folder" on a folder row), roots the new chain under
+// that folder. presetName, when supplied (the in-panel "New folder" popover, issue
+// #82 AC3), skips the interactive prompt and uses that name directly; the palette
+// and right-click paths omit it and prompt as before. Returns the leaf folder id,
+// or null when cancelled / no project / nothing creatable under the depth cap.
+//
+// The "one visible sublevel" cap (AC4, MAX_FOLDER_CREATE_DEPTH) is enforced here:
+// creating under a folder already at the max creatable depth is refused with a
+// message, and a deeper slash path is clamped so it can never mint past one
+// sublevel. Existing deeper (legacy) folders are untouched.
 export async function createFolder(
   deps: FolderCommandDeps,
   parentFolderItem?: FolderItem,
+  presetName?: string,
 ): Promise<string | null> {
   const { store, provider, ui } = deps;
   const projectKey = deps.getProjectKey();
@@ -75,31 +85,59 @@ export async function createFolder(
     return null;
   }
 
-  const raw = await ui.prompt({
-    title: 'New Folder',
-    placeholder: 'Name, or a slash path like Work/ClientA',
-    validateInput: (value) =>
-      splitFolderPath(value).length === 0
-        ? 'Enter a folder name (slashes create nested folders).'
-        : null,
-  });
-  if (raw === undefined) {
-    return null;
-  }
-  if (splitFolderPath(raw).length === 0) {
+  const meta = store.getProjectMeta(projectKey);
+  const startParentId = parentFolderItem ? parentFolderItem.folderId : null;
+
+  // Refuse to create under a parent that is already at the deepest creatable level.
+  // A new child there would sit at depth > MAX_FOLDER_CREATE_DEPTH, past the one
+  // visible sublevel. This mirrors the render clamp but stops the write at the
+  // source, so no over-deep folder is ever minted. (A legacy folder deeper than the
+  // cap can still be a parent target only if it is itself within the cap; a
+  // grandchild parent is refused.)
+  if (startParentId !== null && folderDepthOf(meta.folders, startParentId) >= MAX_FOLDER_CREATE_DEPTH) {
+    ui.showError('Folders nest one level deep. Create this folder at the top level instead.');
     return null;
   }
 
-  const meta = store.getProjectMeta(projectKey);
+  let raw: string | undefined;
+  if (presetName !== undefined) {
+    // The popover already validated a non-empty name; still guard the expansion.
+    if (splitFolderPath(presetName).length === 0) {
+      return null;
+    }
+    raw = presetName;
+  } else {
+    raw = await ui.prompt({
+      title: 'New Folder',
+      placeholder: 'Name, or a slash path like Work/ClientA',
+      validateInput: (value) =>
+        splitFolderPath(value).length === 0
+          ? 'Enter a folder name (slashes create nested folders).'
+          : null,
+    });
+    if (raw === undefined) {
+      return null;
+    }
+    if (splitFolderPath(raw).length === 0) {
+      return null;
+    }
+  }
+
   // When created under an existing folder, root the expansion at the clicked
   // folder's AUTHORITATIVE id (startParentId), not by recomposing and re-matching
   // its name path. A name-path round-trip would resolve through findChildByName
   // and could attach the new child to the FIRST same-named sibling instead of the
   // folder the user actually clicked (sibling names are not unique: renameFolder
-  // permits a collision). Passing the id directly removes that ambiguity.
+  // permits a collision). Passing the id directly removes that ambiguity. maxDepth
+  // clamps a deep slash path so the chain never mints past one sublevel.
   const result = expandFolderPath(raw, meta.folders, {
-    startParentId: parentFolderItem ? parentFolderItem.folderId : null,
+    startParentId,
+    maxDepth: MAX_FOLDER_CREATE_DEPTH,
   });
+  if (result.chain.length === 0) {
+    // The whole path was over the cap (nothing mintable). Nothing to persist.
+    return null;
+  }
   // Persist every segment record. mintNew segments are new; reused ones are
   // re-upserted idempotently (a no-op shape-wise). assertMintableId is the
   // id-factory guard re-run at the write boundary as defense in depth.

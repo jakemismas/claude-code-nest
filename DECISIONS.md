@@ -1173,3 +1173,90 @@ gains breadcrumb (the folder-path "Parent / Child", null when unfiled); buildSec
 precomputes each folder's path with a visited-guarded parent walk. makeRow renders it
 (muted, right of the title) only when the caller passes showBreadcrumb (Questions and
 the flat search/filter results), matching the design.
+
+## 2026-07-02 Slice s3a-folder-tree (order 4, issue 82): depth clamp split, in-panel swatch picker, new-folder popover, and the terminal re-expand-all fold
+
+Slice s3a-folder-tree rebuilt the folder-tree rows and interactions to the handoff
+(issue #82): the rolled-up folder header count (AC1), the in-panel color-swatch picker
+and new-folder popover (AC2/AC3), and the one-visible-sublevel depth clamp plus the
+terminal re-expand-all fold (AC4). AC5 (DnD drop highlight, Unsorted-header unfile,
+frozen dropReducer) and AC6 (keyboard/ARIA tree) were already satisfied and were
+preserved, not rebuilt. All forks below are reversible; no council was needed.
+
+(a) DEPTH IS SPLIT INTO A CLAMPED RENDER DEPTH AND A TRUE treeDepth (AC4). The fork was
+how to render "one visible sublevel" while never destroying a deeper legacy folder.
+Resolution: FolderSection now carries depth (CLAMPED to MAX_FOLDER_RENDER_DEPTH = 2, the
+value the webview's indent 11 + depth*18 and aria-level read) AND treeDepth (the true
+uncapped stored depth). The webview's collapse/hide bookkeeping (the pre-order
+"skip everything deeper than a collapsed folder" scan in render/computeHiddenFolders/
+folderHasChild/collapseDeepestOpenLevel) keys on treeDepth, NOT the clamped depth, so two
+legacy folders that both clamp to render depth 2 still carry distinct treeDepths and a
+collapsed clamped-deep folder correctly hides its clamped-deep descendants. clampFolderDepth
+is a pure vscode-free helper in folderTree.ts; the model imports only that function (folderTree
+pulls in only the vscode-free schema + idFactory, so the unit gate stays clean). The clamp
+touches ONLY the emitted section depth; buildSections never mutates the stored folders
+(unit-tested: the passed meta.folders is deep-equal before and after, parentId chains
+intact, and a chat homed in a clamped-deep folder is still placed). Reversible: raise the
+cap or drop treeDepth to revert to a single uncapped depth.
+
+(b) CREATE CAP (1) IS ONE LEVEL SHALLOWER THAN THE RENDER CAP (2) (AC4). The UI creates
+at most one sublevel, but tolerates rendering a legacy grandchild at depth 2.
+MAX_FOLDER_CREATE_DEPTH = 1 governs new minting; MAX_FOLDER_RENDER_DEPTH = 2 governs
+display. createFolder enforces the create cap at the write source: it refuses (with a
+message, before prompting) to create under a parent already at the create cap, and it
+passes maxDepth to expandFolderPath so a deep slash path (A/B/C/D) is CLAMPED to the
+allowed segments (mints A, B; drops C, D; leaf = B) rather than growing the tree. Reused
+existing (legacy) segments are never blocked, only new minting past the cap, so a legacy
+grandchild is never disturbed (unit-tested: a pre-existing depth-2 folder is untouched and
+a create under it is refused). Rationale: clamping the WRITE is the data-safe choice; a
+render-only clamp would let sync accumulate ever-deeper folders. Reversible: drop the
+maxDepth arg and the parent-depth guard.
+
+(c) ROLLED-UP HEADER COUNT SUPERSEDES THE INTERIM DIRECT-HOME COUNT (AC1; supersedes
+s3a-row-anatomy DECISIONS (h)). FolderSection gains rolledUpCount = the folder's own
+directly-homed chats PLUS every descendant folder's, computed over the STORED hierarchy in
+the pure model (a visited-guarded memoized sum, so a corrupt parent cycle terminates). The
+webview renders it in makeFolderHeader instead of the post-filter visible.length. This is a
+stable structural count independent of the render clamp AND of any active filter, which is
+correct because folder headers render ONLY in the unfiltered tree (filtering swaps to the
+flat "N RESULTS" list). Archived chats are excluded from the rollup (they are excluded from
+every visible section). Unit-tested for the subtree sum, archived exclusion, and the
+synthetic-Unsorted own-rows-only case. Reversible: pass visible.length again.
+
+(d) THE NATIVE <input type=color> IS RETIRED FOR AN IN-PANEL 8-SWATCH PICKER (AC2). The
+picker (beginColor) floats under the folder header, paints one 22x22 radius-5 swatch per
+handoff-palette color (the exact 8 colors from README line 98, matching the prototype
+swatch() box-shadow: selected = double ring 0 0 0 2px #fff, 0 0 0 4px <col>; unselected =
+inset hairline) plus a "Default" chip that clears the color (posts null). It is reachable
+from the folder menu's "Set color" item (the folder right-click contextmenu is the single
+route into that menu). Only palette literals or null are ever posted; the host coerce
+re-validates via isValidColor before the value reaches the store or any --swatch-color CSS
+sink, so a tampered message cannot inject CSS. Keyboard: Arrow keys move across swatches,
+Escape closes and restores focus to the folder header (no focus drop to <body>). Reversible:
+restore the hidden native input.
+
+(e) THE + BUTTON OPENS AN IN-PANEL NEW-FOLDER POPOVER; createFolder GAINS presetName (AC3).
+The FOLDERS-header + button now opens an in-panel popover (name input + Create/Cancel)
+instead of posting the bare {type:'createFolder'} that triggered the native input box. The
+popover posts {type:'createFolder', name}; the host coerce trims and requires a non-empty
+string (else undefined) and routes it to createFolder(deps, undefined, presetName), which
+skips its native prompt when a preset name is supplied and otherwise prompts exactly as
+before (the palette/programmatic paths are unchanged). The name reaches makeFolderHeader as
+textContent only (no HTML sink) and funnels into the SAME capped expandFolderPath as the
+prompt path, so the depth cap and slash expansion apply identically. Enter commits, Escape
+cancels and restores focus to the + button. Unit-tested: preset name skips the prompt and
+persists; a blank preset is a no-op. Reversible: revert the + handler to post the bare
+createFolder message.
+
+(f) COLLAPSE-ONE-LEVEL GAINS THE TERMINAL RE-EXPAND-ALL BRANCH (AC4). The pure
+orgPanelCollapse.ts gains foldOneLevel, which wraps the existing deepestOpenLevelToCollapse
+and returns a discriminated outcome: { action:'collapse', ids } while a deepest visible open
+tier exists, { action:'expandAll' } when nothing is collapsible but real folders exist
+(the terminal all-folded state), or { action:'none' } when there are no real folders. The
+webview's collapseDeepestOpenLevel mirrors it: repeated clicks fold the innermost visible
+open tier upward, and once all folded the next click clears the collapsed set (guarded on
+set size so it never thrashes an already-open tree). This matches the prototype's
+collapseLevel authority (child-expanded -> collapse those; else top-expanded -> collapse
+those; else expand all). Unit-tested through the full fold-up-then-expand-all cycle.
+deepestOpenLevelToCollapse is kept (still exported and tested) so no existing test breaks.
+Reversible: drop foldOneLevel and the expand-all branch.

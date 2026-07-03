@@ -34,6 +34,11 @@
 import { ChatRecord } from '../model/types';
 import { ProjectMeta, Folder } from '../store/schema';
 import { asksSomething } from '../model/questionHeuristic';
+// clampFolderDepth is a PURE, vscode-free helper (folderTree.ts imports only the
+// vscode-free schema + idFactory), so importing it keeps this model in the headless
+// unit gate. It applies the one-visible-sublevel render cap (issue #82 AC4) to the
+// emitted section depth without ever touching the stored hierarchy.
+import { clampFolderDepth } from '../model/folderTree';
 
 // The synthetic catch-all bucket id for chats with no (or an unresolvable) home
 // folder. Duplicated as a literal here rather than imported from folderTree.ts so
@@ -91,16 +96,35 @@ export interface OrgChatRow {
 
 // One folder section: the folder's id, name, optional color (slice 3), nesting
 // depth (0 for a root, deeper for a child), and its directly-homed chat rows in
-// the assembler's sort order. childFolderIds lets the webview render the nesting
-// without re-deriving the hierarchy. The synthetic Unsorted bucket is a
-// FolderSection too (synthetic: true), always last, so the webview renders every
-// folder-homed group uniformly.
+// the assembler's sort order. The synthetic Unsorted bucket is a FolderSection too
+// (synthetic: true), always last, so the webview renders every folder-homed group
+// uniformly.
 export interface FolderSection {
   folderId: string;
   name: string;
   color?: string;
+  // The nesting depth used for rendering, CLAMPED to the one-visible-sublevel cap
+  // (MAX_FOLDER_RENDER_DEPTH; issue #82 AC4). A deeper legacy folder renders at the
+  // cap; its stored parentId chain is never modified. The webview's indent
+  // (11 + depth * 18) and the aria-level read this clamped value.
   depth: number;
+  // The TRUE stored nesting depth (uncapped), used ONLY by the webview's
+  // collapse/hide bookkeeping (the pre-order "skip everything deeper than a
+  // collapsed folder" scan). Two legacy folders that both clamp to render depth 2
+  // still carry distinct treeDepths, so a collapsed clamped-deep folder correctly
+  // hides its clamped-deep descendants. Never used for indentation. For a
+  // within-cap folder treeDepth === depth.
+  treeDepth: number;
   synthetic: boolean;
+  // The rolled-up chat count for the folder header (issue #82 AC1, design README
+  // line 66: "Top folder count = chats in it + its subfolders"): the folder's
+  // directly-homed chats PLUS every descendant folder's directly-homed chats. It is
+  // computed over the STORED hierarchy (real parentId), so it is a stable structural
+  // count independent of the render clamp and of any active filter (folder headers
+  // render only in the unfiltered tree; filtering swaps to the flat results list).
+  // The synthetic Unsorted bucket has no rollup semantics (it has no descendants);
+  // its count is just its own rows.
+  rolledUpCount: number;
   rows: OrgChatRow[];
 }
 
@@ -369,8 +393,15 @@ function buildFolderSections(
     list.sort(compareFolders);
   }
 
+  // Precompute each folder's rolled-up chat count (its own directly-homed chats
+  // plus every descendant's), over the STORED hierarchy. This is the header count
+  // (AC1, README line 66) and is independent of the render clamp below.
+  const rollup = computeRolledUpCounts(folders, childrenByParent, rowsByFolder);
+
   // Pre-order walk from the roots (parentId null). A visited set guards against a
-  // corrupt store that produced a parent cycle, so the walk always terminates.
+  // corrupt store that produced a parent cycle, so the walk always terminates. The
+  // emitted depth is CLAMPED to the one-visible-sublevel render cap (AC4); the walk
+  // still recurses on the true depth so descendants keep their real ordering.
   const visited = new Set<string>();
   const walk = (parentId: string | null, depth: number): void => {
     const siblings = childrenByParent.get(parentId) ?? [];
@@ -383,8 +414,10 @@ function buildFolderSections(
         folderId: folder.id,
         name: folder.name,
         color: folder.color,
-        depth,
+        depth: clampFolderDepth(depth),
+        treeDepth: depth,
         synthetic: false,
+        rolledUpCount: rollup.get(folder.id) ?? 0,
         rows: sortNewestFirst(rowsByFolder.get(folder.id) ?? []),
       });
       walk(folder.id, depth + 1);
@@ -405,21 +438,65 @@ function buildFolderSections(
       name: folder.name,
       color: folder.color,
       depth: 0,
+      treeDepth: 0,
       synthetic: false,
+      rolledUpCount: rollup.get(folder.id) ?? 0,
       rows: sortNewestFirst(rowsByFolder.get(folder.id) ?? []),
     });
   }
 
-  // The synthetic Unsorted bucket, always last and always present.
+  // The synthetic Unsorted bucket, always last and always present. It has no
+  // descendants, so its rolled-up count is just its own directly-homed rows.
+  const unsortedRows = sortNewestFirst(rowsByFolder.get(UNSORTED_FOLDER_ID) ?? []);
   sections.push({
     folderId: UNSORTED_FOLDER_ID,
     name: 'Unsorted',
     depth: 0,
+    treeDepth: 0,
     synthetic: true,
-    rows: sortNewestFirst(rowsByFolder.get(UNSORTED_FOLDER_ID) ?? []),
+    rolledUpCount: unsortedRows.length,
+    rows: unsortedRows,
   });
 
   return sections;
+}
+
+// Compute each real folder's rolled-up chat count: its own directly-homed chats
+// plus the sum over all descendant folders. Walks children with a visited guard so
+// a corrupt parent cycle terminates (a cycle contributes each folder's direct count
+// once). Returns a map keyed by folder id; the synthetic Unsorted bucket is not
+// included (it has no descendants and is counted at the call site).
+function computeRolledUpCounts(
+  folders: { [id: string]: Folder },
+  childrenByParent: Map<string | null, Folder[]>,
+  rowsByFolder: Map<string, OrgChatRow[]>,
+): Map<string, number> {
+  const directCount = (id: string): number => (rowsByFolder.get(id) ?? []).length;
+  const memo = new Map<string, number>();
+  const rollupFor = (id: string, seen: Set<string>): number => {
+    const cached = memo.get(id);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (seen.has(id)) {
+      // A cycle: count this node's own chats but do not recurse back into it.
+      return directCount(id);
+    }
+    seen.add(id);
+    let total = directCount(id);
+    for (const child of childrenByParent.get(id) ?? []) {
+      total += rollupFor(child.id, seen);
+    }
+    seen.delete(id);
+    memo.set(id, total);
+    return total;
+  };
+  for (const id of Object.keys(folders)) {
+    if (!memo.has(id)) {
+      rollupFor(id, new Set<string>());
+    }
+  }
+  return memo;
 }
 
 // Build the tag filter chips: one per tag that at least one scanned chat carries,

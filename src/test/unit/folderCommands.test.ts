@@ -243,6 +243,102 @@ describe('createFolder', () => {
     assert.notStrictEqual(validate('   /  '), null);
     assert.strictEqual(validate('Work'), null);
   });
+
+  it('uses a preset name from the in-panel popover and skips the prompt (issue #82 AC3)', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    const ui = makeUi({}); // no prompt responses queued: the preset path must not prompt
+    const leaf = await createFolder(makeDeps(store, provider, ui, PK), undefined, 'Inbox');
+    assert.strictEqual(ui.promptCalls.length, 0, 'preset name skips the native input box');
+    const folders = Object.values(store.getProjectMeta(PK).folders);
+    assert.strictEqual(folders.length, 1);
+    assert.strictEqual(folders[0].name, 'Inbox');
+    assert.strictEqual(folders[0].parentId, null);
+    assert.strictEqual(leaf, folders[0].id);
+    assert.strictEqual(refreshCount(), 1);
+  });
+
+  it('ignores a blank preset name without persisting or prompting', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    const ui = makeUi({});
+    const leaf = await createFolder(makeDeps(store, provider, ui, PK), undefined, '   ');
+    assert.strictEqual(leaf, null);
+    assert.strictEqual(ui.promptCalls.length, 0);
+    assert.deepStrictEqual(store.getProjectMeta(PK).folders, {});
+    assert.strictEqual(refreshCount(), 0);
+  });
+});
+
+describe('createFolder one-visible-sublevel depth cap (issue #82 AC4)', () => {
+  it('creates a child under a top folder (depth 1 is allowed)', async () => {
+    const store = makeStore();
+    const { provider } = makeProvider();
+    store.upsertFolder(PK, { id: 'top', name: 'Top', parentId: null, order: 0 });
+    await store.flush();
+    const leaf = await createFolder(
+      makeDeps(store, provider, makeUi({ prompts: ['Child'] }), PK),
+      folderArg('top'),
+    );
+    const child = Object.values(store.getProjectMeta(PK).folders).find((f) => f.name === 'Child');
+    assert.ok(child, 'a depth-1 child is created');
+    assert.strictEqual(child.parentId, 'top');
+    assert.strictEqual(leaf, child.id);
+  });
+
+  it('refuses to create under a folder already at the create cap (depth-1 parent), with a message', async () => {
+    const store = makeStore();
+    const { provider, refreshCount } = makeProvider();
+    // top(0) -> mid(1). Creating under mid would be depth 2, past one sublevel.
+    store.upsertFolder(PK, { id: 'top', name: 'Top', parentId: null, order: 0 });
+    store.upsertFolder(PK, { id: 'mid', name: 'Mid', parentId: 'top', order: 0 });
+    await store.flush();
+    const before = Object.keys(store.getProjectMeta(PK).folders).length;
+    const ui = makeUi({ prompts: ['TooDeep'] });
+    const leaf = await createFolder(makeDeps(store, provider, ui, PK), folderArg('mid'));
+    assert.strictEqual(leaf, null, 'no folder created under an at-cap parent');
+    assert.strictEqual(ui.errors.length, 1, 'a message explains the one-level limit');
+    assert.strictEqual(ui.promptCalls.length, 0, 'refused before prompting');
+    assert.strictEqual(Object.keys(store.getProjectMeta(PK).folders).length, before, 'nothing minted');
+    assert.strictEqual(refreshCount(), 0);
+  });
+
+  it('clamps a deep slash path so it never mints past one sublevel', async () => {
+    const store = makeStore();
+    const { provider } = makeProvider();
+    // 'A/B/C/D' from the top level must mint only A(0) and B(1).
+    const leaf = await createFolder(makeDeps(store, provider, makeUi({ prompts: ['A/B/C/D'] }), PK));
+    const meta = store.getProjectMeta(PK);
+    const byName = new Map(Object.values(meta.folders).map((f) => [f.name, f]));
+    assert.strictEqual(Object.keys(meta.folders).length, 2, 'only two segments minted');
+    assert.ok(byName.has('A') && byName.has('B'));
+    assert.ok(!byName.has('C') && !byName.has('D'), 'segments past the cap are dropped');
+    const a = byName.get('A');
+    const b = byName.get('B');
+    assert.ok(a && b);
+    assert.strictEqual(a.parentId, null);
+    assert.strictEqual(b.parentId, a.id);
+    assert.strictEqual(leaf, b.id, 'leaf is the deepest allowed segment');
+  });
+
+  it('does not disturb a pre-existing legacy folder that is deeper than the cap', async () => {
+    const store = makeStore();
+    const { provider } = makeProvider();
+    // A legacy grandchild at depth 2 exists (e.g. synced from an older client).
+    store.upsertFolder(PK, { id: 'A', name: 'A', parentId: null, order: 0 });
+    store.upsertFolder(PK, { id: 'B', name: 'B', parentId: 'A', order: 0 });
+    store.upsertFolder(PK, { id: 'C', name: 'C', parentId: 'B', order: 0 });
+    await store.flush();
+    const snapshot = JSON.parse(JSON.stringify(store.getProjectMeta(PK).folders));
+    // Attempting to create under the depth-2 legacy folder is refused; the legacy
+    // records are untouched.
+    const leaf = await createFolder(
+      makeDeps(store, provider, makeUi({ prompts: ['X'] }), PK),
+      folderArg('C'),
+    );
+    assert.strictEqual(leaf, null);
+    assert.deepStrictEqual(store.getProjectMeta(PK).folders, snapshot, 'legacy tree preserved');
+  });
 });
 
 describe('renameFolder', () => {
