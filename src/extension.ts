@@ -8,6 +8,8 @@ import {
   FolderTreeNode,
 } from './views/foldersProvider';
 import { OrgPanelProvider, ORG_PANEL_VIEW, OrgPanelActions, OrgPanelStateStore } from './views/orgPanelWebview';
+import { ReadStateStore } from './views/readState';
+import { matchTabLabelToChat, isClaudeChatViewType } from './views/tabFocusMatch';
 import { OPEN_CHAT_COMMAND, openChat, OpenUri } from './launch/uriLauncher';
 import { launchNewSession } from './launch/newSessionLauncher';
 import { MetadataStore, SyncMemento } from './store/metadataStore';
@@ -442,6 +444,17 @@ export function activate(context: vscode.ExtensionContext): void {
       // run the existing settings command (opens the settings webview tab).
       void vscode.commands.executeCommand(OPEN_SETTINGS_COMMAND);
     },
+    setStarred: async (sessionId: string, starred: boolean): Promise<void> => {
+      // Route the row's star toggle to the EXISTING star/unstar curation commands
+      // (store.setChatStarred + flush + refresh), so the click persists immediately
+      // through the store and the badge updates on every surface. The commands accept a
+      // bare sessionId (curationTargetFrom handles a string); starring needs only the
+      // id, never the filePath.
+      await vscode.commands.executeCommand(
+        starred ? STAR_CHAT_COMMAND : UNSTAR_CHAT_COMMAND,
+        sessionId,
+      );
+    },
   };
   // The org panel's webview drop deps: the adapter applies the reducer's intents as
   // one coalesced write, then this refresh re-renders every org surface.
@@ -456,6 +469,14 @@ export function activate(context: vscode.ExtensionContext): void {
     get: (key: string) => context.workspaceState.get<string>(key),
     set: (key: string, value: string) => void context.workspaceState.update(key, value),
   };
+  // The per-device read-state store (lastSeenAt per chat) on workspaceState, which is
+  // structurally NEVER synced, so the unread signal cannot widen the sync surface
+  // (UI-SPEC.md "Read state"). Backed by the same workspaceState Memento; readState.ts
+  // owns the single-key JSON shape.
+  const readStateStore = new ReadStateStore({
+    get: (key: string) => context.workspaceState.get<string>(key),
+    update: (key: string, value: string) => void context.workspaceState.update(key, value),
+  });
   const orgPanelProvider = new OrgPanelProvider(
     context.extensionUri,
     workspacePath,
@@ -464,6 +485,7 @@ export function activate(context: vscode.ExtensionContext): void {
     orgPanelActions,
     orgPanelDropDeps,
     orgPanelStateStore,
+    readStateStore,
     context.globalStorageUri,
   );
   refreshOrgPanel = () => orgPanelProvider.refresh();
@@ -844,6 +866,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_CHAT_COMMAND, (sessionId: string) => {
+      // Open-via-Nest is a read-state CLEAR TRIGGER (UI-SPEC.md "Read state"): opening
+      // a chat through Nest marks it seen so its '?' badge / unread dot clears. Stamp
+      // before the launch and re-post the section model. Guard the id so a malformed
+      // programmatic call never throws here.
+      if (typeof sessionId === 'string' && sessionId.length > 0) {
+        orgPanelProvider.markChatSeen(sessionId);
+      }
       // Compose vscode.Uri.from with vscode.env.openExternal as the injected
       // opener. The launcher builds the OpenUri; here we adapt it to a real Uri.
       return openChat(sessionId, (uri: OpenUri) =>
@@ -1100,6 +1129,16 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // Named-tab-focus read-state CLEAR TRIGGER (UI-SPEC.md "Read state", deviation 4/6).
+  // When a Claude Code chat tab gains focus, resolve which chat it is by matching the
+  // tab label to a scanned chat title (the identity-by-label heuristic; the real
+  // session id is never exposed) and mark that chat seen. The Tabs API
+  // (window.tabGroups) is a 1.67+ finalized API not present in the pinned 1.66 types,
+  // so it is feature-detected through a narrow shim: on the 1.66 engines floor it is
+  // simply absent and the trigger no-ops (open-via-Nest still clears). Best-effort per
+  // the deviations; a throw is swallowed so it never affects Claude or activation.
+  registerTabFocusReadState(context, orgPanelProvider);
+
   // The one-time opt-in prompt for the auto-export snapshot and the
   // synced/git-tracked canonical export location. Fire-and-forget; shown once.
   void maybePromptAutoExport(exportImportDeps);
@@ -1122,6 +1161,83 @@ export function deactivate(): Thenable<void> | void {
   if (store) {
     return store.flush();
   }
+}
+
+// The narrow, feature-detected shim over the finalized Tabs API (window.tabGroups),
+// which is NOT in the pinned @types/vscode 1.66 but is present at runtime on 1.67+.
+// Only the fields the focus trigger reads are declared. Everything is optional so a
+// 1.66 host (no tabGroups) or a shape change fails the guards and no-ops.
+interface TabInputShim {
+  readonly viewType?: string;
+}
+interface TabShim {
+  readonly label?: string;
+  readonly input?: unknown;
+}
+interface TabGroupShim {
+  readonly activeTab?: TabShim;
+}
+interface TabGroupsShim {
+  readonly activeTabGroup?: TabGroupShim;
+  onDidChangeTabGroups?(listener: () => void): { dispose(): void };
+  onDidChangeTabs?(listener: () => void): { dispose(): void };
+}
+
+// Wire the named-tab-focus read-state clear trigger. Feature-detects window.tabGroups
+// and, on each tab change, if the active tab is a Claude chat webview, resolves its
+// label to a unique scanned chat and marks it seen. Best-effort and fully guarded: a
+// missing API, a non-Claude tab, an ambiguous/unnamed label, or any throw is a silent
+// no-op, so this can never affect Claude Code or the extension's activation.
+function registerTabFocusReadState(
+  context: vscode.ExtensionContext,
+  orgPanelProvider: OrgPanelProvider,
+): void {
+  const tabGroups = (vscode.window as unknown as { tabGroups?: TabGroupsShim }).tabGroups;
+  if (tabGroups === undefined) {
+    return; // 1.66 engines floor: the Tabs API is unavailable; open-via-Nest still clears.
+  }
+  // The last active-tab signature ("<viewType>::<label>") we processed, so a tab-
+  // change storm that does not change the active tab does NO disk scan and NO re-post.
+  let lastTabSignature: string | null = null;
+  const onFocusChange = (): void => {
+    try {
+      const activeTab = tabGroups.activeTabGroup?.activeTab;
+      const input = activeTab?.input as TabInputShim | undefined;
+      const viewType = typeof input?.viewType === 'string' ? input.viewType : '';
+      const label = typeof activeTab?.label === 'string' ? activeTab.label : '';
+      const signature = activeTab === undefined ? '' : viewType + '::' + label;
+      if (signature === lastTabSignature) {
+        return; // Same active tab as last time: nothing to recompute.
+      }
+      lastTabSignature = signature;
+      // Only a focused Claude chat tab identifies an active chat. Anything else means
+      // no chat is the currently-open editor, so clear the active-row tint.
+      if (activeTab === undefined || !isClaudeChatViewType(viewType)) {
+        orgPanelProvider.setActiveChat(null);
+        return;
+      }
+      const sessionId = matchTabLabelToChat(label, orgPanelProvider.scanRecords());
+      // Set the active-row tint to the matched chat (null when the label is unnamed or
+      // ambiguous: then no row is tinted, UI-SPEC.md deviation 4). Mark seen only when
+      // the active chat actually changed (the read-state CLEAR TRIGGER), so re-focusing
+      // an already-active chat does not re-post.
+      const changed = orgPanelProvider.setActiveChat(sessionId);
+      if (changed && sessionId !== null) {
+        orgPanelProvider.markChatSeen(sessionId);
+      }
+    } catch {
+      // Best-effort convenience layer; never surface a failure.
+    }
+  };
+  if (typeof tabGroups.onDidChangeTabs === 'function') {
+    context.subscriptions.push(tabGroups.onDidChangeTabs(onFocusChange));
+  }
+  if (typeof tabGroups.onDidChangeTabGroups === 'function') {
+    context.subscriptions.push(tabGroups.onDidChangeTabGroups(onFocusChange));
+  }
+  // Seed the active state from the currently-focused tab on activation (a Claude chat
+  // may already be open). Best-effort; the guarded handler swallows any throw.
+  onFocusChange();
 }
 
 // Recover the shared ChatRecord from a chat-row node (a Folders member or a Tags

@@ -1072,3 +1072,104 @@ prototype avoids this only because React reconciles by key). So collapse is driv
 the chevron and by keyboard ArrowLeft/Right (the prior shipped behavior), and the
 "click the row toggles" refinement is deferred to the folder-tree slice where a keyed
 render can support it race-free. Reversible: one event listener.
+
+## 2026-07-02 Slice s3a-row-anatomy (order 3, issue 81): read-state gate, question heuristic, compact relative-time fork, and the deferred-item pickups
+
+Fork: the row-anatomy slice rebuilds the chat row to the handoff and introduces the
+per-device read state that powers the question badge and the unread dot. It picks up
+the three items the s3a-design-shell entry (h) explicitly deferred to this slice
+(active-row tint, Questions/search breadcrumb, star toggle) plus the read-state model
+and the compact relative-time table. All resolutions below are reversible and visible
+in the diff; none touches the read-only invariant or widens the synced surface.
+
+(a) READ-STATE STORE IS LOCAL, WORKSPACE-STATE, SINGLE-KEY (patch 1, AC4). Per-device
+lastSeenAt lives in src/views/readState.ts (ReadStateStore), a vscode-thin adapter over
+an injected Memento, backed in the host by context.workspaceState (which is
+structurally NEVER in Settings Sync, so the unread signal cannot widen the synced
+surface, which stays exactly nest.meta.v1::<projectKey>). The whole map persists under
+ONE JSON key (claudeNest.orgPanel.lastSeenAt), mirroring the collapsed-folder set's
+shape, so a burst coalesces to one write. markSeen is MONOTONIC (never regresses to an
+older stamp), so a stale focus event cannot un-see a chat opened more recently. The
+pure orgPanelModel stays vscode-free: lastSeenAt is threaded into buildSections as a
+plain ReadonlyMap<sessionId, epochMs> (default empty = nothing seen), so the unit gate
+never requires a store. No setKeysForSync call anywhere in this module.
+
+(b) STATUS IS A lastSeenAt-GATED DERIVATION; QUESTIONS = status==='question' (patch 1,
+AC5/6/7). rowStatus is now: unread = lastMessageRole==='assistant' && (timestamp===null
+|| timestamp>lastSeenAt); then 'question' when unread AND asksSomething(text), 'done'
+when unread AND not, else 'none'. This REPLACES the prior lastMessageRole==='user'
+Questions heuristic everywhere it was consumed: the Questions section now filters on
+status==='question', and awaitingReply is redefined as an ALIAS of that (kept as a
+field so the webview does not re-derive it). The patch's "superseded by a newer user
+message" clause is STRUCTURAL: a newer user turn makes lastMessageRole!=='assistant',
+which yields 'none' with no transcript-watching write path. timestamp===null is treated
+as unread so a brand-new assistant-last chat still surfaces until opened. The
+orgPanelModel unit tests were rewritten to the new semantics (the old "no fabricated
+dot" test at line 116 became the lastSeenAt-driven "seen -> none / unread -> done"
+tests; the awaiting-reply test became the status-driven Questions test).
+
+(c) QUESTION HEURISTIC IS A PURE TAIL-WINDOW MODULE (patch 3). src/model/
+questionHeuristic.ts (asksSomething) replaces the inline endsWithQuestion (a trailing
+'?' only). Because the input is the TRUNCATED tier-A lastMessageText, a genuine
+question can be cut before its '?' or an assistant can request input with no '?', so
+the heuristic checks: a trailing '?' (after stripping trailing quote/paren/bracket/
+backtick wrappers), a '?' anywhere in a bounded TAIL WINDOW (last ~160 chars), or a
+tight set of input-request phrases (let me know / would you like / should I / please
+provide / tell me / which ... / what ... / how ...) in that tail window. The bias is
+conservative toward NOT flagging (a false 'question' is a blinking badge the user must
+dismiss; a missed one still shows as the 'done' unread dot). Null/empty/garbage return
+false without throwing. Unit-tested for asks-vs-statement, tail truncation, request
+phrases, wrappers, and garbage tolerance.
+
+(d) COMPACT RELATIVE-TIME IS AN ADDITIVE FORK (patch 6). relativeTime.ts gains
+relativeTimeCompact (now / Nm / Nh / Nd / Nw / Nmo / Ny) ALONGSIDE the verbose
+relativeTime, which is untouched. The row time is served by the in-webview relative()
+helper (already compact and byte-identical to the new table's floor semantics: floor
+each unit against a fixed base, months = 30-day units, years = 12 months = 360 days),
+and the host-side search-result description + hover phrasing stay on the verbose
+'N ago' output until s3b consumes the compact form. Kept beside its verbose twin so the
+same headless gate covers both and neither drifts from the webview copy. Reversible: the
+host can swap description() to the compact fn in one line when s3b lands.
+
+(e) NAMED-TAB-FOCUS + ACTIVE ROW RIDE THE 1.67 TABS API THROUGH A FEATURE-DETECTED SHIM
+(patch 2/7, AC2/4; UI-SPEC.md deviations 4/6). The clear trigger and the active-row tint
+both use window.tabGroups to read the focused tab's viewType + label, but that API is
+NOT in the pinned @types/vscode 1.66 (verified: TabInputWebview/onDidChangeTabs/tabGroups
+all absent). So the host accesses it through a narrow local shim cast from unknown and
+FEATURE-DETECTS it: on the 1.66 engines floor tabGroups is undefined and both the focus
+trigger and the active tint simply no-op (open-via-Nest still clears). The label->chat
+resolution is the pure, unit-tested matchTabLabelToChat (src/views/tabFocusMatch.ts): it
+resolves ONLY when EXACTLY ONE scanned title matches (unnamed "Claude Code" tabs and
+duplicate titles yield null, the accepted heuristic gap from V2-RESEARCH.md section 4).
+isClaudeChatViewType matches the claudeVSCodePanel id by substring to tolerate the Tabs
+API's "mainThreadWebview-" prefix. The active id is held on the provider (survives
+webview re-renders, re-posted on 'ready') and applied as .nest-active, the ONLY row tint
+(starred rows are NOT tinted). Every path is guarded so it can never affect Claude or
+activation. Reversible: deleting registerTabFocusReadState removes both behaviors.
+
+(f) OPEN-VIA-NEST CLEAR TRIGGER IS IN THE OPEN_CHAT_COMMAND HANDLER (patch 2, AC4). The
+one command every open path funnels through (row click posts 'open' -> executeCommand
+OPEN_CHAT_COMMAND; programmatic callers use the same id) marks the chat seen before the
+launch and re-posts the section model, so the badge/dot clears immediately. This is the
+single chokepoint, so there is no duplicate mark-seen in the webview's 'open' handler.
+
+(g) TOKEN BADGE: SEAM KEPT, VISIBLE ROW NEVER DREW ONE (patch 5, AC3). The visible chat
+row in orgPanel.js never rendered a token element (verified by grep: no 'tok' in the
+asset), so the AC's "removed from rows" was already satisfied by the s3a-design-shell
+row; this slice confirms it and keeps OrgChatRow.tokens + the tokenBadge seam feeding the
+search row (orgPanelWebview rankRows) and the s3b hover card. The completeness check is
+"no visible-row token element", not deletion of the seam.
+
+(h) STAR TOGGLE PERSISTS THROUGH THE EXISTING CURATION COMMANDS (AC8). The row star
+became a <button> (independently focusable, aria-pressed) whose click posts toggleStar;
+the host routes it to the existing STAR_CHAT_COMMAND / UNSTAR_CHAT_COMMAND (a bare
+sessionId; curationTargetFrom handles a string), which run store.setChatStarred + flush +
+the shared refresh, so the click persists immediately and the badge updates on every
+surface. The webview invents no write path. Reversible: revert the button to a decorative
+span.
+
+(i) BREADCRUMB IS A MODEL FIELD, RENDERED ON QUESTIONS + SEARCH ROWS (AC5). OrgChatRow
+gains breadcrumb (the folder-path "Parent / Child", null when unfiled); buildSections
+precomputes each folder's path with a visited-guarded parent walk. makeRow renders it
+(muted, right of the title) only when the caller passes showBreadcrumb (Questions and
+the flat search/filter results), matching the design.

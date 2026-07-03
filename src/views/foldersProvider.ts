@@ -452,7 +452,7 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     const meta = this.currentMeta ?? undefined;
     const folderName = resolveFolderName(meta, record.sessionId);
     const tags = resolveTagLabels(meta, record.sessionId);
-    const tagsSignature = tags.join(' ');
+    const tagsSignature = tags.join('::');
     const starred = resolveStarred(meta, record.sessionId);
     const existing = this.nodesById.get(id);
     if (

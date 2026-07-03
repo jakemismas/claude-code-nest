@@ -65,34 +65,40 @@ describe('orgPanelModel sentinel contract', () => {
   });
 });
 
-describe('orgPanelModel awaiting-reply heuristic', () => {
-  it('flags ONLY chats whose lastMessageRole === "user"', () => {
+describe('orgPanelModel Questions section (status-driven, replaces lastMessageRole heuristic)', () => {
+  it('flags ONLY unread assistant-last chats that ask something (not user-last)', () => {
     const records = [
-      record({ sessionId: 'u', lastMessageRole: 'user' }),
-      record({ sessionId: 'a', lastMessageRole: 'assistant' }),
+      // user-last: no longer in Questions (superseded-by-user is status 'none')
+      record({ sessionId: 'u', lastMessageRole: 'user', lastMessageText: 'Please fix this?' }),
+      // unread assistant asking: in Questions
+      record({ sessionId: 'q', lastMessageRole: 'assistant', lastMessageText: 'Which do you want?' }),
+      // unread assistant NOT asking: not in Questions (it is the 'done' dot)
+      record({ sessionId: 'd', lastMessageRole: 'assistant', lastMessageText: 'All done.' }),
       record({ sessionId: 'n', lastMessageRole: null }),
     ];
     const sections = buildSections(records, meta(), badge);
     assert.deepStrictEqual(
       sections.questions.map((r) => r.sessionId),
-      ['u'],
-      'only the user-last chat is in Questions',
+      ['q'],
+      'only the unread assistant-asking chat is in Questions',
     );
     assert.strictEqual(sections.questions[0].awaitingReply, true);
+    assert.strictEqual(sections.questions[0].status, 'question');
   });
 
-  it('does not flag an assistant-last or role-less chat', () => {
-    const sections = buildSections(
-      [record({ sessionId: 'a', lastMessageRole: 'assistant' })],
-      meta(),
-      badge,
-    );
-    assert.strictEqual(sections.questions.length, 0);
+  it('a SEEN assistant-asking chat is NOT in Questions (lastSeenAt gate)', () => {
+    const records = [
+      record({ sessionId: 'q', timestamp: 100, lastMessageRole: 'assistant', lastMessageText: 'Which one?' }),
+    ];
+    // Seen AFTER the last activity -> read -> not a question.
+    const seen = new Map<string, number>([['q', 200]]);
+    const sections = buildSections(records, meta(), badge, seen);
+    assert.strictEqual(sections.questions.length, 0, 'seen chat drops out of Questions');
   });
 });
 
-describe('orgPanelModel row status slot', () => {
-  it("marks an assistant-last chat whose text asks a question as status 'question'", () => {
+describe('orgPanelModel row status slot (lastSeenAt-driven)', () => {
+  it("marks an unread assistant-last chat whose text asks a question as status 'question'", () => {
     const sections = buildSections(
       [record({ sessionId: 'q', lastMessageRole: 'assistant', lastMessageText: 'Which option do you want?' })],
       meta(),
@@ -113,19 +119,47 @@ describe('orgPanelModel row status slot', () => {
     assert.strictEqual(unsorted && unsorted.rows[0].status, 'question');
   });
 
-  it("leaves a non-question assistant-last chat as status 'none' (no fabricated unread dot)", () => {
-    // The 'done' dot needs the not-yet-built lastSeenAt read-state gate; the pure
-    // model must NOT emit a dot for every assistant-last chat.
+  it("marks an UNREAD non-question assistant-last chat as status 'done' (unread dot)", () => {
+    // With an empty lastSeenAt map the assistant turn is unread; a non-question turn
+    // is the solid 'done' dot.
     const sections = buildSections(
       [record({ sessionId: 'a', lastMessageRole: 'assistant', lastMessageText: 'Done, all green.' })],
       meta(),
       badge,
     );
     const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
-    assert.strictEqual(unsorted && unsorted.rows[0].status, 'none');
+    assert.strictEqual(unsorted && unsorted.rows[0].status, 'done');
   });
 
-  it("leaves a user-last chat as status 'none' (it is surfaced via Questions instead)", () => {
+  it("marks a SEEN assistant-last chat as status 'none' (no fabricated unread affordance)", () => {
+    // The lastSeenAt gate: a chat seen after its last activity shows an empty slot,
+    // whether or not the assistant text asks something.
+    const records = [
+      record({ sessionId: 'q', timestamp: 100, lastMessageRole: 'assistant', lastMessageText: 'Which one?' }),
+      record({ sessionId: 'd', timestamp: 100, lastMessageRole: 'assistant', lastMessageText: 'All done.' }),
+    ];
+    const seen = new Map<string, number>([
+      ['q', 500],
+      ['d', 500],
+    ]);
+    const sections = buildSections(records, meta(), badge, seen);
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.ok(unsorted);
+    for (const r of unsorted.rows) {
+      assert.strictEqual(r.status, 'none');
+    }
+  });
+
+  it("an assistant turn NEWER than lastSeenAt is unread again (status re-appears)", () => {
+    const records = [
+      record({ sessionId: 'q', timestamp: 900, lastMessageRole: 'assistant', lastMessageText: 'Which one?' }),
+    ];
+    const seen = new Map<string, number>([['q', 500]]); // seen before the newer turn
+    const sections = buildSections(records, meta(), badge, seen);
+    assert.deepStrictEqual(sections.questions.map((r) => r.sessionId), ['q']);
+  });
+
+  it("leaves a user-last chat as status 'none' (superseded by a newer user message)", () => {
     const sections = buildSections(
       [record({ sessionId: 'u', lastMessageRole: 'user', lastMessageText: 'Can you fix this?' })],
       meta(),
@@ -135,7 +169,7 @@ describe('orgPanelModel row status slot', () => {
     assert.strictEqual(unsorted && unsorted.rows[0].status, 'none');
   });
 
-  it("leaves a role-less or text-less chat as status 'none'", () => {
+  it("marks an unread text-less assistant turn as 'done' (asks nothing) and a role-less chat as 'none'", () => {
     const sections = buildSections(
       [
         record({ sessionId: 'n', lastMessageRole: null, lastMessageText: null }),
@@ -146,9 +180,43 @@ describe('orgPanelModel row status slot', () => {
     );
     const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
     assert.ok(unsorted);
-    for (const r of unsorted.rows) {
-      assert.strictEqual(r.status, 'none');
-    }
+    const n = unsorted.rows.find((r) => r.sessionId === 'n');
+    const t = unsorted.rows.find((r) => r.sessionId === 't');
+    assert.strictEqual(n && n.status, 'none', 'role-less is none');
+    assert.strictEqual(t && t.status, 'done', 'unread text-less assistant asks nothing -> done');
+  });
+
+  it("recognizes an input-request assistant turn with no '?' as a question", () => {
+    const sections = buildSections(
+      [record({ sessionId: 'r', lastMessageRole: 'assistant', lastMessageText: 'I can do it. Let me know which approach you prefer.' })],
+      meta(),
+      badge,
+    );
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.strictEqual(unsorted && unsorted.rows[0].status, 'question');
+  });
+});
+
+describe('orgPanelModel row breadcrumb', () => {
+  it('carries the folder path breadcrumb for a filed chat (Parent / Child)', () => {
+    const records = [record({ sessionId: 'a' })];
+    const m = meta({
+      folders: {
+        p: { id: 'p', name: 'Work', parentId: null, order: 0 },
+        c: { id: 'c', name: 'Backend API', parentId: 'p', order: 0 },
+      },
+      chats: { a: { folderId: 'c', tags: [], links: [], updatedAt: 0, deviceId: 'd' } },
+    });
+    const sections = buildSections(records, m, badge);
+    const child = sections.folders.find((f) => f.folderId === 'c');
+    assert.strictEqual(child && child.rows[0].breadcrumb, 'Work / Backend API');
+  });
+
+  it('leaves the breadcrumb null for an unfiled chat', () => {
+    const records = [record({ sessionId: 'a' })];
+    const sections = buildSections(records, meta(), badge);
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.strictEqual(unsorted && unsorted.rows[0].breadcrumb, null);
   });
 });
 
@@ -336,15 +404,17 @@ describe('orgPanelModel archived exclusion and count', () => {
   it('excludes a userArchived chat from every visible section and counts it in archivedCount', () => {
     const records = [
       record({ sessionId: 'live' }),
-      record({ sessionId: 'gone', lastMessageRole: 'user' }),
+      // unread assistant-asking: WITHOUT archiving this would be in Questions, so the
+      // exclusion is genuinely exercised.
+      record({ sessionId: 'gone', lastMessageRole: 'assistant', lastMessageText: 'Which one?' }),
     ];
     const m = meta({
       folders: { f1: { id: 'f1', name: 'Work', parentId: null, order: 0 } },
       tags: { t1: { id: 't1', label: 'bug' } },
       chats: {
         live: { folderId: 'f1', tags: ['t1'], links: [], updatedAt: 0, deviceId: 'd' },
-        // archived AND filed AND tagged AND user-last: it must appear in NONE of the
-        // sections/chips and be counted once instead.
+        // archived AND filed AND tagged AND starred AND unread-asking: it must appear
+        // in NONE of the sections/chips and be counted once instead.
         gone: {
           folderId: 'f1',
           tags: ['t1'],
@@ -358,9 +428,9 @@ describe('orgPanelModel archived exclusion and count', () => {
     });
     const sections = buildSections(records, m, badge);
     assert.strictEqual(sections.archivedCount, 1, 'one archived chat counted');
-    // Not in Starred (even though starred), not in Questions (even though user-last).
+    // Not in Starred (even though starred), not in Questions (even though unread-asking).
     assert.deepStrictEqual(sections.starred.map((r) => r.sessionId), [], 'archived starred chat is not in Starred');
-    assert.deepStrictEqual(sections.questions.map((r) => r.sessionId), [], 'archived user-last chat is not in Questions');
+    assert.deepStrictEqual(sections.questions.map((r) => r.sessionId), [], 'archived unread-asking chat is not in Questions');
     // Not in its folder; only the live chat remains.
     const f1 = sections.folders.find((f) => f.folderId === 'f1');
     assert.deepStrictEqual((f1 && f1.rows.map((r) => r.sessionId)) || [], ['live'], 'folder holds only the live chat');
@@ -390,21 +460,27 @@ describe('orgPanelModel archived exclusion and count', () => {
 });
 
 describe('orgPanelModel absent-meta tolerance', () => {
-  it('with no meta, every chat is unfiled/untagged/unstarred, heuristic still applied', () => {
+  it('with no meta, every chat is unfiled/untagged/unstarred, status still derived', () => {
     const records = [
       record({ sessionId: 'u', lastMessageRole: 'user', tokenTotals: totals({ input: 5 }) }),
-      record({ sessionId: 'a', lastMessageRole: 'assistant' }),
+      // unread assistant asking -> Questions even with no meta
+      record({ sessionId: 'a', lastMessageRole: 'assistant', lastMessageText: 'Which one?' }),
     ];
     const sections = buildSections(records, undefined, badge);
     assert.strictEqual(sections.starred.length, 0);
     assert.strictEqual(sections.tags.length, 0);
-    assert.deepStrictEqual(sections.questions.map((r) => r.sessionId), ['u']);
+    assert.deepStrictEqual(
+      sections.questions.map((r) => r.sessionId),
+      ['a'],
+      'the unread assistant-asking chat is in Questions even with no meta',
+    );
     const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
     assert.ok(unsorted, 'Unsorted section exists');
     assert.strictEqual(unsorted.rows.length, 2, 'both chats land in Unsorted');
     const uRow = unsorted.rows.find((r) => r.sessionId === 'u');
     assert.ok(uRow, 'the user-last chat is in Unsorted');
-    assert.strictEqual(uRow.tokens, '~5 tokens', 'the badge fn is applied');
+    assert.strictEqual(uRow.tokens, '~5 tokens', 'the badge seam fn is still applied');
+    assert.strictEqual(uRow.breadcrumb, null, 'no breadcrumb without a folder');
   });
 });
 

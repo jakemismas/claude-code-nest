@@ -9,11 +9,17 @@ find and revisit any chat without it ever touching Claude's transcripts.
 ## Features
 
 - **Organize panel.** The primary view, with a Starred section, a Questions
-  section (chats whose last turn was yours, a scan-time heuristic labeled as such),
-  a single-home folder hierarchy with per-folder color and counts, and an
-  always-present Unsorted bucket. Folders are collapsible (with a collapse-one-level
-  control and full keyboard navigation). Tag filter chips, sort, density modes,
+  section (chats with an unread assistant turn that asks something, a scan-time
+  heuristic labeled as such), a single-home folder hierarchy with per-folder color
+  and counts, and an always-present Unsorted bucket. Folders are collapsible (with a
+  collapse-one-level control and full keyboard navigation). Tag filter chips, sort,
   folder rename, drag-to-unfile, and in-panel drag-and-drop.
+- **Unread and question markers.** Each chat row shows where it stands: a blinking
+  `?` badge when Claude's last message asks you something, and a solid unread dot
+  when Claude replied and you have not looked yet. Both clear as soon as you open the
+  chat, either from the panel or by focusing its Claude Code tab. This read state is
+  per device and is never synced. The focused chat also gets a subtle active-row tint,
+  and Questions and search results show each chat's folder breadcrumb.
 - **Full-text content search.** Search across chat content from the Organize
   panel and see a matched-context snippet under each result. Clearing the query
   restores the full list.

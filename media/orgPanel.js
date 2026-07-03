@@ -52,6 +52,11 @@
   // posts these straight to the host). Cleared on dragend.
   let draggingChatIds = [];
 
+  // The currently-open chat's sessionId (best-effort tab-label match, posted by the
+  // host as an 'active' message). Its row gets the .nest-active tint, the ONLY row
+  // highlight (starred rows are NOT tinted; UI-SPEC.md deviation 4). null tints no row.
+  let activeId = null;
+
   // The roving-tabindex focus target: the dataset.id of the row that holds the
   // single tabindex="0". Kept stable across re-renders by id when possible.
   let focusedId = null;
@@ -176,16 +181,24 @@
 
   // Build one chat row (role="treeitem"). Draggable; double-click is reserved for
   // folder rename, so a row's activation is a single click / Enter / Space. opts may
-  // carry showSnippet (search/filter results show the body-match snippet beneath).
+  // carry showSnippet (search/filter results show the body-match snippet beneath) and
+  // showBreadcrumb (Questions + search results show the folder-path breadcrumb).
   function makeRow(row, depth, opts) {
     const el = document.createElement('div');
     el.className = 'nest-row';
+    // The active row (currently-open chat) is the ONLY tint; starred rows are NOT
+    // tinted (design README line 57). Best-effort tab-label match from the host.
+    if (activeId && row.sessionId === activeId) {
+      el.classList.add('nest-active');
+    }
     el.setAttribute('role', 'treeitem');
     el.setAttribute('aria-label', rowAriaLabel(row));
     el.setAttribute('tabindex', '-1');
     el.dataset.kind = 'chat';
     el.dataset.id = row.sessionId;
-    el.style.paddingLeft = 8 + depth * 18 + 'px';
+    // Depth indents: top-level 11px, subfolder child 29px, deeper 47px (design README
+    // line 50; step 18). Base 11 keeps the row's status glyph aligned with the design.
+    el.style.paddingLeft = 11 + depth * 18 + 'px';
     el.draggable = true;
 
     const main = document.createElement('div');
@@ -215,6 +228,16 @@
     titleText.textContent = row.title;
     main.appendChild(titleText);
 
+    // Folder breadcrumb (Questions and search/filter results only), muted, on the
+    // right of the title (design README lines 42, 54). Rendered only when the caller
+    // asks for it AND the chat is filed (row.breadcrumb non-null).
+    if (opts && opts.showBreadcrumb && row.breadcrumb) {
+      const crumb = document.createElement('span');
+      crumb.className = 'nest-row-breadcrumb';
+      crumb.textContent = row.breadcrumb;
+      main.appendChild(crumb);
+    }
+
     if (row.tags && row.tags.length > 0) {
       const tagRow = document.createElement('span');
       tagRow.className = 'nest-row-tags';
@@ -242,13 +265,21 @@
     time.textContent = relative(row.timestamp);
     main.appendChild(time);
 
-    // Star affordance: filled accent star when starred, hollow muted star
-    // otherwise (design README line 56). The toggle command lands with the
-    // row-anatomy slice; this slice renders the badge matching the design.
-    const star = document.createElement('span');
+    // Star affordance: filled accent star when starred, hollow muted star otherwise
+    // (design README line 56). Clicking toggles it and persists immediately through the
+    // store (the host routes it to the star/unstar curation commands). A <button> so it
+    // is independently keyboard-focusable and screen-reader labelled; its click is
+    // stopped from bubbling to the row's open handler.
+    const star = document.createElement('button');
+    star.type = 'button';
     star.className = row.starred ? 'nest-star' : 'nest-star nest-star-empty';
-    star.setAttribute('aria-hidden', 'true');
+    star.setAttribute('aria-label', row.starred ? 'Unstar chat' : 'Star chat');
+    star.setAttribute('aria-pressed', row.starred ? 'true' : 'false');
     star.textContent = row.starred ? '★' : '☆';
+    star.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ type: 'toggleStar', sessionId: row.sessionId, starred: !row.starred });
+    });
     main.appendChild(star);
 
     el.appendChild(main);
@@ -297,8 +328,9 @@
   }
 
   // Render a flat cross-cutting section (Starred / Questions). Hidden entirely when
-  // it has no visible rows (UI-SPEC).
-  function renderCrossCuttingSection(label, rows) {
+  // it has no visible rows (UI-SPEC). opts is passed through to makeRow (Questions
+  // rows carry showBreadcrumb per the design).
+  function renderCrossCuttingSection(label, rows, opts) {
     const visible = sortRows(rows.filter(rowMatches));
     if (visible.length === 0) {
       return;
@@ -308,7 +340,7 @@
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', label);
     for (const row of visible) {
-      group.appendChild(makeRow(row, 0));
+      group.appendChild(makeRow(row, 0, opts));
     }
     listEl.appendChild(group);
   }
@@ -342,8 +374,15 @@
     const group = document.createElement('div');
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', name);
+    // Real folders nest their chats one level under the folder HEADER (depth + 1: a
+    // top-level folder's chats sit at the 29px child indent). The synthetic Unsorted
+    // bucket has NO header row to nest under; its chats are unparented, top-level rows
+    // and must align with the Starred/Questions rows at the 11px top-level indent
+    // (design README line 50). So render synthetic-bucket rows at the bucket's own
+    // depth (0), not depth + 1.
+    const rowDepth = synthetic ? depth : depth + 1;
     for (const row of visible) {
-      const rowEl = makeRow(row, depth + 1);
+      const rowEl = makeRow(row, rowDepth);
       rowEl.dataset.parentFolderId = folderId;
       group.appendChild(rowEl);
     }
@@ -359,7 +398,9 @@
     const { folderId, name, color, depth } = folder;
     const header = document.createElement('div');
     header.className = 'nest-folder-row';
-    header.style.paddingLeft = 8 + depth * 18 + 'px';
+    // Depth indents match the chat rows: top-level 11px, subfolder 29px (design README
+    // line 50; step 18).
+    header.style.paddingLeft = 11 + depth * 18 + 'px';
     header.dataset.dropFolderId = folderId;
     header.dataset.renameFolderId = folderId;
     header.dataset.kind = 'folder';
@@ -542,7 +583,7 @@
     }
 
     renderCrossCuttingSection('Starred', sections.starred);
-    renderCrossCuttingSection('Questions', sections.questions);
+    renderCrossCuttingSection('Questions', sections.questions, { showBreadcrumb: true });
 
     renderFoldersHeader();
     // The folders array is a pre-order flattening. When a folder is collapsed we
@@ -606,7 +647,7 @@
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', 'Filter results');
     for (const row of visible) {
-      group.appendChild(makeRow(row, 0, { showSnippet: true }));
+      group.appendChild(makeRow(row, 0, { showSnippet: true, showBreadcrumb: true }));
     }
     listEl.appendChild(group);
   }
@@ -1226,6 +1267,24 @@
         }
       }
       render();
+    } else if (msg.type === 'active') {
+      // The host resolved the currently-open chat (best-effort tab-label match). Re-tint
+      // in place without a full re-render: clear the old tint, apply the new one.
+      const next = typeof msg.sessionId === 'string' ? msg.sessionId : null;
+      if (next === activeId) {
+        return;
+      }
+      activeId = next;
+      for (const el of listEl.querySelectorAll('.nest-row.nest-active')) {
+        el.classList.remove('nest-active');
+      }
+      if (activeId) {
+        for (const el of listEl.querySelectorAll('.nest-row')) {
+          if (el.dataset.id === activeId) {
+            el.classList.add('nest-active');
+          }
+        }
+      }
     }
   });
 

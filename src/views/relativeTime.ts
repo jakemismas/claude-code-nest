@@ -47,3 +47,54 @@ export function relativeTime(timestamp: number | null, now: number = Date.now())
 function plural(value: number, unit: string): string {
   return value + ' ' + unit + (value === 1 ? '' : 's') + ' ago';
 }
+
+// The COMPACT relative-time buckets the redesigned chat row uses (design README line
+// 55; UI-SPEC.md data mapping): 'now', then Nm / Nh / Nd / Nw / Nmo / Ny. This is an
+// ADDITIVE fork of the verbose relativeTime above (slice s3a-row-anatomy; recorded in
+// DECISIONS.md): the row time is served by the in-webview relative() helper (already
+// compact and byte-identical to this table), and the host-side search-result
+// description + hover phrasing stay on the verbose 'N ago' output above until s3b
+// consumes the compact form. Kept here, beside its verbose twin, so both are covered
+// by the same headless unit gate and cannot drift from the webview copy.
+//
+// The bucket edges MIRROR the webview relative() (media/orgPanel.js), which floors each
+// unit (Math.floor) against a fixed base rather than the verbose rounding, so the two
+// renderings of the same age agree exactly:
+//   < 60s      -> 'now'
+//   < 60 min   -> 'Nm'   (floor(seconds/60))
+//   < 24 hours -> 'Nh'   (floor(minutes/60))
+//   < 7 days   -> 'Nd'   (floor(hours/24))
+//   < 30 days  -> 'Nw'   (floor(days/7))
+//   < 12 months-> 'Nmo'  (floor(days/30))   [months measured in 30-day units]
+//   otherwise  -> 'Ny'   (floor(days/365))
+export function relativeTimeCompact(timestamp: number | null, now: number = Date.now()): string {
+  if (timestamp === null) {
+    return '';
+  }
+  const diffMs = Math.max(0, now - timestamp);
+  const MIN = 60 * 1000;
+  const HOUR = 60 * MIN;
+  const DAY = 24 * HOUR;
+  const WEEK = 7 * DAY;
+  const MONTH = 30 * DAY;
+  const YEAR = 12 * MONTH;
+  if (diffMs < MIN) {
+    return 'now';
+  }
+  if (diffMs < HOUR) {
+    return Math.floor(diffMs / MIN) + 'm';
+  }
+  if (diffMs < DAY) {
+    return Math.floor(diffMs / HOUR) + 'h';
+  }
+  if (diffMs < WEEK) {
+    return Math.floor(diffMs / DAY) + 'd';
+  }
+  if (diffMs < MONTH) {
+    return Math.floor(diffMs / WEEK) + 'w';
+  }
+  if (diffMs < YEAR) {
+    return Math.floor(diffMs / MONTH) + 'mo';
+  }
+  return Math.floor(diffMs / YEAR) + 'y';
+}

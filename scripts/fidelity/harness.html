@@ -25,13 +25,16 @@
        mock exactly as it would render real data.
 
   ALL mock data here is synthetic. No real transcript content is embedded, so nothing
-  private is committed. The mock deliberately carries starred:true and
-  awaitingReply:true rows, per-row status ('question' -> blinking '?' badge, 'done' ->
-  solid unread dot; design README line 51), plus colored folders, colored tag chips,
-  and archivedCount > 0, so re-running the harness surfaces every visual the shipped
-  asset draws (the New session pill, the sort popover trigger, the starred glyph, the
-  per-row done-dot, the blinking-'?' badge, the FOLDERS + / ^ buttons, and the
-  Archived (N) row).
+  private is committed. The mock deliberately carries starred:true rows, per-row status
+  ('question' -> blinking '?' badge, 'done' -> solid unread dot; design README line 51),
+  a folder-path breadcrumb on the Questions rows, an ACTIVE row (posted via an 'active'
+  message so the currently-open chat shows the #F6E5DB tint + inset left border, the
+  ONLY row tint), colored folders, colored tag chips, and archivedCount > 0, so
+  re-running the harness surfaces every visual the shipped asset draws for slice
+  s3a-row-anatomy (the depth indents 11/29/47, the done-dot, the blinking-'?' badge, the
+  Questions breadcrumb, the star toggle glyph, the active-row tint, the FOLDERS + / ^
+  buttons, and the Archived (N) row). No per-row token badge is drawn (tokens moved to
+  the hover card), so the harness deliberately does not assert one.
 
   The palette is now HARDCODED in orgPanel.css (s3a-design-shell), so the old
   --vscode-* shim is a no-op and has been removed; only the 320px width + panel
@@ -136,9 +139,12 @@
 
       // Reusable synthetic rows. Each matches the OrgChatRow shape exactly:
       // { sessionId, title, timestamp, tokens, snippet, tags, tagIds, tagColors,
-      //   starred, awaitingReply, status }. tagColors is parallel to tags. status is
-      // the per-row status slot (design README line 51): 'question' -> blinking '?'
-      // badge, 'done' -> solid unread dot, 'none' -> empty slot.
+      //   starred, awaitingReply, status, breadcrumb }. tagColors is parallel to tags.
+      // status is the per-row status slot (design README line 51): 'question' ->
+      // blinking '?' badge, 'done' -> solid unread dot, 'none' -> empty slot.
+      // awaitingReply mirrors (status === 'question'). breadcrumb is the folder path
+      // rendered on Questions/search rows (null otherwise). tokens rides the seam for
+      // the search row / hover card but is NOT drawn on the visible row.
       function row(o) {
         return {
           sessionId: o.sessionId,
@@ -150,12 +156,15 @@
           tagIds: o.tagIds || [],
           tagColors: o.tagColors || [],
           starred: !!o.starred,
-          awaitingReply: !!o.awaitingReply,
+          awaitingReply: o.status === 'question',
           status: o.status || 'none',
+          breadcrumb: o.breadcrumb || null,
         };
       }
 
-      const rStarredQuestion = row({
+      // The ACTIVE + starred chat: an UNREAD non-question assistant reply -> solid
+      // 'done' dot (matches the design reference's first Starred/Backend-API row).
+      const rStarredDone = row({
         sessionId: 's-01',
         title: 'Refactor auth middleware',
         timestamp: now - 35 * MIN,
@@ -164,8 +173,7 @@
         tagIds: ['t-refactor', 't-bug'],
         tagColors: [TAG.refactor, TAG.bug],
         starred: true,
-        awaitingReply: true,
-        status: 'question',
+        status: 'done',
       });
       const rStarredIdea = row({
         sessionId: 's-10',
@@ -186,9 +194,9 @@
         tags: ['docs'],
         tagIds: ['t-docs'],
         tagColors: [TAG.docs],
-        awaitingReply: true,
         status: 'question',
       });
+      // A Questions row that is FILED, so it carries a folder-path breadcrumb.
       const rQuestionFeature = row({
         sessionId: 's-11',
         title: 'Rate limiter design',
@@ -197,8 +205,8 @@
         tags: ['feature'],
         tagIds: ['t-feature'],
         tagColors: [TAG.feature],
-        awaitingReply: true,
         status: 'question',
+        breadcrumb: 'Work / Backend API',
       });
       const rApiChild = row({
         sessionId: 's-05',
@@ -219,7 +227,6 @@
         tagIds: ['t-docs'],
         tagColors: [TAG.docs],
         status: 'question',
-        awaitingReply: true,
       });
       const rUnsorted2 = row({
         sessionId: 's-09',
@@ -238,8 +245,8 @@
       // always-present synthetic Unsorted bucket, the tag filter chips with counts,
       // and archivedCount so the bottom Archived row renders.
       const sections = {
-        starred: [rStarredQuestion, rStarredIdea],
-        questions: [rStarredQuestion, rQuestionDocs, rQuestionFeature],
+        starred: [rStarredDone, rStarredIdea],
+        questions: [rQuestionDocs, rQuestionFeature],
         folders: [
           {
             folderId: 'f-work',
@@ -255,7 +262,7 @@
             color: FOLDER.defaultColor,
             depth: 1,
             synthetic: false,
-            rows: [rStarredQuestion, rQuestionFeature, rApiChild],
+            rows: [rStarredDone, rQuestionFeature, rApiChild],
           },
           {
             folderId: 'f-frontend',
@@ -300,10 +307,13 @@
         archivedCount: 2,
       };
 
-      // Post state first (sort/collapsed), then the sections, matching the host's
-      // onMessage('ready') order (postState then postSections).
+      // Post state first (sort/collapsed), then the sections, then the active chat,
+      // matching the host's onMessage('ready') order (postState, postSections,
+      // postActive). s-01 is the currently-open chat, so its rows carry the .nest-active
+      // tint (the design reference's tinted Starred + Backend-API "Refactor auth" rows).
       window.postMessage({ type: 'state', sort: 'newest', collapsedFolders: [] }, '*');
       window.postMessage({ type: 'sections', sections: sections }, '*');
+      window.postMessage({ type: 'active', sessionId: 's-01' }, '*');
 
       // Signal to the screenshot driver that the mock has been posted so it can wait
       // for a rendered row rather than a fixed delay.

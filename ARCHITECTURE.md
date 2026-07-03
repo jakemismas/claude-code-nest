@@ -143,14 +143,15 @@ skip-unknown-types contract:
 - messageCount: count of user/assistant lines (not raw JSONL lines); tool_result
   feedback user lines still count here.
 - lastMessageText (truncated) plus lastMessageRole ('user' | 'assistant' | null):
-  the LAST GENUINE user/assistant turn, for the awaiting-reply heuristic and
-  previews. A textless assistant turn (pure tool_use) is a real assistant action
-  and DOES advance the role to 'assistant', keeping the prior snippet text. A
-  tool_result-only user line, however, is the harness feeding a tool output back
-  into an assistant loop (the dominant real user-line shape) and is NOT a human
-  turn: it does not advance the role to 'user' and does not overwrite the snippet,
-  so the slice-6 awaiting-reply heuristic (lastMessageRole === 'user') reads human
-  intent rather than the tool loop.
+  the LAST GENUINE user/assistant turn, for the read-state row status (the question
+  badge and the unread dot; see "Row status and read state" below) and previews. A
+  textless assistant turn (pure tool_use) is a real assistant action and DOES advance
+  the role to 'assistant', keeping the prior snippet text. A tool_result-only user
+  line, however, is the harness feeding a tool output back into an assistant loop (the
+  dominant real user-line shape) and is NOT a human turn: it does not advance the role
+  to 'user' and does not overwrite the snippet, so the row-status derivation (which
+  keys the unread signal on lastMessageRole === 'assistant') reflects real assistant
+  output rather than the tool loop.
 - tokenTotals: the four trusted message.usage counts (input_tokens, output_tokens,
   cache_creation_input_tokens, cache_read_input_tokens) summed ONCE per logical
   assistant turn. A turn spans several JSONL lines that share one message.id and
@@ -440,16 +441,39 @@ split.
   machinery (searchIndex + searchStore) with the same two-phase warm-then-body
   upgrade and the generation guard against a refresh-during-build race (regression
   test re-pointed from the retired chatsPreview to orgPanelWebview).
-- THE AWAITING-REPLY ("Questions") SECTION IS A SCAN-TIME HEURISTIC, NOT A LIVE
-  SIGNAL. A chat is "awaiting your reply" iff its tier-A lastMessageRole === 'user'
-  (slice 0; a tool_result-only user line does not advance the role, so the
-  heuristic reflects human intent, not the tool loop). It is LABELLED a heuristic
-  in the panel header (a "heuristic" badge with an explanatory title) so it is never
-  read as a live conversation state. Starred and Questions are CROSS-CUTTING
-  sections: a chat can appear in Starred and/or Questions AND in its single home
-  folder. Only the FOLDER placement is single-home (a chat appears under exactly its
-  ChatMeta.folderId, or the synthetic Unsorted bucket when unfiled or the folderId
-  no longer resolves, mirroring the Folders tree and the rollup counting rule).
+- ROW STATUS AND READ STATE (slice s3a-row-anatomy; supersedes the slice-6
+  lastMessageRole === 'user' "awaiting-reply" rule). Each row carries a scan-time
+  `status` in `{'question','done','none'}` (`src/views/orgPanelModel.ts` rowStatus),
+  and the Questions section membership is now EXACTLY `status === 'question'`
+  (awaitingReply is kept only as an alias of that). Both non-empty states are gated on
+  the last turn being an UNREAD assistant turn:
+  `unread = lastMessageRole === 'assistant' && (timestamp === null || timestamp > lastSeenAt)`;
+  then `'question'` when unread and the tier-A last text asks something
+  (`src/model/questionHeuristic.ts` asksSomething, a pure tail-window heuristic that
+  replaced the inline trailing-'?' check), `'done'` when unread and it does not (a
+  plain unread reply -> the solid unread dot), and `'none'` otherwise. A newer USER
+  turn STRUCTURALLY clears the signal (lastMessageRole !== 'assistant' -> 'none'), so
+  there is no transcript-watching write path. It is still a SCAN-TIME signal, not a
+  live conversation state, and the panel keeps the heuristic framing.
+- READ STATE IS PER-DEVICE, NEVER SYNCED. lastSeenAt is a per-chat epoch-ms map held
+  by `src/views/readState.ts` (ReadStateStore), a vscode-thin adapter over an injected
+  Memento backed in the host by `context.workspaceState`, which is structurally never
+  part of Settings Sync, so the unread signal CANNOT widen the synced surface (which
+  stays exactly `nest.meta.v1::<projectKey>`). The whole map persists under ONE JSON
+  key (`claudeNest.orgPanel.lastSeenAt`), mirroring the collapsed-folder set, and this
+  module NEVER calls setKeysForSync. markSeen is MONOTONIC (never regresses to an older
+  stamp). The pure orgPanelModel imports no store and no vscode: lastSeenAt is threaded
+  into buildSections as a plain `ReadonlyMap<sessionId, epochMs>` (default empty =
+  nothing seen), so the unit gate never requires a store. A chat is marked seen by two
+  paths: opening it via Nest, and the named-tab-focus clear trigger
+  (`src/views/tabFocusMatch.ts` matchTabLabelToChat resolves the focused tab's label to
+  the UNIQUE scanned title through the feature-detected 1.67 Tabs API shim; unnamed or
+  duplicate-title tabs yield null, the accepted gap).
+- Starred and Questions are CROSS-CUTTING sections: a chat can appear in Starred
+  and/or Questions AND in its single home folder. Only the FOLDER placement is
+  single-home (a chat appears under exactly its ChatMeta.folderId, or the synthetic
+  Unsorted bucket when unfiled or the folderId no longer resolves, mirroring the
+  Folders tree and the rollup counting rule).
 - PER-FOLDER COLOR rides each folder section from Folder.color (slice 3); the panel
   renders a color dot on the folder header and the chip color on tag chips.
   Double-click a folder header to rename (an in-place editor posting a renameFolder
