@@ -444,6 +444,10 @@
     chevron.textContent = collapsed ? '▸' : '▾';
     chevron.addEventListener('click', (e) => {
       e.stopPropagation();
+      // The chevron toggles immediately (it is the disclosure control, not a rename
+      // target). Cancel any armed row toggle first so a pending deferred toggle does
+      // not fire a second time right after this one.
+      cancelPendingFolderToggle();
       toggleCollapse(folderId);
     });
     header.appendChild(chevron);
@@ -460,14 +464,18 @@
     countEl.textContent = String(count);
     header.appendChild(countEl);
 
-    // Collapse is driven by the chevron (the disclosure control) and by keyboard
-    // ArrowLeft/Right, NOT a plain header click: a header click would race the
-    // double-click rename below (a dblclick fires two clicks first, and each
-    // toggleCollapse re-renders the whole tree, detaching the node the dblclick
-    // targets). The design's "click the row toggles" is folder-tree behavior and is
-    // deferred to the folder-tree slice, where a keyed render can support it without
-    // the race (issue #80 non-goal; see DECISIONS.md).
-    header.addEventListener('dblclick', () => beginRename(header, folderId, name));
+    // Collapse toggles on a plain header-row click (issue #82 AC2, design README
+    // line 63), in addition to the chevron and keyboard ArrowLeft/Right. The click
+    // is DEFERRED by a double-click window (onFolderRowClick) so it does not race the
+    // double-click rename: without the defer, the first click of a double-click would
+    // toggle collapse, re-render the tree (listEl.textContent = ''), detach this
+    // header, and the dblclick would never open rename. A dblclick cancels the armed
+    // toggle and opens rename instead.
+    header.addEventListener('click', () => onFolderRowClick(folderId));
+    header.addEventListener('dblclick', () => {
+      cancelPendingFolderToggle();
+      beginRename(header, folderId, name);
+    });
     header.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       openFolderMenu(e, header, folderId, name, color || null);
@@ -593,6 +601,22 @@
   // Archived row. When a filter is active, a flat "N RESULTS" list replaces the
   // sectioned view (design README line 47).
   function render() {
+    // render() is the SINGLE choke point for every tree re-render: it is the only
+    // site that clears listEl, and all re-render paths (the inbound 'sections'/'state'
+    // handlers, the deferred folder-collapse timer, collapse-all/one, search, and the
+    // keyboard collapse) funnel through it. Clearing listEl detaches the in-list
+    // rename input and orphans the body-level position:fixed overlays (color picker,
+    // new-folder popover, folder actions menu), which would otherwise float at a stale
+    // point while their captured-closure buttons post mutations for a folderId this
+    // render may have recolored, renamed, or deleted. So teardown lives HERE, once, and
+    // no caller can reintroduce the orphan/dropped-rename gap: commit any in-progress
+    // rename (its input dies with listEl and removing a focused node does not fire
+    // blur), drop any armed deferred toggle whose target node is being replaced, and
+    // close all transient overlays. Order: commit the rename before the overlays close
+    // so a rename begun from the folder menu is not lost when the menu is removed.
+    commitPendingRename();
+    cancelPendingFolderToggle();
+    closeAllTransientOverlays();
     listEl.textContent = '';
     listEl.dataset.mode = 'tree';
 
@@ -871,7 +895,76 @@
 
   // ---- folder rename (in-place editor) ----
 
+  // The in-flight folder rename, so a cross-surface re-render (a 'sections'/'state'
+  // message landing while the user is mid-rename) can COMMIT the half-typed name
+  // before it destroys the input, instead of silently dropping it. Removing a
+  // focused element from the DOM does not reliably fire 'blur', so render() cannot
+  // rely on the blur-commit; it calls commitPendingRename() explicitly first.
+  // Holds { commit } for the open input, or null when no rename is active.
+  let pendingRename = null;
+
+  function commitPendingRename() {
+    if (pendingRename) {
+      const p = pendingRename;
+      pendingRename = null;
+      p.commit();
+    }
+  }
+
+  // Folder-row single- vs double-click arbitration (issue #82 AC2 / design README
+  // line 63: "Click toggles expand/collapse. Double-click enters inline rename").
+  // A click that toggles collapse re-renders the whole tree, detaching the node a
+  // following dblclick needs, so a per-click toggle would race the rename: the
+  // first click of a double-click would fire the toggle, re-render, and the dblclick
+  // would never open rename. The browser fires click, click, dblclick, so the toggle
+  // is DEFERRED by a double-click window and cancelled if a second click / dblclick
+  // arrives first. This mirrors src/views/orgPanelInteractions.ts (registerFolder-
+  // Click / registerFolderDblClick, DOUBLE_CLICK_MS): lastFolderClickAt is the arm
+  // stamp, folderToggleTimer is the pending timer, folderToggleArmedId is the folder
+  // the armed toggle targets (so a click on a DIFFERENT folder cancels the stale arm
+  // rather than toggling the wrong one).
+  const DOUBLE_CLICK_MS = 250;
+  let lastFolderClickAt = null;
+  let folderToggleTimer = null;
+  let folderToggleArmedId = null;
+
+  function cancelPendingFolderToggle() {
+    if (folderToggleTimer !== null) {
+      clearTimeout(folderToggleTimer);
+      folderToggleTimer = null;
+    }
+    folderToggleArmedId = null;
+    lastFolderClickAt = null;
+  }
+
+  // A folder-row click: arm a deferred collapse toggle, or cancel it when it is the
+  // second click of a fast pair (the imminent dblclick owns the interaction) or when
+  // it targets a different folder than a currently-armed toggle.
+  function onFolderRowClick(folderId) {
+    const now = Date.now();
+    const pairWindowOpen = lastFolderClickAt !== null && now - lastFolderClickAt < DOUBLE_CLICK_MS;
+    // A fast second click on the SAME folder is a double-click in progress: cancel
+    // the armed toggle and let dblclick handle it. A click on a different folder
+    // just cancels the stale arm and arms afresh below.
+    if (pairWindowOpen && folderToggleArmedId === folderId) {
+      cancelPendingFolderToggle();
+      return;
+    }
+    cancelPendingFolderToggle();
+    lastFolderClickAt = now;
+    folderToggleArmedId = folderId;
+    folderToggleTimer = setTimeout(() => {
+      folderToggleTimer = null;
+      folderToggleArmedId = null;
+      lastFolderClickAt = null;
+      toggleCollapse(folderId);
+    }, DOUBLE_CLICK_MS);
+  }
+
   function beginRename(headerEl, folderId, currentName) {
+    // Starting a rename aborts any armed collapse toggle so the row cannot re-render
+    // and destroy the rename input a beat later.
+    cancelPendingFolderToggle();
     if (headerEl.querySelector('.nest-rename-input')) {
       return;
     }
@@ -893,12 +986,30 @@
     }
     input.focus();
     input.select();
+    let done = false;
     const commit = () => {
+      if (done) {
+        return;
+      }
+      done = true;
+      if (pendingRename && pendingRename.commit === commit) {
+        pendingRename = null;
+      }
       const name = input.value.trim();
       cleanup();
       if (name.length > 0 && name !== currentName) {
         vscode.postMessage({ type: 'renameFolder', folderId, name });
       }
+    };
+    const cancel = () => {
+      if (done) {
+        return;
+      }
+      done = true;
+      if (pendingRename && pendingRename.commit === commit) {
+        pendingRename = null;
+      }
+      cleanup();
     };
     const cleanup = () => {
       input.remove();
@@ -909,13 +1020,14 @@
         countEl.style.display = '';
       }
     };
+    pendingRename = { commit };
     input.addEventListener('click', (e) => e.stopPropagation());
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         commit();
       } else if (e.key === 'Escape') {
-        cleanup();
+        cancel();
       }
     });
     input.addEventListener('blur', commit);
@@ -930,6 +1042,10 @@
     }
   }
   function openFolderMenu(e, headerEl, folderId, label, currentColor) {
+    // Opening a conflicting surface aborts any armed folder-row collapse so the folder
+    // cannot collapse out from under the menu a beat later (and so the deferred timer
+    // cannot fire render() and orphan this body-level menu).
+    cancelPendingFolderToggle();
     closeFolderMenu();
     const menu = document.createElement('div');
     menu.className = 'nest-menu';
@@ -1001,6 +1117,7 @@
   // focus restore); currentColor is the folder's color (#rrggbb) or null so the
   // active swatch shows a ring.
   function beginColor(folderId, anchorEl, currentColor) {
+    cancelPendingFolderToggle();
     closeFolderMenu();
     closeColorPicker();
     colorReturnFocusEl = anchorEl && typeof anchorEl.focus === 'function' ? anchorEl : null;
@@ -1113,7 +1230,23 @@
       }
     }
   }
+
+  // Close ALL three body-level transient overlays together. They are appended to
+  // document.body (outside listEl) and are position:fixed, so a tree re-render
+  // (listEl.textContent = '') does NOT remove them: they would float, orphaned, at
+  // a stale viewport point while their captured-closure buttons still post
+  // setFolderColor/renameFolder/deleteFolder for a folderId the same refresh may
+  // have recolored, renamed, or deleted. The Escape handler and every inbound tree
+  // re-render ('sections'/'state') both route through this ONE function so the
+  // close-set can never drift. The keys mirror src/views/orgPanelInteractions.ts
+  // TRANSIENT_OVERLAY_KEYS ('colorPicker', 'newFolderPopover', 'folderMenu').
+  function closeAllTransientOverlays() {
+    closeColorPicker();
+    closeNewFolderPopover();
+    closeFolderMenu();
+  }
   function openNewFolderPopover(anchorEl) {
+    cancelPendingFolderToggle();
     closeFolderMenu();
     closeColorPicker();
     if (openNewFolderEl) {
@@ -1498,9 +1631,12 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeSort(isSortOpen());
-        closeFolderMenu();
-        closeColorPicker();
-        closeNewFolderPopover();
+        closeAllTransientOverlays();
+        // Escape is a documented abort trigger for the deferred folder-row toggle
+        // (orgPanelInteractions.ts clearFolderToggleArm): dismissing the UI must also
+        // drop any armed collapse so it cannot fire a beat later against the tree the
+        // user just abandoned.
+        cancelPendingFolderToggle();
       }
     });
   }
@@ -1513,6 +1649,9 @@
       return;
     }
     if (msg.type === 'sections' && msg.sections) {
+      // render() (called below) is the single choke point that commits a pending
+      // rename, drops any armed folder-toggle, and tears down the body-level overlays
+      // before it clears listEl, so this handler does not repeat that teardown.
       sections = msg.sections;
       // Drop any active tag filter whose tag no longer exists.
       const live = new Set((sections.tags || []).map((t) => t.tagId));
@@ -1537,6 +1676,8 @@
       renderChips();
       render();
     } else if (msg.type === 'state') {
+      // Like 'sections', this handler re-renders via render() below, which owns the
+      // rename-commit / toggle-drop / overlay-teardown before it clears listEl.
       sortMode = msg.sort || 'newest';
       collapsedFolders.clear();
       if (Array.isArray(msg.collapsedFolders)) {
