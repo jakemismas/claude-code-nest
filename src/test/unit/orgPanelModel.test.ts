@@ -308,6 +308,85 @@ describe('orgPanelModel tag chips and row tags', () => {
     assert.deepStrictEqual(row.tagIds, ['t1', 'gone'], 'all stored ids, including unresolved');
     assert.deepStrictEqual(row.tags, ['urgent'], 'only resolved labels');
   });
+
+  it('row carries tagColors aligned to tags: color or null per resolved tag, unresolved dropped', () => {
+    const records = [record({ sessionId: 'a' })];
+    const m = meta({
+      tags: {
+        t1: { id: 't1', label: 'bug', color: '#B14F36' },
+        t2: { id: 't2', label: 'idea' }, // no color
+      },
+      chats: { a: { folderId: null, tags: ['t1', 't2', 'gone'], links: [], updatedAt: 0, deviceId: 'd' } },
+    });
+    const sections = buildSections(records, m, badge);
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.ok(unsorted, 'Unsorted section exists');
+    const row = unsorted.rows[0];
+    assert.deepStrictEqual(row.tags, ['bug', 'idea'], 'only resolved labels, in order');
+    assert.deepStrictEqual(
+      row.tagColors,
+      ['#B14F36', null],
+      'colors are parallel to tags: a hue for t1, null for the colorless t2, and the unresolved id contributes nothing',
+    );
+    assert.strictEqual(row.tags.length, row.tagColors.length, 'tags and tagColors stay the same length');
+  });
+});
+
+describe('orgPanelModel archived exclusion and count', () => {
+  it('excludes a userArchived chat from every visible section and counts it in archivedCount', () => {
+    const records = [
+      record({ sessionId: 'live' }),
+      record({ sessionId: 'gone', lastMessageRole: 'user' }),
+    ];
+    const m = meta({
+      folders: { f1: { id: 'f1', name: 'Work', parentId: null, order: 0 } },
+      tags: { t1: { id: 't1', label: 'bug' } },
+      chats: {
+        live: { folderId: 'f1', tags: ['t1'], links: [], updatedAt: 0, deviceId: 'd' },
+        // archived AND filed AND tagged AND user-last: it must appear in NONE of the
+        // sections/chips and be counted once instead.
+        gone: {
+          folderId: 'f1',
+          tags: ['t1'],
+          links: [],
+          updatedAt: 0,
+          deviceId: 'd',
+          starred: true,
+          userArchived: true,
+        },
+      },
+    });
+    const sections = buildSections(records, m, badge);
+    assert.strictEqual(sections.archivedCount, 1, 'one archived chat counted');
+    // Not in Starred (even though starred), not in Questions (even though user-last).
+    assert.deepStrictEqual(sections.starred.map((r) => r.sessionId), [], 'archived starred chat is not in Starred');
+    assert.deepStrictEqual(sections.questions.map((r) => r.sessionId), [], 'archived user-last chat is not in Questions');
+    // Not in its folder; only the live chat remains.
+    const f1 = sections.folders.find((f) => f.folderId === 'f1');
+    assert.deepStrictEqual((f1 && f1.rows.map((r) => r.sessionId)) || [], ['live'], 'folder holds only the live chat');
+    // The tag chip counts only the live carrier (the archived carrier is excluded).
+    const chip = sections.tags.find((c) => c.tagId === 't1');
+    assert.strictEqual(chip && chip.count, 1, 'the tag chip counts only the visible carrier');
+  });
+
+  it('archivedCount is 0 and all chats render when nothing is archived', () => {
+    const records = [record({ sessionId: 'a' }), record({ sessionId: 'b' })];
+    const sections = buildSections(records, meta(), badge);
+    assert.strictEqual(sections.archivedCount, 0);
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.strictEqual(unsorted && unsorted.rows.length, 2);
+  });
+
+  it('a userArchived:false chat is treated as visible (not archived)', () => {
+    const records = [record({ sessionId: 'a' })];
+    const m = meta({
+      chats: { a: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: false } },
+    });
+    const sections = buildSections(records, m, badge);
+    assert.strictEqual(sections.archivedCount, 0);
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.strictEqual(unsorted && unsorted.rows.length, 1, 'the non-archived chat still renders');
+  });
 });
 
 describe('orgPanelModel absent-meta tolerance', () => {

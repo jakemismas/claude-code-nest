@@ -23,9 +23,29 @@ Keep a Changelog, and the project adheres to semantic versioning.
   dot yet (that needs the per-device read-state gate a later slice adds), so real
   data never fabricates an unread signal; the dot's render path exists and is
   exercised by the fidelity harness mock.
+- The Organize panel chrome now matches the Sprint 3 handoff (#80): the design-token
+  palette, a New session pill, a gear button, a sort popover that replaces the native
+  dropdown (Newest first / Oldest first / Name A-Z, with a colored checkmark on the
+  active option), and the redesigned search box. The Newsreader serif font ships in
+  the package (`media/fonts/newsreader-600-latin.woff2`, loaded via an in-webview
+  `@font-face`) with a local serif fallback; no heading consumes it yet, so the gate
+  is the packaging proof, not a rendered heading.
+- New session opens a fresh Claude Code chat (#80). It calls the installed Claude
+  Code new-chat command (`claude-vscode.newConversation`, with `sidebar.open` as a
+  graceful fallback) rather than the URI open path, which only resumes an existing
+  chat; a total failure shows an informational notice.
+- An `Archived (N)` row on the Organize panel (#80). Archived chats are now excluded
+  from the visible sections and the tag-chip counts and are summarized in this bottom
+  row, which opens the Archive view until the in-panel Archive overlay ships.
+- Tag pills on a chat row now render in their per-tag color (#80).
 
 ### Changed
 
+- Row density (comfortable/compact) is removed from the Organize panel (#80): the
+  Sprint 3 handoff has a single row density. The tag pills and the last-message
+  snippet, previously shown only in the comfortable density, are now always shown.
+  The sort preference still persists per workspace; the density preference no longer
+  exists.
 - The Organize panel is now the only browsing surface (#78): the flat Chats tree
   and the Smart Groups tree are retired, per the Sprint 3 one-panel design
   (UI-SPEC.md deviation 5). The Archive view and the settings editor tab remain

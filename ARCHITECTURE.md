@@ -53,6 +53,22 @@ vscode-free modules. This index says where each binding contract below lives.
   commands (programmatic, palette-hidden) remain for a future in-panel surface.
 - Export and rollup (pure): src/export/chatExport.ts, src/rollup/tokenRollup.ts,
   src/rollup/rollupReport.ts.
+- Launch seams (vscode-free, injected): src/launch/uriLauncher.ts (open/resume a
+  chat by session id) and src/launch/newSessionLauncher.ts (launchNewSession, added
+  in slice s3a-design-shell). The latter tries the installed Claude Code new-chat
+  commands in order (claude-vscode.newConversation, then claude-vscode.sidebar.open
+  as a graceful fallback) through an injected executeCommand fn and is unit-tested;
+  extension.ts wires it to vscode.commands.executeCommand and shows an info toast
+  on total failure. See DECISIONS.md slice s3a-design-shell (a) for the entry-point
+  probe.
+- Visual-fidelity harness (dev/test only, excluded from the .vsix): scripts/fidelity/
+  screenshot.js (headless-Chrome driver) and scripts/fidelity/harness.html. The
+  harness's static DOM shell is a BYTE-ALIGNED copy of orgPanelWebview.renderHtml
+  and MUST be rewritten in lockstep with the shell (as it was for the
+  s3a-design-shell toolbar/search/no-density rewrite): if it drifts, orgPanel.js's
+  getElementById wiring finds no nodes and `npm run fidelity` renders nothing. Its
+  --vscode-* palette shim became a harmless no-op once orgPanel.css hardcodes the
+  handoff palette.
 - View surfaces (post s3a-view-consolidation, UI-SPEC.md deviation 5): the live
   views are the org panel (src/views/orgPanelWebview.ts plus the pure
   orgPanelModel.ts), the SOLE browsing surface, and Archive (archiveProvider.ts),
@@ -380,8 +396,9 @@ the rollup stays an honest, vscode-free reduction.
 
 Slice 6 promotes the chatsPreview proof-of-concept to the PRIMARY organization
 surface: a single CSP-locked, nonce-scripted WebviewView (claudeNest.orgPanel,
-"Organize") that renders sections, tag chips, sort, density, per-folder color,
-folder rename, and drag-and-drop. The native Folders and Tags TreeViews are
+"Organize") that renders sections, tag chips, sort, per-folder color, folder
+rename, and drag-and-drop. (Row density was removed in slice s3a-design-shell; see
+that slice's rule below.) The native Folders and Tags TreeViews are
 RETIRED. Slice 6 kept the flat Chats TreeView as the accessible fallback, but
 Sprint 3 slice s3a-view-consolidation SUPERSEDES that per UI-SPEC.md deviation 5:
 the flat Chats and Smart Groups trees are retired and the org panel's own
@@ -440,15 +457,27 @@ split.
   delete). renameFolder/setFolderColor/deleteFolder route through the EXISTING store
   mutations and the deleteFolder command (modal confirm + descendant cascade that
   unfiles member chats, never deleting a chat); the webview never invents a write
-  path. Sort (newest/oldest/name) and density (comfortable/compact) are persisted on
-  workspaceState (per-workspace, NOT synced, so the sync surface stays exactly
-  nest.meta.v1::<projectKey>).
+  path. Sort (newest/oldest/name) is persisted on workspaceState (per-workspace, NOT
+  synced, so the sync surface stays exactly nest.meta.v1::<projectKey>). Row density
+  was removed in slice s3a-design-shell (the handoff has a single row density) across
+  all five coupled sites: orgPanel.css body[data-density] rules; orgPanel.js
+  (densityEl, densityMode, and the comfortable branch in makeRow that held the tag
+  pills + snippet); orgPanelWebview.ts (DENSITY_KEY, onSetState, postState, the
+  inbound coercer, and the renderHtml select); and the fidelity harness mock. The tag
+  pills and the last-message snippet, which previously rendered only in the
+  comfortable branch, are now the SINGLE unconditional row behavior.
 - ACCESSIBILITY IS AN ACCEPTANCE CRITERION. The list is role="tree" with
   role="treeitem" rows under role="group" sections, a single roving tabindex (one
   focusable row at a time), arrow-key navigation (Up/Down/Home/End), Enter/Space
   activation, and a visible focus ring (CSS). Since s3a-view-consolidation there
   is NO native fallback tree: the org panel's ARIA tree IS the accessibility
-  surface (UI-SPEC.md deviation 5), so this criterion is load-bearing.
+  surface (UI-SPEC.md deviation 5), so this criterion is load-bearing. Slice
+  s3a-design-shell keeps it from regressing as chrome grows: the new sort popover
+  (which replaces the native <select>) is a role=menu with menuitemradio items,
+  fully keyboard operable (Enter/Space/Arrow keys, Escape closes and restores focus
+  to the trigger, aria-expanded on the trigger), and the gear and New session
+  buttons carry aria-labels and are keyboard-focusable. The Settings section-toggle
+  UI is deliberately NOT in this slice (it lands in s3b).
 - THE LINK NESTING TREE IS NOT RENDERED IN THE ORG PANEL (deferred, reversible).
   The Folders tree rendered linked children; the org panel does not yet have a link
   surface. Since s3a-view-consolidation both commands are PALETTE-callable with
@@ -457,6 +486,46 @@ split.
   links, the exact nesting unlinkChat removes), and the pure links model remains
   intact for a future org-panel link surface. See DECISIONS.md Slice
   s2-org-panel-webview and s3a-view-consolidation.
+
+## Design shell re-skin (Sprint 3, slice s3a-design-shell) — binding
+
+Slice s3a-design-shell re-skins the org panel chrome to the pixel-exact handoff
+(media/design/, UI-SPEC.md): the design-token palette, the New session pill, the
+gear, the sort popover (replacing the native select), and the search-box visuals.
+Full rationale and the reversible-fork record are in DECISIONS.md slice
+s3a-design-shell; the binding structural facts:
+
+- NEW SESSION uses a BUILD-TIME-PROBED entry point, not the URI /open path. The
+  probe read the INSTALLED anthropic.claude-code package.json contributes (2.1.197
+  and 2.1.198): it contributes claude-vscode.newConversation ("New Conversation"),
+  the real new-chat command. The public URI /open?session=<id> path only RESUMES an
+  existing chat and CANNOT start a fresh one, so it is not used here. The mechanism
+  is src/launch/newSessionLauncher.ts (an injected, vscode-free, unit-tested seam
+  mirroring uriLauncher.ts) tried through OrgPanelActions.newSession, with a graceful
+  info toast on total failure (UI-SPEC.md deviation 6).
+- THE NEWSREADER SERIF FONT IS BUNDLED, not fetched. media/fonts/
+  newsreader-600-latin.woff2 (a wOF2-magic-verified subset) loads via an @font-face
+  in orgPanel.css whose relative url('fonts/newsreader-600-latin.woff2') resolves
+  against the stylesheet's webview URI under the pinned media localResourceRoots;
+  CSP font-src cspSource already permits it, and a local serif stack (Georgia, serif)
+  is the fallback. .vscodeignore excludes media/design/** and media/mockups/** but
+  NOT media/fonts/**, so the font ships. No heading consumes the serif THIS slice
+  (the Settings/Archive sub-page headings land in s3b), so the PACKAGING proof
+  (vsce ls shows media/fonts/*.woff2 in the .vsix) is the gate, not the fidelity
+  screenshot.
+- THE "ARCHIVED (N)" ROW COUNTS ARCHIVED CHATS THAT ARE OTHERWISE HIDDEN. The pure
+  buildSections/OrgSections now returns a unit-tested archivedCount, and it EXCLUDES
+  userArchived chats (the synced flag) from every visible section AND the tag-chip
+  counts, matching the handoff (archived chats live behind the Archive sub-page, the
+  panel shows only a bottom "Archived (N)" row). Before this slice the model rendered
+  every scanned record regardless of the archived flag; the DECISIONS.md fork note
+  (f)/(e) records this as an intentional behavior correction, not a regression. The
+  row opens the existing claudeNest.archive view until the s3b in-panel Archive
+  overlay ships.
+- TAG PILLS CARRY PER-TAG COLOR. OrgChatRow gains tagColors (parallel to tags,
+  color-or-null per resolved tag) so the webview paints each pill in its handoff hue;
+  the chip active state and the pill background use CSS color-mix for the handoff's
+  alpha treatments.
 
 ## Read-only invariant (the sacred constraint)
 

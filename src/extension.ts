@@ -9,6 +9,7 @@ import {
 } from './views/foldersProvider';
 import { OrgPanelProvider, ORG_PANEL_VIEW, OrgPanelActions, OrgPanelStateStore } from './views/orgPanelWebview';
 import { OPEN_CHAT_COMMAND, openChat, OpenUri } from './launch/uriLauncher';
+import { launchNewSession } from './launch/newSessionLauncher';
 import { MetadataStore, SyncMemento } from './store/metadataStore';
 import { DeviceIdStore, getOrCreateDeviceId } from './store/deviceId';
 import {
@@ -404,6 +405,42 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const item = new FolderItem(folder.id, folder.parentId, folder.name, false);
       await deleteFolder(folderDeps, item);
+    },
+    createFolder: async (): Promise<void> => {
+      // Reuse the existing createFolder command (its input box + store mutation).
+      // folderDeps.provider.refresh folds in refreshOrgPanel, so the panel
+      // re-renders with the new folder after it is created.
+      await createFolder(folderDeps);
+    },
+    newSession: async (): Promise<void> => {
+      // Best-effort launch of a new Claude Code chat via the probed contributed
+      // command chain (newSessionLauncher). A graceful toast on total failure
+      // (UI-SPEC.md deviation 6): the entry points are undocumented Claude Code
+      // contact points and may be absent in a given environment.
+      const ok = await launchNewSession((command) =>
+        vscode.commands.executeCommand(command),
+      );
+      if (!ok) {
+        void vscode.window.showInformationMessage(
+          'Could not start a new Claude Code chat. Open Claude Code and start one there.',
+        );
+      }
+    },
+    openArchive: async (): Promise<void> => {
+      // The design's Archived (N) row opens the Archive sub-page; that in-panel
+      // overlay lands in s3b. Until then, reveal the interim claudeNest.archive tree
+      // view (focus its container). A failure is swallowed so a missing view never
+      // throws out of a webview message handler.
+      try {
+        await vscode.commands.executeCommand('claudeNest.archive.focus');
+      } catch {
+        // The view may not be resolvable yet; nothing else to do.
+      }
+    },
+    openSettings: (): void => {
+      // The gear opens the Settings sub-page; that overlay lands in s3b. Until then,
+      // run the existing settings command (opens the settings webview tab).
+      void vscode.commands.executeCommand(OPEN_SETTINGS_COMMAND);
     },
   };
   // The org panel's webview drop deps: the adapter applies the reducer's intents as
