@@ -222,7 +222,12 @@ export function buildSections(
 
 // Whether a scanned chat is user-archived per the SYNCED ChatMeta.userArchived
 // flag. Tolerant of an absent meta or chat entry (not archived). Never throws.
-function isArchived(chatId: string, meta: ProjectMeta | undefined): boolean {
+// Exported so the org-panel host filters its CONTENT-SEARCH index by the SAME
+// archived predicate this model uses to exclude archived chats from the visible
+// sections: the two paths must not drift, or archived chats would be host-indexed
+// and ranked (consuming rank slots the client then drops when it joins hits to the
+// archived-excluded rows), crowding genuine live matches out of the 50-hit cap.
+export function isArchived(chatId: string, meta: ProjectMeta | undefined): boolean {
   return meta?.chats[chatId]?.userArchived === true;
 }
 

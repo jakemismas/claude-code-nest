@@ -413,6 +413,34 @@ async function waitForCondition(page, expression, timeoutMs, label) {
   throw new Error('Timed out waiting for ' + (label || expression));
 }
 
+// Set an <input>'s value the way a real keystroke would and fire the 'input' event
+// the panel (and React, in the prototype) listens on. Uses the native value setter
+// so a controlled React input actually updates. selector picks the input; text is
+// the query to stage. Returns 'ok' or a diagnostic string.
+async function typeIntoInput(page, selector, text) {
+  return evaluate(
+    page,
+    '(function(){' +
+      'var inp=document.querySelector(' +
+      JSON.stringify(selector) +
+      ');' +
+      "if(!inp) return 'no-input';" +
+      "var set=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;" +
+      'set.call(inp, ' +
+      JSON.stringify(text) +
+      ');' +
+      "inp.dispatchEvent(new Event('input',{bubbles:true}));" +
+      "return 'ok';" +
+      '})()',
+  );
+}
+
+// The query the results-state captures stage. It matches a body line in the mock
+// (the harness reply) and the prototype's c2 body ("...backed by Redis...") while
+// being ABSENT from those chats' titles, so the flat "N RESULTS" list shows a
+// role-prefixed "You: ..." body-match snippet (issue #83 AC #1/#6).
+const RESULTS_QUERY = 'redis';
+
 // --- main ------------------------------------------------------------------
 
 async function main() {
@@ -540,10 +568,113 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype.png')));
 
+    // Page 3: the RESULTS STATE of the real panel (issue #83 AC #6). Re-render the
+    // harness, type a body-only-match query into the search box, wait for the flat
+    // "N RESULTS" list (the harness echoes a synthetic host searchResults reply), and
+    // capture it. This is the results-state analogue of harness.png.
+    const harnessResultsPage = await openPage(browser);
+    await renderAndCapture(
+      harnessResultsPage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-results.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        const typed = await typeIntoInput(page, '#filter', RESULTS_QUERY);
+        if (typed !== 'ok') {
+          throw new Error('Could not type into the harness search box: ' + typed);
+        }
+        // Wait for the flat results list: the "N RESULTS" label and at least one
+        // result row with a body-match snippet (the synthetic host reply lands after
+        // the debounce, so poll rather than fix a delay).
+        await waitForCondition(
+          page,
+          "(function(){var h=document.querySelector('#list .nest-section-label');" +
+            "return !!h && /RESULTS/.test(h.textContent) && document.querySelectorAll('#list .nest-row-snippet').length > 0;})()",
+          10000,
+          'harness results state to render',
+        );
+      },
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-results.png')));
+
+    // Page 4: the RESULTS STATE of the design prototype, the fidelity baseline the
+    // results capture is judged against. Same query, driven into the prototype's own
+    // search box, then clipped to the 320px sidebar like prototype.png.
+    const protoResultsPage = await openPage(browser);
+    await renderAndCapture(
+      protoResultsPage,
+      pathToFileURL(PROTOTYPE_HTML).href,
+      path.join(OUT_DIR, 'prototype-results.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          '(function(){' +
+            "var loading=document.getElementById('__bundler_loading');" +
+            'if(loading && loading.offsetParent!==null) return false;' +
+            "var divs=document.querySelectorAll('body div');" +
+            'return divs.length > 8;' +
+            '})()',
+          30000,
+          'prototype React mount',
+        );
+        await evaluate(
+          page,
+          '(function(){' +
+            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
+            'var n=document.getElementById(id); if(n) n.remove();' +
+            '} return true; })()',
+        );
+        const typed = await typeIntoInput(
+          page,
+          'input[placeholder="Search chats & messages"]',
+          RESULTS_QUERY,
+        );
+        if (typed !== 'ok') {
+          throw new Error('Could not type into the prototype search box: ' + typed);
+        }
+        await sleep(500);
+        const rect = await evaluate(
+          page,
+          '(function(){' +
+            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
+            'for(var i=0;i<divs.length;i++){' +
+            '  var el=divs[i]; var cs=getComputedStyle(el);' +
+            '  var r=el.getBoundingClientRect();' +
+            '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
+            '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
+            '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
+            '  }' +
+            '}' +
+            'return null;' +
+            '})()',
+        );
+        if (!rect) {
+          throw new Error(
+            'Could not locate the 320px sidebar column in the prototype results state to clip to.',
+          );
+        }
+        return rect;
+      },
+      PROTOTYPE_VIEWPORT_WIDTH,
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-results.png')));
+
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
     console.log('Compare by eye:');
     console.log('  harness.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
     console.log('  prototype.png (freshly rendered) vs media/design/reference/prototype-320.png (drift check)');
+    console.log('  harness-results.png (real panel, filtered) vs prototype-results.png (results-state fidelity)');
   } catch (err) {
     fail(
       'Fidelity capture failed: ' +

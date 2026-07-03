@@ -8,6 +8,10 @@ import {
   newFolderClickState,
   registerFolderClick,
   registerFolderDblClick,
+  normalizeQuery,
+  isFreshSearchReply,
+  joinTextHits,
+  JoinRow,
 } from '../../views/orgPanelInteractions';
 
 // Headless unit tests for the PURE org-panel interaction kernels (issue #82 AC2
@@ -86,6 +90,145 @@ describe('folder-row single- vs double-click arbitration', () => {
     const next = registerFolderClick(state, 'F', 1000 + 5);
     assert.strictEqual(next.armToggleFolderId, 'F');
     assert.strictEqual(next.cancelPending, false);
+  });
+});
+
+describe('content-search query normalization (normalizeQuery)', () => {
+  it('trims and lowercases a string query', () => {
+    assert.strictEqual(normalizeQuery('  Redis  '), 'redis');
+    assert.strictEqual(normalizeQuery('CLAUDE'), 'claude');
+  });
+
+  it('maps a non-string (undefined/null/number) to the empty string', () => {
+    assert.strictEqual(normalizeQuery(undefined), '');
+    assert.strictEqual(normalizeQuery(null), '');
+    assert.strictEqual(normalizeQuery(42 as unknown as string), '');
+  });
+
+  it('is idempotent (normalizing an already-normalized query is a no-op)', () => {
+    const once = normalizeQuery('  Mixed Case  ');
+    assert.strictEqual(normalizeQuery(once), once);
+  });
+});
+
+describe('content-search reply freshness (isFreshSearchReply)', () => {
+  it('trusts a reply whose normalized query equals the current filter', () => {
+    assert.strictEqual(isFreshSearchReply('Redis', 'redis'), true);
+    assert.strictEqual(isFreshSearchReply('  redis ', 'redis'), true);
+  });
+
+  it('drops a reply for a superseded (different) query', () => {
+    // The user typed on: the box now holds "redisx" but a reply for "redis" lands.
+    assert.strictEqual(isFreshSearchReply('redis', 'redisx'), false);
+  });
+
+  it('trusts nothing when the box is empty (a cleared filter accepts no late reply)', () => {
+    assert.strictEqual(isFreshSearchReply('redis', ''), false);
+    assert.strictEqual(isFreshSearchReply('', ''), false);
+  });
+
+  it('matches the normalize contract on the reply side (host echoes a raw trimmed query)', () => {
+    // The host echoes its RAW trimmed query; the client stored a normalized filter.
+    // Freshness must hold across the case/space difference.
+    assert.strictEqual(isFreshSearchReply('Rate Limiter', normalizeQuery('  rate limiter ')), true);
+  });
+});
+
+describe('host-hit x client-tag join (joinTextHits) — AC #3/#4 membership + order', () => {
+  interface R extends JoinRow {
+    sessionId: string;
+    tagIds?: string[];
+    timestamp: number;
+    title: string;
+  }
+  const rows: Record<string, R> = {
+    a: { sessionId: 'a', tagIds: ['t1'], timestamp: 30, title: 'Alpha' },
+    b: { sessionId: 'b', tagIds: ['t2'], timestamp: 20, title: 'Bravo' },
+    c: { sessionId: 'c', tagIds: ['t1', 't2'], timestamp: 10, title: 'Charlie' },
+  };
+  const rowOf = (id: string): R | undefined => rows[id];
+  const matchAll = (): boolean => true;
+  // A sort stand-in mirroring the panel's "newest first" (timestamp desc).
+  const byNewest = (rs: R[]): R[] => rs.slice().sort((x, y) => y.timestamp - x.timestamp);
+  const identity = (rs: R[]): R[] => rs;
+
+  it('membership is the host order intersected with rows that resolve and pass the tag filter', () => {
+    const order = ['a', 'missing', 'b', 'c'];
+    const passesT1 = (r: R): boolean => (r.tagIds ?? []).indexOf('t1') !== -1;
+    const res = joinTextHits<R>({
+      order,
+      snippetOf: () => null,
+      rowOf,
+      rowMatches: passesT1,
+      sortRows: identity,
+    });
+    // "missing" has no row; b fails the t1 tag filter; a and c pass.
+    assert.deepStrictEqual(res.rows.map((r) => r.sessionId), ['a', 'c']);
+  });
+
+  it('host rank decides membership but the panel SORT decides order', () => {
+    // Host order is a,b,c; a newest-first sort must reorder by timestamp desc.
+    const res = joinTextHits<R>({
+      order: ['c', 'b', 'a'],
+      snippetOf: () => null,
+      rowOf,
+      rowMatches: matchAll,
+      sortRows: byNewest,
+    });
+    assert.deepStrictEqual(
+      res.rows.map((r) => r.sessionId),
+      ['a', 'b', 'c'],
+      'order follows the sort (timestamp desc), not the host rank',
+    );
+  });
+
+  it('dedupes a repeated id in the host order (first occurrence wins)', () => {
+    const res = joinTextHits<R>({
+      order: ['a', 'a', 'b', 'a'],
+      snippetOf: () => null,
+      rowOf,
+      rowMatches: matchAll,
+      sortRows: identity,
+    });
+    assert.deepStrictEqual(res.rows.map((r) => r.sessionId), ['a', 'b']);
+  });
+
+  it('collects a non-empty snippet per id and omits empty/absent ones', () => {
+    const snips: Record<string, string | null> = { a: 'Claude: hello', b: '', c: null };
+    const res = joinTextHits<R>({
+      order: ['a', 'b', 'c'],
+      snippetOf: (id) => snips[id],
+      rowOf,
+      rowMatches: matchAll,
+      sortRows: identity,
+    });
+    assert.strictEqual(res.snippets.get('a'), 'Claude: hello');
+    assert.strictEqual(res.snippets.has('b'), false, 'an empty snippet is not stored');
+    assert.strictEqual(res.snippets.has('c'), false, 'an absent snippet is not stored');
+  });
+
+  it('an empty host order yields no rows and no snippets', () => {
+    const res = joinTextHits<R>({
+      order: [],
+      snippetOf: () => 'x',
+      rowOf,
+      rowMatches: matchAll,
+      sortRows: identity,
+    });
+    assert.strictEqual(res.rows.length, 0);
+    assert.strictEqual(res.snippets.size, 0);
+  });
+
+  it('does not mutate the input rows (snippet override is applied by the caller, not here)', () => {
+    const before = JSON.stringify(rows.a);
+    joinTextHits<R>({
+      order: ['a'],
+      snippetOf: () => 'Claude: hi',
+      rowOf,
+      rowMatches: matchAll,
+      sortRows: identity,
+    });
+    assert.strictEqual(JSON.stringify(rows.a), before, 'the source row object is untouched');
   });
 });
 
@@ -214,5 +357,81 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
       DOUBLE_CLICK_MS,
       'the webview DOUBLE_CLICK_MS mirror must equal the kernel export',
     );
+  });
+
+  // The content-search join/freshness logic is mirrored from the kernel
+  // (orgPanelInteractions.ts normalizeQuery / isFreshSearchReply / joinTextHits) so
+  // it can be unit-tested. These parity guards pin that the webview DECLARES those
+  // mirrors and USES them at the load-bearing call sites, so a later edit that
+  // re-inlines the raw trim/lowercase or the join loop (reintroducing the stale-reply
+  // and membership-drift class the kernel tests cover) fails here.
+  it('declares the three content-search mirrors (normalizeQuery, isFreshSearchReply, joinTextHits)', () => {
+    for (const fn of ['normalizeQuery', 'isFreshSearchReply', 'joinTextHits']) {
+      assert.ok(
+        webviewSrc.includes('function ' + fn + '('),
+        'media/orgPanel.js must declare the ' + fn + ' mirror of the kernel',
+      );
+    }
+  });
+
+  it('onFilterInput normalizes the query through normalizeQuery (not an inline trim/lowercase)', () => {
+    const body = fnBody('onFilterInput');
+    assert.ok(
+      body.includes('normalizeQuery(filterEl.value)'),
+      'onFilterInput must set textFilter via normalizeQuery so it cannot drift from the reply compare',
+    );
+    assert.ok(
+      !/filterEl\.value\.trim\(\)\.toLowerCase\(\)/.test(body),
+      'onFilterInput must not re-inline trim().toLowerCase()',
+    );
+  });
+
+  it('the searchResults handler drops a stale reply via isFreshSearchReply', () => {
+    // Isolate the inbound searchResults branch and assert it gates on the freshness
+    // mirror rather than an inline query comparison.
+    const marker = "msg.type === 'searchResults'";
+    const at = webviewSrc.indexOf(marker);
+    assert.ok(at >= 0, 'the searchResults branch exists');
+    const region = webviewSrc.slice(at, at + 1200);
+    assert.ok(
+      region.includes('normalizeQuery(msg.query)'),
+      'the reply query is normalized through the shared mirror',
+    );
+    assert.ok(
+      region.includes('isFreshSearchReply('),
+      'the reply is dropped unless isFreshSearchReply says it is current',
+    );
+  });
+
+  it('haveFreshTextResults delegates to isFreshSearchReply (single freshness rule)', () => {
+    const body = fnBody('haveFreshTextResults');
+    assert.ok(
+      body.includes('isFreshSearchReply(searchResultsQuery, textFilter)'),
+      'render-side freshness must reuse the same rule as the inbound-message side',
+    );
+  });
+
+  it('renderFiltered builds the text results through joinTextHits', () => {
+    const body = fnBody('renderFiltered');
+    assert.ok(
+      body.includes('joinTextHits('),
+      'the host-hit x client-tag join must go through the shared joinTextHits mirror',
+    );
+    assert.ok(
+      body.includes('haveFreshTextResults()'),
+      'renderFiltered still gates the join on a fresh host reply',
+    );
+  });
+
+  it('the empty-query reset clears the stale host results before re-rendering', () => {
+    // Pin the AC #4 clear path: emptying the box drops the prior host hit set at once
+    // so the sectioned view returns without a flash of stale results.
+    const body = fnBody('onFilterInput');
+    const clearAt = body.indexOf('textFilter.length === 0');
+    assert.ok(clearAt >= 0, 'onFilterInput has an empty-query branch');
+    const branch = body.slice(clearAt, clearAt + 400);
+    for (const stmt of ['searchResultsQuery = null', 'searchHitOrder = []', 'searchHitSnippets = new Map()']) {
+      assert.ok(branch.includes(stmt), 'the empty-query reset must run: ' + stmt);
+    }
   });
 });

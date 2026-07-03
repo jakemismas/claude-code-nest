@@ -452,9 +452,14 @@ automated pixel gate, because the build agent cannot see its own rendered webvie
 
 ### S2-2: Full-text content search
 
-1. In the Organize panel search box, switch to the "Search content" mode and type
-   a query that matches some chats' content. Confirm matching chats rank by
-   relevance and each shows a matched-context snippet under its title.
+Note: Sprint 3 (s3a-search-chips) removed the mode toggle. The single search box
+now always matches both titles and message bodies; there is no "Search content"
+control to switch to. Run the s3a-search-chips section below for the current
+behavior. The index invariant below still holds.
+
+1. In the Organize panel search box, type a query that matches some chats' content.
+   Confirm matching chats rank by relevance and each body-only match shows a
+   matched-context snippet under its title.
 2. Clear the query and confirm the full list is restored.
 3. The search index lives in the extension's global storage, is never synced, and
    is never written under `~/.claude/projects/`; confirm no transcript changed.
@@ -608,6 +613,48 @@ automated pixel gate, because the build agent cannot see its own rendered webvie
 9. Keyboard and ARIA (AC6). Tab into the tree; confirm a single roving focus, arrow
    Up/Down navigation, ArrowRight/Left to expand/collapse a folder, Enter/Space to
    activate, and a visible focus ring throughout.
+
+### S3A search + chips: flat results, role snippets, tag combine (issue #83)
+
+1. Flat results view. Type a query in the search box that matches some chats.
+   Confirm the sectioned tree (Starred, Questions, folders) is replaced by a flat
+   list headed `N RESULTS`, where N is the number of matching rows. Clear the box
+   and confirm the sectioned tree returns immediately with no flash of stale rows.
+2. Title vs body match. Type a word that appears in a chat's TITLE: confirm that row
+   shows NO snippet under it. Type a word that appears only in a chat's message BODY
+   (not its title): confirm that row shows a matched-context snippet under the title.
+3. Role-prefixed snippet. For a body-only match, confirm the snippet begins with
+   `You: ` when the matched line was your message, or `Claude: ` when it was the
+   assistant's. The snippet must center on the line that actually contains your
+   query word (e.g. searching a term that appears only in Claude's reply shows a
+   `Claude: ...` snippet of THAT line, not an unrelated `You: ...` line).
+4. Role words are not a wildcard (regression). Type `claude` (then also `you`) in a
+   workspace where those words do NOT appear in any chat's title or message text.
+   Confirm the results list does NOT balloon to every chat: only chats that
+   genuinely contain the typed word match. Type a prefix like `cla`, `clau`, `claud`
+   and confirm the same (no all-chats false match while typing). A chat that really
+   contains the word "you" in a message still matches `you`.
+5. Multi-word query. Type two words that appear in the SAME chat (e.g. one in your
+   line and one in Claude's). Confirm the chat matches and its snippet is centered
+   on the line that contains one of your real query words, regardless of the order
+   you typed the two words.
+6. Tag chips (AND). Click a tag chip: confirm it toggles active (filled) and the
+   list narrows to chats carrying that tag. Select a SECOND chip: confirm the list
+   narrows further to chats carrying BOTH tags (AND, not OR). Click a chip again to
+   deselect it.
+7. Text AND tags combined. With a text query typed AND one or more tag chips active,
+   confirm the results are the chats that match the text AND carry every selected
+   tag. Removing all chips while keeping the text, or clearing the text while keeping
+   chips, each falls back to the single-filter behavior.
+8. Sort applies to results. With a filter active, change the sort (Newest, Oldest,
+   Name). Confirm the flat results reorder accordingly (the match set is unchanged;
+   only the order changes).
+9. Archived row persists while filtering. With any chat archived, confirm the bottom
+   `Archived (N)` row is present BOTH in the normal sectioned view AND while a text
+   or tag filter is active. Clicking it still opens the Archive view.
+10. Responsiveness and no transcript write. Type quickly and confirm the box stays
+    responsive (the query is debounced; the list fills in as results land). Confirm
+    nothing under `~/.claude/projects/` changed by any search.
 
 ## Integration tests (deferred)
 

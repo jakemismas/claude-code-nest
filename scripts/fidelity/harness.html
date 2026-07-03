@@ -92,9 +92,48 @@
   <script>
     (function () {
       const outbound = [];
+      // The host content-search reply the harness stands in for. When the panel
+      // posts { type:'search', query } (the debounced content-search request, issue
+      // #83), the real extension host answers with { type:'searchResults' } ranked
+      // rows carrying a role-prefixed body-match snippet. The harness must reply too,
+      // or the flat "N RESULTS" state renders 0 results and the fidelity capture of
+      // the results state (issue #83 AC #6) goes blind. The reply is synthetic and
+      // deterministic: for a non-empty query it returns the 'Rate limiter design'
+      // chat (s-11, filed under Work / Backend API, so it shows a breadcrumb) with a
+      // "You: ..." body-match snippet, matching the prototype's redis-filtered state.
+      // An empty query returns no rows (mirrors the host short-circuit).
+      window.__nestHarnessSearchReply = function (query) {
+        const q = (query || '').trim();
+        if (q.length === 0) {
+          return { type: 'searchResults', query: query, rows: [] };
+        }
+        return {
+          type: 'searchResults',
+          query: query,
+          rows: [
+            {
+              rank: 0,
+              sessionId: 's-11',
+              title: 'Rate limiter design',
+              description: '3h',
+              timestamp: Date.now() - 3 * 60 * 60 * 1000,
+              tokens: '~20k tok',
+              snippet: 'You: ...a token-bucket rate limiter backed by Redis for the public API...',
+            },
+          ],
+        };
+      };
       window.acquireVsCodeApi = function () {
         return {
-          postMessage: function (m) { outbound.push(m); },
+          postMessage: function (m) {
+            outbound.push(m);
+            // Echo a synthetic host reply for a content-search request so the
+            // results view populates exactly as it would against the real host.
+            if (m && m.type === 'search') {
+              const reply = window.__nestHarnessSearchReply(m.query);
+              window.postMessage(reply, '*');
+            }
+          },
           setState: function () {},
           getState: function () { return undefined; },
         };

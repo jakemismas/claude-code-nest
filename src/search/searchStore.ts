@@ -5,6 +5,8 @@ import {
   SearchDoc,
   buildIndex,
   docFromRecord,
+  FIELDS,
+  STORE_FIELDS,
 } from './searchIndex';
 import * as exportIO from '../store/exportIO';
 
@@ -60,14 +62,15 @@ function indexFileUri(globalStorageUri: vscode.Uri): vscode.Uri {
 
 // The MiniSearch options used to RECONSTRUCT a persisted index with loadJSON.
 // They must match the build-time options' field/store/id shape (searchIndex's
-// indexOptions), so the loaded index searches identically. bodyText is listed as
-// an indexable field for shape-compatibility, but a PERSISTED document never
-// carried body text (tier-A only), so it contributes nothing.
+// indexOptions), so the loaded index searches identically; it reuses the SAME
+// exported FIELDS/STORE_FIELDS so the shape cannot drift from the build side.
+// bodyText/bodySnippetSource are listed for shape-compatibility, but a PERSISTED
+// document never carried body text (tier-A only), so they contribute nothing.
 function loadOptions(): ConstructorParameters<typeof MiniSearch<SearchDoc>>[0] {
   return {
-    fields: ['title', 'lastMessage', 'files', 'bodyText'],
+    fields: FIELDS,
     idField: 'sessionId',
-    storeFields: ['title', 'lastMessage', 'bodyText'],
+    storeFields: STORE_FIELDS,
     searchOptions: {
       prefix: true,
       fuzzy: 0.2,

@@ -53,6 +53,19 @@ Keep a Changelog, and the project adheres to semantic versioning.
   of input-request phrases, and is biased toward NOT flagging a plain statement. The
   row also gains a star toggle that persists, an active-row tint on the chat whose tab
   is focused, and a folder breadcrumb on Questions and search-result rows.
+- Full-text search and tag-chip filtering in the Organize panel (#83). Typing in the
+  search box now searches chat CONTENT, not just titles: the panel posts a debounced
+  query to the host, which ranks chats with the existing host-only MiniSearch index
+  (in globalStorage or memory, never synced, never under `~/.claude/projects`) and
+  returns ranked hits. Results render as a flat "N RESULTS" list that intersects the
+  text hits with the client-side tag-chip AND-filter, so text and tags combine; the
+  tag-only flat view (chips selected, no text) and clear-restores-sections both keep
+  working. A body-only match (the query is not in the title) shows a matched-context
+  snippet PREFIXED with the speaker, `You:` or `Claude:`; a title match shows no
+  snippet. The role label rides only the snippet, never the search index, so a search
+  for "claude" does not match every chat. The persisted index stays tier-A-only (no
+  message body is written to disk); the body is read on demand in memory and discarded.
+  No schema change, no new file-write path, and the synced surface is unchanged.
 
 ### Changed
 

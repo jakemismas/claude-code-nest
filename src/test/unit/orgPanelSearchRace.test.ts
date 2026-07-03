@@ -105,6 +105,25 @@ function makeProvider(workspacePath: string): unknown {
   );
 }
 
+// A provider variant with a real project key and a store whose getProjectMeta
+// returns the given meta, so the content-search path can resolve the SYNCED
+// ChatMeta.userArchived flag and exclude archived chats from the index (the
+// archived-in-index regression test below). Everything else is the inert wiring.
+function makeProviderWithMeta(workspacePath: string, meta: unknown): unknown {
+  const store = { ...inertStore, getProjectMeta: (): unknown => meta };
+  return new OrgPanelProvider(
+    extUri,
+    workspacePath,
+    store,
+    () => 'pk',
+    inertActions,
+    inertDropDeps,
+    inertStateStore,
+    inertReadState,
+    undefined,
+  );
+}
+
 function totals(): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
 }
@@ -281,5 +300,142 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
       (last.rows ?? []).some((r) => r.sessionId === 'd'),
       'the fresh build returns the "delta" chat (d) after a refresh interrupted the stale build',
     );
+  });
+
+  it('a refresh during the body-read window does NOT post an empty result for the query still in the box', async () => {
+    // The finding: postSearch awaits tierAReady/bodyReady but, unlike the build
+    // phases, did not re-check the build generation after the await. When a refresh
+    // fires inside the body-read window it invalidates the index (clears
+    // indexedRecords, nulls contentIndex, bumps buildGeneration); the awaited stale
+    // index then ranks to zero rows and postSearch posted { rows: [] } for the SAME
+    // query still in the search box, blanking a genuine match with no recovery. The
+    // generation guard must SKIP that stale empty post: the last searchResults post
+    // for the query must still carry the real hit (the pre-refresh tier-A reply),
+    // never a later empty one.
+    const corpus: ChatRecord[] = [
+      record({ sessionId: 'a', title: 'alpha chat', lastMessageText: 'alpha body' }),
+      record({ sessionId: 'a2', title: 'alpha two', lastMessageText: 'alpha body two', filePath: '/a2.jsonl' }),
+    ];
+
+    chatScanner.scanChats = (): ChatRecord[] => corpus.map((r) => ({ ...r }));
+
+    const provider = makeProvider('/ws') as { resolveWebviewView(view: unknown): void };
+    const { view, posted, send } = makeView();
+    provider.resolveWebviewView(view);
+
+    let refreshFired = false;
+    bodyReader.readTranscriptBodies = (): { role: 'user'; text: string; uuid: null }[] => {
+      if (!refreshFired) {
+        refreshFired = true;
+        send({ type: 'refresh' });
+      }
+      return [{ role: 'user', text: 'alpha body', uuid: null }];
+    };
+
+    send({ type: 'search', query: 'alpha' });
+    await until(() => refreshFired);
+    await until(() => false, 40);
+
+    const alphaPosts = posted.filter((m) => m.type === 'searchResults' && m.query === 'alpha');
+    assert.ok(alphaPosts.length > 0, 'a searchResults post for "alpha" was made');
+    // Every post for the in-box query must be non-empty. The stale body-phase reply
+    // that would post [] after invalidation must be suppressed by the generation
+    // guard, so no empty post for "alpha" ever reaches the client.
+    for (const p of alphaPosts) {
+      assert.ok(
+        (p.rows ?? []).some((r) => r.sessionId === 'a'),
+        'no searchResults post for the in-box query "alpha" may be blanked by a stale post-refresh reply',
+      );
+    }
+  });
+});
+
+describe('orgPanelWebview content-search excludes user-archived chats from the index', () => {
+  afterEach(() => {
+    chatScanner.scanChats = realScanChats;
+    bodyReader.readTranscriptBodies = realReadBodies;
+  });
+
+  // The finding: the host search index had NO archived filter, while buildSections
+  // excludes archived chats. archived chats got indexed (title + full body) and
+  // ranked, then the client dropped their hits when it joined to the
+  // archived-excluded rows, so archived chats consumed rank slots inside search()'s
+  // 50-hit cap and could crowd genuine live matches out. The fix filters archived
+  // chats out of scanForIndex (the sole index feeder) by the SAME synced
+  // ChatMeta.userArchived predicate buildSections uses. An archived chat must never
+  // enter indexedRecords and must never appear in a searchResults post, even when its
+  // title AND body match the query.
+  function archivedCorpusMeta(): { corpus: ChatRecord[]; meta: unknown } {
+    const corpus: ChatRecord[] = [
+      record({ sessionId: 'live', title: 'zebra live chat', lastMessageText: 'zebra body live', filePath: '/live.jsonl' }),
+      record({ sessionId: 'arc', title: 'zebra archived chat', lastMessageText: 'zebra body archived', filePath: '/arc.jsonl' }),
+    ];
+    const meta = {
+      schemaVersion: 3,
+      folders: {},
+      tags: {},
+      chats: {
+        live: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+        arc: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+      },
+      updatedAt: 0,
+      deviceId: 'd',
+    };
+    return { corpus, meta };
+  }
+
+  it('an archived chat never enters indexedRecords', async () => {
+    const { corpus, meta } = archivedCorpusMeta();
+    chatScanner.scanChats = (): ChatRecord[] => corpus.map((r) => ({ ...r }));
+    bodyReader.readTranscriptBodies = (): { role: 'user'; text: string; uuid: null }[] => [
+      { role: 'user', text: 'zebra body', uuid: null },
+    ];
+
+    const provider = makeProviderWithMeta('/ws', meta) as {
+      resolveWebviewView(view: unknown): void;
+      indexedRecords: Map<string, unknown>;
+    };
+    const { view, send } = makeView();
+    provider.resolveWebviewView(view);
+
+    send({ type: 'search', query: 'zebra' });
+    await until(() => provider.indexedRecords.size > 0);
+    await until(() => false, 30);
+
+    assert.strictEqual(provider.indexedRecords.has('live'), true, 'the live chat is indexed');
+    assert.strictEqual(
+      provider.indexedRecords.has('arc'),
+      false,
+      'the archived chat must NOT be indexed (excluded by the synced userArchived flag)',
+    );
+  });
+
+  it('a matching archived chat never appears in any searchResults post', async () => {
+    const { corpus, meta } = archivedCorpusMeta();
+    chatScanner.scanChats = (): ChatRecord[] => corpus.map((r) => ({ ...r }));
+    bodyReader.readTranscriptBodies = (): { role: 'user'; text: string; uuid: null }[] => [
+      { role: 'user', text: 'zebra body', uuid: null },
+    ];
+
+    const provider = makeProviderWithMeta('/ws', meta) as { resolveWebviewView(view: unknown): void };
+    const { view, posted, send } = makeView();
+    provider.resolveWebviewView(view);
+
+    send({ type: 'search', query: 'zebra' });
+    await until(
+      () => posted.filter((m) => m.type === 'searchResults' && m.query === 'zebra').length > 0,
+    );
+    await until(() => false, 30);
+
+    const zebraPosts = posted.filter((m) => m.type === 'searchResults' && m.query === 'zebra');
+    assert.ok(zebraPosts.length > 0, 'a searchResults post for "zebra" was made');
+    for (const p of zebraPosts) {
+      const ids = (p.rows ?? []).map((r) => r.sessionId);
+      assert.ok(ids.includes('live'), 'the live match is present');
+      assert.ok(
+        !ids.includes('arc'),
+        'the archived chat must NEVER appear in a searchResults post, even though its title and body match',
+      );
+    }
   });
 });
