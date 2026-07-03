@@ -1334,3 +1334,95 @@ the fix was extended to the render() choke point plus the Escape/opener aborts a
 structural regression guards, then re-verified dry. Two minors were also fixed: a stale
 shouldToggleNow doc comment in orgPanelInteractions.ts, and the DOUBLE_CLICK_MS literal drift
 (now guarded by a parity test).
+
+## 2026-07-03 Slice s3a-search-chips (order 5, issue 83): FIT REVIEW — re-wire the existing host content-search seam, role-prefix via a sibling pure builder, Archived row in the filtered view
+
+Fork A (where text search lives): the client (media/orgPanel.js) shipped a title-only
+substring filter (rowMatches, textFilter) that never consulted the host content index,
+while the host (orgPanelWebview.ts postSearch/postSearchResults/rankRows, SearchRow, the
+'search' inbound coercion) carried the full two-phase warm-then-body MiniSearch machinery
+unused by the primary panel. Resolution (reversible): re-wire the EXISTING host seam rather
+than add a parallel client index (ARCHITECTURE.md "search-index location": the index is
+HOST-ONLY, in globalStorage or memory, never synced, never under ~/.claude/projects, persisted
+TIER-A-only). onFilterInput posts a debounced { type:'search', query }; a new client
+'searchResults' handler stores the host-ranked { sessionId -> snippet } join map plus the
+ranked id order. The flat "N RESULTS" view merges the HOST text hits with the CLIENT-side tag
+AND-filter by sessionId: row content (tags, status, breadcrumb, star, time) comes from the
+client sections row; the body snippet comes from the host result. Tags stay client-side, text
+stays host-only, the combined result is one flat list. The existing tag-only flat view (chips
+with no text) is preserved exactly (pure client-side, no host round-trip), and clear-restores-
+sections is unchanged.
+
+Fork B (role-prefixed snippet without breaking the frozen pure buildSnippet): AC #1 requires a
+body-only match to render a "You: " / "Claude: " role-prefixed snippet, and the directive says
+to thread ChatMessageBody.role into the body->index feed and extend the PURE, already-unit-
+tested buildSnippet. buildSnippet(source, term) has exact single-source unit tests (it collapses
+a lone '\n' to a space), so making it line/role aware would break them. Resolution: keep
+buildSnippet byte-for-byte, and (a) have the host readBodyText prefix each message with its role
+label ("You: " / "Claude: ") and join messages with '\n' so the role rides IN the stored
+bodyText that MiniSearch storeFields already returns for snippeting; (b) add a NEW sibling pure
+function buildRoleSnippet(bodyText, term) in searchIndex.ts that splits the stored body on
+newlines, finds the segment containing the match, snippets THAT segment via the unchanged
+buildSnippet, and re-prepends the detected role prefix when the window does not already start at
+the segment head. search() uses buildRoleSnippet; a marker-less single-segment body (the existing
+tests) yields no prefix, so every prior searchIndex test still holds. This is "extend the pure
+buildSnippet [module]" faithfully and keeps the whole snippet path in the headless unit gate.
+
+Fork C (snippet only on a body-only match): the host rankRows always sent a snippet
+(hit.snippet || lastMessageText). AC #1: "a body-only match (not in title) shows the snippet; a
+title match does not." Resolution: rankRows suppresses the snippet (null) when the query is a
+case-insensitive substring of the record title, matching the prototype's
+`q && !c.title.toLowerCase().includes(q)` gate; otherwise it sends the role-prefixed snippet.
+The client shows the snippet row only when the joined row carries one.
+
+Fork D (Archived row in the filtered view): the design authority
+(media/design/ChatSidebar.dc.html: the hasArchived block is a sibling AFTER both the filtering
+and notFiltering blocks) and a freshly captured prototype "redis" filtered screenshot both show
+the bottom "Archived (N)" row DURING filtering. The prior slice's renderFiltered() omitted it.
+Resolution (reversible, fidelity fix on this slice's own surface): renderFiltered() also renders
+the Archived row at the end, so both the sectioned and flat views match the handoff.
+
+Rationale: every choice is reversible (a wiring edit, one new pure function, a one-line rankRows
+gate, one render call) and follows the directives and the binding search invariants. No
+SCHEMA_VERSION change, no new fs path, no widening of the synced surface. Recorded per the fork-
+recording contract; the actual behavior is gated by this slice's adversarial review, the test
+gate, and the fidelity comparison before it lands.
+
+## 2026-07-03 Slice s3a-search-chips (review + fix pass): multi-line message role-prefix loss
+
+The five-lens adversarial review (correctness, integration, read-only/data-integrity,
+untrusted-input security, plus a completeness audit of issue #83's ACs and the visual-
+fidelity results-state comparison) surfaced ONE actionable defect, in the security/
+correctness overlap. The host readBodyText fed each message as "You: "/"Claude: " + text
+joined by '\n', and buildRoleSnippet splits the stored body on '\n' to find the matched
+message segment. A REAL transcript message often contains internal newlines (a multi-line
+prompt or reply), so such a message became SEVERAL segments and only its FIRST line carried
+the role label; a body-only match on a wrapped continuation line then rendered a snippet with
+NO "You:"/"Claude:" prefix, partially violating AC #1. (The prototype's mock messages are all
+single-line, so the fidelity capture did not expose it.)
+
+Fix: readBodyText now collapses each message's OWN internal whitespace (newlines, tabs, space
+runs) to single spaces BEFORE prefixing, so every message is exactly one newline-free segment
+and buildRoleSnippet always finds a labelled segment for any body match. Regression test added
+(searchIndex.test.ts: a match on the second labelled message keeps that message's role with no
+bleed from line 1). The sibling-class sweep confirmed readBodyText is the ONLY role-marked feed
+into buildRoleSnippet; the tier-A lastMessage/title feeds carry no role marker and degrade to a
+plain (prefix-free) snippet, which is correct for those fields.
+
+Everything else held under refutation: all snippet/title/breadcrumb/tag sinks are textContent
+(zero innerHTML, AC #5 met across the whole render-site class); the persisted index stays tier-
+A-only and the synced surface unchanged (searchStore tests green); the stale-query guard drops
+a late reply for a superseded query; the flat view includes title-matched rows without a
+snippet (matching the prototype) and body-only matches with a role-prefixed snippet; and the
+Archived (N) row renders in the filtered view per the handoff. Gates after the fix: 918 unit
+tests passing (one new regression test), eslint clean, tsc clean, vsce package --no-dependencies
+succeeds with out/search/vendor/minisearch.js and media/fonts/*.woff2 shipped and scripts/ +
+media/design/ excluded, and the harness results-state screenshot matches the freshly captured
+prototype results state.
+
+Out-of-scope note (NOT this slice's defect): the inactive tag-chip border uses the shared
+--nest-border-input (#E4E0D6) while the design README specifies #E2DED4 for the chip border
+specifically (2-unit hex delta, sub-perceptible at screenshot fidelity). The chip visuals were
+delivered and reviewed in slice s3a-design-shell; aligning them would need a dedicated chip-
+border token (the search box legitimately uses #E4E0D6), so it is left for a design-shell touch-
+up rather than reopened here. Recorded for the backlog.

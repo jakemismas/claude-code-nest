@@ -128,3 +128,104 @@ export function clearFolderToggleArm(state: FolderClickState): void {
   state.lastClickAt = null;
   state.armedFolderId = null;
 }
+
+// ---- Content-search reply freshness + host-hit x client-tag join (issue #83) ----
+//
+// The org panel's text search is a two-surface join: the HOST owns the text index
+// (MiniSearch over titles + on-demand bodies) and posts a ranked id list; the
+// CLIENT owns the tag AND-filter and the sort control. Membership of the flat
+// results list is (host-ranked ids) INTERSECT (rows passing the client tag filter),
+// deduped, then ordered by the client's chosen sort (host rank decides membership,
+// sort decides order). Because the host posts TWICE per query (a warm tier-A reply
+// then a body-indexed reply) and keystrokes interleave, a reply can arrive for a
+// query the user has already changed; such a stale reply must be dropped. Both the
+// query normalization and the freshness compare are pure decisions the webview must
+// make identically on the inbound-message side and the render side, so they live
+// here as the single source of truth and media/orgPanel.js mirrors them. DOM-free
+// and vscode-free, so the headless unit gate covers the membership/ordering/drop
+// contract that AC #3/#4 rest on.
+
+// Normalize a raw query string the ONE way both the outbound text filter
+// (textFilter) and the inbound search-reply compare use: trim, then lowercase.
+// Sharing this is what guarantees a reply the host echoes (its raw trimmed query)
+// compares equal to the client's stored textFilter for the SAME user input, so a
+// fresh reply is never dropped as stale nor a stale one accepted.
+export function normalizeQuery(raw: unknown): string {
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+}
+
+// Whether a search reply for `replyQuery` corresponds to the query currently in the
+// box (`currentTextFilter`, already normalized). A reply is trusted ONLY when its
+// normalized query equals the current non-empty filter; an empty current filter (the
+// box was cleared) trusts nothing, and a mismatch is a superseded reply to drop.
+// This is exactly the webview's inbound `searchResults` guard AND its render-time
+// haveFreshTextResults predicate, unified so they cannot diverge.
+export function isFreshSearchReply(replyQuery: unknown, currentTextFilter: string): boolean {
+  if (currentTextFilter.length === 0) {
+    return false;
+  }
+  return normalizeQuery(replyQuery) === currentTextFilter;
+}
+
+// A minimal shape the join needs off each section row: its chat id and the tag ids
+// it carries (for the client AND-filter). The webview row objects carry more; the
+// kernel only reads these two.
+export interface JoinRow {
+  sessionId: string;
+  tagIds?: string[];
+}
+
+export interface JoinTextHitsInput<R extends JoinRow> {
+  // The host-ranked chat ids (searchHitOrder), in the order the host returned them.
+  order: readonly string[];
+  // The per-id snippet the host supplied (searchHitSnippets). A missing/empty entry
+  // means "no snippet row for this chat" (a title match sends none).
+  snippetOf: (sessionId: string) => string | null | undefined;
+  // Resolve a chat id to its section row (rowsBySessionId). Returns undefined when
+  // the id is not in the current section model (a hit for a chat not shown here).
+  rowOf: (sessionId: string) => R | undefined;
+  // The client tag AND-filter: true when the row passes the active tag chips.
+  rowMatches: (row: R) => boolean;
+  // The panel's sort applied to the resulting membership (host rank -> membership,
+  // this -> order). Receives and returns the row array.
+  sortRows: (rows: R[]) => R[];
+}
+
+export interface JoinTextHitsResult<R extends JoinRow> {
+  // The visible rows: host-ranked ids that resolve to a row AND pass the tag filter,
+  // deduped (first occurrence wins), then sorted by the panel's sort.
+  rows: R[];
+  // sessionId -> snippet, only for rows whose host snippet was a non-empty string.
+  snippets: Map<string, string>;
+}
+
+// Join the host text-hit ids with the client tag filter into the flat results set.
+// Walk the host order once, skip ids already seen, skip ids that do not resolve to a
+// row or that fail the tag filter, collect the row and (when present and non-empty)
+// its snippet, then apply the panel sort to the collected rows. The dedup guards
+// against a host order that repeats an id; the row/tag gates enforce the
+// membership rule; the sort at the end enforces the ordering rule. Pure: no DOM, no
+// mutation of the input rows.
+export function joinTextHits<R extends JoinRow>(
+  input: JoinTextHitsInput<R>,
+): JoinTextHitsResult<R> {
+  const seen = new Set<string>();
+  const rows: R[] = [];
+  const snippets = new Map<string, string>();
+  for (const sessionId of input.order) {
+    if (seen.has(sessionId)) {
+      continue;
+    }
+    const row = input.rowOf(sessionId);
+    if (row === undefined || !input.rowMatches(row)) {
+      continue;
+    }
+    seen.add(sessionId);
+    rows.push(row);
+    const snip = input.snippetOf(sessionId);
+    if (typeof snip === 'string' && snip.length > 0) {
+      snippets.set(sessionId, snip);
+    }
+  }
+  return { rows: input.sortRows(rows), snippets };
+}

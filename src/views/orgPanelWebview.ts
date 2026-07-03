@@ -7,12 +7,14 @@ import { ProjectMeta, isValidColor } from '../store/schema';
 import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { tokenBadge } from './chatTooltip';
 import { relativeTime } from './relativeTime';
-import { buildSections, OrgSections } from './orgPanelModel';
+import { buildSections, OrgSections, isArchived } from './orgPanelModel';
 import {
   SearchDoc,
   buildIndex,
   docFromRecord,
   search as searchIndex,
+  ROLE_LABEL_USER,
+  ROLE_LABEL_ASSISTANT,
 } from '../search/searchIndex';
 import { persistTierAIndex, loadOrRebuildTierAIndex } from '../search/searchStore';
 import { handleWebviewDrop, WebviewDropDeps } from '../dnd/webviewDropAdapter';
@@ -409,15 +411,30 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       this.postSearchResults('', []);
       return;
     }
+    // Stamp this search with the build generation live at entry. Each result post
+    // that runs after an await is gated on the generation still matching, mirroring
+    // the build-phase guards (buildTierAIndex/upgradeToBodyIndex): if
+    // invalidateContentIndex() runs during an await it bumps buildGeneration and
+    // clears indexedRecords, so the awaited (now stale) index would rank to zero rows
+    // and post an EMPTY result for the query still in the box, blanking valid hits
+    // with no recovery. Skipping the post leaves the client's prior fresh results in
+    // place; the refresh's postSections re-render keeps showing the real match.
+    const generation = this.buildGeneration;
     this.ensureContentIndexBuilding();
     if (this.bodyIndexReady) {
       this.postSearchResults(trimmed, this.rankRows(this.contentIndex, trimmed));
       return;
     }
     const tierA = this.tierAReady === null ? this.contentIndex : await this.tierAReady;
+    if (generation !== this.buildGeneration) {
+      return;
+    }
     this.postSearchResults(trimmed, this.rankRows(tierA, trimmed));
     if (!this.bodyIndexReady && this.bodyReady !== null) {
       const body = await this.bodyReady;
+      if (generation !== this.buildGeneration) {
+        return;
+      }
       this.postSearchResults(trimmed, this.rankRows(body, trimmed));
     }
   }
@@ -439,12 +456,20 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     } catch {
       return [];
     }
+    const needle = query.trim().toLowerCase();
     const rows: SearchRow[] = [];
     hits.forEach((hit, i) => {
       const record = this.indexedRecords.get(hit.sessionId);
       if (record === undefined) {
         return;
       }
+      // Snippet ONLY on a body-only match: a chat whose TITLE contains the query
+      // shows no snippet (issue #83 AC #1; the prototype's
+      // `q && !c.title.toLowerCase().includes(q)` gate). A body-only match shows the
+      // role-prefixed snippet buildRoleSnippet produced; a title match sends null so
+      // the client renders no snippet row under it.
+      const titleHit =
+        needle.length > 0 && (record.title ?? '').toLowerCase().indexOf(needle) >= 0;
       rows.push({
         rank: i,
         sessionId: record.sessionId,
@@ -452,7 +477,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
         description: relativeTime(record.timestamp),
         timestamp: record.timestamp,
         tokens: tokenBadge(record),
-        snippet: hit.snippet.length > 0 ? hit.snippet : record.lastMessageText,
+        snippet: titleHit ? null : hit.snippet.length > 0 ? hit.snippet : null,
       });
     });
     return rows;
@@ -492,11 +517,26 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     if (generation !== this.buildGeneration) {
       return null;
     }
+    // Exclude user-archived chats from the content-search index by the SAME synced
+    // predicate buildSections uses to drop them from the visible sections. Filtering
+    // HERE (the sole feeder) sweeps every downstream search sink at once: the
+    // MiniSearch index (tier-A and body), the persisted tier-A cache, the 50-hit
+    // search() cap, and the rankRows join. Without it, archived chats are indexed and
+    // rank into the top 50 on a common term, then the client silently drops them when
+    // it joins hits to the archived-excluded rows, so genuine live matches ranked
+    // beyond 50 never surface. Archiving leaves the transcript on disk (the Nest body
+    // copy is what curationCommands cleans up), so archived chats remain scannable and
+    // would otherwise keep getting indexed. Meta is read via the same
+    // getProjectKey()+store.getProjectMeta idiom buildSectionModel uses.
+    const projectKey = this.getProjectKey();
+    const meta: ProjectMeta | undefined =
+      projectKey !== undefined ? this.store.getProjectMeta(projectKey) : undefined;
+    const visible = records.filter((r) => !isArchived(r.sessionId, meta));
     this.indexedRecords.clear();
-    for (const record of records) {
+    for (const record of visible) {
       this.indexedRecords.set(record.sessionId, record);
     }
-    return records;
+    return visible;
   }
 
   private async buildTierAIndex(
@@ -545,13 +585,39 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     return bodyIndex;
   }
 
+  // Read one chat's message bodies and concatenate them into the role-labeled body
+  // string docFromRecord splits into the index text and the snippet source. Each
+  // genuine turn is PREFIXED with its role label ("You: " / "Claude: ") and turns
+  // are joined with '\n'. docFromRecord then stores this labeled text verbatim as
+  // the (never-indexed) snippet source AND indexes a label-STRIPPED copy, so the
+  // label words never become searchable tokens (a search for "claude"/"you" must
+  // not match every chat) while buildRoleSnippet can still re-emit the label on a
+  // body-match snippet (issue #83 AC #1) without the host re-reading the body at
+  // query time. Each message's OWN internal whitespace (newlines in a multi-line
+  // message, tabs, runs of spaces) is collapsed to single spaces FIRST, so every
+  // message is exactly ONE newline-free segment: buildRoleSnippet splits the body
+  // on '\n' to find the matched message, so a message must not itself contain a
+  // newline or a match on a wrapped continuation line would lose its role prefix.
+  // Bodies are read on demand and discarded here (the returned string is handed
+  // straight to docFromRecord and never retained), preserving the tier-A "full body
+  // never persisted" invariant: this feeds the IN-MEMORY body index only; the
+  // persisted index is tier-A-only (searchStore.tierADocs).
   private async readBodyText(record: ChatRecord): Promise<string> {
     try {
       const bodies = readTranscriptBodies(record.filePath);
-      return bodies
-        .map((b) => (b.text === null ? '' : b.text))
-        .filter((t) => t.length > 0)
-        .join('\n');
+      const lines: string[] = [];
+      for (const b of bodies) {
+        if (b.text === null || b.text.length === 0) {
+          continue;
+        }
+        const oneLine = b.text.replace(/\s+/g, ' ').trim();
+        if (oneLine.length === 0) {
+          continue;
+        }
+        const label = b.role === 'user' ? ROLE_LABEL_USER : ROLE_LABEL_ASSISTANT;
+        lines.push(label + oneLine);
+      }
+      return lines.join('\n');
     } catch {
       return '';
     }

@@ -52,8 +52,30 @@
   // The set of active tag-id filters (AND across selected chips: a row must carry
   // every selected tag to show).
   const activeTags = new Set();
-  // The current text filter (title substring).
+  // The current text filter (normalized: trimmed + lowercased). Text MATCHING is
+  // HOST-side (the MiniSearch content index over titles + on-demand bodies): the
+  // client posts { type:'search', query } and the host replies with { type:
+  // 'searchResults' }; the client never re-implements a text index (ARCHITECTURE.md
+  // "search-index location": the index is HOST-ONLY, in globalStorage or memory,
+  // never synced, never under ~/.claude/projects).
   let textFilter = '';
+
+  // The host content-search results for the CURRENT text query. searchHitSnippets
+  // maps sessionId -> the host snippet (a role-prefixed body-match snippet, or null
+  // on a title match, issue #83 AC #1); searchHitOrder is the host-ranked id list;
+  // searchResultsQuery is the normalized query those results correspond to, so a
+  // late reply for a stale query is ignored (the host posts twice per query as the
+  // two-phase warm-then-body index refines, and keystrokes can interleave). Text
+  // hits are trusted ONLY when searchResultsQuery === textFilter.
+  let searchHitSnippets = new Map();
+  let searchHitOrder = [];
+  let searchResultsQuery = null;
+
+  // The debounce timer for the outbound { type:'search' } post (issue #83 AC #4:
+  // typing stays responsive; the query post is debounced while a chip toggle stays
+  // immediate). Cleared and re-armed on each keystroke.
+  let searchDebounceTimer = null;
+  const SEARCH_DEBOUNCE_MS = 140;
 
   // Sort, hydrated from the host's persisted state on 'state'.
   let sortMode = 'newest';
@@ -157,8 +179,13 @@
     }
   }
 
-  // ---- row matching (text + tag filters) ----
+  // ---- row matching (tag filter, client-side) ----
 
+  // The CLIENT-side filter is the tag AND-filter only: a row must carry every
+  // selected tag. TEXT matching is HOST-side (searchHit* above), joined in
+  // renderFiltered, so this is not consulted for text; it gates the sectioned
+  // tree's per-section visibility and the tag-only flat view. A row with no active
+  // tag filter always passes here.
   function rowMatches(row) {
     if (activeTags.size > 0) {
       const ids = row.tagIds || [];
@@ -166,11 +193,6 @@
         if (ids.indexOf(t) === -1) {
           return false;
         }
-      }
-    }
-    if (textFilter.length > 0) {
-      if (row.title.toLowerCase().indexOf(textFilter) === -1) {
-        return false;
       }
     }
     return true;
@@ -667,28 +689,140 @@
     restoreFocus();
   }
 
-  // The flat filtered view: a "N RESULTS" label then every matching row (across all
-  // sections and folders), deduped by sessionId, with the body-match snippet shown.
-  function renderFiltered() {
-    const seen = new Set();
-    const all = [];
-    const collect = (rows) => {
+  // Build a sessionId -> row lookup over every section (Starred, Questions, and each
+  // folder's rows), first-seen wins. The SAME chat appears in several sections (a
+  // starred, filed, question chat is in all three); we want one row object carrying
+  // its tags/status/breadcrumb/star to resolve a host text hit against.
+  function rowsBySessionId() {
+    const map = new Map();
+    const add = (rows) => {
       for (const row of rows || []) {
-        if (seen.has(row.sessionId)) {
-          continue;
-        }
-        if (rowMatches(row)) {
-          seen.add(row.sessionId);
-          all.push(row);
+        if (!map.has(row.sessionId)) {
+          map.set(row.sessionId, row);
         }
       }
     };
-    collect(sections.starred);
-    collect(sections.questions);
+    add(sections.starred);
+    add(sections.questions);
     for (const folder of sections.folders) {
-      collect(folder.rows);
+      add(folder.rows);
     }
-    const visible = sortRows(all);
+    return map;
+  }
+
+  // MIRROR of src/views/orgPanelInteractions.ts normalizeQuery: the ONE way both the
+  // outbound text filter and the inbound search-reply compare normalize a query
+  // (trim then lowercase), so a reply the host echoes compares equal to the stored
+  // textFilter for the same input. Kept name-identical to the kernel so the parity
+  // test can pin that the webview uses it.
+  function normalizeQuery(raw) {
+    return typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  }
+
+  // MIRROR of src/views/orgPanelInteractions.ts isFreshSearchReply: a reply for
+  // replyQuery is trusted only when it matches the current non-empty textFilter; an
+  // empty filter trusts nothing and a mismatch is a superseded reply to drop.
+  function isFreshSearchReply(replyQuery, currentTextFilter) {
+    if (currentTextFilter.length === 0) {
+      return false;
+    }
+    return normalizeQuery(replyQuery) === currentTextFilter;
+  }
+
+  // Whether the host content-search results in hand correspond to the current text
+  // query. A late reply for a stale query (the host posts twice per query as its
+  // two-phase index refines, and keystrokes interleave) is not trusted. Delegates to
+  // the shared freshness mirror so the render side and the inbound-message side use
+  // one rule (searchResultsQuery is already normalized when stored).
+  function haveFreshTextResults() {
+    return isFreshSearchReply(searchResultsQuery, textFilter);
+  }
+
+  // MIRROR of src/views/orgPanelInteractions.ts joinTextHits: intersect the host-
+  // ranked ids with the client tag filter, dedupe (first occurrence wins), collect
+  // each non-empty host snippet, then apply the panel sort (host rank -> membership,
+  // sort -> order). Returns { rows, snippets }. Kept name/shape-aligned with the
+  // kernel the unit test pins.
+  function joinTextHits(order, snippetOf, rowOf, matches, sort) {
+    const seen = new Set();
+    const rows = [];
+    const snippets = new Map();
+    for (const sessionId of order) {
+      if (seen.has(sessionId)) {
+        continue;
+      }
+      const row = rowOf(sessionId);
+      if (!row || !matches(row)) {
+        continue;
+      }
+      seen.add(sessionId);
+      rows.push(row);
+      const snip = snippetOf(sessionId);
+      if (typeof snip === 'string' && snip.length > 0) {
+        snippets.set(sessionId, snip);
+      }
+    }
+    return { rows: sort(rows), snippets };
+  }
+
+  // The flat filtered view: a "N RESULTS" label then the flat matching rows, with a
+  // body-match snippet and a folder breadcrumb. Two combine modes (issue #83):
+  //   - TEXT present: the result set is the HOST text-hit ids (searchHitOrder)
+  //     intersected with the CLIENT tag AND-filter (rowMatches). Row content comes
+  //     from the client section row; the snippet is the HOST snippet for that id
+  //     (null on a title match -> no snippet row). Text is host-only, tags are
+  //     client-side, the combined result is one flat list.
+  //   - TAG-ONLY (chips, no text): the existing pure client-side tag-AND flat view,
+  //     unchanged (no host round-trip).
+  // The bottom "Archived (N)" row renders in this view too, matching the handoff
+  // (media/design/ChatSidebar.dc.html: the Archived block is a sibling after both
+  // the filtering and non-filtering blocks).
+  function renderFiltered() {
+    const withText = textFilter.length > 0;
+    let visible = [];
+    // rowSnippets carries the per-row snippet to show (host snippet on a text
+    // match). Keyed by sessionId; absent -> no snippet row.
+    const rowSnippets = new Map();
+
+    if (withText) {
+      // Host text hits joined with the client tag filter, in host rank order, then
+      // sorted by the panel's sort control (design README "Sort applies to every
+      // list"): host rank decides MEMBERSHIP, the chosen sort decides ORDER. The
+      // join/dedup/snippet-collect + sort is the shared joinTextHits mirror. Only a
+      // FRESH host reply is joined; a stale/absent reply yields an empty set.
+      if (haveFreshTextResults()) {
+        const byId = rowsBySessionId();
+        const joined = joinTextHits(
+          searchHitOrder,
+          (id) => searchHitSnippets.get(id),
+          (id) => byId.get(id),
+          rowMatches,
+          sortRows,
+        );
+        visible = joined.rows;
+        joined.snippets.forEach((snip, id) => rowSnippets.set(id, snip));
+      }
+    } else {
+      // Tag-only flat view: pure client-side, unchanged from the prior slice.
+      const seen = new Set();
+      const collect = (rows) => {
+        for (const row of rows || []) {
+          if (seen.has(row.sessionId)) {
+            continue;
+          }
+          if (rowMatches(row)) {
+            seen.add(row.sessionId);
+            visible.push(row);
+          }
+        }
+      };
+      collect(sections.starred);
+      collect(sections.questions);
+      for (const folder of sections.folders) {
+        collect(folder.rows);
+      }
+      visible = sortRows(visible);
+    }
 
     const header = document.createElement('div');
     header.className = 'nest-section-header';
@@ -700,15 +834,25 @@
 
     if (visible.length === 0) {
       renderEmpty('No chats match your search.');
-      return;
+    } else {
+      const group = document.createElement('div');
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-label', 'Filter results');
+      for (const row of visible) {
+        const snip = rowSnippets.get(row.sessionId);
+        // A body-match snippet OVERRIDES the row's tier-A snippet; a title match (or
+        // tag-only) shows none. Pass it through a shallow row copy so makeRow's
+        // row.snippet contract is untouched and the section row object is not mutated.
+        const rowForRender = snip ? Object.assign({}, row, { snippet: snip }) : row;
+        group.appendChild(
+          makeRow(rowForRender, 0, { showSnippet: !!snip, showBreadcrumb: true }),
+        );
+      }
+      listEl.appendChild(group);
     }
-    const group = document.createElement('div');
-    group.setAttribute('role', 'group');
-    group.setAttribute('aria-label', 'Filter results');
-    for (const row of visible) {
-      group.appendChild(makeRow(row, 0, { showSnippet: true, showBreadcrumb: true }));
-    }
-    listEl.appendChild(group);
+
+    // The Archived (N) row is present in the filtered view too (handoff parity).
+    renderArchivedRow();
   }
 
   // ---- collapse / expand (issue #64) ----
@@ -1529,12 +1673,47 @@
 
   // ---- search input ----
 
+  // Post the current text query to the host content-search seam. Debounced by
+  // onFilterInput (issue #83 AC #4) so a fast typist does not fire a query per
+  // keystroke; the host's body-index build already yields to the event loop
+  // (BODY_READ_CHUNK) so neither side blocks the UI thread.
+  function postSearchQuery() {
+    vscode.postMessage({ type: 'search', query: filterEl.value });
+  }
+
+  function cancelSearchDebounce() {
+    if (searchDebounceTimer !== null) {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = null;
+    }
+  }
+
   function onFilterInput() {
-    textFilter = filterEl.value.trim().toLowerCase();
+    textFilter = normalizeQuery(filterEl.value);
     if (searchClearEl) {
       searchClearEl.hidden = filterEl.value.length === 0;
     }
+    // Re-render immediately so the search box, chip state, and (for a tag-only
+    // filter) the flat list stay responsive; the TEXT hit set fills in when the
+    // debounced host reply lands. When the box is emptied, drop any stale host
+    // results at once so clearing restores the sectioned view without a flash.
+    if (textFilter.length === 0) {
+      cancelSearchDebounce();
+      searchResultsQuery = null;
+      searchHitOrder = [];
+      searchHitSnippets = new Map();
+      render();
+      // Tell the host the query is empty so it does not post late results for the
+      // last non-empty query that would then be ignored anyway.
+      postSearchQuery();
+      return;
+    }
     render();
+    cancelSearchDebounce();
+    searchDebounceTimer = setTimeout(() => {
+      searchDebounceTimer = null;
+      postSearchQuery();
+    }, SEARCH_DEBOUNCE_MS);
   }
 
   function clearSearch() {
@@ -1693,6 +1872,37 @@
         }
       }
       render();
+    } else if (msg.type === 'searchResults') {
+      // Host content-search reply (issue #83 AC #1/#3). Adopt the ranked ids and the
+      // per-id snippet ONLY for the query still in the box; a reply for a stale query
+      // (the host posts twice per query as its two-phase index refines, and
+      // keystrokes interleave) is dropped. The host echoes its RAW trimmed query;
+      // normalize it the same way textFilter is (the shared normalizeQuery mirror)
+      // and drop the reply unless it is fresh for the query still in the box.
+      const q = normalizeQuery(msg.query);
+      if (!isFreshSearchReply(q, textFilter)) {
+        return;
+      }
+      const rows = Array.isArray(msg.rows) ? msg.rows : [];
+      const order = [];
+      const snippets = new Map();
+      for (const r of rows) {
+        if (!r || typeof r.sessionId !== 'string') {
+          continue;
+        }
+        order.push(r.sessionId);
+        if (typeof r.snippet === 'string' && r.snippet.length > 0) {
+          snippets.set(r.sessionId, r.snippet);
+        }
+      }
+      searchResultsQuery = q;
+      searchHitOrder = order;
+      searchHitSnippets = snippets;
+      // Only the flat results view depends on these; re-render if a text filter is
+      // active (it is, since q === textFilter and q is non-empty here).
+      if (textFilter.length > 0) {
+        render();
+      }
     } else if (msg.type === 'active') {
       // The host resolved the currently-open chat (best-effort tab-label match). Re-tint
       // in place without a full re-render: clear the old tint, apply the new one.

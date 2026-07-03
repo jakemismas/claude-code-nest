@@ -597,6 +597,98 @@ s3a-folder-tree; the binding structural facts:
   / Unsorted-header unfile / keyboard-and-ARIA tree are preserved from prior slices, not
   rebuilt.
 
+## Search and tag chips in the org panel (Sprint 3, slice s3a-search-chips) — binding
+
+Slice s3a-search-chips wires the org panel's search box to the EXISTING host
+content-search seam and merges its full-text hits with the client-side tag-chip
+filter, and delivers the role-prefixed body snippet (issue #83). Full rationale
+and the reversible-fork records are in DECISIONS.md slice s3a-search-chips (the
+fit review and the review+fix pass); the binding structural facts:
+
+- RE-WIRE THE HOST SEAM, NEVER A PARALLEL CLIENT INDEX. Text search is HOST-ONLY
+  (this file's "Search-index location" rules bind: the index lives in globalStorage
+  or memory, is never synced, never under ~/.claude/projects, and the persisted
+  index is TIER-A-ONLY). `media/orgPanel.js` onFilterInput posts a DEBOUNCED
+  `{ type:'search', query }` and a new client `searchResults` handler stores the
+  host-ranked `{ sessionId -> snippet }` join map plus the ranked-id order; the
+  client NEVER re-implements a text index (the pre-slice title-only substring
+  filter is gone from the text path). The host already carried the machinery
+  (`orgPanelWebview.ts` postSearch/postSearchResults/rankRows, the SearchRow shape,
+  the `search` inbound coercion); this slice only connects the client to it.
+- THE FLAT "N RESULTS" VIEW MERGES HOST TEXT HITS WITH THE CLIENT TAG AND-FILTER
+  BY sessionId. renderFiltered() intersects the host text hits with the client-side
+  tag AND-filter (rowMatches): row content (tags, status, breadcrumb, star, time)
+  comes from the client sections row; the body snippet comes from the host result.
+  Tags stay CLIENT-SIDE, text stays HOST-ONLY, and the combined result is one flat
+  list. The existing tag-only flat view (chips selected, no text) is PRESERVED
+  EXACTLY as a pure client-side path with no host round-trip, and clearing the box
+  restores the sectioned view unchanged.
+- STALE-QUERY GUARD ON THE ASYNC REPLY. Because the query post is debounced and the
+  host reply is async, the client trusts a `searchResults` payload ONLY when its
+  query still equals the current normalized filter text (isFreshSearchReply); a late
+  reply for a superseded query is dropped. Emptying the box drops any stale host map.
+- THE ROLE-PREFIXED SNIPPET RIDES A STORE-ONLY BODY FEED, NOT A CHANGED buildSnippet.
+  AC #1 requires a body-only match to render a "You: " / "Claude: " prefixed snippet.
+  The pure, already-unit-tested `buildSnippet(source, term)` is kept BYTE-FOR-BYTE
+  (its single-source tests, including the lone-'\n'-to-space collapse, must still
+  hold). Instead: (a) the host `readBodyText` (orgPanelWebview.ts) reads one chat's
+  bodies on demand, COLLAPSES each message's own internal whitespace to single spaces
+  so every message is exactly one newline-free segment, PREFIXES each with its role
+  label (ROLE_LABEL_USER "You: " / ROLE_LABEL_ASSISTANT "Claude: " from searchIndex.ts,
+  threaded from ChatMessageBody.role in bodyReader.ts), and joins messages with '\n';
+  (b) a NEW sibling pure function `buildRoleSnippet(bodyText, term)` in searchIndex.ts
+  splits the stored body on newlines, snippets the matched segment via the unchanged
+  buildSnippet, and re-prepends that segment's detected role label. search() uses
+  buildRoleSnippet. FAITHFUL DEGRADATION: a marker-less source (a plain-text test
+  feed, or the tier-A last-message/title feeds, which carry no role marker) yields no
+  prefix, so every prior searchIndex test still passes. The per-message
+  whitespace-collapse is load-bearing: without it a wrapped continuation line of a
+  multi-line message would become an unlabelled segment and lose its role prefix
+  (the review+fix-pass defect).
+- THE INDEXED TEXT HAS ROLE LABELS STRIPPED; THE LABEL RIDES ONLY THE SNIPPET SOURCE.
+  docFromRecord derives TWO fields from the role-labeled body: `bodyText` (label WORDS
+  stripped per segment via stripRoleLabels) is the searchable field, and
+  `bodySnippetSource` (labeled verbatim) is STORE-ONLY. FIELDS omits bodySnippetSource
+  so no label word ("you"/"claude") is ever tokenized into a searchable term (otherwise
+  a search for "claude" would match every chat); STORE_FIELDS includes it so the snippet
+  can carry the label the index never saw. Both are exported and REUSED by searchStore's
+  load-time options so the build-side and load-side field shapes cannot drift. This does
+  NOT weaken the TIER-A-ONLY persisted invariant: a PERSISTED document is built without a
+  body, so bodyText and bodySnippetSource are both empty on disk; the role-labeled body
+  is an IN-MEMORY-only concern read on demand and discarded, exactly like the slice-2
+  body feed.
+- SNIPPET ONLY ON A BODY-ONLY MATCH (AC #1). rankRows SUPPRESSES the snippet (sends
+  null) when the query is a case-insensitive substring of the record title (matching the
+  prototype's `q && !c.title.toLowerCase().includes(q)` gate); otherwise it sends the
+  role-prefixed snippet. The client renders the snippet row only when the joined row
+  carries one, so a title match shows no snippet and a body-only match does.
+- DEBOUNCE THE QUERY POST, NOT THE CHIP TOGGLE (AC #4). onFilterInput debounces the
+  `{ type:'search' }` post so a fast typist does not fire a query per keystroke; a chip
+  toggle stays IMMEDIATE (it is a pure client-side re-render). The host body-index build
+  already yields to the event loop (BODY_READ_CHUNK) so the UI thread stays responsive.
+- THE ARCHIVED (N) ROW RENDERS IN THE FILTERED VIEW TOO. The design authority
+  (media/design/ChatSidebar.dc.html: the hasArchived block is a sibling after both the
+  filtering and not-filtering blocks) shows the bottom "Archived (N)" row DURING
+  filtering; renderFiltered() renders it at the end, so the sectioned and flat views both
+  match the handoff. This does not change the archived-exclusion rule (archived chats stay
+  out of every visible section and the tag-chip counts; only the summary count row shows).
+- EVERY NEW RENDER SITE STAYS ON textContent/createElement (the security render-site
+  class). orgPanel.js uses ZERO innerHTML/insertAdjacentHTML; the snippet and breadcrumb
+  sinks are UNTRUSTED transcript text and are written as textContent only. The
+  `.nest-row-snippet` / `.nest-row-breadcrumb` CSS, the chip active states, and the
+  hexToRgba alpha helper already exist from s3a-design-shell and are reused, not rebuilt.
+- NO SCHEMA/SCHEMA_VERSION CHANGE, NO NEW fs PATH, NO WIDENING OF THE SYNCED SURFACE.
+  searchStore.ts adds no fs write path (it still persists only through exportIO behind
+  assertNotUnderClaudeProjects); the change is the FIELDS/STORE_FIELDS reuse only. The
+  synced surface stays exactly nest.meta.v1::<projectKey>. See DECISIONS.md Slice
+  s3a-search-chips.
+- THE FIDELITY HARNESS CAPTURES THE RESULTS STATE, not only the default. The
+  visual-fidelity lens (this file's "Visual-fidelity harness" rules) is extended so
+  scripts/fidelity/screenshot.js uses renderAndCapture's afterLoad hook to drive the
+  filter input (and/or a chip) into the flat "N RESULTS" state, capture it, and compare
+  against a matching filtered prototype capture; the default harness.png capture is
+  unchanged.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under
