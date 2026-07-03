@@ -10,15 +10,22 @@ own smoke section; check the ones whose slice is recorded in CHANGELOG.md.
 
 ## Install the packaged VSIX
 
-The shipped artifact is `claude-code-nest-0.1.0.vsix` in the repo root.
+The current handoff artifact is `claude-code-nest-0.1.1-sprint3-part1.vsix` in the
+repo root. It is a MID-SPRINT build: it carries all of Sprint 3 Part 1 (the
+one-panel consolidation through full-text search and tag chips, issues #78 to #83)
+on top of the released 0.1.1 surface. It is NOT the finished v0.2.0 "One Panel"
+release; Part 2 (hover card, context menu, in-panel Settings and Archive overlays,
+auto-archive), Part 3 (the fidelity sweep and the docs/a11y closeout), the human
+verify gate, and the pre-release security council have not run yet. Run only the
+smoke sections whose slice is recorded as landed in CHANGELOG.md.
 
 1. From a terminal, install it directly:
-   `code --install-extension claude-code-nest-0.1.0.vsix`. Or in VSCode, open the
-   Extensions view, use the `...` menu, choose "Install from VSIX...", and select
-   `claude-code-nest-0.1.0.vsix`.
+   `code --install-extension claude-code-nest-0.1.1-sprint3-part1.vsix`. Or in
+   VSCode, open the Extensions view, use the `...` menu, choose "Install from
+   VSIX...", and select `claude-code-nest-0.1.1-sprint3-part1.vsix`.
 2. If you need to rebuild the artifact from source instead, run
-   `npx vsce package --no-dependencies -o claude-code-nest-0.1.0.vsix`, or
-   `npm run package` (produces `nest-build-check.vsix`, the build-check name).
+   `npx vsce package --no-dependencies -o claude-code-nest-0.1.1-sprint3-part1.vsix`,
+   or `npm run package` (produces `nest-build-check.vsix`, the build-check name).
 3. Reload the window when prompted.
 4. Open a folder that has Claude Code sessions under `~/.claude/projects/` (for
    example this repo's own workspace), so the extension has chats to list.
@@ -572,6 +579,74 @@ behavior. The index invariant below still holds.
    on any surviving surface, and that the per-row ~token badge still shows.
 7. Confirm nothing under `~/.claude/projects/` changed.
 
+### S3A-1: visual fidelity harness (issue #79)
+
+This is a build-and-review aid, not a runtime UI check, so it runs from the repo
+rather than the installed extension. Confirm the harness produces both screenshot
+sets so later slices can be eye-compared against the design.
+
+1. From the repo root, run `npm run fidelity`.
+2. Confirm it writes two PNG sets under `.claude-working/fidelity/` (gitignored):
+   one of the real Organize panel asset rendered with synthetic mock data, and one
+   of the design prototype `media/design/ChatSidebar.html`, both at the 320px
+   reference width. Open both PNG sets and confirm they render.
+3. Confirm the committed reference shots exist under `media/design/reference/`.
+4. If no headless Chrome or Edge is installed, confirm the command FAILS LOUDLY
+   with a clear message rather than passing silently.
+
+### S3A-2: design-token shell, toolbar, sort popover, search visuals (issue #80)
+
+1. On a DARK VSCode theme, open the Organize panel. Confirm the panel renders the
+   warm light design (panel background `#FCFBF8`, accent `#d97757`), NOT the dark
+   theme colors: the hardcoded handoff palette drives the panel this sprint.
+2. Toolbar layout. Confirm a "New session" pill on the LEFT, a spacer, then a gear
+   button, matching the prototype.
+3. Sort popover. Open the sort control. Confirm exactly three options, Newest
+   first (default) / Oldest first / Name A-Z, with an accent checkmark on the
+   active one (not the OS-native dropdown). Pick each and confirm every list, and
+   the flat results list, reorders. Confirm the choice persists across a window
+   reload.
+4. New session. Click the "New session" pill. Confirm it opens a fresh Claude Code
+   chat (via the installed `claude-vscode.*` new-chat command, with a graceful
+   fallback), and that when no Claude Code command is available it shows an
+   informational toast instead of throwing.
+5. Search focus glow. Click into the search box. Confirm the orange focus glow and
+   the clear button match the prototype.
+6. Sections and Archived row. Confirm the sections render in order STARRED /
+   QUESTIONS / FOLDERS / UNSORTED, that Starred and Questions are hidden when
+   empty while Unsorted is always present, and that the bottom `Archived (N)` row
+   is present and opens the Archive view.
+7. Font packaging. Confirm the Newsreader serif font is served from the extension
+   (no network fetch; disconnect if unsure and confirm no failed font request).
+8. Confirm nothing under `~/.claude/projects/` changed.
+
+### S3A-3: chat row anatomy, read state, question badge, unread dot (issue #81)
+
+1. Row anatomy. Confirm each chat row shows the status slot, title, tag pills, a
+   tabular relative time (formats `35m` / `3h` / `1d` / `2w` / `1mo`), and a star
+   toggle, with the exact paddings and colors of the prototype. Confirm the OLD
+   per-row token badge is GONE.
+2. Unread dot. Find (or create) a chat whose last turn is an assistant REPLY that
+   does not ask a question and that you have not opened since. Confirm the row
+   shows a solid unread dot.
+3. Question badge. Find (or create) a chat whose last unread turn is an assistant
+   message that ASKS something. Confirm the row shows a blinking `?` badge and a
+   folder breadcrumb, and that the chat appears in the QUESTIONS section.
+4. Reduced motion. Turn on the OS "reduce motion" setting and confirm the `?`
+   badge is static (not blinking) while still present.
+5. Clear on open. Open the unread chat from the panel. Confirm both the dot and
+   the `?` clear. Repeat but clear by FOCUSING the chat's Claude Code tab instead
+   of clicking the row, and confirm the marker clears the same way. Confirm a
+   newer USER message in a chat also clears its marker.
+6. Per-device, never synced. Confirm the read state is per device: opening a chat
+   on this machine clears its marker here only (the marker is workspace-local
+   Memento state, never in Settings Sync).
+7. Active-row tint and starred row. Confirm the chat whose tab is focused gets a
+   subtle active-row tint (`#F6E5DB` with an inset accent border), and that a
+   STARRED row is NOT tinted just for being starred (the active tint is the only
+   row tint).
+8. Confirm nothing under `~/.claude/projects/` changed.
+
 ### S3A folder-tree: rows, color picker, popovers, depth clamp (issue #82)
 
 1. Folder header. Confirm each folder row shows a chevron, a folder-shape glyph
@@ -655,6 +730,48 @@ behavior. The index invariant below still holds.
 10. Responsiveness and no transcript write. Type quickly and confirm the box stays
     responsive (the query is debounced; the list fills in as results land). Confirm
     nothing under `~/.claude/projects/` changed by any search.
+
+### Not yet built: Part 2 and Part 3 smoke steps (do not run on this VSIX)
+
+These slices from SPRINT-3-PLAN.md have NOT landed on main, so their surfaces do
+not exist in `claude-code-nest-0.1.1-sprint3-part1.vsix`. They are listed here so
+this checklist stays complete against the plan; each becomes a runnable section
+when its slice merges. Do not attempt these on the current build.
+
+- Part 2 slice 0, rich hover preview card (issue #84): hovering a chat row opens a
+  floating 270px card with the title; a folder, age, and `~NNk tok` line; tag
+  pills; and a first-user plus last-assistant snippet clamped to three lines. The
+  card is hover-stable (survives moving onto it, ~130ms leave delay) and has a
+  keyboard-accessible equivalent. Confirm the body is read on demand and discarded
+  and nothing under `~/.claude/projects/` changes.
+- Part 2 slice 1, right-click context menu (issue #85): right-clicking a chat row
+  opens a menu with tag toggles (checkmarks), create-new-tag (name input plus the
+  8-swatch picker), Export as Markdown / JSON, and Archive (hidden for starred or
+  already-archived rows, with the starred note). Confirm Esc and outside-click
+  dismiss it and that it is keyboard operable.
+- Part 2 slice 2, Settings overlay and auto-archive engine (issue #86): the gear
+  opens a full-panel Settings overlay (back chevron; keep-window select
+  7d/14d/30d/90d/1y/Never defaulting to the effective Claude `cleanupPeriodDays`,
+  30 if unset; section pill toggles with Unsorted kept reachable). The settings
+  EDITOR TAB is retired. Confirm unstarred chats past the window get auto-archived
+  with a body copy (batched, first-run notice) while starred chats stay but get a
+  protective body copy past the Claude deletion age.
+- Part 2 slice 3, Archive overlay (issue #87): the `Archived (N)` row opens an
+  in-panel Archive overlay (gray focus-glow search, rows with export and Restore,
+  empty states); star unarchives; the Archive TREE is retired so exactly ONE
+  contributed view remains; the archived-copy preview is reachable from the
+  overlay.
+- Part 3 slice 0, full-state fidelity sweep (issue #88): capture every UI state
+  (default, filtered, hover card, context menu in both modes, drag highlight, both
+  overlays, both popovers, rename) in the harness and against the prototype, update
+  the committed reference set, and fix or record every visible mismatch.
+- Part 3 slice 1, docs and accessibility closeout (issue #89): this file, README,
+  ARCHITECTURE.md, and CHANGELOG.md reconciled for the one-panel surface, plus the
+  full keyboard and ARIA pass with gaps fixed.
+
+After Part 3 lands, the HUMAN VERIFY GATE (#76) runs this whole checklist next to
+the open prototype `media/design/ChatSidebar.html`; only a recorded pass unblocks
+the v0.2.0 release run (#91).
 
 ## Integration tests (deferred)
 
