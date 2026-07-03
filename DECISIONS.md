@@ -1260,3 +1260,77 @@ collapseLevel authority (child-expanded -> collapse those; else top-expanded -> 
 those; else expand all). Unit-tested through the full fold-up-then-expand-all cycle.
 deepestOpenLevelToCollapse is kept (still exported and tested) so no existing test breaks.
 Reversible: drop foldOneLevel and the expand-all branch.
+
+## 2026-07-02 Slice s3a-folder-tree (fix pass): AC2 header-click toggle delivered, and cross-surface re-render tears down body overlays and commits a pending rename
+
+Fork: the adversarial review surfaced two reversible defects the s3a-folder-tree entry
+above left open. Both are fixed here; both stay reversible.
+
+(g) AC2 "Click toggles expand/collapse" IS NOW IMPLEMENTED on the folder header ROW,
+not only the chevron (issue #82 AC2, design README line 63). Entry (d) above and the
+prior s3a-design-shell note (h) had DEFERRED the header-row click-toggle, citing the
+double-click-rename race: a plain header click calls toggleCollapse, which re-renders the
+whole tree (listEl.textContent = ''), detaching the very node the following dblclick
+needs, so the first click of a double-click would toggle-and-re-render and rename would
+never open. The deferral target named in both comments was THIS slice, so the behavior is
+now delivered. Resolution: the header-row click is DEFERRED by a double-click window
+(DOUBLE_CLICK_MS = 250) and cancelled if a second click / dblclick arrives first. The
+browser fires click, click, dblclick; onFolderRowClick arms a setTimeout toggle on the
+first click, a fast second click on the SAME folder cancels it (the imminent dblclick
+owns the interaction), and the dblclick handler also cancels the armed toggle before
+opening rename. A fast click on a DIFFERENT folder is not a double-click of either: it
+cancels the stale arm and arms the new folder. The chevron keeps its immediate toggle
+(it is the disclosure control, not a rename target) and cancels any armed row toggle
+first. The pure timing state machine lives in the new vscode-free
+src/views/orgPanelInteractions.ts (registerFolderClick / registerFolderDblClick /
+clearFolderToggleArm, keyed by folder id), unit-tested headless; the webview mirrors it
+with a real timer, the split that keeps orgPanelCollapse.ts / orgPanelModel.ts testable.
+The lone-click toggle costs one 250ms defer, below the perceptible-lag threshold for a
+disclosure toggle and the standard vanilla technique for click/dblclick disambiguation
+without a keyed renderer. Keyboard collapse (ArrowLeft/Right) and Enter/Space rename are
+unchanged. Reversible: drop the header click listener to revert to chevron-only collapse.
+
+(h) A CROSS-SURFACE RE-RENDER NOW TEARS DOWN THE THREE BODY-LEVEL OVERLAYS AND COMMITS A
+PENDING RENAME. The color picker, new-folder popover, and folder actions menu are appended
+to document.body (outside listEl) and are position:fixed, so a tree re-render did NOT
+remove them: they floated, orphaned, at a stale viewport point while their captured-closure
+buttons still posted setFolderColor / renameFolder / deleteFolder for a folderId the same
+refresh may have recolored, renamed, or deleted. This is reachable through a sibling
+slice's contract: extension.ts routes every folder/tag/link/curation/DnD mutation, plus
+onDidChangeWindowState(focused) reconcile and the tab-focus markChatSeen, through the shared
+refresh closure -> OrgPanelProvider.postSections() -> a 'sections' (or 'state') message, and
+both inbound handlers call render(). Resolution (completed via a salvage multi-lens verify;
+see note below): render() is made the SINGLE choke point for the teardown. render() is the
+only site that clears listEl, and every re-render path funnels through it (the inbound
+'sections'/'state' handlers, the NEW 250ms deferred folder-collapse timer, collapse-all/one,
+search, and keyboard collapse). So at the top of render(), before it clears listEl, it
+commitPendingRename() (an in-progress rename input lives inside listEl and would be destroyed
+with its half-typed name silently dropped, since removing a focused node does not fire blur;
+the commit runs against the folder as named when the rename began), cancelPendingFolderToggle()
+(drop any armed toggle whose target node is being replaced), and closeAllTransientOverlays()
+(the canonical set pinned in orgPanelInteractions.ts TRANSIENT_OVERLAY_KEYS). Putting teardown
+in render() rather than each handler means no current or future re-render path can reintroduce
+the orphan/dropped-rename gap; the two inbound handlers no longer repeat it. 'active' does an
+in-place tint swap, never calls render(), and is correctly excluded. Per the kernel's documented
+abort triggers (a cross-surface re-render, Escape, the chevron, and opening a conflicting
+overlay), the Escape handler AND every overlay opener (openFolderMenu, beginColor,
+openNewFolderPopover, beginRename) now also cancelPendingFolderToggle(), so a menu opened while
+a collapse is armed cannot be orphaned by the timer and Escape aborts the toggle it dismisses.
+No stored data was ever corrupted (ids and color are host-re-validated) and nothing threw; this
+closes a stale-UI / dangling-overlay correctness gap. Structural guards in
+src/test/unit/orgPanelInteractions.test.ts pin the invariants the webview (media/orgPanel.js,
+un-importable by the headless suite) must hold: render() tears down before clearing listEl,
+render() is the sole listEl-clear, every opener and the overlay Escape handler cancel the
+toggle, and the webview DOUBLE_CLICK_MS mirrors the kernel constant. Reversible: drop the three
+teardown calls from render().
+
+Salvage note (2026-07-03): slice s3a-folder-tree landed as PR #97 (89cb2b5, Fixes #82); the
+engine's post-build review produced this fix but died on a session-limit infra failure before
+its own review/land step. It was completed and landed via a manual five-lens adversarial verify
+(correctness, integration, read-only, security, plus gates). That verify refuted the engine's
+first cut: the handler-only teardown missed the deferred-collapse timer's render() path
+(integration + security lenses) and Escape did not abort the armed toggle (security lens), so
+the fix was extended to the render() choke point plus the Escape/opener aborts above and the
+structural regression guards, then re-verified dry. Two minors were also fixed: a stale
+shouldToggleNow doc comment in orgPanelInteractions.ts, and the DOUBLE_CLICK_MS literal drift
+(now guarded by a parity test).
