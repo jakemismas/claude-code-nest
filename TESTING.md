@@ -567,6 +567,48 @@ automated pixel gate, because the build agent cannot see its own rendered webvie
    on any surviving surface, and that the per-row ~token badge still shows.
 7. Confirm nothing under `~/.claude/projects/` changed.
 
+### S3A folder-tree: rows, color picker, popovers, depth clamp (issue #82)
+
+1. Folder header. Confirm each folder row shows a chevron, a folder-shape glyph
+   filled with the folder color (default warm tan `#C2A56E`), a 13px/600 name that
+   ellipsizes when long, and a chat count at the right. Confirm a TOP folder's
+   count equals the chats directly in it PLUS the chats in its subfolders (add a
+   chat to a subfolder and watch the parent's count rise).
+2. Expand/collapse and rename. Click a folder's chevron to toggle it. Double-click
+   a folder header to enter the inline rename editor; Enter commits, Escape cancels.
+3. Color picker (AC2). Right-click a folder header and choose "Set color". Confirm
+   an in-panel picker of EXACTLY eight swatches (the handoff palette) appears under
+   the header, the current color is ringed, and there is a "Default" chip. Pick a
+   swatch: the folder glyph recolors immediately. Reopen and pick "Default": the
+   color clears back to the tan default. Confirm no OS-native color dialog ever
+   opens. With the picker open, press Escape: it closes and focus returns to the
+   folder header. Arrow keys move between swatches.
+4. New-folder popover (AC3). Click the `+` in the FOLDERS header. Confirm an
+   in-panel popover with a name input and Create/Cancel appears (no OS input box).
+   Type a name and press Enter (or click Create): the folder is created and the
+   panel re-renders. Reopen it and press Escape (or Cancel): nothing is created and
+   focus returns to the `+` button.
+5. One visible sublevel (AC4, creation). Create a folder, then try to create a
+   folder UNDER an existing subfolder (via a slash path like `A/B/C` in the palette
+   "New Folder", or the programmatic path). Confirm the tree never grows past one
+   sublevel: `A/B/C` creates only `A` and its child `B`; `C` is dropped.
+6. Legacy deep folder (AC4, render). If a folder tree deeper than two levels exists
+   (e.g. synced from an older client), confirm the deeper folders still render,
+   clamped at the second indent tier, and that NOTHING under `~/.claude/projects/`
+   and no stored folder record changes (their nesting is preserved, just displayed
+   clamped).
+7. Collapse one level and re-expand all (AC4). Click the `^` in the FOLDERS header
+   repeatedly. Confirm it folds the deepest open level first, then folds upward one
+   tier per click, and once everything is folded the NEXT click re-expands the whole
+   tree.
+8. Drag and drop (AC5). Drag a chat row over a folder: confirm the folder shows the
+   warm drop highlight (`#FAE6DC`) with an inset accent ring. Drop it: the chat
+   moves into that folder. Drag a chat onto the UNSORTED header: the chat's folder
+   clears. Confirm nothing under `~/.claude/projects/` changed by any drop.
+9. Keyboard and ARIA (AC6). Tab into the tree; confirm a single roving focus, arrow
+   Up/Down navigation, ArrowRight/Left to expand/collapse a folder, Enter/Space to
+   activate, and a visible focus ring throughout.
+
 ## Integration tests (deferred)
 
 The electron-host integration tests (`npm run test:integration`) need a VSCode
