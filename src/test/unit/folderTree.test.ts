@@ -1,15 +1,19 @@
 import * as assert from 'assert';
 import { Folder } from '../../store/schema';
 import {
+  MAX_FOLDER_CREATE_DEPTH,
+  MAX_FOLDER_RENDER_DEPTH,
   UNFILED_FOLDER_ID,
   assembleFolderTree,
   buildChatHomeIndex,
   canReuseChatMemberItem,
   canReuseFolderItem,
   chatNodeId,
+  clampFolderDepth,
   descendantFolderIds,
   expandFolderPath,
   findChildByName,
+  folderDepthOf,
   isUnfiledId,
   parseChatNodeId,
   resolveChatHomeFolderId,
@@ -173,6 +177,130 @@ describe('expandFolderPath (interpretation (b): a chain of real records)', () =>
     assert.strictEqual(result.chain[1].folder.name, 'Q1');
     assert.strictEqual(result.chain[1].folder.parentId, 'C');
     assert.strictEqual(result.chain[1].mintNew, true);
+  });
+
+  it('clamps a deep slash path to maxDepth, minting only up to the create cap', () => {
+    // maxDepth 1 (MAX_FOLDER_CREATE_DEPTH): from the top level, only depth-0 and
+    // depth-1 segments may be minted. 'A/B/C/D' mints A(0) and B(1) then stops.
+    const result = expandFolderPath('A/B/C/D', {}, {
+      mint: counterMint(),
+      maxDepth: MAX_FOLDER_CREATE_DEPTH,
+    });
+    assert.strictEqual(result.chain.length, 2, 'only two segments minted under the cap');
+    assert.deepStrictEqual(result.chain.map((s) => s.folder.name), ['A', 'B']);
+    assert.strictEqual(result.chain[0].folder.parentId, null);
+    assert.strictEqual(result.chain[1].folder.parentId, result.chain[0].folder.id);
+    // The leaf is the deepest allowed (B), not the typed leaf D.
+    assert.strictEqual(result.leafFolderId, result.chain[1].folder.id);
+  });
+
+  it('clamps relative to a startParentId depth', () => {
+    // W is a root (depth 0); creating under it, only its direct child (depth 1) may
+    // be minted. 'B/C' under W mints B(1) then stops before C(2).
+    const existing = foldersByIdFrom([{ id: 'W', name: 'Work', parentId: null, order: 0 }]);
+    const result = expandFolderPath('B/C', existing, {
+      mint: counterMint(),
+      startParentId: 'W',
+      maxDepth: MAX_FOLDER_CREATE_DEPTH,
+    });
+    assert.strictEqual(result.chain.length, 1, 'only the depth-1 child is minted under W');
+    assert.strictEqual(result.chain[0].folder.name, 'B');
+    assert.strictEqual(result.chain[0].folder.parentId, 'W');
+  });
+
+  it('does not block reusing an existing deeper segment, only new minting past the cap', () => {
+    // A(0) -> B(1) -> C(2) already exist (legacy). Expanding 'A/B/C' with the cap
+    // reuses all three (no new mint) and returns the existing leaf; the cap only
+    // stops NEW minting, so legacy depth is never disturbed.
+    const existing = foldersByIdFrom([
+      { id: 'A', name: 'A', parentId: null, order: 0 },
+      { id: 'B', name: 'B', parentId: 'A', order: 0 },
+      { id: 'C', name: 'C', parentId: 'B', order: 0 },
+    ]);
+    const result = expandFolderPath('A/B/C', existing, {
+      mint: counterMint(),
+      maxDepth: MAX_FOLDER_CREATE_DEPTH,
+    });
+    assert.strictEqual(result.chain.length, 3, 'all three reused');
+    assert.ok(result.chain.every((s) => s.mintNew === false), 'nothing new minted');
+    assert.strictEqual(result.leafFolderId, 'C');
+  });
+
+  it('returns an empty chain when the whole path is over the cap under a deep parent', () => {
+    // C is a legacy grandchild at depth 2 (already past the create cap). Creating any
+    // child under it would be depth 3, so nothing is mintable: an empty chain, no leaf.
+    const existing = foldersByIdFrom([
+      { id: 'A', name: 'A', parentId: null, order: 0 },
+      { id: 'B', name: 'B', parentId: 'A', order: 0 },
+      { id: 'C', name: 'C', parentId: 'B', order: 0 },
+    ]);
+    const result = expandFolderPath('X', existing, {
+      mint: counterMint(),
+      startParentId: 'C',
+      maxDepth: MAX_FOLDER_CREATE_DEPTH,
+    });
+    assert.strictEqual(result.chain.length, 0, 'nothing mintable past the cap');
+    assert.strictEqual(result.leafFolderId, 'C', 'leaf stays the deepest allowed existing parent');
+  });
+
+  it('is unbounded when maxDepth is omitted (historical behavior preserved)', () => {
+    const result = expandFolderPath('A/B/C/D', {}, { mint: counterMint() });
+    assert.strictEqual(result.chain.length, 4, 'no cap => full chain');
+  });
+});
+
+describe('clampFolderDepth (one-visible-sublevel render cap, issue #82 AC4)', () => {
+  it('passes through depths within the render cap', () => {
+    assert.strictEqual(clampFolderDepth(0), 0);
+    assert.strictEqual(clampFolderDepth(1), 1);
+    assert.strictEqual(clampFolderDepth(MAX_FOLDER_RENDER_DEPTH), MAX_FOLDER_RENDER_DEPTH);
+  });
+
+  it('clamps a deeper depth to the render cap', () => {
+    assert.strictEqual(clampFolderDepth(3), MAX_FOLDER_RENDER_DEPTH);
+    assert.strictEqual(clampFolderDepth(99), MAX_FOLDER_RENDER_DEPTH);
+  });
+
+  it('clamps a corrupt (negative or non-finite) depth up to 0', () => {
+    assert.strictEqual(clampFolderDepth(-1), 0);
+    assert.strictEqual(clampFolderDepth(NaN), 0);
+  });
+
+  it('the create cap is one level shallower than the render cap (create 1, render 2)', () => {
+    // The UI creates at most one sublevel (depth 1), but tolerates rendering a legacy
+    // grandchild at depth 2. This relationship is load-bearing for the clamp story.
+    assert.strictEqual(MAX_FOLDER_CREATE_DEPTH, 1);
+    assert.strictEqual(MAX_FOLDER_RENDER_DEPTH, 2);
+    assert.ok(MAX_FOLDER_RENDER_DEPTH > MAX_FOLDER_CREATE_DEPTH);
+  });
+});
+
+describe('folderDepthOf (stored depth for the create-cap guard)', () => {
+  const tree = foldersByIdFrom([
+    { id: 'root', name: 'root', parentId: null, order: 0 },
+    { id: 'a', name: 'a', parentId: 'root', order: 0 },
+    { id: 'b', name: 'b', parentId: 'a', order: 0 },
+  ]);
+
+  it('returns 0 for a root and increments per ancestor level', () => {
+    assert.strictEqual(folderDepthOf(tree, 'root'), 0);
+    assert.strictEqual(folderDepthOf(tree, 'a'), 1);
+    assert.strictEqual(folderDepthOf(tree, 'b'), 2);
+  });
+
+  it('returns 0 for null (top-level) and for an unknown id', () => {
+    assert.strictEqual(folderDepthOf(tree, null), 0);
+    assert.strictEqual(folderDepthOf(tree, 'missing'), 0);
+  });
+
+  it('is bounded against a cyclic parent chain (corrupt store)', () => {
+    const cyclic = foldersByIdFrom([
+      { id: 'A', name: 'A', parentId: 'B', order: 0 },
+      { id: 'B', name: 'B', parentId: 'A', order: 0 },
+    ]);
+    // The visited guard stops the walk; it must terminate with a bounded count.
+    const d = folderDepthOf(cyclic, 'A');
+    assert.ok(d >= 0 && d <= 2, `cyclic walk must terminate, got ${d}`);
   });
 });
 

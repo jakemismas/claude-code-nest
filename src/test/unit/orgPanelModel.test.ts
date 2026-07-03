@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { ChatRecord, TokenTotals } from '../../model/types';
 import { ProjectMeta } from '../../store/schema';
-import { buildSections, UNSORTED_FOLDER_ID } from '../../views/orgPanelModel';
+import { buildSections, FolderSection, UNSORTED_FOLDER_ID } from '../../views/orgPanelModel';
 import { UNFILED_FOLDER_ID } from '../../model/folderTree';
 
 // Headless unit tests for the PURE org-panel section assembler. It imports no
@@ -335,6 +335,128 @@ describe('orgPanelModel folder placement and color', () => {
     const child = sections.folders.find((f) => f.folderId === 'c');
     assert.strictEqual(parent && parent.depth, 0);
     assert.strictEqual(child && child.depth, 1);
+    // treeDepth equals depth when within the render cap.
+    assert.strictEqual(parent && parent.treeDepth, 0);
+    assert.strictEqual(child && child.treeDepth, 1);
+  });
+});
+
+describe('orgPanelModel one-visible-sublevel depth clamp (issue #82 AC4)', () => {
+  // A four-tier legacy hierarchy: root(0) -> a(1) -> b(2) -> c(3). Rendering clamps
+  // the emitted depth at MAX_FOLDER_RENDER_DEPTH (2); the stored parentId chain is
+  // never touched and treeDepth carries the true depth.
+  function deepMeta(): ProjectMeta {
+    return meta({
+      folders: {
+        root: { id: 'root', name: 'root', parentId: null, order: 0 },
+        a: { id: 'a', name: 'a', parentId: 'root', order: 0 },
+        b: { id: 'b', name: 'b', parentId: 'a', order: 0 },
+        c: { id: 'c', name: 'c', parentId: 'b', order: 0 },
+      },
+    });
+  }
+
+  it('clamps a deeper legacy folder to render depth 2 but preserves the true treeDepth', () => {
+    const sections = buildSections([], deepMeta(), badge);
+    const get = (id: string): FolderSection => {
+      const f = sections.folders.find((s) => s.folderId === id);
+      assert.ok(f, `section ${id} exists`);
+      return f;
+    };
+    assert.strictEqual(get('root').depth, 0);
+    assert.strictEqual(get('a').depth, 1);
+    // b (stored depth 2) renders at 2; c (stored depth 3) is CLAMPED to 2.
+    assert.strictEqual(get('b').depth, 2, 'depth-2 folder renders at 2');
+    assert.strictEqual(get('c').depth, 2, 'depth-3 legacy folder is clamped to render depth 2');
+    // The true structural depth is preserved for the collapse/hide bookkeeping.
+    assert.strictEqual(get('b').treeDepth, 2);
+    assert.strictEqual(get('c').treeDepth, 3, 'treeDepth keeps the uncapped depth');
+  });
+
+  it('never modifies the stored folder records (data preserved through the clamp)', () => {
+    const m = deepMeta();
+    // Snapshot the stored folders before assembling.
+    const before = JSON.parse(JSON.stringify(m.folders));
+    buildSections([], m, badge);
+    // The model must not mutate the meta it was handed.
+    assert.deepStrictEqual(m.folders, before, 'buildSections must not mutate stored folders');
+    // parentId chain is intact: c -> b -> a -> root -> null.
+    assert.strictEqual(m.folders.c.parentId, 'b');
+    assert.strictEqual(m.folders.b.parentId, 'a');
+    assert.strictEqual(m.folders.a.parentId, 'root');
+    assert.strictEqual(m.folders.root.parentId, null);
+  });
+
+  it('keeps a chat homed in a clamped-deep folder (its rows are not lost)', () => {
+    const m = deepMeta();
+    m.chats = { x: { folderId: 'c', tags: [], links: [], updatedAt: 0, deviceId: 'd' } };
+    const sections = buildSections(
+      [record({ sessionId: 'x', lastMessageRole: 'assistant', lastMessageText: 'hi' })],
+      m,
+      badge,
+    );
+    const deep = sections.folders.find((f) => f.folderId === 'c');
+    assert.ok(deep, 'the clamped-deep folder section still exists');
+    assert.deepStrictEqual(deep.rows.map((r) => r.sessionId), ['x'], 'its chat is placed, not dropped');
+  });
+});
+
+describe('orgPanelModel rolled-up folder count (issue #82 AC1)', () => {
+  it('rolls a top folder count up over its subfolders (chats in it + descendants)', () => {
+    // Work(2 direct) -> API(3 direct) -> Deep(1 direct); Personal(1 direct).
+    const m = meta({
+      folders: {
+        work: { id: 'work', name: 'Work', parentId: null, order: 0 },
+        api: { id: 'api', name: 'API', parentId: 'work', order: 0 },
+        deep: { id: 'deep', name: 'Deep', parentId: 'api', order: 0 },
+        personal: { id: 'personal', name: 'Personal', parentId: null, order: 1 },
+      },
+      chats: {
+        w1: { folderId: 'work', tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+        w2: { folderId: 'work', tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+        a1: { folderId: 'api', tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+        a2: { folderId: 'api', tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+        a3: { folderId: 'api', tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+        d1: { folderId: 'deep', tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+        p1: { folderId: 'personal', tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+      },
+    });
+    const records = ['w1', 'w2', 'a1', 'a2', 'a3', 'd1', 'p1'].map((id) => record({ sessionId: id }));
+    const sections = buildSections(records, m, badge);
+    const get = (id: string): FolderSection => {
+      const f = sections.folders.find((s) => s.folderId === id);
+      assert.ok(f, `section ${id} exists`);
+      return f;
+    };
+    // Deep: 1 own. API: 3 own + 1 (Deep) = 4. Work: 2 own + 4 (API subtree) = 6.
+    assert.strictEqual(get('deep').rolledUpCount, 1);
+    assert.strictEqual(get('api').rolledUpCount, 4);
+    assert.strictEqual(get('work').rolledUpCount, 6, 'top folder count includes all descendants');
+    assert.strictEqual(get('personal').rolledUpCount, 1);
+  });
+
+  it('excludes archived chats from the rolled-up count (they are hidden)', () => {
+    const m = meta({
+      folders: { f: { id: 'f', name: 'F', parentId: null, order: 0 } },
+      chats: {
+        keep: { folderId: 'f', tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+        gone: { folderId: 'f', tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+      },
+    });
+    const records = [record({ sessionId: 'keep' }), record({ sessionId: 'gone' })];
+    const sections = buildSections(records, m, badge);
+    const f = sections.folders.find((s) => s.folderId === 'f');
+    // The archived chat is excluded from visible rows AND the rollup count.
+    assert.strictEqual(f && f.rolledUpCount, 1, 'archived chat not counted in the rollup');
+  });
+
+  it('the synthetic Unsorted count is its own rows only (no descendants)', () => {
+    const m = meta({
+      chats: { u: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd' } },
+    });
+    const sections = buildSections([record({ sessionId: 'u' })], m, badge);
+    const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
+    assert.strictEqual(unsorted && unsorted.rolledUpCount, 1);
   });
 });
 

@@ -243,7 +243,12 @@
       // Questions (heuristic), a nested folder hierarchy with per-folder color
       // (Work with a Backend API child folder, Personal, Experiments), the
       // always-present synthetic Unsorted bucket, the tag filter chips with counts,
-      // and archivedCount so the bottom Archived row renders.
+      // and archivedCount so the bottom Archived row renders. Each folder carries
+      // depth (clamped render depth), treeDepth (true stored depth, used by the
+      // collapse/hide skip), and rolledUpCount (its own chats + all descendants;
+      // issue #82 AC1). f-legacy is a depth-2 grandchild under Backend API to
+      // exercise the render clamp (issue #82 AC4): its treeDepth is 2 and it renders
+      // at the depth-2 (47px) tier, the deepest the UI shows.
       const sections = {
         starred: [rStarredDone, rStarredIdea],
         questions: [rQuestionDocs, rQuestionFeature],
@@ -253,7 +258,9 @@
             name: 'Work',
             color: FOLDER.defaultColor,
             depth: 0,
+            treeDepth: 0,
             synthetic: false,
+            rolledUpCount: 4,
             rows: [],
           },
           {
@@ -261,15 +268,29 @@
             name: 'Backend API',
             color: FOLDER.defaultColor,
             depth: 1,
+            treeDepth: 1,
             synthetic: false,
+            rolledUpCount: 4,
             rows: [rStarredDone, rQuestionFeature, rApiChild],
+          },
+          {
+            folderId: 'f-legacy',
+            name: 'Legacy v1 (deep)',
+            color: FOLDER.ideasColor,
+            depth: 2,
+            treeDepth: 2,
+            synthetic: false,
+            rolledUpCount: 1,
+            rows: [rUnsorted2],
           },
           {
             folderId: 'f-frontend',
             name: 'Frontend',
             color: FOLDER.defaultColor,
             depth: 1,
+            treeDepth: 1,
             synthetic: false,
+            rolledUpCount: 0,
             rows: [],
           },
           {
@@ -277,7 +298,9 @@
             name: 'Personal',
             color: FOLDER.defaultColor,
             depth: 0,
+            treeDepth: 0,
             synthetic: false,
+            rolledUpCount: 1,
             rows: [rStarredIdea],
           },
           {
@@ -285,14 +308,18 @@
             name: 'Experiments',
             color: FOLDER.defaultColor,
             depth: 0,
+            treeDepth: 0,
             synthetic: false,
+            rolledUpCount: 0,
             rows: [],
           },
           {
             folderId: '__unfiled__',
             name: 'Unsorted',
             depth: 0,
+            treeDepth: 0,
             synthetic: true,
+            rolledUpCount: 2,
             rows: [rUnsorted1, rUnsorted2],
           },
         ],

@@ -551,6 +551,52 @@ s3a-design-shell; the binding structural facts:
   the chip active state and the pill background use CSS color-mix for the handoff's
   alpha treatments.
 
+## Folder tree rows and interactions (Sprint 3, slice s3a-folder-tree) — binding
+
+Slice s3a-folder-tree rebuilt the folder rows and their interactions to the handoff
+(issue #82). Full rationale and the reversible-fork record are in DECISIONS.md slice
+s3a-folder-tree; the binding structural facts:
+
+- ONE VISIBLE SUBLEVEL, TWO DEPTH FIELDS. FolderSection carries depth (CLAMPED to
+  MAX_FOLDER_RENDER_DEPTH = 2 via the pure clampFolderDepth in folderTree.ts; the
+  value the webview indent 11 + depth*18 and aria-level read) AND treeDepth (the true
+  uncapped stored depth). The webview's collapse/hide bookkeeping keys on treeDepth,
+  never the clamped depth, so two legacy folders that both clamp to render depth 2 keep
+  distinct treeDepths and a collapsed clamped-deep folder still hides its clamped-deep
+  descendants. The clamp affects ONLY the emitted depth; buildSections NEVER mutates the
+  stored folders (the parentId chain and every record are untouched; a chat homed in a
+  clamped-deep folder is still placed). Deeper legacy folders render at depth 2, never
+  destroyed (UI-SPEC.md Folders data-mapping row).
+- CREATE CAP (1) < RENDER CAP (2). MAX_FOLDER_CREATE_DEPTH = 1 governs new folder
+  minting; MAX_FOLDER_RENDER_DEPTH = 2 governs display. createFolder enforces the create
+  cap at the WRITE source: it refuses (with a message) to create under a parent already
+  at the cap and passes maxDepth to expandFolderPath so a deep slash path is clamped to
+  the allowed segments. Reused existing (legacy) segments are never blocked, only new
+  minting, so a legacy grandchild is never disturbed. The org panel only ever creates at
+  the top level (the + popover supplies no parent), so the refuse branch is defense in
+  depth for the palette/programmatic path.
+- ROLLED-UP HEADER COUNT. FolderSection.rolledUpCount is the folder's own directly-homed
+  chats plus every descendant folder's, computed over the STORED hierarchy in the pure
+  model (a visited-guarded memoized sum). The webview renders it in the folder header
+  (not the post-filter visible.length). It is a stable structural count, independent of
+  the render clamp and of any active filter (folder headers render only in the unfiltered
+  tree; filtering swaps to the flat results list). Archived chats are excluded from the
+  rollup, matching their exclusion from every visible section. This supersedes the interim
+  direct-home count (s3a-row-anatomy DECISIONS (h)).
+- IN-PANEL COLOR-SWATCH PICKER AND NEW-FOLDER POPOVER. The native <input type=color> is
+  retired for an in-panel 8-swatch picker over the exact handoff palette (README line 98);
+  the FOLDERS-header + button opens an in-panel new-folder popover (name + Create/Cancel)
+  instead of the native input box. Both post through the existing message paths
+  (setFolderColor with a palette literal or null; createFolder with an optional name that
+  the host coerce trims and routes to createFolder's presetName). The picker sends only
+  palette literals or null and the host re-validates every color via isValidColor before
+  it reaches the store or a CSS sink; the folder name is rendered as textContent only and
+  funnels into the same depth-capped expandFolderPath as the prompt path. Both popovers are
+  keyboard-operable and restore focus to their anchor on close (the ARIA story does not
+  regress; UI-SPEC.md deviation 5). The dropReducer stays frozen and the DnD drop highlight
+  / Unsorted-header unfile / keyboard-and-ARIA tree are preserved from prior slices, not
+  rebuilt.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under

@@ -79,7 +79,7 @@ type Inbound =
   | { type: 'renameFolder'; folderId: string; name: string }
   | { type: 'setFolderColor'; folderId: string; color: string | null }
   | { type: 'deleteFolder'; folderId: string }
-  | { type: 'createFolder' }
+  | { type: 'createFolder'; name?: string }
   | { type: 'newSession' }
   | { type: 'openArchive' }
   | { type: 'openSettings' }
@@ -98,10 +98,12 @@ export interface OrgPanelActions {
   // runs the store's deleteFolder cascade (which unfiles the folder's chats, never
   // deletes a chat), then refreshes. The webview only requests it.
   deleteFolder(folderId: string): Promise<void> | void;
-  // Create a new folder. The design's FOLDERS header carries a + button; this runs
-  // the existing claudeNest.createFolder command (its input box + store mutation),
-  // then the shared refresh re-renders the panel. The webview only requests it.
-  createFolder(): Promise<void> | void;
+  // Create a new folder. The design's FOLDERS header carries a + button that opens
+  // an in-panel "New folder" popover (issue #82 AC3); the popover posts the typed
+  // name, which arrives here so the create skips the native input box. When name is
+  // omitted (a legacy/no-name path) the underlying command prompts as before. Either
+  // way the shared refresh re-renders the panel. The webview only requests it.
+  createFolder(name?: string): Promise<void> | void;
   // Launch a NEW Claude Code chat, best-effort (UI-SPEC.md data mapping, deviation
   // 6). The wiring routes this to the probed claude-vscode.newConversation
   // contributed command with a graceful fallback + toast; the webview only requests
@@ -224,7 +226,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     } else if (msg.type === 'deleteFolder') {
       void this.onDeleteFolder(msg.folderId);
     } else if (msg.type === 'createFolder') {
-      void this.actions.createFolder();
+      void this.actions.createFolder(msg.name);
     } else if (msg.type === 'newSession') {
       void this.actions.newSession();
     } else if (msg.type === 'openArchive') {
@@ -669,7 +671,14 @@ function coerce(raw: unknown): Inbound | null {
     return { type: 'deleteFolder', folderId: obj.folderId };
   }
   if (obj.type === 'createFolder') {
-    return { type: 'createFolder' };
+    // The popover's typed name is untrusted webview input: accept it only as a
+    // non-empty trimmed string, else fall to undefined so the command prompts (and
+    // the store/expansion still validate it downstream). The name is never used as a
+    // CSS/HTML sink; it becomes a Folder.name through the same store path the native
+    // command uses.
+    const name =
+      typeof obj.name === 'string' && obj.name.trim().length > 0 ? obj.name.trim() : undefined;
+    return { type: 'createFolder', name };
   }
   if (obj.type === 'newSession') {
     return { type: 'newSession' };

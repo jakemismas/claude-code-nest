@@ -535,13 +535,173 @@ body {
   outline: none;
 }
 
-/* A hidden color input parked off-screen so its native picker can open. */
-.nest-color-picker {
+/* ---- In-panel folder color-swatch picker (issue #82 AC2) ---- */
+
+/* The floating swatch popover, opened from the folder menu's "Set color". Replaces
+   the native <input type=color>. Popover shadow + radius per design README line 101. */
+.nest-color-popover {
   position: fixed;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+  z-index: 60;
+  background: #fff;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(40, 33, 20, 0.16);
+  padding: 9px;
+  width: 170px;
+}
+
+/* The 8-swatch grid: flex-wrap so it lays out 22px swatches into rows (prototype
+   ChatSidebar.dc.html FOLDER COLOR block: display:flex; flex-wrap:wrap; gap:7px). */
+.nest-swatch-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+/* One color swatch: 22x22, radius 5, filled with its palette color. Unselected
+   swatches carry a hairline inset border; the selected swatch shows the handoff's
+   double ring (white gap + a ring in the swatch's own color), matching the prototype
+   swatch() box-shadow. */
+.nest-swatch {
+  --swatch-color: var(--nest-accent);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background: var(--swatch-color);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.nest-swatch-selected {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--swatch-color);
+}
+
+.nest-swatch:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 2px;
+}
+
+/* The "Default" (clear color) chip beneath the grid. */
+.nest-swatch-clear {
+  display: block;
+  width: 100%;
+  margin-top: 9px;
+  padding: 5px 9px;
+  border: 1px solid var(--nest-border-input);
+  border-radius: 5px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--nest-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+
+.nest-swatch-clear:hover {
+  background: #F4F2EA;
+  color: var(--nest-text);
+}
+
+.nest-swatch-clear:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+/* ---- New-folder popover (issue #82 AC3) ---- */
+
+/* The floating "New folder" popover opened by the FOLDERS header + button: a name
+   input plus Create / Cancel. Mirrors the prototype NEW FOLDER block styling and the
+   design popover shadow (README line 101). */
+.nest-newfolder-popover {
+  position: fixed;
+  z-index: 60;
+  background: #fff;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(40, 33, 20, 0.16);
+  padding: 9px 10px 8px;
+  width: 200px;
+}
+
+.nest-newfolder-title {
+  padding: 0 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  color: var(--nest-text-label);
+}
+
+.nest-newfolder-input {
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--nest-border-input);
+  background: var(--nest-input);
+  color: var(--nest-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.nest-newfolder-input:focus {
+  border-color: var(--nest-accent);
+  box-shadow: 0 0 0 1px var(--nest-accent);
+  background: #fff;
+}
+
+.nest-newfolder-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 9px;
+}
+
+/* Create: accent-filled primary; Cancel: quiet text button. Matches the prototype's
+   Create (background #d97757, white) + Cancel (muted text) pair. */
+.nest-newfolder-create {
+  flex: 1;
+  padding: 6px 0;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background: var(--nest-accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.nest-newfolder-create:hover {
+  background: var(--nest-accent-hover);
+}
+
+.nest-newfolder-create:focus-visible {
+  outline: 2px solid var(--nest-accent-deep);
+  outline-offset: 1px;
+}
+
+.nest-newfolder-cancel {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--nest-text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.nest-newfolder-cancel:hover {
+  background: #F4F2EA;
+  color: var(--nest-text);
+}
+
+.nest-newfolder-cancel:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
 }
 
 /* ---- Chat rows ---- */
