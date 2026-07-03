@@ -1,126 +1,363 @@
-/* Primary org-panel webview styling (slice s2-org-panel-webview). Builds to the
-   INTENT of UI-SPEC.md (the sidebar-mockup): VS Code theme variables for surfaces
-   and text so the panel adapts to the user's theme, with the Claude clay accent as
-   the single brand overlay on selection and active affordances. Two density modes
-   (body[data-density="compact"]) change spacing and type scale only. Visual
-   exactness is a human smoke check; the automated gates do not assert pixels. */
+/* Primary org-panel webview styling. Sprint 3 slice s3a-design-shell (issue #80)
+   re-skins the panel to the pixel-exact Claude handoff at media/design/ (UI-SPEC.md).
+   The palette is HARDCODED verbatim (UI-SPEC.md "Fidelity rules", user decision
+   2026-07-01): the panel does NOT read VS Code theme tokens and renders the warm
+   light design identically on every theme, including dark. All colors, spacing,
+   type, radii, shadows, and the focus glows follow media/design/README.md.
+
+   Scope of this slice: the design tokens, the toolbar (New session pill, gear, sort
+   popover), the search box visuals, the section scaffold in design order, and the
+   Archived row. Chat/folder row anatomy is carried forward from the prior asset and
+   is refined in the next slice (issue #80 non-goals); density modes are removed. */
 
 :root {
+  /* Accent (Claude orange) */
   --nest-accent: #d97757;
+  --nest-accent-hover: #c6613f;
+  --nest-accent-deep: #C15F3C;
   --nest-accent-soft: rgba(217, 119, 87, 0.16);
-  --nest-radius: 8px;
+
+  /* Surfaces */
+  --nest-panel: #FCFBF8;
+  --nest-input: #FBFAF6;
+  --nest-hover-row: #F0EEE6;
+  --nest-active-row: #F6E5DB;
+  --nest-drop-target: #FAE6DC;
+  --nest-btn-hover: #EEEBE2;
+
+  /* Borders / dividers */
+  --nest-border: #E6E2D9;
+  --nest-border-input: #E4E0D6;
+  --nest-border-soft: #ECE8DF;
+
+  /* Text */
+  --nest-text: #2B2A27;
+  --nest-text-strong: #26241F;
+  --nest-text-folder: #3A3833;
+  --nest-text-secondary: #8C887E;
+  --nest-text-snippet: #9A958A;
+  --nest-text-muted: #A8A398;
+  --nest-text-breadcrumb: #B0AB9E;
+  --nest-text-label: #AEA99C;
+  --nest-icon: #6E6A60;
+
+  /* Tag / folder color fallbacks */
+  --nest-folder-default: #C2A56E;
+
+  --nest-radius: 6px;
+}
+
+/* The Newsreader serif for later sub-page headings (Settings/Archive overlays,
+   s3b). Bundled in the VSIX and loaded from the extension's own media resources,
+   NEVER from the network (UI-SPEC.md "Fidelity rules"; CSP font-src is cspSource
+   and the telemetry-free rule both forbid a Google Fonts fetch). The url() is
+   relative to this stylesheet's webview URI, which resolves under the pinned media
+   localResourceRoots. No heading consumes the serif in THIS slice; the packaging
+   proof (media/fonts/*.woff2 present in the .vsix) is the gate. A local serif stack
+   is the fallback if the face fails to load. */
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/newsreader-600-latin.woff2') format('woff2');
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
-  color: var(--vscode-foreground);
+  height: 100%;
 }
+
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--nest-text);
+  background: var(--nest-panel);
+}
+
+/* ---- Toolbar (row 1): New session pill, spacer, gear, sort ---- */
 
 .nest-toolbar {
-  position: sticky;
-  top: 0;
   display: flex;
-  gap: 6px;
-  padding: 8px;
-  background: var(--vscode-sideBar-background);
-  border-bottom: 1px solid var(--vscode-panel-border);
-  z-index: 2;
-}
-
-.nest-toolbar-controls {
-  top: 0;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 2px;
+  padding: 9px 9px 6px;
+  flex: none;
+  background: var(--nest-panel);
 }
 
-.nest-control {
-  display: flex;
+.nest-spacer {
+  flex: 1;
+}
+
+/* New session pill: LEFT-aligned, accent-filled, white text 12.5px/600. */
+.nest-new-session {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
-  opacity: 0.9;
-}
-
-.nest-control select {
-  background: var(--vscode-dropdown-background);
-  color: var(--vscode-dropdown-foreground);
-  border: 1px solid var(--vscode-dropdown-border, transparent);
-  border-radius: 4px;
-  padding: 2px 4px;
-  font-size: 11px;
-}
-
-.nest-mode {
-  cursor: pointer;
-  user-select: none;
-}
-
-.nest-filter {
-  flex: 1;
-  padding: 5px 8px;
-  border-radius: var(--nest-radius);
-  border: 1px solid var(--vscode-input-border, transparent);
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  outline: none;
-}
-
-.nest-filter:focus {
-  border-color: var(--nest-accent);
-}
-
-.nest-icon-btn {
-  padding: 5px 10px;
+  padding: 5px 11px;
   border: none;
   border-radius: var(--nest-radius);
-  background: var(--nest-accent);
-  color: #fff;
   cursor: pointer;
+  color: #fff;
+  background: var(--nest-accent);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nest-new-session:hover {
+  background: var(--nest-accent-hover);
+}
+
+.nest-new-session:focus-visible {
+  outline: 2px solid var(--nest-accent-deep);
+  outline-offset: 1px;
+}
+
+.nest-new-session-plus {
+  font-size: 15px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+/* The gear and sort icon buttons (27x27, radius 6). */
+.nest-icon-btn {
+  width: 27px;
+  height: 27px;
+  border: none;
+  border-radius: var(--nest-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--nest-icon);
+  background: transparent;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
 }
 
 .nest-icon-btn:hover {
-  filter: brightness(1.08);
+  background: var(--nest-btn-hover);
 }
 
-/* Tag filter chips. Clickable, combinable; an active chip is filled with its
-   color (or the accent). */
+.nest-icon-btn:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+/* The gear active tint (Settings sub-page open; the overlay lands in s3b). */
+.nest-icon-btn.nest-active {
+  color: var(--nest-accent);
+  background: #F5EAE3;
+}
+
+/* ---- Sort popover ---- */
+
+.nest-sort-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.nest-popover {
+  position: absolute;
+  right: 0;
+  top: 31px;
+  z-index: 42;
+  background: #fff;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(40, 33, 20, 0.16);
+  padding: 5px;
+  min-width: 140px;
+}
+
+.nest-popover[hidden] {
+  display: none;
+}
+
+.nest-popover-title {
+  padding: 4px 9px 5px;
+  font-size: 10px;
+  letter-spacing: 0.7px;
+  color: var(--nest-text-label);
+  font-weight: 600;
+}
+
+.nest-popover-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--nest-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.nest-popover-item:hover {
+  background: #F4F2EA;
+}
+
+.nest-popover-item:focus-visible {
+  outline: none;
+  background: #F4F2EA;
+  box-shadow: inset 0 0 0 1px var(--nest-accent);
+}
+
+.nest-popover-check {
+  color: var(--nest-accent);
+  font-size: 12px;
+  visibility: hidden;
+}
+
+.nest-popover-item[aria-checked='true'] .nest-popover-check {
+  visibility: visible;
+}
+
+/* ---- Search box (row 2) ---- */
+
+.nest-search {
+  position: relative;
+  padding: 0 9px 8px;
+  flex: none;
+}
+
+.nest-search-icon {
+  position: absolute;
+  left: 19px;
+  top: 7px;
+  pointer-events: none;
+  display: inline-flex;
+}
+
+.nest-filter {
+  width: 100%;
+  padding: 7px 28px 7px 31px;
+  border-radius: var(--nest-radius);
+  border: 1px solid var(--nest-border-input);
+  background: var(--nest-input);
+  color: var(--nest-text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.nest-filter::placeholder {
+  color: var(--nest-text-secondary);
+}
+
+/* Orange focus glow (design README line 30). */
+.nest-filter:focus {
+  border-color: var(--nest-accent);
+  box-shadow: 0 0 0 1px var(--nest-accent), 0 0 14px 2px rgba(217, 119, 87, 0.35);
+  background: #fff;
+}
+
+.nest-search-clear {
+  position: absolute;
+  right: 16px;
+  top: 6px;
+  width: 19px;
+  height: 19px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: transparent;
+  color: var(--nest-text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.nest-search-clear:hover {
+  background: #E8E5DC;
+}
+
+.nest-search-clear:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+.nest-search-clear[hidden] {
+  display: none;
+}
+
+/* ---- Tag filter chips (row 3) ---- */
+
 .nest-chips {
   display: flex;
-  flex-wrap: wrap;
   gap: 5px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--vscode-panel-border);
+  padding: 0 9px 9px;
+  overflow-x: auto;
+  flex: none;
+  scrollbar-width: none;
+}
+
+.nest-chips::-webkit-scrollbar {
+  display: none;
 }
 
 .nest-chip {
   --chip-color: var(--nest-accent);
-  font-size: 11px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--chip-color);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--nest-border-input);
   background: transparent;
-  color: var(--vscode-foreground);
+  color: var(--nest-text-secondary);
   cursor: pointer;
   white-space: nowrap;
+  font-family: inherit;
 }
 
-.nest-chip:hover {
-  background: var(--nest-accent-soft);
-}
-
-.nest-chip-active {
+.nest-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
   background: var(--chip-color);
-  color: #fff;
-  font-weight: 600;
+}
+
+/* An active chip: color @15% background, color text, color @45% border. The alpha
+   backgrounds/borders are computed as rgba() in JS (media/orgPanel.js hexToRgba) and
+   set inline, NOT via CSS color-mix(), which needs Chromium 111+ and would be
+   invalid on the engines floor (VS Code 1.66 ships Chromium 98). This rule supplies
+   the text color and a safe fallback tint; JS overrides background/border-color with
+   the exact alpha values when the chip has a color. */
+.nest-chip-active {
+  background: var(--nest-accent-soft);
+  color: var(--chip-color);
+  border-color: var(--chip-color);
+}
+
+.nest-chip:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
 }
 
 .nest-chip.nest-drop-over {
@@ -128,46 +365,26 @@ body {
   outline-offset: 1px;
 }
 
-/* The tree. role="tree" on #list; sections are role="group". */
+/* ---- Scrolling list ---- */
+
 .nest-tree {
-  padding: 4px 0 16px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 6px 14px;
   outline: none;
 }
 
+/* Section header labels: 10px/600 uppercase, letter-spacing 0.7px, muted. */
 .nest-section-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 8px 0 2px;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  padding: 9px 8px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
   text-transform: uppercase;
-  color: var(--nest-accent);
-}
-
-.nest-section-header[data-kind="folder"] {
-  cursor: default;
-}
-
-/* Folder headers are focusable treeitems in the roving-tabindex set (orgPanel.js
-   makeSectionHeader sets role="treeitem" and the keyboard handler moves DOM focus
-   onto them), so they need the same visible app focus ring as chat rows. Without
-   this rule a focused folder header fell back to the inconsistent UA outline, which
-   UI-SPEC.md treats as an accessibility miss, not polish. */
-.nest-section-header[data-kind="folder"]:focus,
-.nest-section-header[data-kind="folder"][tabindex="0"]:focus-visible {
-  outline: none;
-  background: var(--nest-accent-soft);
-  box-shadow: inset 0 0 0 1px var(--nest-accent);
-  border-radius: 4px;
-}
-
-.nest-section-header.nest-drop-over {
-  background: var(--nest-accent-soft);
-  outline: 2px dashed var(--nest-accent);
-  outline-offset: -2px;
+  color: var(--nest-text-label);
 }
 
 .nest-section-label {
@@ -177,77 +394,145 @@ body {
   white-space: nowrap;
 }
 
-.nest-section-count {
-  opacity: 0.6;
-  font-weight: 600;
+/* The FOLDERS header carries the + (new folder) and ^ (collapse one level)
+   buttons flush right (design README line 44). Its label must read at the SAME
+   10px/600 uppercase muted scale as the cross-cutting and UNSORTED headers
+   (media/design/ChatSidebar.dc.html line 160: font-size:10px; letter-spacing:0.7px;
+   color:#AEA99C; font-weight:600). The base .nest-section-header rule sets that type
+   on its own header element, but this header is .nest-folders-header (not
+   .nest-section-header), so the label span must carry the type itself or it inherits
+   the 13px #2B2A27 body defaults. */
+.nest-folders-header {
+  display: flex;
+  align-items: center;
+  padding: 9px 8px 3px;
 }
 
-.nest-heuristic-tag {
-  margin-left: 4px;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: lowercase;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
-}
-
-.nest-folder-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  background: var(--nest-accent);
-}
-
-/* The disclosure chevron on a collapsible folder header (issue #64). The header's
-   aria-expanded carries the state for assistive tech; this is the visual cue. The
-   header click rename is unaffected because the chevron click stops propagation. */
-.nest-folder-chevron {
-  flex: 0 0 auto;
-  width: 12px;
+.nest-folders-header .nest-section-label {
+  flex: 1;
   font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--nest-text-label);
+}
+
+.nest-mini-btn {
+  width: 19px;
+  height: 19px;
+  border: none;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--nest-text-label);
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
   line-height: 1;
+}
+
+.nest-mini-btn.nest-mini-caret {
+  font-size: 11px;
+}
+
+.nest-mini-btn:hover {
+  background: var(--nest-btn-hover);
+  color: var(--nest-icon);
+}
+
+.nest-mini-btn:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+/* Folder header rows (real folders in the tree). */
+.nest-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nest-text-folder);
+}
+
+.nest-folder-row:hover {
+  background: var(--nest-hover-row);
+}
+
+.nest-folder-row:focus,
+.nest-folder-row[tabindex='0']:focus-visible {
+  outline: none;
+  background: var(--nest-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--nest-accent);
+}
+
+.nest-folder-row.nest-drop-over {
+  background: var(--nest-drop-target);
+  box-shadow: inset 0 0 0 2px var(--nest-accent);
+}
+
+.nest-folder-chevron {
+  width: 10px;
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: #9A968B;
   text-align: center;
   cursor: pointer;
-  opacity: 0.7;
 }
 
-.nest-folder-chevron:hover {
-  opacity: 1;
+.nest-folder-glyph {
+  flex: 0 0 auto;
+  display: inline-flex;
 }
 
-/* The "collapse one level" toolbar control. A text button styled like the other
-   controls in the row, not the accent-filled primary icon button. */
-.nest-collapse-level {
-  border: 1px solid var(--vscode-dropdown-border, transparent);
-  border-radius: 4px;
-  background: var(--vscode-dropdown-background);
-  color: var(--vscode-dropdown-foreground);
-  padding: 2px 8px;
+.nest-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nest-folder-count {
+  flex: 0 0 auto;
   font-size: 11px;
-  cursor: pointer;
+  font-weight: 500;
+  color: var(--nest-text-breadcrumb);
 }
 
-.nest-collapse-level:hover {
-  background: var(--nest-accent-soft);
+/* The synthetic UNSORTED header: a plain section label that is also a drop target. */
+.nest-unsorted-header {
+  padding: 9px 8px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--nest-text-label);
+  border-radius: 4px;
 }
 
-.nest-collapse-level:focus-visible {
-  outline: 1px solid var(--nest-accent);
+.nest-unsorted-header.nest-drop-over {
+  background: var(--nest-drop-target);
+  box-shadow: inset 0 0 0 2px var(--nest-accent);
 }
 
 .nest-rename-input {
-  font-size: 11px;
-  padding: 1px 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 1px 5px;
   border: 1px solid var(--nest-accent);
   border-radius: 4px;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  text-transform: none;
-  letter-spacing: normal;
+  background: #fff;
+  color: var(--nest-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
 }
 
 /* A hidden color input parked off-screen so its native picker can open. */
@@ -259,26 +544,36 @@ body {
   opacity: 0;
 }
 
+/* ---- Chat rows ---- */
+
 .nest-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 10px;
-  margin: 1px 0;
-  border-left: 3px solid transparent;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border-left: 2px solid transparent;
   cursor: pointer;
   outline: none;
 }
 
 .nest-row:hover {
-  background: var(--nest-accent-soft);
+  background: var(--nest-hover-row);
 }
 
 .nest-row:focus,
-.nest-row[tabindex="0"]:focus-visible {
+.nest-row[tabindex='0']:focus-visible {
   border-left-color: var(--nest-accent);
   background: var(--nest-accent-soft);
   box-shadow: inset 0 0 0 1px var(--nest-accent);
+}
+
+/* Active row (currently open): warm tint + inset left border. The ONLY row
+   highlight; starred rows are NOT tinted. Best-effort (tab label heuristic,
+   UI-SPEC.md deviation 4); wired in a later slice. */
+.nest-row.nest-active {
+  background: var(--nest-active-row);
+  border-left-color: var(--nest-accent);
 }
 
 .nest-row.nest-drop-over {
@@ -286,29 +581,20 @@ body {
   outline-offset: -2px;
 }
 
-.nest-row-title {
+.nest-row-main {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-weight: 600;
-  min-width: 0;
+  gap: 7px;
+  width: 100%;
 }
 
-.nest-row-title-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The left status slot (design README line 51; UI-SPEC.md "Chat row"). Always a
-   15px fixed-width slot so titles align whether or not a row carries a status; the
-   glyph inside is a solid 8px dot for status 'done' or a 14px blinking circle with a
-   white '?' for status 'question'. The slot is aria-hidden; the row's aria-label
-   carries the meaning. */
+/* The left status slot (design README line 51): a fixed 15px slot so titles align
+   whether or not a row carries a status; the glyph inside is a solid 8px dot for
+   status 'done' or a 14px blinking circle with a white '?' for 'question'. The slot
+   is aria-hidden; the row's aria-label carries the meaning. */
 .nest-status {
   flex: 0 0 auto;
   width: 15px;
-  height: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -322,20 +608,21 @@ body {
 }
 
 .nest-status-question {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 14px;
   height: 14px;
   border-radius: 50%;
   background: var(--nest-accent);
   color: #fff;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  line-height: 14px;
-  text-align: center;
+  line-height: 1;
   animation: ccblink 1.15s ease-in-out infinite;
 }
 
-/* UI-SPEC.md deviation 3: the blinking is disabled under reduced-motion (static
-   badge), so the question status stays legible without animation. */
+/* UI-SPEC.md deviation 3: blinking disabled under reduced-motion (static badge). */
 @media (prefers-reduced-motion: reduce) {
   .nest-status-question {
     animation: none;
@@ -354,56 +641,170 @@ body {
   }
 }
 
-.nest-star {
-  color: var(--nest-accent);
-  flex: 0 0 auto;
+.nest-row-title-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--nest-text);
 }
 
-.nest-row-meta {
-  font-size: 11px;
-  opacity: 0.65;
+/* Folder breadcrumb (search results and Questions), muted. */
+.nest-row-breadcrumb {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--nest-text-breadcrumb);
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nest-row-tags {
   display: flex;
-  flex-wrap: wrap;
   gap: 4px;
-  margin-top: 2px;
+  align-items: center;
+  flex: 0 0 auto;
 }
 
+/* Tag pills on a chat row: color @15% background / full color text. The @15%
+   background is computed as rgba() in JS (hexToRgba) and set inline rather than via
+   CSS color-mix() (Chromium 111+, not on the 1.66 engines floor). This rule supplies
+   the text color and a safe fallback tint; JS overrides the background with the exact
+   alpha when the tag has a color. */
 .nest-tag {
-  font-size: 10px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
+  --tag-color: var(--nest-accent);
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 500;
   white-space: nowrap;
+  background: var(--nest-accent-soft);
+  color: var(--tag-color);
+}
+
+.nest-row-time {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--nest-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 42px;
+  text-align: right;
+}
+
+/* Star toggle: filled accent when starred, hollow muted otherwise (hover accent). */
+.nest-star {
+  flex: 0 0 auto;
+  width: 15px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--nest-accent);
+}
+
+.nest-star-empty {
+  color: #D6D0C2;
+}
+
+.nest-row:hover .nest-star-empty {
+  color: var(--nest-accent);
 }
 
 .nest-row-snippet {
+  padding-left: 22px;
   font-size: 11px;
-  opacity: 0.78;
+  line-height: 1.4;
+  color: var(--nest-text-snippet);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
 }
+
+/* ---- Archived (N) row (bottom) ---- */
+
+.nest-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  color: #9A968B;
+  font-family: inherit;
+  font-size: 12px;
+  width: 100%;
+  text-align: left;
+}
+
+.nest-archived-row:hover {
+  background: var(--nest-hover-row);
+  color: var(--nest-icon);
+}
+
+.nest-archived-row:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+.nest-archived-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+
+.nest-archived-label {
+  flex: 1;
+}
+
+.nest-archived-count {
+  flex: 0 0 auto;
+  color: var(--nest-text-breadcrumb);
+  font-weight: 500;
+}
+
+/* ---- Empty state ---- */
 
 .nest-empty {
-  padding: 28px 14px;
+  padding: 30px 12px;
   text-align: center;
-  opacity: 0.6;
+  color: var(--nest-text-breadcrumb);
+  font-size: 12.5px;
 }
 
-/* Compact density: tighter rows, smaller type, no inline tag labels or snippet
-   (the script omits those in compact mode; this trims the chrome too). */
-body[data-density="compact"] .nest-row {
-  padding: 3px 10px;
+/* ---- Folder actions context menu (right-click a folder header) ---- */
+
+.nest-menu {
+  position: fixed;
+  z-index: 60;
+  background: #fff;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(40, 33, 20, 0.18);
+  padding: 5px;
+  min-width: 150px;
 }
 
-body[data-density="compact"] .nest-row-meta {
-  font-size: 10px;
+.nest-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--nest-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
 }
 
-body[data-density="compact"] .nest-section-header {
-  margin: 6px 0 1px;
+.nest-menu-item:hover,
+.nest-menu-item:focus-visible {
+  outline: none;
+  background: #F4F2EA;
 }

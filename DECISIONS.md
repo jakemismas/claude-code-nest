@@ -984,3 +984,91 @@ Gates green: tsc/compile clean, eslint clean (lint scope is src; the script is d
 tooling outside it), 796 unit tests passing, `vsce package --no-dependencies` clean
 with `scripts/` and `media/design/**` confirmed absent from the .vsix via `vsce ls`.
 Closes issue #79.
+
+## 2026-07-02 Slice s3a-design-shell: design-token shell, toolbar, sort popover, search visuals
+
+Re-skinned the org panel shell to the pixel-exact handoff (media/design/, UI-SPEC.md)
+for issue #80. Forks resolved autonomously, all reversible.
+
+(a) NEW SESSION ENTRY POINT (build-time probe, AC3). The plan required probing the
+actual Claude Code new-chat entry point. Probed the INSTALLED extension's
+package.json contributes directly (authoritative, not web search) against
+anthropic.claude-code 2.1.197 AND 2.1.198: the extension contributes the command
+"claude-vscode.newConversation" ("Claude Code: New Conversation", keybound cmd+n).
+That is the real new-chat entry point. The public URI handler's /open?session=<id>
+path (uriLauncher.ts) only RESUMES an existing session and cannot start a fresh one,
+so it is NOT used for New session. Chosen mechanism: an injected seam mirroring
+uriLauncher.ts (src/launch/newSessionLauncher.ts, vscode-free, unit-tested) that
+tries NEW_SESSION_COMMANDS in order (newConversation, then claude-vscode.sidebar.open
+as a graceful fallback that at least surfaces Claude), wired in extension.ts via
+vscode.commands.executeCommand; a total failure shows a graceful info toast
+(UI-SPEC.md deviation 6). Reversible: the command list is one constant.
+
+(b) DENSITY REMOVED (patch 2). The design has a single row density, so density was
+removed across all five coupled sites: orgPanel.css (body[data-density] rules gone),
+orgPanel.js (densityEl/densityMode/the comfortable branch gone; tag pills + snippet
+are now the single unconditional behavior), orgPanelWebview.ts
+(DENSITY_KEY/onSetState/postState/Inbound/coerce all drop density), and the harness
+mock. Sort persists locally (SORT_KEY on workspaceState, unchanged); the sync surface
+stays exactly nest.meta.v1::<projectKey>.
+
+(c) SORT MOVED TO A POPOVER (AC2). The native <select> is replaced by a design
+popover: a sort icon button toggling a menu (role=menu, menuitemradio items) with
+Newest first / Oldest first / Name (A-Z) and a #d97757 checkmark on the active one.
+Keyboard operable (Enter/Space/ArrowUp/Down, Escape closes and restores focus to the
+trigger, aria-expanded on the trigger) so the ARIA-tree accessibility AC does not
+regress (patch 6, UI-SPEC.md deviation 5). Content-search mode is NOT surfaced this
+slice (the AC permits title-filtering until the search slice); the host's
+content-search plumbing is left intact for that later slice.
+
+(d) NEWSREADER FONT BUNDLED (AC6, patch 4). The Newsreader 600 latin subset woff2
+is bundled at media/fonts/newsreader-600-latin.woff2 (23876 bytes, wOF2 magic
+verified) and loaded via an @font-face in orgPanel.css whose relative url()
+('fonts/newsreader-600-latin.woff2') resolves against the stylesheet's webview URI
+under the pinned media localResourceRoots; CSP font-src cspSource already permits it.
+A local serif stack (Georgia, serif) is the fallback. No heading consumes the serif
+THIS slice (the Settings/Archive sub-page headings land in s3b), so the packaging
+proof (media/fonts/*.woff2 present in the .vsix via vsce ls) is the gate, not the
+fidelity screenshot. .vscodeignore excludes media/design/** and media/mockups/** but
+NOT media/fonts/**, so the font ships.
+
+(e) ARCHIVED (N) ROW + ARCHIVED EXCLUSION (AC5, patch 5). Extended the pure
+OrgSections/buildSections with an archivedCount (unit-tested). The plan patch said
+"the model currently excludes archived chats" but it did NOT: buildSections rendered
+every scanned record regardless of userArchived. The design authority (README lines
+45-46, reference screenshot) clearly separates archived chats into the Archive
+sub-page and shows only an "Archived (N)" bottom row, so the design-correct behavior
+is to EXCLUDE userArchived chats (the SYNCED flag) from every visible section AND the
+tag-chip counts, and count them for the row. The row opens the existing
+claudeNest.archive view (via claudeNest.archive.focus) until the s3b overlay ships.
+
+(f) TAG PILL COLORS. Added tagColors (parallel to tags, color-or-null per resolved
+tag) to OrgChatRow so the webview renders each pill in its handoff hue (README line
+98). The chip active state and the pill background use CSS color-mix for the 15%/45%
+alpha treatments the handoff specifies.
+
+(g) HARNESS SHELL REBUILT IN LOCKSTEP (patch 1). scripts/fidelity/harness.html's
+static shell is a byte-aligned copy of the new renderHtml (New session pill, gear,
+sort button+popover, search box, chips, tree), the --vscode-* palette shim is
+removed (the asset hardcodes the palette now, so the shim was a no-op), and the mock
+carries archivedCount + tagColors and posts state without density. Ran npm run
+fidelity and compared harness.png to media/design/reference/prototype-320.png by eye;
+iterated once to add the hollow star (design README line 56) on non-starred rows.
+
+(h) DEFERRED TO LATER SLICES (recorded so the fidelity gap is intentional, not a
+miss): the active-row highlight (tab-label heuristic, UI-SPEC.md deviation 4; the CSS
+.nest-row.nest-active is in place, unwired); the Questions/search folder breadcrumb
+(README line 54; row anatomy, issue #80 non-goal); the folder count's subtree-rollup
+semantics (README line 66; the count renders as a direct-home count for now, folder
+tree behavior is a non-goal); the star toggle, context menu, and Settings/Archive
+in-panel overlays (s3a-row-anatomy and s3b per SPRINT-3-PLAN.md). The gear and
+Archived row route to the existing settings command and Archive view until s3b.
+
+(i) FOLDER COLLAPSE STAYS CHEVRON-DRIVEN, NOT WHOLE-ROW-CLICK. The design says a
+folder-row click toggles expand/collapse, but a plain header click races the
+double-click rename: a dblclick fires two clicks first, and each toggle re-renders
+the whole list imperatively, detaching the node the dblclick then targets (the
+prototype avoids this only because React reconciles by key). So collapse is driven by
+the chevron and by keyboard ArrowLeft/Right (the prior shipped behavior), and the
+"click the row toggles" refinement is deferred to the folder-tree slice where a keyed
+render can support it race-free. Reversible: one event listener.

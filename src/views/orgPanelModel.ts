@@ -64,6 +64,10 @@ export interface OrgChatRow {
   snippet: string | null;
   tags: string[];
   tagIds: string[];
+  // Parallel to tags: each tag's color (#rrggbb) or null when the tag has none, so
+  // the webview can render each tag pill in its handoff hue (design README line 98).
+  // Same length and order as tags.
+  tagColors: (string | null)[];
   starred: boolean;
   awaitingReply: boolean;
   status: RowStatus;
@@ -97,12 +101,16 @@ export interface TagChip {
 // cross-cutting sections (each a flat row list); folders is the single-home
 // hierarchy (roots first in stored order, each followed by its descendants in a
 // pre-order flattening, the synthetic Unsorted bucket last); tags are the filter
-// chips. counts carries the section totals for the section headers.
+// chips. archivedCount is the number of scanned chats the user has archived
+// (ChatMeta.userArchived === true), which drives the bottom "Archived (N)" row; it
+// is a COUNT only, since archived chats are excluded from every visible section
+// (design README lines 45-46: archived chats live in the Archive sub-page).
 export interface OrgSections {
   starred: OrgChatRow[];
   questions: OrgChatRow[];
   folders: FolderSection[];
   tags: TagChip[];
+  archivedCount: number;
 }
 
 // A token-badge formatter seam so the pure model stays free of the vscode-thin
@@ -119,7 +127,19 @@ export function buildSections(
   meta: ProjectMeta | undefined,
   tokenBadge: TokenBadgeFn,
 ): OrgSections {
-  const rows = records.map((record) => buildRow(record, meta, tokenBadge));
+  // Archived chats (the SYNCED ChatMeta.userArchived flag, slice s2-star-archive)
+  // are excluded from EVERY visible section and surfaced only as the bottom
+  // "Archived (N)" row (design README lines 45-46; the Archive sub-page owns them,
+  // which is the existing claudeNest.archive view until the s3b overlay ships). This
+  // is the SYNCED curation flag, never the local orphan-reconcile flag (the model is
+  // vscode-free and reads only the passed ProjectMeta). The count is over SCANNED
+  // records only, matching the "N results" the Archive view lists for present chats;
+  // an archived chat whose transcript was cleaned up out of band is not scanned and
+  // shows only in the Archive view, exactly as before.
+  const visibleRecords = records.filter((r) => !isArchived(r.sessionId, meta));
+  const archivedCount = records.length - visibleRecords.length;
+
+  const rows = visibleRecords.map((record) => buildRow(record, meta, tokenBadge));
 
   // Cross-cutting sections, each sorted newest-first to match the folder rows.
   const starred = sortNewestFirst(rows.filter((r) => r.starred));
@@ -128,7 +148,7 @@ export function buildSections(
   // Single-home folder placement: group each row under its resolved home folder
   // id (the Unsorted sentinel when unfiled or the folder no longer resolves).
   const homeByChat = new Map<string, string>();
-  for (const record of records) {
+  for (const record of visibleRecords) {
     homeByChat.set(record.sessionId, resolveHomeFolderId(record.sessionId, meta));
   }
   const rowsByFolder = new Map<string, OrgChatRow[]>();
@@ -143,9 +163,15 @@ export function buildSections(
   }
 
   const folders = buildFolderSections(meta, rowsByFolder);
-  const tags = buildTagChips(records, meta);
+  const tags = buildTagChips(visibleRecords, meta);
 
-  return { starred, questions, folders, tags };
+  return { starred, questions, folders, tags, archivedCount };
+}
+
+// Whether a scanned chat is user-archived per the SYNCED ChatMeta.userArchived
+// flag. Tolerant of an absent meta or chat entry (not archived). Never throws.
+function isArchived(chatId: string, meta: ProjectMeta | undefined): boolean {
+  return meta?.chats[chatId]?.userArchived === true;
 }
 
 // Project one record to its org-panel row, resolving its curation state from the
@@ -159,15 +185,16 @@ function buildRow(
 ): OrgChatRow {
   const chatMeta = meta?.chats[record.sessionId];
   const tagIds = Array.isArray(chatMeta?.tags) ? [...(chatMeta as { tags: string[] }).tags] : [];
-  const tags = resolveTagLabelsFor(tagIds, meta);
+  const resolved = resolveTagsFor(tagIds, meta);
   return {
     sessionId: record.sessionId,
     title: record.title,
     timestamp: record.timestamp,
     tokens: tokenBadge(record),
     snippet: record.lastMessageText,
-    tags,
+    tags: resolved.labels,
     tagIds,
+    tagColors: resolved.colors,
     starred: chatMeta?.starred === true,
     // The scan-time awaiting-reply heuristic (slice 0 tier-A): the last GENUINE
     // turn was the user's, so Claude has not replied. NOT a live conversation
@@ -224,22 +251,29 @@ function resolveHomeFolderId(chatId: string, meta: ProjectMeta | undefined): str
   return meta.folders[folderId] !== undefined ? folderId : UNSORTED_FOLDER_ID;
 }
 
-// Resolve a chat's tag-id list to its full label set, in stored order, dropping
-// ids that no longer resolve and blank labels. Mirrors chatMeta.resolveTagLabels
-// but operates on the already-extracted id list (the row keeps both id and label
-// sets: the id set for the chip filter and DnD, the labels for display).
-function resolveTagLabelsFor(tagIds: readonly string[], meta: ProjectMeta | undefined): string[] {
-  if (meta === undefined) {
-    return [];
-  }
+// Resolve a chat's tag-id list to its full label AND color sets, in stored order,
+// dropping ids that no longer resolve and blank labels. The two arrays stay aligned
+// (same length and order) so the webview can pair each pill's label with its color.
+// Mirrors chatMeta.resolveTagLabels but operates on the already-extracted id list
+// (the row keeps both id and label sets: the id set for the chip filter and DnD, the
+// labels + colors for display).
+function resolveTagsFor(
+  tagIds: readonly string[],
+  meta: ProjectMeta | undefined,
+): { labels: string[]; colors: (string | null)[] } {
   const labels: string[] = [];
+  const colors: (string | null)[] = [];
+  if (meta === undefined) {
+    return { labels, colors };
+  }
   for (const tagId of tagIds) {
     const tag = meta.tags[tagId];
     if (tag !== undefined && typeof tag.label === 'string' && tag.label.length > 0) {
       labels.push(tag.label);
+      colors.push(typeof tag.color === 'string' && tag.color.length > 0 ? tag.color : null);
     }
   }
-  return labels;
+  return { labels, colors };
 }
 
 // Build the folder sections in pre-order (each root followed by its descendants),

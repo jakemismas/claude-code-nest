@@ -1,63 +1,81 @@
-// The PRIMARY org-panel webview script (slice s2-org-panel-webview). It renders
-// the host-assembled section model (Starred, Questions heuristic, the folder
-// hierarchy with per-folder color, Unsorted) as an ARIA tree, supports tag filter
-// chips, sort and density modes, double-click folder rename, drag-and-drop that
-// posts a self-describing drop message the host maps to the unchanged pure
-// reducer, full keyboard navigation, and a content-search mode.
+// The PRIMARY org-panel webview script. Renders the host-assembled section model
+// (Starred, Questions heuristic, the folder hierarchy with per-folder color,
+// Unsorted, and the bottom Archived row) as an ARIA tree, supports tag filter
+// chips, sort via a popover, folder rename, folder color, drag-and-drop that posts
+// a self-describing drop message the host maps to the unchanged pure reducer, full
+// keyboard navigation, and a title filter.
 //
-// Accessibility is an ACCEPTANCE CRITERION, not polish: the list is role="tree"
-// with role="treeitem" rows grouped under role="group" sections, a single roving
-// tabindex (one focusable item at a time), arrow-key navigation, Enter/Space
-// activation, and a visible focus ring (CSS). The DnD shell is fully in-process:
-// the drag start records the dragged chat ids, and the drop posts them straight to
-// the host, so no cross-controller transfer is involved.
+// Sprint 3 slice s3a-design-shell (issue #80) re-skins the shell to the design
+// handoff (media/design/, UI-SPEC.md): the New session pill, the gear, the sort
+// POPOVER (replacing the native select), the search box with a clear button, the
+// FOLDERS header + / ^ buttons, and the Archived (N) row. Density is removed (the
+// design has a single row density). Content-search mode is not surfaced this slice
+// (the AC permits title-filtering until the search slice); the host's content-search
+// plumbing stays intact for that later slice.
+//
+// Accessibility is an ACCEPTANCE CRITERION, not polish (UI-SPEC.md deviation 5): the
+// list is role="tree" with role="treeitem" rows grouped under role="group"
+// sections, a single roving tabindex, arrow-key navigation, Enter/Space activation,
+// and a visible focus ring (CSS). The new sort popover and the toolbar buttons
+// (New session, gear, sort) are keyboard operable with focus handling and
+// aria-labels so the ARIA story does not regress.
 (function () {
   const vscode = acquireVsCodeApi();
   const listEl = document.getElementById('list');
   const chipsEl = document.getElementById('chips');
   const filterEl = document.getElementById('filter');
-  const refreshEl = document.getElementById('refresh');
-  const sortEl = document.getElementById('sort');
-  const densityEl = document.getElementById('density');
-  const contentModeEl = document.getElementById('contentMode');
-  const collapseLevelEl = document.getElementById('collapseLevel');
+  const searchClearEl = document.getElementById('searchClear');
+  const newSessionEl = document.getElementById('newSession');
+  const settingsEl = document.getElementById('settings');
+  const sortBtnEl = document.getElementById('sortBtn');
+  const sortPopoverEl = document.getElementById('sortPopover');
 
   // The latest host-posted section model.
-  let sections = { starred: [], questions: [], folders: [], tags: [] };
+  let sections = { starred: [], questions: [], folders: [], tags: [], archivedCount: 0 };
   // The set of active tag-id filters (AND across selected chips: a row must carry
   // every selected tag to show).
   const activeTags = new Set();
-  // The current text filter (title substring in non-content mode).
+  // The current text filter (title substring).
   let textFilter = '';
-  // Content-search state.
-  let searchRows = [];
-  let searchQuery = '';
-  let searchPending = false;
-  let searchTimer = null;
-  const SEARCH_DEBOUNCE_MS = 200;
 
-  // Sort and density, hydrated from the host's persisted state on 'state'.
+  // Sort, hydrated from the host's persisted state on 'state'.
   let sortMode = 'newest';
-  let densityMode = 'comfortable';
 
-  // The collapsed-folder id set (issue #64), seeded from the host's persisted
-  // state on 'state' and posted back via setState whenever it changes. A folder id
-  // here renders its header with aria-expanded="false", hides its role="group"
-  // body, and hides every descendant folder section so the hidden rows are never
-  // in the DOM (so they cannot receive the roving tabindex). Workspace-local and
-  // never synced, mirroring sort/density.
+  // The collapsed-folder id set (issue #64), seeded from the host's persisted state
+  // on 'state' and posted back via setState whenever it changes. A folder id here
+  // renders its header with aria-expanded="false", hides its role="group" body, and
+  // hides every descendant folder section so the hidden rows are never in the DOM
+  // (so they cannot receive the roving tabindex). Workspace-local and never synced.
   const collapsedFolders = new Set();
 
-  // The dragged chat ids for an in-flight in-panel drag (fully in-process; the
-  // drop posts these straight to the host). Cleared on dragend.
+  // The dragged chat ids for an in-flight in-panel drag (fully in-process; the drop
+  // posts these straight to the host). Cleared on dragend.
   let draggingChatIds = [];
 
-  // The roving-tabindex focus target: the index into the flat list of rendered
-  // focusable rows. Kept stable across re-renders by sessionId when possible.
+  // The roving-tabindex focus target: the dataset.id of the row that holds the
+  // single tabindex="0". Kept stable across re-renders by id when possible.
   let focusedId = null;
 
-  function contentMode() {
-    return !!(contentModeEl && contentModeEl.checked);
+  // Convert a strict #rrggbb hex color to an rgba() string at the given alpha. Used
+  // for the tag-pill @15% background and the active-chip @15%/@45% background/border
+  // (design README). Computed here rather than via CSS color-mix(), which needs
+  // Chromium 111+ and would be INVALID on the engines floor (VS Code 1.66 ships
+  // Chromium 98). Colors reaching here are already validated to #rrggbb at the store
+  // normalize boundary (schema.isValidColor); a non-matching value returns null so
+  // the caller keeps the CSS fallback tint.
+  function hexToRgba(hex, alpha) {
+    if (typeof hex !== 'string') {
+      return null;
+    }
+    const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
+    if (!m) {
+      return null;
+    }
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
   }
 
   // ---- chip filter ----
@@ -80,8 +98,27 @@
       }
       if (chip.color) {
         el.style.setProperty('--chip-color', chip.color);
+        if (active) {
+          // Active chip: color @15% background, color @45% border (design README
+          // line 36), computed as rgba() so no CSS color-mix() is needed.
+          const bg = hexToRgba(chip.color, 0.15);
+          const border = hexToRgba(chip.color, 0.45);
+          if (bg) {
+            el.style.background = bg;
+          }
+          if (border) {
+            el.style.borderColor = border;
+          }
+        }
       }
-      el.textContent = chip.label + ' (' + chip.count + ')';
+      const dot = document.createElement('span');
+      dot.className = 'nest-chip-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      el.appendChild(dot);
+      const label = document.createElement('span');
+      label.textContent = chip.label;
+      el.appendChild(label);
+      el.setAttribute('aria-label', 'Filter by tag ' + chip.label + ' (' + chip.count + ')');
       el.addEventListener('click', () => {
         if (activeTags.has(chip.tagId)) {
           activeTags.delete(chip.tagId);
@@ -91,9 +128,8 @@
         renderChips();
         render();
       });
-      // A chip is also a DROP TARGET: dropping chats on it tags them (the host
-      // maps a 'tag' drop to the reducer's tag-add). Wired here so the chip's
-      // drop handling lives with its creation.
+      // A chip is also a DROP TARGET: dropping chats on it tags them (the host maps
+      // a 'tag' drop to the reducer's tag-add).
       attachChipDropTarget(el, chip.tagId);
       chipsEl.appendChild(el);
     }
@@ -118,6 +154,12 @@
     return true;
   }
 
+  // Whether any tag chip or text filter is active. When filtering, the sectioned
+  // list is replaced by a flat "N RESULTS" list (design README line 47).
+  function isFiltering() {
+    return activeTags.size > 0 || textFilter.length > 0;
+  }
+
   function sortRows(rows) {
     const copy = rows.slice();
     if (sortMode === 'oldest') {
@@ -133,8 +175,9 @@
   // ---- row + section rendering ----
 
   // Build one chat row (role="treeitem"). Draggable; double-click is reserved for
-  // folder rename, so a row's activation is a single click / Enter / Space.
-  function makeRow(row, depth) {
+  // folder rename, so a row's activation is a single click / Enter / Space. opts may
+  // carry showSnippet (search/filter results show the body-match snippet beneath).
+  function makeRow(row, depth, opts) {
     const el = document.createElement('div');
     el.className = 'nest-row';
     el.setAttribute('role', 'treeitem');
@@ -142,63 +185,79 @@
     el.setAttribute('tabindex', '-1');
     el.dataset.kind = 'chat';
     el.dataset.id = row.sessionId;
-    el.style.paddingLeft = 10 + depth * 12 + 'px';
+    el.style.paddingLeft = 8 + depth * 18 + 'px';
     el.draggable = true;
 
-    const title = document.createElement('div');
-    title.className = 'nest-row-title';
-    // The left status slot (design README line 51; UI-SPEC.md "Chat row"): a solid
-    // dot for status 'done' or a blinking '?' badge for status 'question'. Always
-    // present (even when empty) so titles align down the column. The accessible
-    // meaning rides the row's aria-label (rowAriaLabel); the glyph is decorative.
+    const main = document.createElement('div');
+    main.className = 'nest-row-main';
+
+    // The left status slot (design README line 51): a solid dot for status 'done'
+    // or a blinking '?' badge for status 'question'. Always present (even when
+    // empty) so titles align down the column. The meaning rides the aria-label; the
+    // glyph is decorative.
     const status = document.createElement('span');
     status.className = 'nest-status';
-    if (row.status === 'question') {
-      status.classList.add('nest-status-question');
-      status.textContent = '?';
-    } else if (row.status === 'done') {
-      status.classList.add('nest-status-dot');
-    }
     status.setAttribute('aria-hidden', 'true');
-    title.appendChild(status);
-    if (row.starred) {
-      const star = document.createElement('span');
-      star.className = 'nest-star';
-      star.setAttribute('aria-hidden', 'true');
-      star.textContent = '★';
-      title.appendChild(star);
+    if (row.status === 'question') {
+      const q = document.createElement('span');
+      q.className = 'nest-status-question';
+      q.textContent = '?';
+      status.appendChild(q);
+    } else if (row.status === 'done') {
+      const d = document.createElement('span');
+      d.className = 'nest-status-dot';
+      status.appendChild(d);
     }
+    main.appendChild(status);
+
     const titleText = document.createElement('span');
     titleText.className = 'nest-row-title-text';
     titleText.textContent = row.title;
-    title.appendChild(titleText);
+    main.appendChild(titleText);
 
-    const meta = document.createElement('div');
-    meta.className = 'nest-row-meta';
-    const when = relative(row.timestamp);
-    meta.textContent = row.tokens ? when + ' | ' + row.tokens : when;
-
-    el.appendChild(title);
-    el.appendChild(meta);
-
-    if (densityMode === 'comfortable') {
-      if (row.tags && row.tags.length > 0) {
-        const tagRow = document.createElement('div');
-        tagRow.className = 'nest-row-tags';
-        for (const label of row.tags) {
-          const t = document.createElement('span');
-          t.className = 'nest-tag';
-          t.textContent = label;
-          tagRow.appendChild(t);
+    if (row.tags && row.tags.length > 0) {
+      const tagRow = document.createElement('span');
+      tagRow.className = 'nest-row-tags';
+      for (let i = 0; i < row.tags.length; i++) {
+        const t = document.createElement('span');
+        t.className = 'nest-tag';
+        const tagColor = row.tagColors && row.tagColors[i];
+        if (tagColor) {
+          t.style.setProperty('--tag-color', tagColor);
+          // Tag pill @15% background (design README line 54), computed as rgba() so
+          // no CSS color-mix() is needed on the engines floor.
+          const bg = hexToRgba(tagColor, 0.15);
+          if (bg) {
+            t.style.background = bg;
+          }
         }
-        el.appendChild(tagRow);
+        t.textContent = row.tags[i];
+        tagRow.appendChild(t);
       }
-      if (row.snippet) {
-        const snip = document.createElement('div');
-        snip.className = 'nest-row-snippet';
-        snip.textContent = row.snippet;
-        el.appendChild(snip);
-      }
+      main.appendChild(tagRow);
+    }
+
+    const time = document.createElement('span');
+    time.className = 'nest-row-time';
+    time.textContent = relative(row.timestamp);
+    main.appendChild(time);
+
+    // Star affordance: filled accent star when starred, hollow muted star
+    // otherwise (design README line 56). The toggle command lands with the
+    // row-anatomy slice; this slice renders the badge matching the design.
+    const star = document.createElement('span');
+    star.className = row.starred ? 'nest-star' : 'nest-star nest-star-empty';
+    star.setAttribute('aria-hidden', 'true');
+    star.textContent = row.starred ? '★' : '☆';
+    main.appendChild(star);
+
+    el.appendChild(main);
+
+    if (opts && opts.showSnippet && row.snippet) {
+      const snip = document.createElement('div');
+      snip.className = 'nest-row-snippet';
+      snip.textContent = row.snippet;
+      el.appendChild(snip);
     }
 
     el.addEventListener('click', () => activateRow(row.sessionId));
@@ -212,7 +271,6 @@
     if (row.starred) {
       label = 'Starred. ' + label;
     }
-    // The status slot glyph is aria-hidden, so its meaning rides the label instead.
     if (row.status === 'question') {
       label = label + '. Has a question awaiting you.';
     } else if (row.status === 'done') {
@@ -224,128 +282,234 @@
     return label;
   }
 
-  // Build a section header (role="presentation"; the group it labels carries the
-  // accessible name via aria-label). count is the visible row count.
-  function makeSectionHeader(text, count, opts) {
+  // Build a cross-cutting section header (Starred, Questions): a bare muted uppercase
+  // label. The design authority (media/design/ChatSidebar.dc.html lines 117, 138 and
+  // the frozen media/design/reference/prototype-320.png) draws these headers with NO
+  // count and NO badge, matching the FOLDERS and UNSORTED labels; do not add either.
+  function makeSectionHeader(text) {
     const header = document.createElement('div');
     header.className = 'nest-section-header';
-    if (opts && opts.color) {
-      const dot = document.createElement('span');
-      dot.className = 'nest-folder-dot';
-      dot.style.background = opts.color;
-      dot.setAttribute('aria-hidden', 'true');
-      header.appendChild(dot);
-    }
     const labelEl = document.createElement('span');
     labelEl.className = 'nest-section-label';
     labelEl.textContent = text;
     header.appendChild(labelEl);
-    const countEl = document.createElement('span');
-    countEl.className = 'nest-section-count';
-    countEl.textContent = String(count);
-    header.appendChild(countEl);
-    if (opts && opts.heuristic) {
-      const tag = document.createElement('span');
-      tag.className = 'nest-heuristic-tag';
-      tag.textContent = 'heuristic';
-      tag.title = 'A scan-time guess from the last message role, not a live signal.';
-      header.appendChild(tag);
-    }
     return header;
   }
 
-  // Render one section (a header plus a role="group" of rows). A folder section is
-  // also a DROP TARGET: dropping chats onto it files them there (or unfiles on the
-  // synthetic Unsorted bucket). The header of a real folder is double-click
-  // renameable and right-click recolorable. A REAL folder section is collapsible
-  // (issue #64): collapsed hides its body and is reflected by aria-expanded on the
-  // header. The synthetic Unsorted catch-all and the cross-cutting Starred and
-  // Questions sections are not collapsible.
-  function renderSection(opts) {
-    const { key, label, rows, depth, folderId, color, synthetic, heuristic, droppable } = opts;
+  // Render a flat cross-cutting section (Starred / Questions). Hidden entirely when
+  // it has no visible rows (UI-SPEC).
+  function renderCrossCuttingSection(label, rows) {
     const visible = sortRows(rows.filter(rowMatches));
-    const collapsed = droppable && !synthetic && collapsedFolders.has(folderId);
-    // Cross-cutting sections (Starred, Questions) hide entirely when empty
-    // (UI-SPEC). Folder sections always render so the hierarchy and drop targets
-    // stay visible, EXCEPT a non-Unsorted folder with no visible rows under an
-    // active filter still shows (its drop target is useful); the synthetic
-    // Unsorted bucket is always present.
-    if (!droppable && visible.length === 0) {
+    if (visible.length === 0) {
       return;
     }
-
-    const header = makeSectionHeader(label, visible.length, { color, heuristic });
-    if (droppable) {
-      header.style.paddingLeft = 8 + depth * 12 + 'px';
-      header.dataset.dropFolderId = folderId;
-      if (!synthetic) {
-        // A real folder header is a navigable, actionable, COLLAPSIBLE tree row:
-        // role="treeitem" so it joins the roving-tabindex set, with aria-level for
-        // nesting depth and an accessible name. Enter/Space opens an in-place rename;
-        // double-click renames; right-click opens the folder actions menu. The
-        // disclosure chevron toggles collapse (issue #64) and stops propagation so a
-        // chevron click never triggers rename. The synthetic Unsorted bucket is a
-        // catch-all, not a nested folder, so it is NOT collapsible and never reaches
-        // this block: it gets no chevron, no aria-expanded, and no treeitem role,
-        // only the drop target below.
-        const chevron = document.createElement('span');
-        chevron.className = 'nest-folder-chevron';
-        chevron.setAttribute('aria-hidden', 'true');
-        chevron.textContent = collapsed ? '▸' : '▾';
-        chevron.addEventListener('click', (e) => {
-          e.stopPropagation();
-          toggleCollapse(folderId);
-        });
-        header.insertBefore(chevron, header.firstChild);
-        header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-        header.dataset.renameFolderId = folderId;
-        header.setAttribute('role', 'treeitem');
-        header.setAttribute('aria-level', String(depth + 1));
-        header.setAttribute('aria-label', 'Folder ' + label);
-        header.setAttribute('tabindex', '-1');
-        header.dataset.kind = 'folder';
-        header.dataset.id = 'folder:' + folderId;
-        header.dataset.folderDepth = String(depth);
-        header.title = 'Enter to rename. Right-click for folder actions.';
-        header.addEventListener('dblclick', () => beginRename(header, folderId, label));
-        header.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          openFolderMenu(e, header, folderId, label);
-        });
-      }
-      attachDropTarget(header, folderId);
-    }
-    listEl.appendChild(header);
-
-    // A collapsed folder renders no body group, so its chat rows are not in the
-    // DOM and cannot receive the roving tabindex; ArrowUp/Down skip them because
-    // focusableRows() only sees rendered treeitems. The header stays a drop target
-    // (attachDropTarget above), so a collapsed folder still accepts drops. The
-    // caller (renderTree) also skips this folder's descendant folder sections.
-    if (collapsed) {
-      return;
-    }
-
+    listEl.appendChild(makeSectionHeader(label));
     const group = document.createElement('div');
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', label);
     for (const row of visible) {
-      const rowEl = makeRow(row, depth);
-      if (droppable) {
-        // Tag each chat row with its owning folder id so ArrowLeft resolves the
-        // parent by id, not by a backward DOM scan. The scan would mis-resolve an
-        // unfiled chat (whose synthetic Unsorted header is not a treeitem) to the
-        // previous real folder header.
-        rowEl.dataset.parentFolderId = folderId;
-      }
-      group.appendChild(rowEl);
-    }
-    if (droppable) {
-      // The group is also a drop target so dropping anywhere in the folder's body
-      // files into it; empty space within the group still resolves to the folder.
-      attachDropTarget(group, folderId);
+      group.appendChild(makeRow(row, 0));
     }
     listEl.appendChild(group);
+  }
+
+  // Render one folder section (a header plus a role="group" of rows). A folder
+  // section is a DROP TARGET: dropping chats onto it files them there (or unfiles on
+  // the synthetic Unsorted bucket). A REAL folder header is double-click renameable,
+  // right-click recolorable, and collapsible; the synthetic Unsorted catch-all is a
+  // plain drop-target label.
+  function renderFolderSection(folder) {
+    const { folderId, name, color, depth, synthetic } = folder;
+    const visible = sortRows((folder.rows || []).filter(rowMatches));
+    const collapsed = !synthetic && collapsedFolders.has(folderId);
+
+    if (synthetic) {
+      // UNSORTED: a plain uppercase section label that is also a drop target.
+      const header = document.createElement('div');
+      header.className = 'nest-unsorted-header';
+      header.textContent = name;
+      header.dataset.dropFolderId = folderId;
+      attachDropTarget(header, folderId);
+      listEl.appendChild(header);
+    } else {
+      const header = makeFolderHeader(folder, collapsed, visible.length);
+      listEl.appendChild(header);
+      if (collapsed) {
+        return;
+      }
+    }
+
+    const group = document.createElement('div');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', name);
+    for (const row of visible) {
+      const rowEl = makeRow(row, depth + 1);
+      rowEl.dataset.parentFolderId = folderId;
+      group.appendChild(rowEl);
+    }
+    attachDropTarget(group, folderId);
+    listEl.appendChild(group);
+  }
+
+  // A real folder header row: chevron, colored folder glyph, name, count. It is a
+  // navigable, actionable, collapsible treeitem (role="treeitem", aria-level,
+  // aria-expanded). Enter/Space opens rename; double-click renames; right-click
+  // opens the folder actions menu; the chevron toggles collapse.
+  function makeFolderHeader(folder, collapsed, count) {
+    const { folderId, name, color, depth } = folder;
+    const header = document.createElement('div');
+    header.className = 'nest-folder-row';
+    header.style.paddingLeft = 8 + depth * 18 + 'px';
+    header.dataset.dropFolderId = folderId;
+    header.dataset.renameFolderId = folderId;
+    header.dataset.kind = 'folder';
+    header.dataset.id = 'folder:' + folderId;
+    header.dataset.folderDepth = String(depth);
+    header.setAttribute('role', 'treeitem');
+    header.setAttribute('aria-level', String(depth + 1));
+    header.setAttribute('aria-label', 'Folder ' + name);
+    header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    header.setAttribute('tabindex', '-1');
+    header.title = 'Enter to rename. Right-click for folder actions.';
+
+    const chevron = document.createElement('span');
+    chevron.className = 'nest-folder-chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+    chevron.textContent = collapsed ? '▸' : '▾';
+    chevron.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleCollapse(folderId);
+    });
+    header.appendChild(chevron);
+
+    header.appendChild(folderGlyph(color || '#C2A56E'));
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'nest-folder-name';
+    nameEl.textContent = name;
+    header.appendChild(nameEl);
+
+    const countEl = document.createElement('span');
+    countEl.className = 'nest-folder-count';
+    countEl.textContent = String(count);
+    header.appendChild(countEl);
+
+    // Collapse is driven by the chevron (the disclosure control) and by keyboard
+    // ArrowLeft/Right, NOT a plain header click: a header click would race the
+    // double-click rename below (a dblclick fires two clicks first, and each
+    // toggleCollapse re-renders the whole tree, detaching the node the dblclick
+    // targets). The design's "click the row toggles" is folder-tree behavior and is
+    // deferred to the folder-tree slice, where a keyed render can support it without
+    // the race (issue #80 non-goal; see DECISIONS.md).
+    header.addEventListener('dblclick', () => beginRename(header, folderId, name));
+    header.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openFolderMenu(e, header, folderId, name);
+    });
+    attachDropTarget(header, folderId);
+    return header;
+  }
+
+  // The colored rounded-folder SVG glyph (fill = folder color), matching the design.
+  function folderGlyph(color) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('fill', color);
+    svg.setAttribute('aria-hidden', 'true');
+    svg.classList.add('nest-folder-glyph');
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute(
+      'd',
+      'M1.4 4.1c0-.66.54-1.2 1.2-1.2h3.05c.4 0 .77.19 1 .52l.5.7c.23.33.6.52 1 .52h4.45c.66 0 1.2.54 1.2 1.2v6.35c0 .66-.54 1.2-1.2 1.2H2.6c-.66 0-1.2-.54-1.2-1.2z',
+    );
+    svg.appendChild(path);
+    return svg;
+  }
+
+  // The archive-box SVG glyph for the bottom Archived row.
+  function archiveGlyph() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '13');
+    svg.setAttribute('height', '13');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.5');
+    svg.setAttribute('aria-hidden', 'true');
+    const parts = [
+      ['rect', { x: '2', y: '3', width: '12', height: '3', rx: '0.6' }],
+      ['path', { d: 'M3 6.5v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-6' }],
+      ['line', { x1: '6.5', y1: '9', x2: '9.5', y2: '9', 'stroke-linecap': 'round' }],
+    ];
+    for (const [tag, attrs] of parts) {
+      const node = document.createElementNS(NS, tag);
+      for (const k of Object.keys(attrs)) {
+        node.setAttribute(k, attrs[k]);
+      }
+      svg.appendChild(node);
+    }
+    return svg;
+  }
+
+  // The FOLDERS section header with the + (new folder) and ^ (collapse one level)
+  // buttons (design README line 44).
+  function renderFoldersHeader() {
+    const header = document.createElement('div');
+    header.className = 'nest-folders-header';
+    const label = document.createElement('span');
+    label.className = 'nest-section-label';
+    label.textContent = 'FOLDERS';
+    header.appendChild(label);
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'nest-mini-btn';
+    addBtn.type = 'button';
+    addBtn.title = 'New folder';
+    addBtn.setAttribute('aria-label', 'New folder');
+    addBtn.textContent = '＋';
+    addBtn.addEventListener('click', () => vscode.postMessage({ type: 'createFolder' }));
+    header.appendChild(addBtn);
+
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'nest-mini-btn nest-mini-caret';
+    collapseBtn.type = 'button';
+    collapseBtn.title = 'Collapse one level';
+    collapseBtn.setAttribute('aria-label', 'Collapse one folder level');
+    collapseBtn.textContent = '⌃';
+    collapseBtn.addEventListener('click', collapseDeepestOpenLevel);
+    header.appendChild(collapseBtn);
+
+    listEl.appendChild(header);
+  }
+
+  // The bottom Archived (N) row, shown only when any chat is archived. Opens the
+  // interim Archive view (the in-panel Archive overlay lands in s3b).
+  function renderArchivedRow() {
+    if (!sections.archivedCount || sections.archivedCount <= 0) {
+      return;
+    }
+    const btn = document.createElement('button');
+    btn.className = 'nest-archived-row';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Archived, ' + sections.archivedCount + ' chats');
+    const icon = document.createElement('span');
+    icon.className = 'nest-archived-icon';
+    icon.appendChild(archiveGlyph());
+    btn.appendChild(icon);
+    const label = document.createElement('span');
+    label.className = 'nest-archived-label';
+    label.textContent = 'Archived';
+    btn.appendChild(label);
+    const count = document.createElement('span');
+    count.className = 'nest-archived-count';
+    count.textContent = String(sections.archivedCount);
+    btn.appendChild(count);
+    btn.addEventListener('click', () => vscode.postMessage({ type: 'openArchive' }));
+    listEl.appendChild(btn);
   }
 
   function renderEmpty(message) {
@@ -355,41 +519,36 @@
     listEl.appendChild(empty);
   }
 
-  // The default render: cross-cutting sections then the folder hierarchy.
-  function renderTree() {
+  // The default render: cross-cutting sections then the folder hierarchy, plus the
+  // Archived row. When a filter is active, a flat "N RESULTS" list replaces the
+  // sectioned view (design README line 47).
+  function render() {
     listEl.textContent = '';
     listEl.dataset.mode = 'tree';
+
+    if (isFiltering()) {
+      renderFiltered();
+      restoreFocus();
+      return;
+    }
 
     const total =
       sections.starred.length +
       sections.questions.length +
       sections.folders.reduce((n, f) => n + f.rows.length, 0);
-    if (total === 0) {
+    if (total === 0 && (!sections.archivedCount || sections.archivedCount <= 0)) {
       renderEmpty('No Claude Code chats found for this workspace yet.');
       return;
     }
 
-    renderSection({
-      key: 'starred',
-      label: 'Starred',
-      rows: sections.starred,
-      depth: 0,
-      droppable: false,
-    });
-    renderSection({
-      key: 'questions',
-      label: 'Questions',
-      rows: sections.questions,
-      depth: 0,
-      droppable: false,
-      heuristic: true,
-    });
-    // The folders array is a pre-order flattening (each folder followed by its
-    // descendants, deeper depth first). When a folder is collapsed we skip every
-    // following entry whose depth is greater than the collapsed folder's depth, so
-    // the whole collapsed subtree (its rows and all descendant folder sections) is
-    // omitted from the DOM. hideDeeperThan is the depth of the shallowest collapsed
-    // ancestor we are currently inside; reset once we exit that subtree.
+    renderCrossCuttingSection('Starred', sections.starred);
+    renderCrossCuttingSection('Questions', sections.questions);
+
+    renderFoldersHeader();
+    // The folders array is a pre-order flattening. When a folder is collapsed we
+    // skip every following entry whose depth is greater than the collapsed folder's
+    // depth, so the whole collapsed subtree (rows and descendant folder sections) is
+    // omitted from the DOM.
     let hideDeeperThan = Infinity;
     for (const folder of sections.folders) {
       if (folder.depth <= hideDeeperThan) {
@@ -398,33 +557,66 @@
       if (folder.depth > hideDeeperThan) {
         continue;
       }
-      renderSection({
-        key: 'folder:' + folder.folderId,
-        label: folder.name,
-        rows: folder.rows,
-        depth: folder.depth,
-        folderId: folder.folderId,
-        color: folder.color,
-        synthetic: folder.synthetic,
-        droppable: true,
-      });
-      if (collapsedFolders.has(folder.folderId)) {
+      renderFolderSection(folder);
+      if (!folder.synthetic && collapsedFolders.has(folder.folderId)) {
         hideDeeperThan = folder.depth;
       }
     }
+
+    renderArchivedRow();
     restoreFocus();
+  }
+
+  // The flat filtered view: a "N RESULTS" label then every matching row (across all
+  // sections and folders), deduped by sessionId, with the body-match snippet shown.
+  function renderFiltered() {
+    const seen = new Set();
+    const all = [];
+    const collect = (rows) => {
+      for (const row of rows || []) {
+        if (seen.has(row.sessionId)) {
+          continue;
+        }
+        if (rowMatches(row)) {
+          seen.add(row.sessionId);
+          all.push(row);
+        }
+      }
+    };
+    collect(sections.starred);
+    collect(sections.questions);
+    for (const folder of sections.folders) {
+      collect(folder.rows);
+    }
+    const visible = sortRows(all);
+
+    const header = document.createElement('div');
+    header.className = 'nest-section-header';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'nest-section-label';
+    labelEl.textContent = visible.length + ' RESULTS';
+    header.appendChild(labelEl);
+    listEl.appendChild(header);
+
+    if (visible.length === 0) {
+      renderEmpty('No chats match your search.');
+      return;
+    }
+    const group = document.createElement('div');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Filter results');
+    for (const row of visible) {
+      group.appendChild(makeRow(row, 0, { showSnippet: true }));
+    }
+    listEl.appendChild(group);
   }
 
   // ---- collapse / expand (issue #64) ----
 
-  // Persist the collapsed set to the host (workspace-local, never synced) and
-  // re-render so the change shows. Sorted for a stable serialized value.
   function persistCollapsed() {
     vscode.postMessage({ type: 'setState', collapsedFolders: Array.from(collapsedFolders).sort() });
   }
 
-  // Toggle one folder's collapsed state, keeping the roving focus on its header so
-  // a keyboard user is not stranded after the subtree re-renders.
   function toggleCollapse(folderId) {
     setCollapsed(folderId, !collapsedFolders.has(folderId));
   }
@@ -445,10 +637,9 @@
     refocusById('folder:' + folderId);
   }
 
-  // Whether a folder section at index i in sections.folders has at least one
-  // descendant folder. The pre-order flattening guarantees a folder's first
-  // descendant (if any) is the very next entry at depth+1, so a deeper next entry
-  // means a child folder exists.
+  // Whether a folder section at index i has at least one descendant folder. The
+  // pre-order flattening guarantees a folder's first descendant (if any) is the very
+  // next entry at depth+1.
   function folderHasChild(i) {
     const here = sections.folders[i];
     const next = sections.folders[i + 1];
@@ -456,21 +647,18 @@
   }
 
   // "Collapse one level": collapse the deepest currently-open VISIBLE folder level.
-  // A folder is a candidate only when it is expanded, NOT hidden inside a collapsed
-  // ancestor, AND has a descendant folder (collapsing a leaf folder removes no
-  // nesting level). Mirrors the unit-tested pure helper deepestOpenLevelToCollapse
-  // in src/views/orgPanelCollapse.ts. A no-op when nothing qualifies (the visible
-  // tree is already collapsed to a single level).
+  // Mirrors the unit-tested pure helper deepestOpenLevelToCollapse.
   function collapseDeepestOpenLevel() {
-    // Nothing to fold while content search shows flat results; acting here would
-    // mutate and persist collapsed state with no visible effect.
-    if (isContentSearchActive()) {
+    if (isFiltering()) {
       return;
     }
     const hidden = computeHiddenFolders();
     let deepest = -1;
     for (let i = 0; i < sections.folders.length; i++) {
       const f = sections.folders[i];
+      if (f.synthetic) {
+        continue;
+      }
       if (!hidden[i] && !collapsedFolders.has(f.folderId) && folderHasChild(i) && f.depth > deepest) {
         deepest = f.depth;
       }
@@ -481,6 +669,9 @@
     let changed = false;
     for (let i = 0; i < sections.folders.length; i++) {
       const f = sections.folders[i];
+      if (f.synthetic) {
+        continue;
+      }
       if (!hidden[i] && !collapsedFolders.has(f.folderId) && folderHasChild(i) && f.depth === deepest) {
         collapsedFolders.add(f.folderId);
         changed = true;
@@ -492,10 +683,6 @@
     }
   }
 
-  // Per-index flag: true when a folder sits inside a collapsed ancestor and is thus
-  // not on screen, computed with the same pre-order hideDeeperThan rule renderTree
-  // uses to omit collapsed subtrees. Keeps "collapse one level" acting only on the
-  // folders the user can actually see.
   function computeHiddenFolders() {
     const hidden = new Array(sections.folders.length).fill(false);
     let hideDeeperThan = Infinity;
@@ -508,16 +695,15 @@
         hidden[i] = true;
         continue;
       }
-      if (collapsedFolders.has(f.folderId)) {
+      if (!f.synthetic && collapsedFolders.has(f.folderId)) {
         hideDeeperThan = f.depth;
       }
     }
     return hidden;
   }
 
-  // The folder header that is the parent of a given treeitem row (a chat row or a
-  // folder header), used by ArrowLeft. Walks the rendered rows backwards from the
-  // row to the nearest preceding folder header at a shallower aria-level.
+  // ---- keyboard tree helpers (ArrowLeft/Right parent/child resolution) ----
+
   function parentFolderHeaderOf(el) {
     const rows = focusableRows();
     const idx = rows.indexOf(el);
@@ -534,10 +720,6 @@
     return null;
   }
 
-  // The focusable folder header for a given folder id, or null when none is
-  // rendered (the synthetic Unsorted bucket has no treeitem header). ArrowLeft uses
-  // this to move a chat row to its OWNING folder by id, avoiding the backward DOM
-  // scan that would mis-resolve an unfiled chat to an unrelated preceding folder.
   function parentFolderHeaderById(folderId) {
     if (!folderId) {
       return null;
@@ -546,9 +728,6 @@
     return rows.find((r) => r.dataset.kind === 'folder' && r.dataset.id === 'folder:' + folderId) || null;
   }
 
-  // A treeitem's nesting level: a folder header carries aria-level (depth + 1); a
-  // chat row has none, so it is treated as one level below its containing folder
-  // header. The fallback keeps ArrowLeft from a chat row resolving to its folder.
   function rowLevel(el) {
     const attr = el.getAttribute && el.getAttribute('aria-level');
     if (attr) {
@@ -557,9 +736,6 @@
     return Number.MAX_SAFE_INTEGER;
   }
 
-  // The folder id for a focusable folder header (a real folder treeitem), else
-  // null. Only real folder headers carry renameFolderId; the synthetic Unsorted
-  // header is not a treeitem and never reaches the keyboard handler.
   function folderIdOf(el) {
     if (el && el.dataset && el.dataset.kind === 'folder' && el.dataset.renameFolderId) {
       return el.dataset.renameFolderId;
@@ -567,10 +743,6 @@
     return null;
   }
 
-  // ArrowRight on an expanded folder moves focus to its first child. In the
-  // rendered DOM the first child is the very next focusable row, but only when it
-  // is actually nested deeper than this folder (an empty expanded folder has no
-  // child, so focus stays put).
   function moveToFirstChild(folderHeader) {
     const rows = focusableRows();
     const idx = rows.indexOf(folderHeader);
@@ -583,53 +755,11 @@
     }
   }
 
-  // Re-focus the row with the given dataset.id after a re-render, falling back to
-  // the roving entry point when it is gone (e.g. it scrolled out under a filter).
   function refocusById(id) {
     const rows = focusableRows();
     const target = rows.find((r) => r.dataset.id === id);
     if (target) {
       setFocus(target);
-    }
-  }
-
-  // Content-search render: ranked rows in score order, no grouping.
-  function renderSearch() {
-    listEl.textContent = '';
-    listEl.dataset.mode = 'search';
-    if (searchPending) {
-      renderEmpty('Searching...');
-      return;
-    }
-    if (searchRows.length === 0) {
-      renderEmpty('No chats match "' + searchQuery + '".');
-      return;
-    }
-    const header = makeSectionHeader('Results', searchRows.length, {});
-    listEl.appendChild(header);
-    const group = document.createElement('div');
-    group.setAttribute('role', 'group');
-    group.setAttribute('aria-label', 'Search results');
-    for (const r of searchRows) {
-      group.appendChild(
-        makeRow({ ...r, tags: [], tagIds: [], starred: false, awaitingReply: false, status: 'none' }, 0),
-      );
-    }
-    listEl.appendChild(group);
-    restoreFocus();
-  }
-
-  // Content search shows flat ranked results instead of the folder tree, so the
-  // collapse controls have nothing to act on while it is active.
-  function isContentSearchActive() {
-    return contentMode() && filterEl.value.trim().length > 0;
-  }
-
-  function render() {
-    if (isContentSearchActive()) {
-      renderSearch();
-    } else {
-      renderTree();
     }
   }
 
@@ -644,12 +774,16 @@
     input.type = 'text';
     input.value = currentName;
     input.setAttribute('aria-label', 'Rename folder');
-    const labelEl = headerEl.querySelector('.nest-section-label');
-    if (labelEl) {
-      labelEl.style.display = 'none';
-      labelEl.parentNode.insertBefore(input, labelEl);
+    const nameEl = headerEl.querySelector('.nest-folder-name');
+    const countEl = headerEl.querySelector('.nest-folder-count');
+    if (nameEl) {
+      nameEl.style.display = 'none';
+      nameEl.parentNode.insertBefore(input, nameEl);
     } else {
       headerEl.appendChild(input);
+    }
+    if (countEl) {
+      countEl.style.display = 'none';
     }
     input.focus();
     input.select();
@@ -662,10 +796,14 @@
     };
     const cleanup = () => {
       input.remove();
-      if (labelEl) {
-        labelEl.style.display = '';
+      if (nameEl) {
+        nameEl.style.display = '';
+      }
+      if (countEl) {
+        countEl.style.display = '';
       }
     };
+    input.addEventListener('click', (e) => e.stopPropagation());
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
@@ -677,9 +815,7 @@
     input.addEventListener('blur', commit);
   }
 
-  // Right-click a folder header to open the folder actions menu: Rename, Set
-  // color, Clear color, Delete folder. A lightweight in-DOM menu (no native
-  // context menu) positioned at the pointer; dismissed on outside click or Escape.
+  // Right-click a folder header to open the folder actions menu.
   let openMenuEl = null;
   function closeFolderMenu() {
     if (openMenuEl) {
@@ -707,30 +843,23 @@
     item('Rename', () => beginRename(headerEl, folderId, label));
     item('Set color', () => beginColor(folderId));
     item('Clear color', () => vscode.postMessage({ type: 'setFolderColor', folderId, color: null }));
-    item('Delete folder', () => {
-      // The host (deleteFolder command) shows the real modal confirmation; the
-      // webview just requests it. Deleting a folder unfiles its chats (the store's
-      // deleteFolder cascade), never deletes a chat.
-      vscode.postMessage({ type: 'deleteFolder', folderId });
-    });
+    item('Delete folder', () => vscode.postMessage({ type: 'deleteFolder', folderId }));
     menu.style.left = (e.clientX || 0) + 'px';
     menu.style.top = (e.clientY || 0) + 'px';
     document.body.appendChild(menu);
     openMenuEl = menu;
+    const first = menu.querySelector('.nest-menu-item');
+    if (first) {
+      first.focus();
+    }
   }
   document.addEventListener('click', (e) => {
     if (openMenuEl && !openMenuEl.contains(e.target)) {
       closeFolderMenu();
     }
   });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeFolderMenu();
-    }
-  });
 
-  // Set a folder color via a hidden native color input so the panel needs no
-  // custom color UI.
+  // Set a folder color via a hidden native color input.
   function beginColor(folderId) {
     const picker = document.createElement('input');
     picker.type = 'color';
@@ -747,13 +876,8 @@
   // ---- drag and drop (in-process) ----
 
   function onRowDragStart(e, sessionId) {
-    // A drag of an unfocused row drags just that row; a drag of the focused row
-    // drags it too. (Multi-select via keyboard is out of scope for this surface;
-    // the drop message still carries an array so the reducer batches uniformly.)
     draggingChatIds = [sessionId];
     if (e.dataTransfer) {
-      // Set a benign payload so the browser permits the drag; the real payload is
-      // the in-process draggingChatIds. No cross-controller transfer is involved.
       e.dataTransfer.effectAllowed = 'move';
       try {
         e.dataTransfer.setData('text/plain', sessionId);
@@ -798,8 +922,6 @@
     });
   }
 
-  // A tag chip is a drop target too: dropping chats on a chip tags them. Wired in
-  // renderChips' loop indirectly; attach here to keep the DnD logic together.
   function attachChipDropTarget(el, tagId) {
     el.addEventListener('dragover', (e) => {
       if (draggingChatIds.length === 0) {
@@ -878,8 +1000,6 @@
     if (focusedId) {
       target = rows.find((r) => r.dataset.id === focusedId) || null;
     }
-    // Make exactly one row focusable (roving tabindex); do not steal focus on a
-    // passive re-render, only mark the entry point.
     for (const r of rows) {
       r.setAttribute('tabindex', '-1');
     }
@@ -908,8 +1028,6 @@
         setFocus(rows[rows.length - 1]);
       }
     } else if (e.key === 'ArrowRight' && isRow) {
-      // ARIA tree pattern: on a collapsed folder, expand; on an expanded folder,
-      // move to its first child; on anything else, do nothing.
       e.preventDefault();
       const folderId = folderIdOf(active);
       if (folderId !== null) {
@@ -920,12 +1038,6 @@
         }
       }
     } else if (e.key === 'ArrowLeft' && isRow) {
-      // ARIA tree pattern: on an expanded folder, collapse; on a collapsed folder
-      // or a non-folder row, move focus to the parent folder header. A chat row
-      // resolves its parent by its owning folder id (set in renderSection), not a
-      // backward DOM scan, so an unfiled chat does not jump to an unrelated sibling
-      // folder; the synthetic Unsorted bucket has no focusable header, so an
-      // unfiled chat's ArrowLeft is a no-op.
       e.preventDefault();
       const folderId = folderIdOf(active);
       if (folderId !== null && active.getAttribute('aria-expanded') === 'true') {
@@ -944,14 +1056,12 @@
       if (active.dataset.kind === 'chat') {
         activateRow(active.dataset.id);
       } else if (active.dataset.kind === 'folder' && active.dataset.renameFolderId) {
-        const labelEl = active.querySelector('.nest-section-label');
-        beginRename(active, active.dataset.renameFolderId, labelEl ? labelEl.textContent : '');
+        const nameEl = active.querySelector('.nest-folder-name');
+        beginRename(active, active.dataset.renameFolderId, nameEl ? nameEl.textContent : '');
       }
     }
   });
 
-  // When the tree container itself gets focus (e.g. via Tab), forward focus to the
-  // current roving entry point so arrow keys work immediately.
   listEl.addEventListener('focus', () => {
     const rows = focusableRows();
     const entry = rows.find((r) => r.getAttribute('tabindex') === '0') || rows[0];
@@ -960,40 +1070,113 @@
     }
   });
 
-  // ---- search input + controls ----
+  // ---- search input ----
 
   function onFilterInput() {
-    if (!contentMode()) {
-      textFilter = filterEl.value.trim().toLowerCase();
-      render();
-      return;
+    textFilter = filterEl.value.trim().toLowerCase();
+    if (searchClearEl) {
+      searchClearEl.hidden = filterEl.value.length === 0;
     }
-    const query = filterEl.value.trim();
-    if (searchTimer !== null) {
-      clearTimeout(searchTimer);
-      searchTimer = null;
-    }
-    if (query.length === 0) {
-      searchPending = false;
-      searchRows = [];
-      searchQuery = '';
-      render();
-      return;
-    }
-    searchPending = true;
     render();
-    searchTimer = setTimeout(() => {
-      searchTimer = null;
-      vscode.postMessage({ type: 'search', query });
-    }, SEARCH_DEBOUNCE_MS);
   }
 
-  function onModeChange() {
-    // Switching modes clears the text filter context and re-runs the box.
-    if (!contentMode()) {
-      textFilter = filterEl.value.trim().toLowerCase();
-    }
+  function clearSearch() {
+    filterEl.value = '';
     onFilterInput();
+    filterEl.focus();
+  }
+
+  // ---- sort popover ----
+
+  function isSortOpen() {
+    return sortPopoverEl && !sortPopoverEl.hidden;
+  }
+
+  function openSort() {
+    if (!sortPopoverEl) {
+      return;
+    }
+    sortPopoverEl.hidden = false;
+    if (sortBtnEl) {
+      sortBtnEl.setAttribute('aria-expanded', 'true');
+    }
+    const active =
+      sortPopoverEl.querySelector('.nest-popover-item[aria-checked="true"]') ||
+      sortPopoverEl.querySelector('.nest-popover-item');
+    if (active) {
+      active.focus();
+    }
+  }
+
+  function closeSort(restoreFocusToBtn) {
+    if (!sortPopoverEl || sortPopoverEl.hidden) {
+      return;
+    }
+    sortPopoverEl.hidden = true;
+    if (sortBtnEl) {
+      sortBtnEl.setAttribute('aria-expanded', 'false');
+      if (restoreFocusToBtn) {
+        sortBtnEl.focus();
+      }
+    }
+  }
+
+  function toggleSort() {
+    if (isSortOpen()) {
+      closeSort(true);
+    } else {
+      openSort();
+    }
+  }
+
+  function applySort(mode) {
+    sortMode = mode;
+    if (sortPopoverEl) {
+      for (const item of sortPopoverEl.querySelectorAll('.nest-popover-item')) {
+        item.setAttribute('aria-checked', item.dataset.sort === mode ? 'true' : 'false');
+      }
+    }
+    vscode.postMessage({ type: 'setState', sort: sortMode });
+    render();
+  }
+
+  function wireSortPopover() {
+    if (!sortBtnEl || !sortPopoverEl) {
+      return;
+    }
+    sortBtnEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleSort();
+    });
+    const items = Array.prototype.slice.call(sortPopoverEl.querySelectorAll('.nest-popover-item'));
+    items.forEach((item, i) => {
+      item.addEventListener('click', () => {
+        applySort(item.dataset.sort);
+        closeSort(true);
+      });
+      item.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          items[(i + 1) % items.length].focus();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          items[(i - 1 + items.length) % items.length].focus();
+        } else if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          applySort(item.dataset.sort);
+          closeSort(true);
+        }
+      });
+    });
+    // Clicks inside the popover must not bubble to the document dismiss handler.
+    sortPopoverEl.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', () => closeSort(false));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeSort(isSortOpen());
+        closeFolderMenu();
+      }
+    });
   }
 
   // ---- inbound host messages ----
@@ -1012,9 +1195,8 @@
           activeTags.delete(t);
         }
       }
-      // Drop collapsed-folder ids whose folder no longer exists (e.g. it was
-      // deleted) so the persisted set does not accumulate dead ids; re-persist only
-      // when it actually changed, to avoid write churn on every refresh.
+      // Drop collapsed-folder ids whose folder no longer exists so the persisted set
+      // does not accumulate dead ids; re-persist only when it actually changed.
       const liveFolders = new Set((sections.folders || []).map((f) => f.folderId));
       let prunedCollapsed = false;
       for (const id of Array.from(collapsedFolders)) {
@@ -1028,18 +1210,8 @@
       }
       renderChips();
       render();
-    } else if (msg.type === 'searchResults' && Array.isArray(msg.rows)) {
-      const current = filterEl.value.trim();
-      if (!contentMode() || msg.query !== current) {
-        return;
-      }
-      searchPending = false;
-      searchRows = msg.rows;
-      searchQuery = msg.query;
-      render();
     } else if (msg.type === 'state') {
       sortMode = msg.sort || 'newest';
-      densityMode = msg.density || 'comfortable';
       collapsedFolders.clear();
       if (Array.isArray(msg.collapsedFolders)) {
         for (const id of msg.collapsedFolders) {
@@ -1048,13 +1220,11 @@
           }
         }
       }
-      if (sortEl) {
-        sortEl.value = sortMode;
+      if (sortPopoverEl) {
+        for (const item of sortPopoverEl.querySelectorAll('.nest-popover-item')) {
+          item.setAttribute('aria-checked', item.dataset.sort === sortMode ? 'true' : 'false');
+        }
       }
-      if (densityEl) {
-        densityEl.value = densityMode;
-      }
-      document.body.dataset.density = densityMode;
       render();
     }
   });
@@ -1063,50 +1233,48 @@
 
   function relative(ts) {
     if (ts === null || ts === undefined) {
-      return 'no timestamp';
+      return '';
     }
     const diff = Date.now() - ts;
     const min = 60 * 1000;
     const hour = 60 * min;
     const day = 24 * hour;
+    const week = 7 * day;
+    const month = 30 * day;
     if (diff < min) {
-      return 'just now';
+      return 'now';
     }
     if (diff < hour) {
-      return Math.floor(diff / min) + 'm ago';
+      return Math.floor(diff / min) + 'm';
     }
     if (diff < day) {
-      return Math.floor(diff / hour) + 'h ago';
+      return Math.floor(diff / hour) + 'h';
     }
-    if (diff < 30 * day) {
-      return Math.floor(diff / day) + 'd ago';
+    if (diff < week) {
+      return Math.floor(diff / day) + 'd';
     }
-    return new Date(ts).toLocaleDateString();
+    if (diff < month) {
+      return Math.floor(diff / week) + 'w';
+    }
+    if (diff < 12 * month) {
+      return Math.floor(diff / month) + 'mo';
+    }
+    return Math.floor(diff / (12 * month)) + 'y';
   }
 
+  // ---- wire the toolbar ----
+
   filterEl.addEventListener('input', onFilterInput);
-  if (contentModeEl) {
-    contentModeEl.addEventListener('change', onModeChange);
+  if (searchClearEl) {
+    searchClearEl.addEventListener('click', clearSearch);
   }
-  refreshEl.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
-  if (sortEl) {
-    sortEl.addEventListener('change', () => {
-      sortMode = sortEl.value;
-      vscode.postMessage({ type: 'setState', sort: sortMode });
-      render();
-    });
+  if (newSessionEl) {
+    newSessionEl.addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
   }
-  if (densityEl) {
-    densityEl.addEventListener('change', () => {
-      densityMode = densityEl.value;
-      document.body.dataset.density = densityMode;
-      vscode.postMessage({ type: 'setState', density: densityMode });
-      render();
-    });
+  if (settingsEl) {
+    settingsEl.addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
   }
-  if (collapseLevelEl) {
-    collapseLevelEl.addEventListener('click', collapseDeepestOpenLevel);
-  }
+  wireSortPopover();
 
   vscode.postMessage({ type: 'ready' });
 })();

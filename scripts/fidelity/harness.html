@@ -3,71 +3,44 @@
 <head>
 <meta charset="UTF-8" />
 <!--
-  Visual-fidelity harness (slice s3a-visual-harness, issue #79).
+  Visual-fidelity harness (slice s3a-visual-harness, issue #79; shell rebuilt for
+  s3a-design-shell, issue #80).
 
   This page hosts the REAL org-panel webview assets (../../media/orgPanel.css and
   ../../media/orgPanel.js) exactly as the extension ships them, so the fidelity
-  screenshot shows what the panel actually renders, not a hand-drawn copy. It
-  stands in for the VS Code webview host by:
+  screenshot shows what the panel actually renders, not a hand-drawn copy. It stands
+  in for the VS Code webview host by:
 
     1. defining acquireVsCodeApi() before orgPanel.js runs (the script calls it at
        module load; without the stub the whole script throws and nothing renders);
-    2. reproducing the exact static DOM skeleton orgPanelWebview.renderHtml emits
-       (the #filter/#refresh/#sort/#density/#contentMode/#collapseLevel controls,
-       the #chips rail, and the #list role="tree" container) so the script's
-       getElementById wiring finds every node it expects;
-    3. supplying the design palette on the --vscode-* CSS variables the current
-       asset reads, so the harness renders in the warm handoff colors the panel is
-       being driven toward rather than unstyled browser defaults;
-    4. posting synthetic 'state' then 'sections' messages in the SAME shape the
-       host posts (orgPanelWebview.postState / postSections; see OrgSections and
-       OrgChatRow in src/views/orgPanelModel.ts), so the script's message handler
-       renders the mock exactly as it would render real data.
+    2. reproducing the EXACT static DOM skeleton orgPanelWebview.renderHtml emits
+       (the New session pill, the gear, the sort button + popover, the search box with
+       its magnifier and clear button, the #chips rail, and the #list role="tree"
+       container) so the script's getElementById wiring finds every node it expects.
+       This shell MUST stay byte-aligned with renderHtml; the fidelity lens is the
+       reminder if it drifts;
+    3. posting synthetic 'state' then 'sections' messages in the SAME shape the host
+       posts (orgPanelWebview.postState / postSections; see OrgSections and OrgChatRow
+       in src/views/orgPanelModel.ts), so the script's message handler renders the
+       mock exactly as it would render real data.
 
-  ALL mock data here is synthetic. No real transcript content is embedded, so
-  nothing private is committed. The mock deliberately carries starred:true and
-  awaitingReply:true rows, per-row status ('question' -> blinking '?' badge,
-  'done' -> solid unread dot; design README line 51), plus colored folders and
-  colored tag chips, so re-running this harness surfaces every AC1 visual: the
-  shipped asset now draws the starred glyph, the per-row done-dot, and the
-  blinking-'?' question badge (media/orgPanel.js makeRow, media/orgPanel.css
-  .nest-status*), in addition to the Questions section and the aria-labels.
+  ALL mock data here is synthetic. No real transcript content is embedded, so nothing
+  private is committed. The mock deliberately carries starred:true and
+  awaitingReply:true rows, per-row status ('question' -> blinking '?' badge, 'done' ->
+  solid unread dot; design README line 51), plus colored folders, colored tag chips,
+  and archivedCount > 0, so re-running the harness surfaces every visual the shipped
+  asset draws (the New session pill, the sort popover trigger, the starred glyph, the
+  per-row done-dot, the blinking-'?' badge, the FOLDERS + / ^ buttons, and the
+  Archived (N) row).
 
-  Load the palette overrides BEFORE the panel stylesheet so the panel's own rules
-  win on specificity while still resolving our variable values.
+  The palette is now HARDCODED in orgPanel.css (s3a-design-shell), so the old
+  --vscode-* shim is a no-op and has been removed; only the 320px width + panel
+  background pin remains so the screenshot frames the panel exactly as a 320px sidebar
+  would (UI-SPEC deviation 1). The Newsreader @font-face in orgPanel.css resolves its
+  relative fonts/ url against ../../media/, which exists in the repo, so the harness
+  loads the same bundled face the extension ships.
 -->
-<style id="harness-palette">
-  /*
-    The Claude warm-light handoff palette (media/design/README.md "Design tokens"),
-    mapped onto the --vscode-* variables the current orgPanel.css consumes. This is
-    a harness-only shim: the panel asset itself still reads theme variables at this
-    point in the sprint, so without these the harness would render on the browser's
-    default (transparent / black-on-white) values and the visual lens would be
-    comparing unstyled output. Later slices hardcode the palette in the asset and
-    this shim becomes a no-op.
-  */
-  :root {
-    --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    --vscode-font-size: 13px;
-    --vscode-foreground: #2B2A27;
-    --vscode-sideBar-background: #FCFBF8;
-    --vscode-panel-border: #E6E2D9;
-    --vscode-input-background: #FBFAF6;
-    --vscode-input-foreground: #2B2A27;
-    --vscode-input-border: #E4E0D6;
-    --vscode-dropdown-background: #FBFAF6;
-    --vscode-dropdown-foreground: #2B2A27;
-    --vscode-dropdown-border: #E4E0D6;
-    --vscode-badge-background: #EDE7DC;
-    --vscode-badge-foreground: #6B665C;
-  }
-
-  /*
-    The webview host renders inside a fixed-width VS Code sidebar; the reference
-    screenshots are captured at 320px (UI-SPEC deviation 1). Pin the harness body
-    to the same width and the panel surface color so the screenshot frames the panel
-    exactly as the sidebar would, with no page chrome bleeding in.
-  */
+<style id="harness-frame">
   html, body {
     margin: 0;
     padding: 0;
@@ -86,30 +59,23 @@
     changes, this must change with it (the fidelity lens is the reminder).
   -->
   <div class="nest-toolbar">
-    <input id="filter" class="nest-filter" type="text" placeholder="Search chats..." aria-label="Search chats" />
-    <button id="refresh" class="nest-icon-btn" title="Refresh" aria-label="Refresh">Refresh</button>
+    <button id="newSession" class="nest-new-session" type="button" title="New session" aria-label="New session"><span class="nest-new-session-plus" aria-hidden="true">+</span>New session</button>
+    <span class="nest-spacer"></span>
+    <button id="settings" class="nest-icon-btn" type="button" title="Settings" aria-label="Settings" aria-haspopup="dialog">&#9881;</button>
+    <span class="nest-sort-wrap">
+      <button id="sortBtn" class="nest-icon-btn" type="button" title="Sort" aria-label="Sort chats" aria-haspopup="menu" aria-expanded="false">&#8645;</button>
+      <div id="sortPopover" class="nest-popover" role="menu" aria-label="Sort chats" hidden>
+        <div class="nest-popover-title">SORT BY</div>
+        <button class="nest-popover-item" type="button" role="menuitemradio" data-sort="newest" aria-checked="true"><span>Newest first</span><span class="nest-popover-check" aria-hidden="true">&#10003;</span></button>
+        <button class="nest-popover-item" type="button" role="menuitemradio" data-sort="oldest" aria-checked="false"><span>Oldest first</span><span class="nest-popover-check" aria-hidden="true">&#10003;</span></button>
+        <button class="nest-popover-item" type="button" role="menuitemradio" data-sort="name" aria-checked="false"><span>Name (A-Z)</span><span class="nest-popover-check" aria-hidden="true">&#10003;</span></button>
+      </div>
+    </span>
   </div>
-  <div class="nest-toolbar nest-toolbar-controls">
-    <label class="nest-control">
-      <span>Sort</span>
-      <select id="sort" aria-label="Sort chats">
-        <option value="newest">Newest first</option>
-        <option value="oldest">Oldest first</option>
-        <option value="name">Name (A-Z)</option>
-      </select>
-    </label>
-    <label class="nest-control">
-      <span>Density</span>
-      <select id="density" aria-label="Row density">
-        <option value="comfortable">Comfortable</option>
-        <option value="compact">Compact</option>
-      </select>
-    </label>
-    <label class="nest-mode nest-control">
-      <input id="contentMode" type="checkbox" />
-      <span>Search content</span>
-    </label>
-    <button id="collapseLevel" type="button" class="nest-control nest-collapse-level" aria-label="Collapse one folder level">Collapse one level</button>
+  <div class="nest-search">
+    <span class="nest-search-icon" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#A6A294" stroke-width="1.6"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke="#A6A294" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+    <input id="filter" class="nest-filter" type="text" placeholder="Search chats &amp; messages" aria-label="Search chats and messages" />
+    <button id="searchClear" class="nest-search-clear" type="button" title="Clear search" aria-label="Clear search" hidden>&#215;</button>
   </div>
   <div id="chips" class="nest-chips" role="group" aria-label="Tag filters"></div>
   <div id="list" class="nest-tree" role="tree" aria-label="Organized chats" tabindex="0"></div>
@@ -169,10 +135,10 @@
       };
 
       // Reusable synthetic rows. Each matches the OrgChatRow shape exactly:
-      // { sessionId, title, timestamp, tokens, snippet, tags, tagIds, starred,
-      //   awaitingReply, status }. status is the per-row status slot the panel
-      // draws (design README line 51): 'question' -> blinking '?' badge, 'done' ->
-      // solid unread dot, 'none' -> empty slot.
+      // { sessionId, title, timestamp, tokens, snippet, tags, tagIds, tagColors,
+      //   starred, awaitingReply, status }. tagColors is parallel to tags. status is
+      // the per-row status slot (design README line 51): 'question' -> blinking '?'
+      // badge, 'done' -> solid unread dot, 'none' -> empty slot.
       function row(o) {
         return {
           sessionId: o.sessionId,
@@ -182,140 +148,135 @@
           snippet: o.snippet || null,
           tags: o.tags || [],
           tagIds: o.tagIds || [],
+          tagColors: o.tagColors || [],
           starred: !!o.starred,
           awaitingReply: !!o.awaitingReply,
           status: o.status || 'none',
         };
       }
 
-      // Starred AND awaiting a reply, and carrying the blinking '?' question badge:
-      // one row exercising the starred glyph, the Questions section, and the
-      // 'question' status slot at once (design README line 51).
       const rStarredQuestion = row({
         sessionId: 's-01',
-        title: 'Refactor the token rollup reducer',
+        title: 'Refactor auth middleware',
         timestamp: now - 35 * MIN,
         tokens: '~48k tok',
-        tags: ['refactor'],
-        tagIds: ['t-refactor'],
+        tags: ['refactor', 'bug'],
+        tagIds: ['t-refactor', 't-bug'],
+        tagColors: [TAG.refactor, TAG.bug],
         starred: true,
         awaitingReply: true,
         status: 'question',
       });
-      // A plain Questions row carrying the '?' badge (status 'question').
-      const rQuestion = row({
+      const rStarredIdea = row({
+        sessionId: 's-10',
+        title: 'Trip itinerary — Japan',
+        timestamp: now - 1 * HOUR,
+        tokens: '~9k tok',
+        tags: ['idea'],
+        tagIds: ['t-idea'],
+        tagColors: [TAG.idea],
+        starred: true,
+        status: 'none',
+      });
+      const rQuestionDocs = row({
         sessionId: 's-02',
-        title: 'Why does the sync reconcile drop a tag',
-        timestamp: now - 3 * HOUR,
+        title: 'Webhook retry strategy',
+        timestamp: now - 15 * MIN,
         tokens: '~12k tok',
-        tags: ['bug'],
-        tagIds: ['t-bug'],
-        awaitingReply: true,
-        status: 'question',
-      });
-      // Starred and carrying the solid unread DOT (status 'done'): the other half of
-      // the status-slot contract, so re-running the harness surfaces both the dot and
-      // the badge that AC1 (issue #79) enumerates.
-      const rStarred = row({
-        sessionId: 's-03',
-        title: 'Design the org panel section model',
-        timestamp: now - 1 * DAY,
-        tokens: '~90k tok',
-        tags: ['feature', 'docs'],
-        tagIds: ['t-feature', 't-docs'],
-        starred: true,
-        status: 'done',
-      });
-      const rRelease1 = row({
-        sessionId: 's-04',
-        title: 'Cut the v0.1.1 release',
-        timestamp: now - 2 * DAY,
-        tokens: '~7k tok',
         tags: ['docs'],
         tagIds: ['t-docs'],
-      });
-      // A folder-tree row carrying the '?' badge, so the question status renders
-      // inside the nested hierarchy too (not only in the cross-cutting sections),
-      // matching the prototype's Backend API folder.
-      const rApi1 = row({
-        sessionId: 's-05',
-        title: 'Named Credential probe returns 401',
-        timestamp: now - 4 * DAY,
-        tokens: '~22k tok',
-        tags: ['bug', 'research'],
-        tagIds: ['t-bug', 't-research'],
+        tagColors: [TAG.docs],
+        awaitingReply: true,
         status: 'question',
       });
-      const rApi2 = row({
-        sessionId: 's-06',
-        title: 'Wire the REST callout audit logger',
-        timestamp: now - 6 * DAY,
-        tokens: '~15k tok',
+      const rQuestionFeature = row({
+        sessionId: 's-11',
+        title: 'Rate limiter design',
+        timestamp: now - 3 * HOUR,
+        tokens: '~20k tok',
         tags: ['feature'],
         tagIds: ['t-feature'],
+        tagColors: [TAG.feature],
+        awaitingReply: true,
+        status: 'question',
       });
-      // A nested-folder row carrying the solid unread DOT, so the 'done' status also
-      // renders inside the hierarchy.
       const rApiChild = row({
-        sessionId: 's-07',
-        title: 'Batch the audit inserts into one DML',
-        timestamp: now - 9 * DAY,
-        tokens: '~5k tok',
-        tags: ['refactor'],
-        tagIds: ['t-refactor'],
-        status: 'done',
+        sessionId: 's-05',
+        title: 'Fix N+1 query in orders',
+        timestamp: now - 1 * DAY,
+        tokens: '~22k tok',
+        tags: ['bug'],
+        tagIds: ['t-bug'],
+        tagColors: [TAG.bug],
+        status: 'none',
       });
       const rUnsorted1 = row({
         sessionId: 's-08',
-        title: 'Scratch: quick schema question',
-        timestamp: now - 14 * DAY,
+        title: 'Webhook retry strategy',
+        timestamp: now - 15 * MIN,
         tokens: '~2k tok',
+        tags: ['docs'],
+        tagIds: ['t-docs'],
+        tagColors: [TAG.docs],
+        status: 'question',
+        awaitingReply: true,
       });
       const rUnsorted2 = row({
         sessionId: 's-09',
-        title: 'Idea: smart group by PR lineage',
-        timestamp: now - 21 * DAY,
+        title: 'CSS grid cheatsheet',
+        timestamp: now - 2 * DAY,
         tokens: '~3k tok',
-        tags: ['idea'],
-        tagIds: ['t-idea'],
+        tags: ['docs', 'idea'],
+        tagIds: ['t-docs', 't-idea'],
+        tagColors: [TAG.docs, TAG.idea],
+        status: 'none',
       });
 
       // The full section model, in the exact OrgSections shape. Covers Starred,
       // Questions (heuristic), a nested folder hierarchy with per-folder color
-      // (Release, API with a child folder, Ideas), the always-present synthetic
-      // Unsorted bucket, and the tag filter chips with counts.
+      // (Work with a Backend API child folder, Personal, Experiments), the
+      // always-present synthetic Unsorted bucket, the tag filter chips with counts,
+      // and archivedCount so the bottom Archived row renders.
       const sections = {
-        starred: [rStarredQuestion, rStarred],
-        questions: [rStarredQuestion, rQuestion],
+        starred: [rStarredQuestion, rStarredIdea],
+        questions: [rStarredQuestion, rQuestionDocs, rQuestionFeature],
         folders: [
           {
-            folderId: 'f-release',
-            name: 'Release',
-            color: FOLDER.release,
+            folderId: 'f-work',
+            name: 'Work',
+            color: FOLDER.defaultColor,
             depth: 0,
             synthetic: false,
-            rows: [rRelease1],
+            rows: [],
           },
           {
             folderId: 'f-api',
-            name: 'API integration',
-            color: FOLDER.api,
-            depth: 0,
-            synthetic: false,
-            rows: [rApi1, rApi2],
-          },
-          {
-            folderId: 'f-api-child',
-            name: 'Audit logging',
+            name: 'Backend API',
             color: FOLDER.defaultColor,
             depth: 1,
             synthetic: false,
-            rows: [rApiChild],
+            rows: [rStarredQuestion, rQuestionFeature, rApiChild],
           },
           {
-            folderId: 'f-ideas',
-            name: 'Ideas',
-            color: FOLDER.ideasColor,
+            folderId: 'f-frontend',
+            name: 'Frontend',
+            color: FOLDER.defaultColor,
+            depth: 1,
+            synthetic: false,
+            rows: [],
+          },
+          {
+            folderId: 'f-personal',
+            name: 'Personal',
+            color: FOLDER.defaultColor,
+            depth: 0,
+            synthetic: false,
+            rows: [rStarredIdea],
+          },
+          {
+            folderId: 'f-experiments',
+            name: 'Experiments',
+            color: FOLDER.defaultColor,
             depth: 0,
             synthetic: false,
             rows: [],
@@ -330,23 +291,22 @@
         ],
         tags: [
           { tagId: 't-bug', label: 'bug', color: TAG.bug, count: 2 },
-          { tagId: 't-docs', label: 'docs', color: TAG.docs, count: 2 },
           { tagId: 't-feature', label: 'feature', color: TAG.feature, count: 2 },
-          { tagId: 't-idea', label: 'idea', color: TAG.idea, count: 1 },
-          { tagId: 't-refactor', label: 'refactor', color: TAG.refactor, count: 2 },
+          { tagId: 't-refactor', label: 'refactor', color: TAG.refactor, count: 1 },
           { tagId: 't-research', label: 'research', color: TAG.research, count: 1 },
+          { tagId: 't-idea', label: 'idea', color: TAG.idea, count: 2 },
+          { tagId: 't-docs', label: 'docs', color: TAG.docs, count: 3 },
         ],
+        archivedCount: 2,
       };
 
-      // Post state first (sort/density/collapsed), then the sections, matching the
-      // host's onMessage('ready') order (postState then postSections). Comfortable
-      // density so tag pills and snippets render (the current asset omits them in
-      // compact mode).
-      window.postMessage({ type: 'state', sort: 'newest', density: 'comfortable', collapsedFolders: [] }, '*');
+      // Post state first (sort/collapsed), then the sections, matching the host's
+      // onMessage('ready') order (postState then postSections).
+      window.postMessage({ type: 'state', sort: 'newest', collapsedFolders: [] }, '*');
       window.postMessage({ type: 'sections', sections: sections }, '*');
 
-      // Signal to the screenshot driver that the mock has been posted so it can
-      // wait for a rendered row rather than a fixed delay.
+      // Signal to the screenshot driver that the mock has been posted so it can wait
+      // for a rendered row rather than a fixed delay.
       window.__nestHarnessReady = true;
     })();
   </script>

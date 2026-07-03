@@ -65,7 +65,11 @@ interface SearchRow {
 // Messages the webview posts to the host. ready/refresh/open/search mirror the
 // POC; drop carries an in-panel drag-and-drop (the adapter maps it to the reducer);
 // renameFolder applies an in-place folder rename; setFolderColor sets/clears a
-// folder color; setState persists the user's sort + density choice.
+// folder color; setState persists the user's sort choice and collapsed set;
+// newSession requests a best-effort new Claude Code chat; openArchive and
+// openSettings surface the interim Archive view and Settings entry until the
+// in-panel overlays ship (s3b). Density was removed in slice s3a-design-shell
+// (the design has a single row density), so setState no longer carries it.
 type Inbound =
   | { type: 'ready' }
   | { type: 'refresh' }
@@ -75,7 +79,11 @@ type Inbound =
   | { type: 'renameFolder'; folderId: string; name: string }
   | { type: 'setFolderColor'; folderId: string; color: string | null }
   | { type: 'deleteFolder'; folderId: string }
-  | { type: 'setState'; sort?: string; density?: string; collapsedFolders?: string[] };
+  | { type: 'createFolder' }
+  | { type: 'newSession' }
+  | { type: 'openArchive' }
+  | { type: 'openSettings' }
+  | { type: 'setState'; sort?: string; collapsedFolders?: string[] };
 
 // The injectable command seams the org panel needs, wired in extension.ts to the
 // existing store/command paths so the webview never couples to the command layer
@@ -89,6 +97,23 @@ export interface OrgPanelActions {
   // runs the store's deleteFolder cascade (which unfiles the folder's chats, never
   // deletes a chat), then refreshes. The webview only requests it.
   deleteFolder(folderId: string): Promise<void> | void;
+  // Create a new folder. The design's FOLDERS header carries a + button; this runs
+  // the existing claudeNest.createFolder command (its input box + store mutation),
+  // then the shared refresh re-renders the panel. The webview only requests it.
+  createFolder(): Promise<void> | void;
+  // Launch a NEW Claude Code chat, best-effort (UI-SPEC.md data mapping, deviation
+  // 6). The wiring routes this to the probed claude-vscode.newConversation
+  // contributed command with a graceful fallback + toast; the webview only requests
+  // it. See DECISIONS.md slice s3a-design-shell.
+  newSession(): Promise<void> | void;
+  // Surface the interim Archive view. The design puts an Archived (N) row at the
+  // bottom of the list that opens a full-panel Archive overlay; the overlay lands in
+  // s3b, so until then this reveals the existing claudeNest.archive tree view. The
+  // webview only requests it.
+  openArchive(): Promise<void> | void;
+  // Surface the interim Settings entry (the gear). The Settings overlay lands in
+  // s3b; until then this runs the existing claudeNest.openSettings command.
+  openSettings(): Promise<void> | void;
 }
 
 // The persisted view-state keys (Memento) for the user's sort and density choice,
@@ -99,7 +124,6 @@ export interface OrgPanelStateStore {
 }
 
 const SORT_KEY = 'claudeNest.orgPanel.sort';
-const DENSITY_KEY = 'claudeNest.orgPanel.density';
 // The collapsed-folder set, persisted per workspace as a JSON-encoded string array
 // of folder ids (issue #64). Workspace-local and NEVER synced, exactly like sort
 // and density: it lives only on workspaceState through stateStore and is never
@@ -176,8 +200,16 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       void this.onSetFolderColor(msg.folderId, msg.color);
     } else if (msg.type === 'deleteFolder') {
       void this.onDeleteFolder(msg.folderId);
+    } else if (msg.type === 'createFolder') {
+      void this.actions.createFolder();
+    } else if (msg.type === 'newSession') {
+      void this.actions.newSession();
+    } else if (msg.type === 'openArchive') {
+      void this.actions.openArchive();
+    } else if (msg.type === 'openSettings') {
+      void this.actions.openSettings();
     } else if (msg.type === 'setState') {
-      this.onSetState(msg.sort, msg.density, msg.collapsedFolders);
+      this.onSetState(msg.sort, msg.collapsedFolders);
     }
   }
 
@@ -217,14 +249,10 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 
   private onSetState(
     sort: string | undefined,
-    density: string | undefined,
     collapsedFolders: string[] | undefined,
   ): void {
     if (sort !== undefined) {
       this.stateStore.set(SORT_KEY, sort);
-    }
-    if (density !== undefined) {
-      this.stateStore.set(DENSITY_KEY, density);
     }
     if (collapsedFolders !== undefined) {
       this.stateStore.set(COLLAPSED_KEY, JSON.stringify(collapsedFolders));
@@ -238,7 +266,6 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     void this.view.webview.postMessage({
       type: 'state',
       sort: this.stateStore.get(SORT_KEY) ?? 'newest',
-      density: this.stateStore.get(DENSITY_KEY) ?? 'comfortable',
       collapsedFolders: this.readCollapsedFolders(),
     });
   }
@@ -274,7 +301,13 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   // Tolerant: no workspace/project, or a failed scan, yields empty sections (the
   // webview renders its empty state) rather than throwing.
   private buildSectionModel(): OrgSections {
-    const empty: OrgSections = { starred: [], questions: [], folders: [], tags: [] };
+    const empty: OrgSections = {
+      starred: [],
+      questions: [],
+      folders: [],
+      tags: [],
+      archivedCount: 0,
+    };
     if (this.workspacePath === undefined) {
       return empty;
     }
@@ -466,11 +499,14 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       `script-src 'nonce-${nonce}'`,
       `font-src ${cspSource}`,
     ].join('; ');
-    // The toolbar (search, sort, density), the chip rail, and the tree container
-    // are static shells; orgPanel.js renders the section content into #list and the
-    // chips into #chips, and owns all keyboard/ARIA wiring. role="tree" plus the
-    // roving-tabindex management live in the script (ARIA tree semantics are an
-    // acceptance criterion).
+    // The toolbar (New session, gear, sort), the search box, the chip rail, and the
+    // tree container are static shells rebuilt to the design handoff (media/design/,
+    // UI-SPEC.md; slice s3a-design-shell, issue #80). orgPanel.js renders the section
+    // content into #list, the chips into #chips, drives the sort popover, and owns all
+    // keyboard/ARIA wiring; role="tree" plus the roving-tabindex management live in the
+    // script (ARIA tree semantics are an acceptance criterion, UI-SPEC.md deviation 5).
+    // scripts/fidelity/harness.html keeps a byte-aligned copy of this exact shell; any
+    // change here MUST be mirrored there or the fidelity harness wiring breaks.
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -480,30 +516,23 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div class="nest-toolbar">
-    <input id="filter" class="nest-filter" type="text" placeholder="Search chats..." aria-label="Search chats" />
-    <button id="refresh" class="nest-icon-btn" title="Refresh" aria-label="Refresh">Refresh</button>
+    <button id="newSession" class="nest-new-session" type="button" title="New session" aria-label="New session"><span class="nest-new-session-plus" aria-hidden="true">+</span>New session</button>
+    <span class="nest-spacer"></span>
+    <button id="settings" class="nest-icon-btn" type="button" title="Settings" aria-label="Settings" aria-haspopup="dialog">&#9881;</button>
+    <span class="nest-sort-wrap">
+      <button id="sortBtn" class="nest-icon-btn" type="button" title="Sort" aria-label="Sort chats" aria-haspopup="menu" aria-expanded="false">&#8645;</button>
+      <div id="sortPopover" class="nest-popover" role="menu" aria-label="Sort chats" hidden>
+        <div class="nest-popover-title">SORT BY</div>
+        <button class="nest-popover-item" type="button" role="menuitemradio" data-sort="newest" aria-checked="true"><span>Newest first</span><span class="nest-popover-check" aria-hidden="true">&#10003;</span></button>
+        <button class="nest-popover-item" type="button" role="menuitemradio" data-sort="oldest" aria-checked="false"><span>Oldest first</span><span class="nest-popover-check" aria-hidden="true">&#10003;</span></button>
+        <button class="nest-popover-item" type="button" role="menuitemradio" data-sort="name" aria-checked="false"><span>Name (A-Z)</span><span class="nest-popover-check" aria-hidden="true">&#10003;</span></button>
+      </div>
+    </span>
   </div>
-  <div class="nest-toolbar nest-toolbar-controls">
-    <label class="nest-control">
-      <span>Sort</span>
-      <select id="sort" aria-label="Sort chats">
-        <option value="newest">Newest first</option>
-        <option value="oldest">Oldest first</option>
-        <option value="name">Name (A-Z)</option>
-      </select>
-    </label>
-    <label class="nest-control">
-      <span>Density</span>
-      <select id="density" aria-label="Row density">
-        <option value="comfortable">Comfortable</option>
-        <option value="compact">Compact</option>
-      </select>
-    </label>
-    <label class="nest-mode nest-control">
-      <input id="contentMode" type="checkbox" />
-      <span>Search content</span>
-    </label>
-    <button id="collapseLevel" type="button" class="nest-control nest-collapse-level" aria-label="Collapse one folder level">Collapse one level</button>
+  <div class="nest-search">
+    <span class="nest-search-icon" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#A6A294" stroke-width="1.6"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke="#A6A294" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+    <input id="filter" class="nest-filter" type="text" placeholder="Search chats &amp; messages" aria-label="Search chats and messages" />
+    <button id="searchClear" class="nest-search-clear" type="button" title="Clear search" aria-label="Clear search" hidden>&#215;</button>
   </div>
   <div id="chips" class="nest-chips" role="group" aria-label="Tag filters"></div>
   <div id="list" class="nest-tree" role="tree" aria-label="Organized chats" tabindex="0"></div>
@@ -528,7 +557,6 @@ function coerce(raw: unknown): Inbound | null {
     name?: unknown;
     color?: unknown;
     sort?: unknown;
-    density?: unknown;
     collapsedFolders?: unknown;
   };
   if (obj.type === 'ready') {
@@ -563,6 +591,18 @@ function coerce(raw: unknown): Inbound | null {
   if (obj.type === 'deleteFolder' && typeof obj.folderId === 'string') {
     return { type: 'deleteFolder', folderId: obj.folderId };
   }
+  if (obj.type === 'createFolder') {
+    return { type: 'createFolder' };
+  }
+  if (obj.type === 'newSession') {
+    return { type: 'newSession' };
+  }
+  if (obj.type === 'openArchive') {
+    return { type: 'openArchive' };
+  }
+  if (obj.type === 'openSettings') {
+    return { type: 'openSettings' };
+  }
   if (obj.type === 'setState') {
     // collapsedFolders is accepted only as an array of strings; anything else
     // (including a tampered webview message carrying non-strings) is dropped to
@@ -573,7 +613,6 @@ function coerce(raw: unknown): Inbound | null {
     return {
       type: 'setState',
       sort: typeof obj.sort === 'string' ? obj.sort : undefined,
-      density: typeof obj.density === 'string' ? obj.density : undefined,
       collapsedFolders,
     };
   }
