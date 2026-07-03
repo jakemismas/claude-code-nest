@@ -83,6 +83,7 @@ type Inbound =
   | { type: 'newSession' }
   | { type: 'openArchive' }
   | { type: 'openSettings' }
+  | { type: 'toggleStar'; sessionId: string; starred: boolean }
   | { type: 'setState'; sort?: string; collapsedFolders?: string[] };
 
 // The injectable command seams the org panel needs, wired in extension.ts to the
@@ -114,6 +115,11 @@ export interface OrgPanelActions {
   // Surface the interim Settings entry (the gear). The Settings overlay lands in
   // s3b; until then this runs the existing claudeNest.openSettings command.
   openSettings(): Promise<void> | void;
+  // Toggle a chat's synced ChatMeta.starred and persist immediately (AC: "Star click
+  // persists immediately through the store"). The wiring routes this to the existing
+  // star/unstar curation commands (store.setChatStarred + flush + refresh), so the
+  // webview never invents a write path. `starred` is the DESIRED next state.
+  setStarred(sessionId: string, starred: boolean): Promise<void> | void;
 }
 
 // The persisted view-state keys (Memento) for the user's sort and density choice,
@@ -121,6 +127,15 @@ export interface OrgPanelActions {
 export interface OrgPanelStateStore {
   get(key: string): string | undefined;
   set(key: string, value: string): void;
+}
+
+// The per-device read-state seam the panel needs (backed by readState.ts's
+// ReadStateStore in the host). getMap feeds the pure buildSections; markSeen clears a
+// chat's unread affordance on a clear trigger (open-via-Nest, matching-tab focus).
+// LOCAL and NEVER synced (UI-SPEC.md "Read state").
+export interface OrgPanelReadState {
+  getMap(): Map<string, number>;
+  markSeen(sessionId: string, at?: number): void;
 }
 
 const SORT_KEY = 'claudeNest.orgPanel.sort';
@@ -145,6 +160,12 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private indexedRecords: Map<string, ChatRecord> = new Map();
   private buildGeneration = 0;
 
+  // The currently-open chat's sessionId, resolved best-effort by the host's tab-label
+  // match (UI-SPEC.md deviation 4). Held here so it survives webview re-renders and is
+  // re-posted on 'ready'; null when no active chat can be identified (then no row is
+  // tinted). This is the ONLY row tint (starred rows are NOT tinted).
+  private activeChatId: string | null = null;
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly workspacePath: string | undefined,
@@ -153,6 +174,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     private readonly actions: OrgPanelActions,
     private readonly dropDeps: WebviewDropDeps,
     private readonly stateStore: OrgPanelStateStore,
+    private readonly readState: OrgPanelReadState,
     private readonly globalStorageUri?: vscode.Uri,
   ) {}
 
@@ -186,6 +208,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     if (msg.type === 'ready') {
       this.postState();
       this.postSections();
+      this.postActive();
     } else if (msg.type === 'refresh') {
       this.refresh();
     } else if (msg.type === 'open') {
@@ -208,9 +231,18 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       void this.actions.openArchive();
     } else if (msg.type === 'openSettings') {
       void this.actions.openSettings();
+    } else if (msg.type === 'toggleStar') {
+      void this.onToggleStar(msg.sessionId, msg.starred);
     } else if (msg.type === 'setState') {
       this.onSetState(msg.sort, msg.collapsedFolders);
     }
+  }
+
+  private async onToggleStar(sessionId: string, starred: boolean): Promise<void> {
+    if (sessionId.length === 0) {
+      return;
+    }
+    await this.actions.setStarred(sessionId, starred);
   }
 
   // Apply an in-panel drop through the adapter (which runs the UNCHANGED reducer
@@ -320,7 +352,51 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     const projectKey = this.getProjectKey();
     const meta: ProjectMeta | undefined =
       projectKey !== undefined ? this.store.getProjectMeta(projectKey) : undefined;
-    return buildSections(records, meta, tokenBadge);
+    return buildSections(records, meta, tokenBadge, this.readState.getMap());
+  }
+
+  // Scan the current records and return them, tolerant of no workspace or a failed
+  // scan (empty list). Used by the tab-focus clear trigger to resolve a focused
+  // Claude tab's label to a chat by title without a second scan path.
+  scanRecords(): ChatRecord[] {
+    if (this.workspacePath === undefined) {
+      return [];
+    }
+    try {
+      return scanChats(this.workspacePath);
+    } catch {
+      return [];
+    }
+  }
+
+  // Clear a chat's unread affordance (open-via-Nest and matching-tab-focus triggers,
+  // UI-SPEC.md "Read state"). Stamps lastSeenAt for the chat and re-posts the section
+  // model so the '?' badge / unread dot clears immediately. Best-effort: an empty id
+  // is ignored by the store.
+  markChatSeen(sessionId: string): void {
+    this.readState.markSeen(sessionId);
+    this.postSections();
+  }
+
+  // Set the currently-open chat (best-effort tab-label match, UI-SPEC.md deviation 4)
+  // and post it so the webview tints exactly that row. null clears any tint. Returns
+  // true when the value CHANGED (false when unchanged), so the caller can gate a
+  // re-scan/mark-seen on an actual change and a tab-change storm does not thrash the
+  // webview or trigger a scan per event.
+  setActiveChat(sessionId: string | null): boolean {
+    if (this.activeChatId === sessionId) {
+      return false;
+    }
+    this.activeChatId = sessionId;
+    this.postActive();
+    return true;
+  }
+
+  private postActive(): void {
+    if (this.view === undefined) {
+      return;
+    }
+    void this.view.webview.postMessage({ type: 'active', sessionId: this.activeChatId });
   }
 
   // ---- Content search (reused from the POC; durable logic in src/search/*) ----
@@ -558,6 +634,7 @@ function coerce(raw: unknown): Inbound | null {
     color?: unknown;
     sort?: unknown;
     collapsedFolders?: unknown;
+    starred?: unknown;
   };
   if (obj.type === 'ready') {
     return { type: 'ready' };
@@ -602,6 +679,9 @@ function coerce(raw: unknown): Inbound | null {
   }
   if (obj.type === 'openSettings') {
     return { type: 'openSettings' };
+  }
+  if (obj.type === 'toggleStar' && typeof obj.sessionId === 'string') {
+    return { type: 'toggleStar', sessionId: obj.sessionId, starred: obj.starred === true };
   }
   if (obj.type === 'setState') {
     // collapsedFolders is accepted only as an array of strings; anything else

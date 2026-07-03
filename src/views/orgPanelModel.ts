@@ -11,11 +11,14 @@
 // result over postMessage; the model never reads the store or the disk itself.
 //
 // Binding rules honored:
-// - The Questions section is a SCAN-TIME HEURISTIC, not a live signal: a chat is
-//   "awaiting your reply" only when its tier-A lastMessageRole === 'user' (the
-//   last genuine human turn was the user's, with no assistant turn after it). It
-//   is LABELLED a heuristic in the webview; the model just sets the flag. See
-//   ARCHITECTURE.md "org-panel-as-primary".
+// - The Questions section membership and the '?' badge are the SAME scan-time read-
+//   state signal (slice s3a-row-anatomy; UI-SPEC.md line 51, design README line 43):
+//   a chat is in Questions iff its status is 'question', i.e. its last genuine turn
+//   is an UNREAD assistant turn whose text asks something. This REPLACES the prior
+//   lastMessageRole==='user' heuristic. "Unread" is per-device: the last activity is
+//   newer than the injected lastSeenAt for that chat (or the chat has never been
+//   seen). Still a scan-time signal (not a live conversation state), so the webview
+//   keeps the heuristic framing.
 // - A chat counts ONCE in its single home folder (its ChatMeta.folderId, or the
 //   synthetic Unsorted bucket when unfiled or the folder no longer resolves),
 //   mirroring the Folders tree's single-home rule. Starred and Questions are
@@ -24,9 +27,13 @@
 //   filed); only the folder placement is single-home.
 // - Per-folder color rides each folder section from Folder.color (slice 3),
 //   absent when the user set none.
+// - lastSeenAt is threaded in as a PLAIN Map<sessionId, epochMs> (the vscode-thin
+//   readState.ts owns the Memento); this model imports no store and no vscode, so it
+//   stays in the headless unit gate (ARCHITECTURE.md unit-gate rule).
 
 import { ChatRecord } from '../model/types';
 import { ProjectMeta, Folder } from '../store/schema';
+import { asksSomething } from '../model/questionHeuristic';
 
 // The synthetic catch-all bucket id for chats with no (or an unresolvable) home
 // folder. Duplicated as a literal here rather than imported from folderTree.ts so
@@ -38,13 +45,12 @@ export const UNSORTED_FOLDER_ID = '__unfiled__';
 
 // The per-row status slot (UI-SPEC.md "Chat row", design README line 51). It drives
 // the left status affordance the panel renders:
-//   'question' -> a blinking '?' badge (an assistant turn that asks something)
-//   'done'     -> a solid unread dot (an unread assistant reply that is not a question)
-//   'none'     -> an empty slot (the user has seen it, or the last turn is the user's)
-// The FULLY-gated live semantics ("unread" relative to the per-device lastSeenAt read
-// state, UI-SPEC.md "Read state") land with the read-state slice; today the pure model
-// derives only the SCAN-TIME approximation it can honestly compute from the tier-A
-// snapshot (lastMessageRole/lastMessageText). See rowStatus below.
+//   'question' -> a blinking '?' badge (an UNREAD assistant turn that asks something)
+//   'done'     -> a solid unread dot (an UNREAD assistant reply that is not a question)
+//   'none'     -> an empty slot (seen, or the last turn is the user's)
+// Both non-empty states are gated on the turn being UNREAD relative to the per-device
+// lastSeenAt read state (UI-SPEC.md "Read state"; slice s3a-row-anatomy). See
+// rowStatus below.
 export type RowStatus = 'question' | 'done' | 'none';
 
 // One chat row in the org panel, projected from a ChatRecord plus its curation
@@ -69,8 +75,18 @@ export interface OrgChatRow {
   // Same length and order as tags.
   tagColors: (string | null)[];
   starred: boolean;
+  // awaitingReply is now an ALIAS of (status === 'question'): the chat is awaiting the
+  // user's reply because an unread assistant turn asks something. It drives the
+  // Questions section membership and the aria "awaiting your reply" phrasing. Kept as
+  // a distinct field so the webview does not re-derive it. (Superseded the prior
+  // lastMessageRole==='user' definition; slice s3a-row-anatomy.)
   awaitingReply: boolean;
   status: RowStatus;
+  // The folder-path breadcrumb (e.g. "Work / Backend API"), rendered on the right of
+  // a row ONLY in the Questions section and the flat search/filter results (design
+  // README lines 54, 42). null when the chat is unfiled or its folder no longer
+  // resolves (no breadcrumb to show).
+  breadcrumb: string | null;
 }
 
 // One folder section: the folder's id, name, optional color (slice 3), nesting
@@ -115,17 +131,21 @@ export interface OrgSections {
 
 // A token-badge formatter seam so the pure model stays free of the vscode-thin
 // tokenBadge import chain. The host passes tokenBadge (from chatTooltip.ts, itself
-// vscode-free) so the row badge matches every other surface exactly.
+// vscode-free) so the row's token seam (OrgChatRow.tokens, consumed by the search row
+// and the s3b hover card, NOT the visible row) matches every other surface exactly.
 export type TokenBadgeFn = (record: ChatRecord) => string;
 
 // Build the org-panel section model from the scanned records and the project's
-// curation document. Pure and total: a missing meta (project key not resolved
-// yet) yields every chat unfiled, untagged, unstarred, with the heuristic still
-// applied from the record's tier-A lastMessageRole. Never throws.
+// curation document. Pure and total: a missing meta (project key not resolved yet)
+// yields every chat unfiled, untagged, unstarred, with the read-state status still
+// derived from the record's tier-A last-message fields against lastSeenAt. Never
+// throws. lastSeenAt is a plain per-device Map<sessionId, epochMs> (default empty =
+// nothing seen); the vscode-thin readState.ts owns the Memento behind it.
 export function buildSections(
   records: readonly ChatRecord[],
   meta: ProjectMeta | undefined,
   tokenBadge: TokenBadgeFn,
+  lastSeenAt: ReadonlyMap<string, number> = new Map(),
 ): OrgSections {
   // Archived chats (the SYNCED ChatMeta.userArchived flag, slice s2-star-archive)
   // are excluded from EVERY visible section and surfaced only as the bottom
@@ -139,11 +159,19 @@ export function buildSections(
   const visibleRecords = records.filter((r) => !isArchived(r.sessionId, meta));
   const archivedCount = records.length - visibleRecords.length;
 
-  const rows = visibleRecords.map((record) => buildRow(record, meta, tokenBadge));
+  // Precompute each folder's full breadcrumb path ("Work / Backend API") so every
+  // row's breadcrumb is an O(1) lookup rather than a per-row ancestor walk.
+  const folderPaths = buildFolderPaths(meta);
 
-  // Cross-cutting sections, each sorted newest-first to match the folder rows.
+  const rows = visibleRecords.map((record) =>
+    buildRow(record, meta, tokenBadge, lastSeenAt, folderPaths),
+  );
+
+  // Cross-cutting sections, each sorted newest-first to match the folder rows. The
+  // Questions section is now the status==='question' rows (an unread assistant turn
+  // that asks something), replacing the old lastMessageRole==='user' heuristic.
   const starred = sortNewestFirst(rows.filter((r) => r.starred));
-  const questions = sortNewestFirst(rows.filter((r) => r.awaitingReply));
+  const questions = sortNewestFirst(rows.filter((r) => r.status === 'question'));
 
   // Single-home folder placement: group each row under its resolved home folder
   // id (the Unsorted sentinel when unfiled or the folder no longer resolves).
@@ -176,16 +204,19 @@ function isArchived(chatId: string, meta: ProjectMeta | undefined): boolean {
 
 // Project one record to its org-panel row, resolving its curation state from the
 // meta. Tolerant of an absent meta or chat entry (defaults to unfiled/untagged/
-// unstarred). The awaiting-reply heuristic reads ONLY the record's tier-A
-// lastMessageRole; it never consults the store.
+// unstarred). The read-state status reads the record's tier-A last-message fields
+// against the injected lastSeenAt map; it never consults a store.
 function buildRow(
   record: ChatRecord,
   meta: ProjectMeta | undefined,
   tokenBadge: TokenBadgeFn,
+  lastSeenAt: ReadonlyMap<string, number>,
+  folderPaths: ReadonlyMap<string, string>,
 ): OrgChatRow {
   const chatMeta = meta?.chats[record.sessionId];
   const tagIds = Array.isArray(chatMeta?.tags) ? [...(chatMeta as { tags: string[] }).tags] : [];
   const resolved = resolveTagsFor(tagIds, meta);
+  const status = rowStatus(record, lastSeenAt);
   return {
     sessionId: record.sessionId,
     title: record.title,
@@ -196,43 +227,76 @@ function buildRow(
     tagIds,
     tagColors: resolved.colors,
     starred: chatMeta?.starred === true,
-    // The scan-time awaiting-reply heuristic (slice 0 tier-A): the last GENUINE
-    // turn was the user's, so Claude has not replied. NOT a live conversation
-    // state; the webview labels the section as a heuristic.
-    awaitingReply: record.lastMessageRole === 'user',
-    status: rowStatus(record),
+    // awaitingReply is now an alias of status==='question' (an unread assistant turn
+    // that asks something), replacing the prior lastMessageRole==='user' heuristic.
+    awaitingReply: status === 'question',
+    status,
+    breadcrumb: resolveBreadcrumb(record.sessionId, meta, folderPaths),
   };
 }
 
-// The scan-time status for a chat's status slot. The BINDING live definition
-// (UI-SPEC.md lines 51-52 and "Read state") gates both non-empty states on the last
-// message being an UNREAD assistant turn, i.e. newer than the per-device lastSeenAt.
-// That read-state store is a later slice; until it lands the pure model returns the
-// most it can honestly compute from the tier-A snapshot without inventing a signal:
-//   - 'question' when the last genuine turn is an ASSISTANT turn whose text asks
-//     something (endsWithQuestion), matching the 'question' badge's message shape;
-//   - 'none' otherwise. The 'done' dot is intentionally NOT emitted yet because it
-//     requires the unread (lastSeenAt) gate that does not exist on the snapshot;
-//     emitting a dot for every assistant-last chat would fabricate an unread signal
-//     for chats the user has already read. The read-state slice will re-derive both
-//     states through lastSeenAt and turn this into the full mapping.
-// A user-last chat is 'none' here (it is surfaced as awaitingReply / the Questions
-// section instead, not as a status dot).
-function rowStatus(record: ChatRecord): RowStatus {
-  if (record.lastMessageRole === 'assistant' && endsWithQuestion(record.lastMessageText)) {
-    return 'question';
+// The scan-time status for a chat's status slot (UI-SPEC.md lines 51-52 and "Read
+// state"; slice s3a-row-anatomy). Both non-empty states are gated on the last turn
+// being an UNREAD assistant turn:
+//   unread = lastMessageRole === 'assistant' && (timestamp === null || timestamp > lastSeenAt)
+// then:
+//   - 'question' when unread AND the assistant text asks something (asksSomething);
+//   - 'done'     when unread AND it does not (a plain unread reply);
+//   - 'none'     otherwise. A user-last chat is 'none' here: a newer USER message
+//     supersedes the unread signal structurally (lastMessageRole !== 'assistant'),
+//     which is the patch's "superseded by a newer user message" clause with no
+//     transcript-watching write path. A SEEN assistant turn (timestamp <= lastSeenAt)
+//     is also 'none'.
+// timestamp===null (no timestamped line) is treated as unread so a brand-new chat
+// with an assistant-last turn still surfaces until the user opens it.
+function rowStatus(record: ChatRecord, lastSeenAt: ReadonlyMap<string, number>): RowStatus {
+  if (record.lastMessageRole !== 'assistant') {
+    return 'none';
   }
-  return 'none';
+  const seenAt = lastSeenAt.get(record.sessionId);
+  const unread = record.timestamp === null || seenAt === undefined || record.timestamp > seenAt;
+  if (!unread) {
+    return 'none';
+  }
+  return asksSomething(record.lastMessageText) ? 'question' : 'done';
 }
 
-// Whether a message's (truncated) tier-A text reads as a question: it ends with a
-// question mark (after trailing whitespace), matching the design's "asks something"
-// question-badge trigger. Total and null-safe.
-function endsWithQuestion(text: string | null): boolean {
-  if (text === null) {
-    return false;
+// The breadcrumb path for a chat's single home folder, or null when unfiled or the
+// folder no longer resolves (routes to Unsorted, which has no breadcrumb).
+function resolveBreadcrumb(
+  chatId: string,
+  meta: ProjectMeta | undefined,
+  folderPaths: ReadonlyMap<string, string>,
+): string | null {
+  const home = resolveHomeFolderId(chatId, meta);
+  if (home === UNSORTED_FOLDER_ID) {
+    return null;
   }
-  return /\?\s*$/.test(text);
+  return folderPaths.get(home) ?? null;
+}
+
+// Build each real folder's full breadcrumb path ("Parent / Child"), walking parentId
+// with a visited guard so a corrupt parent cycle terminates. A folder whose ancestor
+// chain is broken falls back to its own name.
+function buildFolderPaths(meta: ProjectMeta | undefined): Map<string, string> {
+  const paths = new Map<string, string>();
+  const folders = meta?.folders;
+  if (folders === undefined) {
+    return paths;
+  }
+  for (const folder of Object.values(folders)) {
+    const segments: string[] = [];
+    const visited = new Set<string>();
+    let current: Folder | undefined = folder;
+    while (current !== undefined && !visited.has(current.id)) {
+      visited.add(current.id);
+      segments.unshift(current.name);
+      const parentId: string | null = current.parentId ?? null;
+      current = parentId !== null ? folders[parentId] : undefined;
+    }
+    paths.set(folder.id, segments.join(' / '));
+  }
+  return paths;
 }
 
 // Resolve a chat's single home folder id: its ChatMeta.folderId when it points to

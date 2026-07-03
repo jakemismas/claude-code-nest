@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { relativeTime } from '../../views/relativeTime';
+import { relativeTime, relativeTimeCompact } from '../../views/relativeTime';
 
 // Pure-logic unit tests for the relative-time formatter. No vscode import and an
 // injected clock, so every boundary the flat-view smoke depends on is covered by
@@ -110,5 +110,61 @@ describe('relativeTime', () => {
     // the exact wall clock, proving the default-arg path is exercised.
     const result = relativeTime(0);
     assert.ok(/years ago$/.test(result), 'expected a years-ago string, got: ' + result);
+  });
+});
+
+describe('relativeTimeCompact (design row buckets, floor semantics)', () => {
+  const MIN = 60 * SEC;
+
+  it('returns empty string for a null timestamp', () => {
+    assert.strictEqual(relativeTimeCompact(null, NOW), '');
+  });
+
+  it("reads sub-60s (and a future clamp) as 'now'", () => {
+    assert.strictEqual(relativeTimeCompact(NOW, NOW), 'now');
+    assert.strictEqual(relativeTimeCompact(NOW - 59 * SEC, NOW), 'now');
+    assert.strictEqual(relativeTimeCompact(NOW + 10 * SEC, NOW), 'now', 'future clamps to now');
+  });
+
+  it('renders the design example buckets: 35m / 3h / 1d / 2w / 1mo', () => {
+    assert.strictEqual(relativeTimeCompact(NOW - 35 * MIN, NOW), '35m');
+    assert.strictEqual(relativeTimeCompact(NOW - 3 * HOUR, NOW), '3h');
+    assert.strictEqual(relativeTimeCompact(NOW - 1 * DAY, NOW), '1d');
+    assert.strictEqual(relativeTimeCompact(NOW - 14 * DAY, NOW), '2w');
+    assert.strictEqual(relativeTimeCompact(NOW - 30 * DAY, NOW), '1mo');
+  });
+
+  it('floors within a unit (does not round up)', () => {
+    // 59m59s stays 59m; 23h59m stays 23h.
+    assert.strictEqual(relativeTimeCompact(NOW - (59 * MIN + 59 * SEC), NOW), '59m');
+    assert.strictEqual(relativeTimeCompact(NOW - (23 * HOUR + 59 * MIN), NOW), '23h');
+  });
+
+  it('rolls at each unit edge', () => {
+    assert.strictEqual(relativeTimeCompact(NOW - 60 * SEC, NOW), '1m');
+    assert.strictEqual(relativeTimeCompact(NOW - 60 * MIN, NOW), '1h');
+    assert.strictEqual(relativeTimeCompact(NOW - 24 * HOUR, NOW), '1d');
+    assert.strictEqual(relativeTimeCompact(NOW - 7 * DAY, NOW), '1w');
+  });
+
+  it("switches days->weeks at 7 days and holds weeks until 30 days", () => {
+    assert.strictEqual(relativeTimeCompact(NOW - 6 * DAY, NOW), '6d');
+    assert.strictEqual(relativeTimeCompact(NOW - 7 * DAY, NOW), '1w');
+    assert.strictEqual(relativeTimeCompact(NOW - 29 * DAY, NOW), '4w');
+  });
+
+  it('switches weeks->months at 30 days and holds months until a year', () => {
+    assert.strictEqual(relativeTimeCompact(NOW - 30 * DAY, NOW), '1mo');
+    assert.strictEqual(relativeTimeCompact(NOW - 359 * DAY, NOW), '11mo');
+  });
+
+  it('rolls to years at 360 days (12 * 30-day months)', () => {
+    assert.strictEqual(relativeTimeCompact(NOW - 360 * DAY, NOW), '1y');
+    assert.strictEqual(relativeTimeCompact(NOW - 720 * DAY, NOW), '2y');
+  });
+
+  it('defaults the clock to Date.now() when omitted', () => {
+    const result = relativeTimeCompact(0);
+    assert.ok(/y$/.test(result), 'expected a compact years string, got: ' + result);
   });
 });

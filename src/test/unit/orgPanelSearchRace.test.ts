@@ -46,6 +46,7 @@ const { OrgPanelProvider } = require('../../views/orgPanelWebview') as {
     actions: unknown,
     dropDeps: unknown,
     stateStore: unknown,
+    readState: unknown,
     globalStorageUri?: unknown,
   ) => {
     resolveWebviewView(view: unknown): void;
@@ -82,6 +83,13 @@ const inertStateStore = {
   get: (): string | undefined => undefined,
   set: (): void => undefined,
 };
+// Inert read-state seam (OrgPanelReadState). getMap feeds the pure buildSections
+// during postSections; markSeen is a no-op. The search-race path never asserts on
+// read state, so an empty map is enough.
+const inertReadState = {
+  getMap: (): Map<string, number> => new Map(),
+  markSeen: (): void => undefined,
+};
 
 function makeProvider(workspacePath: string): unknown {
   return new OrgPanelProvider(
@@ -92,6 +100,7 @@ function makeProvider(workspacePath: string): unknown {
     inertActions,
     inertDropDeps,
     inertStateStore,
+    inertReadState,
     undefined,
   );
 }

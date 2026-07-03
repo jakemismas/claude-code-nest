@@ -18,11 +18,11 @@ Keep a Changelog, and the project adheres to semantic versioning.
 - A per-row status slot on the Organize panel chat row (#79), the first piece of
   the Sprint 3 row anatomy: a blinking `?` badge marks a chat whose last turn is an
   assistant message that asks a question, disabled under reduced motion, with the
-  meaning carried on the row's aria-label. The pure model derives `'question'` only
-  from the tier-A snapshot and deliberately does NOT emit the solid unread `'done'`
-  dot yet (that needs the per-device read-state gate a later slice adds), so real
-  data never fabricates an unread signal; the dot's render path exists and is
-  exercised by the fidelity harness mock.
+  meaning carried on the row's aria-label. As shipped by #79 the pure model derived
+  `'question'` only from the tier-A snapshot and did not yet emit the solid unread
+  `'done'` dot (that needed the per-device read-state gate); the dot's render path
+  existed and was exercised by the fidelity harness mock. (Superseded by #81, below,
+  which adds the read-state gate so `'done'` is now emitted for a real unread reply.)
 - The Organize panel chrome now matches the Sprint 3 handoff (#80): the design-token
   palette, a New session pill, a gear button, a sort popover that replaces the native
   dropdown (Newest first / Oldest first / Name A-Z, with a colored checkmark on the
@@ -38,6 +38,21 @@ Keep a Changelog, and the project adheres to semantic versioning.
   from the visible sections and the tag-chip counts and are summarized in this bottom
   row, which opens the Archive view until the in-panel Archive overlay ships.
 - Tag pills on a chat row now render in their per-tag color (#80).
+- The reworked chat row and its per-device read state (#81). Each row now carries a
+  status slot with two live affordances gated on a per-device read state: a blinking
+  `?` badge when the last turn is an UNREAD assistant message that asks something, and
+  a solid unread dot (`done`) when it is an unread assistant reply that does not. Both
+  clear when you open the chat (via Nest, or by focusing its named Claude Code tab),
+  because opening stamps a per-device `lastSeenAt` for that chat. The read state is
+  LOCAL and NEVER synced (stored in workspace state under one key, like sort and the
+  collapsed set), so it can never widen the synced surface. The Questions section is
+  redefined to match: a chat is in Questions exactly when its status is `question`
+  (an unread assistant turn that asks something), replacing the previous "last turn
+  was yours" heuristic. Question detection is a new pure tail-window heuristic that
+  looks for a trailing `?`, a `?` inside the truncated snippet's tail, or a tight set
+  of input-request phrases, and is biased toward NOT flagging a plain statement. The
+  row also gains a star toggle that persists, an active-row tint on the chat whose tab
+  is focused, and a folder breadcrumb on Questions and search-result rows.
 
 ### Changed
 

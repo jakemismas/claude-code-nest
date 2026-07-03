@@ -695,12 +695,19 @@ body {
   text-align: right;
 }
 
-/* Star toggle: filled accent when starred, hollow muted otherwise (hover accent). */
+/* Star toggle: filled accent when starred, hollow muted otherwise (hover accent). A
+   <button> reset so it reads as a plain glyph but stays keyboard-focusable. */
 .nest-star {
   flex: 0 0 auto;
   width: 15px;
+  padding: 0;
+  border: none;
+  background: transparent;
   text-align: center;
+  font-family: inherit;
   font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
   color: var(--nest-accent);
 }
 
@@ -710,6 +717,12 @@ body {
 
 .nest-row:hover .nest-star-empty {
   color: var(--nest-accent);
+}
+
+.nest-star:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
 }
 
 .nest-row-snippet {
