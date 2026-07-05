@@ -485,6 +485,43 @@ describe('orgPanelModel tag chips and row tags', () => {
     assert.ok(!byId.has('t3'), 'a tag with zero carrying chats is omitted');
   });
 
+  it('allTags lists EVERY tag (including a zero-chat tag the chip row omits) for the context menu', () => {
+    const records = [record({ sessionId: 'a' }), record({ sessionId: 'b' })];
+    const m = meta({
+      tags: {
+        t1: { id: 't1', label: 'urgent', color: '#aabbcc' },
+        t2: { id: 't2', label: 'idea' },
+        t3: { id: 't3', label: 'unused' },
+        t4: { id: 't4', label: '' }, // blank label: unusable menu row, dropped
+      },
+      chats: {
+        a: { folderId: null, tags: ['t1', 't2'], links: [], updatedAt: 0, deviceId: 'd' },
+        b: { folderId: null, tags: ['t1'], links: [], updatedAt: 0, deviceId: 'd' },
+      },
+    });
+    const sections = buildSections(records, m, badge);
+    // The chip row omits the zero-chat tag; allTags keeps it (issue #85 AC #1).
+    const chipIds = new Set(sections.tags.map((c) => c.tagId));
+    assert.ok(!chipIds.has('t3'), 'chip row omits the zero-chat tag');
+    const allById = new Map(sections.allTags.map((c) => [c.tagId, c]));
+    assert.ok(allById.has('t3'), 'allTags KEEPS the zero-chat tag');
+    assert.strictEqual(allById.get('t3')?.count, 0, 'the zero-chat tag reports count 0');
+    assert.strictEqual(allById.get('t1')?.count, 2, 'a carried tag reports its count');
+    assert.strictEqual(allById.get('t1')?.color, '#aabbcc', 'allTags carries the tag color');
+    assert.ok(!allById.has('t4'), 'a blank-label tag is dropped from allTags');
+    // Sorted by label case-insensitive: idea, unused, urgent (blank t4 dropped).
+    assert.deepStrictEqual(
+      sections.allTags.map((c) => c.tagId),
+      ['t2', 't3', 't1'],
+      'allTags is sorted by label (case-insensitive) then id',
+    );
+  });
+
+  it('allTags is empty when meta is undefined', () => {
+    const sections = buildSections([record({ sessionId: 'a' })], undefined, badge);
+    assert.deepStrictEqual(sections.allTags, []);
+  });
+
   it('row carries both tagIds (for the chip filter and DnD) and resolved labels', () => {
     const records = [record({ sessionId: 'a' })];
     const m = meta({
