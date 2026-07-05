@@ -4,9 +4,6 @@
 import './vscodeStub';
 
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { MetadataStore } from '../../store/metadataStore';
 import { FakeMemento } from './fakeMemento';
 import { ChatMessageBody } from '../../claude/bodyReader';
@@ -18,25 +15,20 @@ import {
   archiveChat,
   restoreChat,
 } from '../../commands/curationCommands';
-import { ArchiveProvider, ArchivedChatItem } from '../../views/archiveProvider';
-import { OPEN_CHAT_COMMAND } from '../../launch/uriLauncher';
 import {
-  PREVIEW_ARCHIVED_CHAT_COMMAND,
   previewArchivedBody,
   PreviewArchivedChatDeps,
 } from '../../commands/previewChatCommand';
 import { writeArchivedBody, readArchivedBody } from '../../store/archiveBodyStore';
 
-// Headless unit tests for the Slice 4 curation commands and the Archive provider.
-// The commands run against a real MetadataStore over the FakeMemento double, with
-// the archive-body IO seams stubbed in memory; the provider runs against a scratch
-// transcript fixture (NEVER the real ~/.claude files) plus the same store. No
-// vscode host beyond the stub.
-//
-// The highest-value assertion (slice patch "NAMING-COLLISION GUARD"): the provider
-// lists chats by the SYNCED ChatMeta.userArchived flag from store.getProjectMeta,
-// NOT the local-only LocalChatState.archived (the orphan-reconcile flag). The test
-// sets BOTH flags on DIFFERENT chats and proves only the userArchived one surfaces.
+// Headless unit tests for the Slice 4 curation commands and the archived-copy read path.
+// The commands run against a real MetadataStore over the FakeMemento double, with the
+// archive-body IO seams stubbed in memory. The archived-row membership + sort + fallback-
+// title logic that once lived on the Archive tree provider moved to the pure
+// buildArchivedRows (issue #87), tested in orgPanelModel.test.ts; the SYNCED-userArchived-
+// only membership rule (never the local orphan flag) is asserted there. What remains here
+// is the cleanup-survival read path: the Nest-owned body copy is still readable after the
+// transcript is gone. No vscode host beyond the stub.
 
 const DEVICE = 'dev-curation';
 const PK = 'c--Users-Tester-curation';
@@ -245,134 +237,14 @@ describe('curationCommands.restoreChat', () => {
   });
 });
 
-// ---- The Archive provider, against a scratch transcript fixture. ----
+// ---- The archived-copy READ path (survives the Archive-tree retirement, issue #87).
+// The Archive tree provider is retired; its membership + sort + fallback-title logic moved
+// to the pure buildArchivedRows (covered in orgPanelModel.test.ts). What still lives here is
+// the cleanup-survival read: once Claude deletes the live transcript, the Nest-owned body
+// copy must still be readable via previewArchivedBody, the command the Archive overlay row
+// and the palette both call.
 
-describe('ArchiveProvider lists by SYNCED userArchived, NOT the orphan flag', () => {
-  let root: string;
-  let workspacePath: string;
-
-  function writeJsonl(dir: string, name: string, objs: unknown[]): void {
-    fs.writeFileSync(path.join(dir, name), objs.map((o) => JSON.stringify(o)).join('\n'), 'utf8');
-  }
-
-  before(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'nest-archive-'));
-    workspacePath = 'c:\\Users\\Tester\\curation';
-    const proj = path.join(root, PK);
-    fs.mkdirSync(proj, { recursive: true });
-    // Three present transcripts.
-    for (const id of ['11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000002', '33333333-0000-0000-0000-000000000003']) {
-      writeJsonl(proj, id + '.jsonl', [
-        { type: 'custom-title', customTitle: 'Chat ' + id.slice(0, 8) },
-        { type: 'user', timestamp: '2026-06-15T10:00:00.000Z', cwd: 'c:\\Users\\Tester\\curation', message: { content: 'hi' } },
-      ]);
-    }
-  });
-
-  after(() => {
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-
-  function provider(store: MetadataStore): ArchiveProvider {
-    return new ArchiveProvider(workspacePath, store, { projectsRoot: root });
-  }
-
-  const C1 = '11111111-0000-0000-0000-000000000001';
-  const C2 = '22222222-0000-0000-0000-000000000002';
-  const C3 = '33333333-0000-0000-0000-000000000003';
-
-  it('surfaces ONLY chats whose synced userArchived === true', async () => {
-    const store = makeStore();
-    // C1 is user-archived (synced). C2 has the LOCAL orphan flag set (missing-on-disk
-    // machinery), which MUST NOT surface here. C3 is untouched.
-    store.setChatArchived(PK, C1, true);
-    await store.flush();
-    await store.setLocalChatState(PK, C2, { missingSince: NOW, archived: true, tombstone: false });
-    await store.flushLocal();
-
-    const rows = provider(store).getChildren();
-    const ids = rows.map((r) => r.sessionId);
-    assert.deepStrictEqual(ids, [C1], 'only the userArchived chat is listed; the orphan flag is ignored');
-    // Sanity: the local orphan flag genuinely IS set on C2 (so the test is honest).
-    assert.strictEqual(store.getLocalProjectMeta(PK).chats[C2].archived, true);
-  });
-
-  it('an unarchived (userArchived false) chat does not surface', async () => {
-    const store = makeStore();
-    store.setChatArchived(PK, C1, true);
-    store.setChatArchived(PK, C1, false);
-    await store.flush();
-    const rows = provider(store).getChildren();
-    assert.deepStrictEqual(rows.map((r) => r.sessionId), []);
-  });
-
-  it('marks a starred archived chat and renders an archived row item shape', async () => {
-    const store = makeStore();
-    store.setChatStarred(PK, C1, true);
-    store.setChatArchived(PK, C1, true);
-    store.setChatArchived(PK, C3, true);
-    await store.flush();
-    const rows = provider(store).getChildren();
-    const byId = new Map(rows.map((r) => [r.sessionId, r]));
-    assert.ok(byId.has(C1) && byId.has(C3));
-    const c1 = byId.get(C1) as ArchivedChatItem;
-    // The starred archived chat carries the star icon (exempt-from-prune badge).
-    assert.strictEqual((c1.iconPath as { id: string }).id, 'star-full');
-    // contextValue gates the archive-row menu (restore/star/unstar).
-    assert.strictEqual(c1.contextValue, 'claudeNest.archivedChat');
-  });
-
-  it('getChildren(undefined) returns [] and never throws when there is no project', () => {
-    const store = makeStore();
-    const noProj = new ArchiveProvider(undefined, store, { projectsRoot: root });
-    assert.deepStrictEqual(noProj.getChildren(), []);
-    // getParent is always undefined (flat view).
-    assert.strictEqual(noProj.getParent(), undefined);
-  });
-
-  it('a child element yields [] (flat, no nesting)', async () => {
-    const store = makeStore();
-    store.setChatArchived(PK, C1, true);
-    await store.flush();
-    const p = provider(store);
-    const rows = p.getChildren();
-    assert.strictEqual(rows.length, 1);
-    assert.deepStrictEqual(p.getChildren(rows[0]), []);
-  });
-
-  // CLEANUP-SURVIVAL READ PATH (completeness finding): once Claude deletes the live
-  // transcript, the archived row must still be OPENABLE, and opening it must surface
-  // the Nest-owned body copy's saved bodies. These prove the wiring end to end: the
-  // row's default command, and the read path that renders env.bodies.
-  it('a PRESENT archived row carries the Open-live command', async () => {
-    const store = makeStore();
-    store.setChatArchived(PK, C1, true);
-    await store.flush();
-    const rows = provider(store).getChildren();
-    const row = rows.find((r) => r.sessionId === C1) as ArchivedChatItem;
-    assert.strictEqual(row.command?.command, OPEN_CHAT_COMMAND, 'present row opens the live transcript');
-    assert.deepStrictEqual(row.command?.arguments, [C1]);
-  });
-
-  it('a CLEANED-UP archived row (transcript gone) carries the Preview-Archived-Copy command', async () => {
-    const store = makeStore();
-    // GONE is user-archived but has NO transcript in the scan fixture: exactly the
-    // post-cleanup state. The row must still be clickable, routed to the copy reader.
-    const GONE = '99999999-0000-0000-0000-000000000099';
-    store.setChatArchived(PK, GONE, true);
-    await store.flush();
-    const rows = provider(store).getChildren();
-    const row = rows.find((r) => r.sessionId === GONE) as ArchivedChatItem;
-    assert.ok(row !== undefined, 'the cleaned-up chat still surfaces in the archive view');
-    assert.strictEqual(row.record, undefined, 'no live record for a cleaned-up chat');
-    assert.strictEqual(
-      row.command?.command,
-      PREVIEW_ARCHIVED_CHAT_COMMAND,
-      'a cleaned-up row routes its click to the archived-copy reader (was previously non-clickable)',
-    );
-    assert.deepStrictEqual(row.command?.arguments, [GONE], 'the reader is handed the sessionId');
-  });
-
+describe('archived-copy read path survives transcript cleanup', () => {
   it('end to end: a saved copy is readable AFTER the transcript is gone', async () => {
     const STORAGE = '/storage/global-e2e';
     const GONE = '99999999-0000-0000-0000-000000000099';

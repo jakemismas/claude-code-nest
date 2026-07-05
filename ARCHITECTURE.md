@@ -11,9 +11,10 @@ layer (folders, tags, links, and a settings editor) on Claude Code chat
 transcripts for a single project. It contributes its own Activity Bar view
 container (claudeNest) and never modifies Claude's data beyond one sanctioned,
 guarded settings write. Since Sprint 3 slice s3a-view-consolidation the org
-panel webview is the SOLE browsing surface (UI-SPEC.md deviation 5); the
-Archive tree and the settings editor tab survive only until part 2 ships their
-in-panel replacements.
+panel webview is the SOLE browsing surface (UI-SPEC.md deviation 5); with the
+settings editor tab retired in s3b-settings-overlay and the Archive tree retired
+in s3b-archive-overlay, the org panel webview is now the ONLY contributed view
+(Settings and Archive render as in-panel overlays inside it).
 
 ## Module map (navigation index)
 
@@ -69,12 +70,14 @@ vscode-free modules. This index says where each binding contract below lives.
   getElementById wiring finds no nodes and `npm run fidelity` renders nothing. Its
   --vscode-* palette shim became a harmless no-op once orgPanel.css hardcodes the
   handoff palette.
-- View surfaces (post s3a-view-consolidation, UI-SPEC.md deviation 5): the live
-  views are the org panel (src/views/orgPanelWebview.ts plus the pure
-  orgPanelModel.ts), the SOLE browsing surface, and Archive (archiveProvider.ts),
-  which survives until part 2 ships the in-panel Archive overlay. The flat Chats
-  tree (flatProvider.ts) and Smart Groups tree (smartGroupsProvider.ts) are
-  DELETED; the OPEN_CHAT_COMMAND id now lives in src/launch/uriLauncher.ts.
+- View surfaces (post s3b-archive-overlay, UI-SPEC.md deviation 5): the org panel
+  (src/views/orgPanelWebview.ts plus the pure orgPanelModel.ts) is the ONLY contributed
+  view and the SOLE browsing surface. The Archive tree (archiveProvider.ts) is DELETED
+  (s3b-archive-overlay); its rows are rebuilt by the pure orgPanelModel.buildArchivedRows
+  and rendered in an in-panel overlay, and its membership/sort/fallback-title logic moved
+  there. The flat Chats tree (flatProvider.ts) and Smart Groups tree
+  (smartGroupsProvider.ts) were DELETED earlier; the OPEN_CHAT_COMMAND id now lives in
+  src/launch/uriLauncher.ts.
   FoldersProvider.ts and TagsProvider.ts are KEPT as non-view services
   (project-key resolution, link target pick list, the tokenTotalsByChat rollup
   seam, reveal and home resolution) since slice 6 retired their trees;
@@ -353,12 +356,13 @@ synced/local flag separation.
   It is DISTINCT from the local-only orphan-reconcile LocalChatState.archived on the
   separate nest.local.v1 document (schema.ts:80-96, 125-129): userArchived is a
   deliberate, synced curation choice; LocalChatState.archived is missing-on-disk
-  machinery (DECISIONS.md 2026-06-15). archiveProvider lists chats by
+  machinery (DECISIONS.md 2026-06-15). The archived-row membership lists chats by
   store.getProjectMeta(projectKey).chats[id].userArchived === true and NEVER reads
   LocalChatState.archived. Restore calls store.setChatArchived(false) (clearing
   archivedAt); star/unstar (store.setChatStarred) is INDEPENDENT of the archive flag,
-  so a restored chat keeps its star. (Slice 4 unit test asserts the provider reads
-  userArchived, not the orphan flag.)
+  so a restored chat keeps its star. (Since s3b-archive-overlay this membership rule
+  lives in the pure orgPanelModel.buildArchivedRows, unit-tested in orgPanelModel.test.ts;
+  the retired archiveProvider carried it before.)
 - The Nest-owned BODY COPY is a FILE in extension globalStorage, LOCAL and NEVER
   synced. It never renames, moves, or deletes anything under ~/.claude/projects. On
   archive, the full body is read ONCE on demand (bodyReader.readTranscriptBodies,
@@ -397,20 +401,17 @@ synced/local flag separation.
   user's explicit "do not lose this" signal and the copy is the chat's only durable
   form after Claude's cleanup, so a stale-snapshot star must never let the prune delete
   it.
-- The Archive view registers WITHOUT a dragAndDropController (read-mostly;
-  archive/restore are commands, not drops; the retired smartGroups view shared this
-  shape) and takes the same (workspacePath, store) deps as FoldersProvider, resolving the
-  project key on demand. getChildren(undefined) returns [] and never throws; an
-  onView:claudeNest.archive activationEvent and a viewsWelcome empty-state entry back
-  the view. An archived chat whose transcript was cleaned up out of band still lists
-  here (membership comes from the synced flag, not the scan); its title falls back to
-  the body copy's stored title (loaded asynchronously). Its default click is Open when
-  the live transcript is still present, but when the transcript is gone the click
-  PREVIEWS the Nest-owned body copy instead (claudeNest.previewArchivedChat), so a
-  cleaned-up row stays openable — the whole point of the copy. previewArchivedBody
-  reads the copy by sessionId and routes through the SAME pure formatter as the live
-  preview (formatPreviewLines), so the two renderings are byte-identical; a missing or
-  empty copy surfaces an info notice, never a blank document.
+- The Archive TREE view was RETIRED in s3b-archive-overlay (see that slice's binding
+  section below); the archived rows now render in an in-panel overlay. The
+  cleanup-survival read path is UNCHANGED and still binding: an archived chat whose
+  transcript was cleaned up out of band still lists (membership comes from the synced
+  flag, not the scan); its title falls back to the body copy's stored title (loaded
+  asynchronously), and the overlay row previews the Nest-owned body copy instead of the
+  live transcript (claudeNest.previewArchivedChat), so a cleaned-up row stays openable
+  (the whole point of the copy). previewArchivedBody reads the copy by sessionId and
+  routes through the SAME pure formatter as the live preview (formatPreviewLines), so the
+  two renderings are byte-identical; a missing or empty copy surfaces an info notice,
+  never a blank document.
 - The STAR BADGE renders on every chat-row node builder (folders members, tags
   occurrences, archived rows; the flat tree carried it too until its retirement in
   slice s3a-view-consolidation, and the org panel renders starred state its own
@@ -486,6 +487,53 @@ scalar leaks onto ProjectMeta, and the auto-archive write adds no new fs path.
   closeAllTransientOverlays and closed only by the back chevron or Escape. Every label
   sink is textContent; the window select value and toggle states are coerced at the host
   boundary before reaching workspaceState. See DECISIONS.md Slice s3b-settings-overlay.
+
+## In-panel Archive overlay and the Archive-tree retirement (Sprint 3, slice s3b-archive-overlay) — binding
+
+Slice s3b-archive-overlay (issue #87) retires the claudeNest.archive TREE view and moves the
+archived chats into an in-panel OVERLAY inside the org-panel webview, making the org panel
+Nest's ONLY contributed view. These rules are binding so the retirement keeps the read-only
+invariant, adds no new write path or synced scalar, and preserves the cleanup-survival read.
+
+- ARCHIVED ROWS ARE A PURE BUILDER, POSTED ON DEMAND. orgPanelModel.buildArchivedRows
+  (vscode-free, unit-tested) projects the SYNCED userArchived membership into
+  JSON-serializable ArchivedRow[] {sessionId, title, folder, relativeTime, starred, present},
+  mirroring buildSections -> postSections. It ports the membership + sort + fallback-title
+  logic OUT of the deleted archiveProvider.ts: membership is ChatMeta.userArchived === true
+  (NEVER the local orphan flag), present chats sort newest-first with gone chats after (then
+  by sessionId), and a missing-transcript chat's title falls back to the injected body-copy
+  title map, else the sessionId. The host posts { type:'archivedRows', rows } in response to
+  the client's openArchive message (repointed from focusing the tree); the client renders the
+  overlay from that post. A relativeTimeCompact seam keeps the builder clock-free and matches
+  the tree rows' age.
+- THE OVERLAY REUSES THE SETTINGS-OVERLAY CHROME. It is the SAME .nest-overlay
+  (position:fixed;inset:0) persistent sub-page as Settings: a back chevron, a Newsreader
+  heading, and the closeAllTransientOverlays-exempt teardown (closed only by the back chevron
+  or Escape, with focus restored to the Archived (N) row). Two persistent sub-pages never
+  stack (opening one closes the other). Its "Search archived" box uses a DISTINCT GRAY focus
+  glow (#A6A294 ring, rgba(120,114,102,0.30) bloom), NOT the orange search glow (AC #2), and
+  Restore hover fills #d97757 (AC #3). The search filters the posted rows CLIENT-SIDE by title
+  substring (the prototype's c.title.includes(aq)); it does NOT touch the host MiniSearch index
+  (which deliberately excludes archived chats), so no host round-trip and no parallel index.
+- ROW INTENTS ROUTE THROUGH THE EXISTING COERCED SEAMS ONLY. Restore = restoreChat
+  (setChatArchived(false), keeps the star), resolved to a record from the scan cache (real
+  filePath when present so the copy is deleted; empty filePath when the transcript is gone so
+  the copy is KEPT). Star-unarchive (AC #4) = setStarred(true) + restoreChat as a client
+  intent (setChatStarred does NOT itself clear userArchived). Export = the exportIO-guarded
+  exportChat seam. Preview = previewArchivedChat (the archived-copy read path, unchanged). Every
+  inbound message is coerced at the coerce() boundary (sessionId as string) and every label is
+  rendered as textContent, so no new write path, no new synced scalar, and the read-only
+  invariant are introduced. The overlay is keyboard-operable (ARIA dialog, focusable rows and
+  buttons, Escape closes; the search box's Escape clears first).
+- THE TREE-RETIREMENT SURFACE IS SWEPT. package.json drops the claudeNest.archive view, its
+  onView activation event, its viewsWelcome, its view/title and view/item/context menu entries,
+  and the claudeNest.refreshArchive command; extension.ts drops the ArchiveProvider construction,
+  createTreeView, the fallback-title loader, and the refreshArchive command, repointing the two
+  claudeNest.archive.focus call sites (the auto-archive toast opens the overlay via
+  orgPanelProvider.openArchiveOverlay; the org-panel openArchive posts the overlay). Exactly one
+  view (claudeNest.orgPanel) remains contributed (AC #6). star/unstar/restore/archiveChat/
+  previewArchivedChat stay registered for programmatic/overlay callers but have no menu surface
+  (commandSurfaces regression gate). See DECISIONS.md Slice s3b-archive-overlay.
 
 ## Per-chat export and token rollup (Sprint 2, slice 5) — binding
 

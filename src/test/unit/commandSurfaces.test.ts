@@ -159,15 +159,19 @@ describe('command surfaces stay honest after the s3a view consolidation', () => 
       .filter((id) => !reachable.has(id))
       .sort();
 
-    // The accepted set as of s3a-view-consolidation (CHANGELOG Unreleased /
-    // Removed). Three groups: invoked programmatically (openChat rides the org
-    // panel row click; the refresh pair services the kept non-view providers),
-    // panel-internal equivalents kept registered for programmatic callers
-    // (folder/tag mutation and the smart-group promotes), and the s3b interim
-    // gaps that wait for the in-panel hover card and context menu (previewChat,
-    // exportChat, archiveChat of a live chat). Adding an id here means
-    // deliberately shipping a command with no UI surface: record it in
-    // CHANGELOG and keep README silent about it.
+    // The accepted set as of s3b-archive-overlay (CHANGELOG Unreleased / Removed).
+    // Groups: invoked programmatically (openChat rides the org panel row click; the
+    // refresh pair services the kept non-view providers), panel-internal equivalents kept
+    // registered for programmatic callers (folder/tag mutation and the smart-group
+    // promotes), the s3b interim gaps that wait for the in-panel hover card and context
+    // menu (previewChat, exportChat, archiveChat of a live chat), and the curation +
+    // archived-preview commands whose Archive-tree surface was RETIRED in
+    // s3b-archive-overlay (issue #87): star/unstar/restore/previewArchivedChat now route
+    // through the org panel (the row star toggle, the context menu, and the in-panel
+    // Archive overlay's Restore / star-unarchive / row preview) via the OrgPanelActions
+    // seams, so the standalone commands stay registered for those programmatic callers but
+    // have no menu/palette surface. Adding an id here means deliberately shipping a command
+    // with no UI surface: record it in CHANGELOG and keep README silent about it.
     assert.deepStrictEqual(surfaceless, [
       'claudeNest.addTagToChat',
       'claudeNest.archiveChat',
@@ -176,6 +180,7 @@ describe('command surfaces stay honest after the s3a view consolidation', () => 
       'claudeNest.deleteTag',
       'claudeNest.exportChat',
       'claudeNest.openChat',
+      'claudeNest.previewArchivedChat',
       'claudeNest.previewChat',
       'claudeNest.promoteSmartGroupToFolder',
       'claudeNest.promoteSmartGroupToTag',
@@ -183,7 +188,10 @@ describe('command surfaces stay honest after the s3a view consolidation', () => 
       'claudeNest.refreshTags',
       'claudeNest.removeTagFromChat',
       'claudeNest.renameFolder',
+      'claudeNest.restoreChat',
+      'claudeNest.starChat',
       'claudeNest.tagChats',
+      'claudeNest.unstarChat',
     ]);
   });
 

@@ -1420,3 +1420,200 @@ body {
 .nest-switch-on .nest-switch-thumb {
   transform: translateX(15px);
 }
+
+/* ---- Archive overlay (slice s3b-archive-overlay, issue #87) ----
+   A full-panel sub-page over the tree/toolbar (design ChatSidebar.dc.html:302), reusing
+   the .nest-overlay chrome, back chevron, and Newsreader heading from the Settings overlay.
+   Its "Search archived" box uses a GRAY focus glow (#A6A294 ring / rgba(120,114,102,0.30)
+   bloom), deliberately distinct from the main orange search glow (AC #2). Each row shows a
+   title over a folder . age meta line, a star (star-unarchive), an export button, and a
+   Restore button whose hover fills #d97757 (AC #3). */
+
+.nest-archive-count {
+  font-size: 11.5px;
+  color: var(--nest-text-breadcrumb);
+  font-weight: 500;
+}
+
+.nest-archive-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.nest-archive-note {
+  padding: 9px 13px 7px;
+  font-size: 11.5px;
+  color: var(--nest-text-muted);
+  line-height: 1.5;
+  flex: none;
+}
+
+.nest-archive-search {
+  position: relative;
+  padding: 0 11px 9px;
+  flex: none;
+}
+
+.nest-archive-search-icon {
+  position: absolute;
+  left: 21px;
+  top: 7px;
+  pointer-events: none;
+  display: inline-flex;
+}
+
+/* The gray-glow search box: a distinct focus token from the main orange search glow
+   (AC #2). Ring #A6A294, bloom rgba(120,114,102,0.30). */
+.nest-archive-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 12px 7px 31px;
+  border-radius: 6px;
+  border: 1px solid var(--nest-border-input);
+  background: var(--nest-input);
+  font-size: 13px;
+  color: var(--nest-text);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.nest-archive-search-input:focus {
+  border-color: #A6A294;
+  box-shadow: 0 0 0 1px #A6A294, 0 0 14px 2px rgba(120, 114, 102, 0.30);
+  background: #fff;
+}
+
+.nest-archive-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 9px 16px;
+}
+
+.nest-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 5px;
+}
+
+.nest-archive-row:hover {
+  background: var(--nest-hover-row);
+}
+
+/* The title + meta column is a button so the row body previews the archived copy and is
+   keyboard-focusable; it reads as plain text (no button chrome). */
+.nest-archive-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.nest-archive-row-text:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.nest-archive-row-title {
+  display: block;
+  font-size: 13px;
+  color: var(--nest-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nest-archive-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nest-archive-row-folder,
+.nest-archive-row-age {
+  font-size: 10.5px;
+  color: var(--nest-text-breadcrumb);
+}
+
+.nest-archive-row-sep {
+  font-size: 10.5px;
+  color: #C2BCAE;
+}
+
+/* The archived-row star (star-unarchive, AC #4). Hollow muted star; hover fills the
+   accent like the main-row star. Reuses the .nest-star sizing from the row anatomy. */
+.nest-archive-star {
+  flex: none;
+}
+
+.nest-archive-row:hover .nest-archive-star.nest-star-empty,
+.nest-archive-star:hover {
+  color: var(--nest-accent);
+}
+
+/* The export icon button (AC #3). */
+.nest-archive-export {
+  flex: none;
+  width: 25px;
+  height: 25px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--nest-text-muted);
+  font-size: 14px;
+  padding: 0;
+  font-family: inherit;
+}
+
+.nest-archive-export:hover {
+  background: var(--nest-btn-hover);
+  color: var(--nest-icon);
+}
+
+.nest-archive-export:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+/* The Restore button (AC #3): outlined pill; hover fills #d97757 with white text. */
+.nest-archive-restore {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--nest-border-input);
+  background: #fff;
+  color: #8A857A;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.nest-archive-restore:hover {
+  background: var(--nest-accent);
+  color: #fff;
+  border-color: var(--nest-accent);
+}
+
+.nest-archive-restore:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}

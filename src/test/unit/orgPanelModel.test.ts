@@ -1,7 +1,12 @@
 import * as assert from 'assert';
 import { ChatRecord, TokenTotals } from '../../model/types';
 import { ProjectMeta } from '../../store/schema';
-import { buildSections, FolderSection, UNSORTED_FOLDER_ID } from '../../views/orgPanelModel';
+import {
+  buildSections,
+  buildArchivedRows,
+  FolderSection,
+  UNSORTED_FOLDER_ID,
+} from '../../views/orgPanelModel';
 import { UNFILED_FOLDER_ID } from '../../model/folderTree';
 
 // Headless unit tests for the PURE org-panel section assembler. It imports no
@@ -654,5 +659,95 @@ describe('orgPanelModel row sort', () => {
     const unsorted = sections.folders.find((f) => f.folderId === UNSORTED_FOLDER_ID);
     assert.ok(unsorted, 'Unsorted section exists');
     assert.deepStrictEqual(unsorted.rows.map((r) => r.sessionId), ['new', 'old', 'none']);
+  });
+});
+
+// buildArchivedRows (slice s3b-archive-overlay, issue #87): the pure builder that now owns
+// the archived-row membership + sort + fallback-title logic the retired Archive tree carried.
+// A trivial relative-time stub keeps the builder deterministic (a null timestamp yields '').
+function relStub(ts: number | null): string {
+  return ts === null ? '' : String(ts);
+}
+
+describe('orgPanelModel buildArchivedRows', () => {
+  it('lists ONLY chats whose synced userArchived === true', () => {
+    const records = [
+      record({ sessionId: 'a', title: 'Archived one', timestamp: 200 }),
+      record({ sessionId: 'b', title: 'Not archived', timestamp: 100 }),
+    ];
+    const m = meta({
+      chats: {
+        a: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+        b: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd' },
+      },
+    });
+    const rows = buildArchivedRows(records, m, relStub);
+    assert.deepStrictEqual(rows.map((r) => r.sessionId), ['a'], 'only the userArchived chat lists');
+    assert.strictEqual(rows[0].title, 'Archived one');
+    assert.strictEqual(rows[0].present, true);
+    assert.strictEqual(rows[0].relativeTime, '200');
+    assert.strictEqual(rows[0].folder, 'Unsorted', 'an unfiled archived chat reads Unsorted');
+  });
+
+  it('an absent meta yields no rows', () => {
+    assert.deepStrictEqual(buildArchivedRows([record({ sessionId: 'a' })], undefined, relStub), []);
+  });
+
+  it('sorts present chats newest-first, gone chats after, then by sessionId', () => {
+    const records = [
+      record({ sessionId: 'p-old', timestamp: 100 }),
+      record({ sessionId: 'p-new', timestamp: 300 }),
+    ];
+    // g2 and g1 are archived but not scanned (transcript gone); they sort after present
+    // chats, ordered by sessionId.
+    const m = meta({
+      chats: {
+        'p-old': { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+        'p-new': { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+        g2: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+        g1: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+      },
+    });
+    const rows = buildArchivedRows(records, m, relStub);
+    assert.deepStrictEqual(rows.map((r) => r.sessionId), ['p-new', 'p-old', 'g1', 'g2']);
+  });
+
+  it('a gone (missing-transcript) archived chat uses the fallback title and empty age', () => {
+    const m = meta({
+      chats: {
+        gone: { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+      },
+    });
+    const rows = buildArchivedRows([], m, relStub, new Map([['gone', 'Stored Copy Title']]));
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].present, false, 'not scanned -> not present');
+    assert.strictEqual(rows[0].title, 'Stored Copy Title', 'falls back to the body-copy title');
+    assert.strictEqual(rows[0].relativeTime, '', 'a gone chat has no age');
+  });
+
+  it('a gone archived chat with no fallback title falls back to the sessionId', () => {
+    const m = meta({
+      chats: {
+        'sess-xyz': { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },
+      },
+    });
+    const rows = buildArchivedRows([], m, relStub);
+    assert.strictEqual(rows[0].title, 'sess-xyz');
+  });
+
+  it('carries the folder breadcrumb and the synced star flag', () => {
+    const records = [record({ sessionId: 'a', title: 'Filed archived', timestamp: 100 })];
+    const m = meta({
+      folders: {
+        f1: { id: 'f1', name: 'Work', parentId: null, order: 0 },
+        f2: { id: 'f2', name: 'Backend', parentId: 'f1', order: 0 },
+      },
+      chats: {
+        a: { folderId: 'f2', tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true, starred: true },
+      },
+    });
+    const rows = buildArchivedRows(records, m, relStub);
+    assert.strictEqual(rows[0].folder, 'Work / Backend', 'the breadcrumb is the folder path');
+    assert.strictEqual(rows[0].starred, true, 'the synced star flag rides the row');
   });
 });

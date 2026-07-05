@@ -151,6 +151,46 @@
           lastAssistant: found.lastAssistant,
         };
       };
+      // The host reply for an openArchive request (slice s3b-archive-overlay, issue #87).
+      // When the panel opens the Archive overlay it posts { type:'openArchive' }; the real
+      // extension host answers with { type:'archivedRows', rows } built by buildArchivedRows
+      // from the synced userArchived membership. The harness must reply too, or the overlay
+      // renders an empty "Nothing archived." state and the archive fidelity capture goes
+      // blind. The rows are synthetic and deterministic: two present archived chats (one
+      // filed, one unsorted) plus one cleaned-up (gone) chat, matching the prototype's
+      // archived set (c7 "Resume rewrite" filed, c12 "Onboarding flow copy" unsorted). All
+      // titles are invented.
+      window.__nestHarnessArchivedRows = function () {
+        return {
+          type: 'archivedRows',
+          rows: [
+            {
+              sessionId: 'arch-1',
+              title: 'Resume rewrite',
+              folder: 'Personal',
+              relativeTime: '1w',
+              starred: false,
+              present: true,
+            },
+            {
+              sessionId: 'arch-2',
+              title: 'Onboarding flow copy',
+              folder: 'Unsorted',
+              relativeTime: '2mo',
+              starred: false,
+              present: true,
+            },
+            {
+              sessionId: 'arch-gone',
+              title: 'Old spike notes',
+              folder: 'Unsorted',
+              relativeTime: '',
+              starred: false,
+              present: false,
+            },
+          ],
+        };
+      };
       window.acquireVsCodeApi = function () {
         return {
           postMessage: function (m) {
@@ -166,6 +206,11 @@
             if (m && m.type === 'previewBody') {
               const reply = window.__nestHarnessPreviewReply(m.sessionId);
               window.postMessage(reply, '*');
+            }
+            // Echo the synthetic archived-rows reply for an openArchive request so the
+            // Archive overlay populates exactly as it would against the real host.
+            if (m && m.type === 'openArchive') {
+              window.postMessage(window.__nestHarnessArchivedRows(), '*');
             }
           },
           setState: function () {},

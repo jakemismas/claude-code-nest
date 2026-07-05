@@ -230,6 +230,98 @@ export function buildSections(
   return { starred, questions, folders, tags, allTags, archivedCount };
 }
 
+// One archived-chat row for the in-panel Archive overlay (slice s3b-archive-overlay,
+// issue #87). Plain, JSON-serializable data (no vscode, no ChatRecord reference) so it
+// crosses postMessage cleanly, mirroring OrgChatRow. Built from the SYNCED
+// ChatMeta.userArchived membership, NOT the scan: an archived chat whose transcript was
+// cleaned up out of band still lists here (present:false), matching the retired
+// archiveProvider's membership rule. title falls back to the record title, else the
+// stored body-copy title (fallbackTitles), else the sessionId. folder is the folder-path
+// breadcrumb or 'Unsorted'. relativeTime is the compact age for a present chat, empty
+// when the transcript is gone (no timestamp). starred rides the synced flag; present is
+// whether the live transcript is still scanned.
+export interface ArchivedRow {
+  sessionId: string;
+  title: string;
+  folder: string;
+  relativeTime: string;
+  starred: boolean;
+  present: boolean;
+}
+
+// A relative-time formatter seam so the pure builder stays free of the vscode-thin
+// relativeTime import chain and of any clock. The host passes relativeTimeCompact (from
+// relativeTime.ts, itself vscode-free) so the archive overlay's age matches the tree
+// rows exactly. A null timestamp yields '' (a gone chat has no timestamp).
+export type RelativeTimeFn = (timestamp: number | null) => string;
+
+// Build the archived-chat rows for the in-panel Archive overlay (issue #87). Membership
+// is the SYNCED ChatMeta.userArchived flag (NOT the local orphan-reconcile flag, and NOT
+// the scan), matching the retired archiveProvider: a chat archived on another device or
+// whose transcript Claude cleaned up still appears. For each archived chat id in meta:
+// resolve its scanned record (present) for title/timestamp/breadcrumb; when the transcript
+// is gone, fall back to the stored body-copy title from fallbackTitles, else the sessionId,
+// with an empty age and the Unsorted-or-folder breadcrumb resolved from the synced meta.
+// Sorted newest-first for present chats, gone chats after (no timestamp), then by sessionId
+// for a stable order, mirroring the retired provider's sort. Pure and total: an absent meta
+// yields []. Never throws.
+export function buildArchivedRows(
+  records: readonly ChatRecord[],
+  meta: ProjectMeta | undefined,
+  relativeTime: RelativeTimeFn,
+  fallbackTitles: ReadonlyMap<string, string> = new Map(),
+): ArchivedRow[] {
+  if (meta === undefined) {
+    return [];
+  }
+  const recordById = new Map<string, ChatRecord>();
+  for (const record of records) {
+    recordById.set(record.sessionId, record);
+  }
+  const folderPaths = buildFolderPaths(meta);
+  const rows: ArchivedRow[] = [];
+  for (const [chatId, chatMeta] of Object.entries(meta.chats)) {
+    // SYNCED userArchived ONLY. LocalChatState.archived is never consulted here (the
+    // model is vscode-free and reads only the passed ProjectMeta).
+    if (chatMeta.userArchived !== true) {
+      continue;
+    }
+    const record = recordById.get(chatId);
+    const present = record !== undefined;
+    const title = present
+      ? record.title
+      : fallbackTitles.get(chatId) ?? chatId;
+    const home = resolveHomeFolderId(chatId, meta);
+    const folder =
+      home === UNSORTED_FOLDER_ID ? 'Unsorted' : folderPaths.get(home) ?? 'Unsorted';
+    rows.push({
+      sessionId: chatId,
+      title,
+      folder,
+      relativeTime: present ? relativeTime(record.timestamp) : '',
+      starred: chatMeta.starred === true,
+      present,
+    });
+  }
+  rows.sort((a, b) => {
+    const ra = recordById.get(a.sessionId);
+    const rb = recordById.get(b.sessionId);
+    const ta = ra !== undefined ? ra.timestamp : null;
+    const tb = rb !== undefined ? rb.timestamp : null;
+    if (ta === null && tb === null) {
+      return a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0;
+    }
+    if (ta === null) {
+      return 1;
+    }
+    if (tb === null) {
+      return -1;
+    }
+    return tb - ta;
+  });
+  return rows;
+}
+
 // Whether a scanned chat is user-archived per the SYNCED ChatMeta.userArchived
 // flag. Tolerant of an absent meta or chat entry (not archived). Never throws.
 // Exported so the org-panel host filters its CONTENT-SEARCH index by the SAME

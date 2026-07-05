@@ -5,11 +5,11 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
-Sprint 3 is Part 1 complete (issues #78 to #83 merged) and Part 2 is in progress
-(the hover card, #84, the chat-row context menu, #85, and the Settings overlay plus
-auto-archive engine, #86, are merged; #87 remains), NOT yet released. The
-finished v0.2.0 "One Panel" release still needs the rest of Part 2 (#87),
-Part 3 (#88, #89), the human verify gate (#76), and the pre-release security
+Sprint 3 is Part 1 complete (issues #78 to #83 merged) and Part 2 is now complete
+(the hover card, #84, the chat-row context menu, #85, the Settings overlay plus
+auto-archive engine, #86, and the in-panel Archive overlay, #87, are all merged),
+NOT yet released. The finished v0.2.0 "One Panel" release still needs Part 3
+(#88, #89), the human verify gate (#76), and the pre-release security
 council (#90) before the release run (#91) bumps the version and tags. A mid-sprint handoff
 build, `claude-code-nest-0.1.1-sprint3-part1.vsix`, is packaged in the repo root
 for smoke testing the Part 1 surface, and TESTING.md carries the consolidated
@@ -148,6 +148,23 @@ this handoff.
   by sessionId, and discards them; the reply renders only while the card is still open
   for that chat. Bodies never enter the scan snapshot, no body is persisted, and the
   synced surface is unchanged.
+- An in-panel Archive overlay (#87), slice s3b-archive-overlay, completing Part 2. The
+  bottom "Archived (N)" row now opens a full-panel overlay inside the Organize panel
+  (reusing the Settings overlay's back-chevron and Newsreader-heading chrome) instead of
+  focusing a separate tree. Each archived row shows the chat title over a folder and age
+  meta line, an export button, a Restore button (hover fills the accent), and a star that
+  un-archives the chat (star-and-restore). The overlay carries its own "Search archived"
+  box with a deliberately GRAY focus glow (#A6A294 ring, rgba(120,114,102,0.30) bloom),
+  distinct from the main orange search glow; the search filters the posted rows client-side
+  by title. Archived rows are built by a new pure, vscode-free builder
+  (orgPanelModel.buildArchivedRows) from the SYNCED userArchived membership, posted on
+  demand when the overlay opens; a chat whose transcript Claude already cleaned up still
+  lists (its title falls back to the Nest-owned body copy, shown as "copy only"), and its
+  row previews that saved copy. Restore clears the synced userArchived flag (keeping the
+  star) through the existing restoreChat command; every inbound message is coerced at the
+  host boundary and every label is rendered as textContent, so no new write path or synced
+  scalar is introduced and the read-only invariant holds. The overlay is keyboard-operable
+  with a focus-restoring Escape.
 
 ### Changed
 
@@ -158,10 +175,11 @@ this handoff.
   exists.
 - The Organize panel is now the only browsing surface (#78): the flat Chats tree
   and the Smart Groups tree are retired, per the Sprint 3 one-panel design
-  (UI-SPEC.md deviation 5). The Archive view and the settings editor tab remain
-  until their in-panel replacements ship. FoldersProvider and TagsProvider stay
-  as non-view services (project-key resolution, the link pick list, the token
-  rollup seam); the open-chat command id moved to the URI launcher module.
+  (UI-SPEC.md deviation 5). With the Archive tree retired in #87 and the settings
+  editor tab retired in #86, the Organize panel webview is now Nest's ONLY contributed
+  view. FoldersProvider and TagsProvider stay as non-view services (project-key
+  resolution, the link pick list, the token rollup seam); the open-chat command id
+  moved to the URI launcher module.
 - Link to Chat... and Unlink are now fully palette-driven: run with no selection,
   each quick-picks its chats (the source chat to link from; the linked child to
   unlink from its designated parent). Unlink is no longer hidden from the palette.
@@ -173,14 +191,22 @@ this handoff.
 
 - The `claudeNest.flat` and `claudeNest.smartGroups` views and every contribution
   that targeted them. Smart-group promote commands remain registered for
-  programmatic callers but have no UI surface. Star/archive of a live chat has no
-  UI surface until the panel's row actions and context menu land later in Sprint 3
-  (accepted interim gap); the Archive view still covers archived rows. The same
-  interim gap covers the rich hover preview card and the Preview Full Chat and
-  Export Chat... commands, whose last surfaces were the retired trees' rows: the
-  card builder and both commands stay registered and unit-tested, but nothing
-  renders or invokes them until the panel's hover card and context menu land
-  later in Sprint 3. The per-row token badge stays on the Organize panel rows.
+  programmatic callers but have no UI surface. The per-row token badge stays on the
+  Organize panel rows.
+- The `claudeNest.archive` tree view and every contribution that targeted it (#87):
+  the view, its `onView` activation event, its viewsWelcome empty state, its
+  view/title Refresh Archive and Settings buttons, and its view/item/context row
+  actions. The `claudeNest.refreshArchive` command is removed outright (the palette
+  Refresh re-primes the shared scan and the overlay re-requests its rows on open). The
+  archived chats, the Nest-owned body copy, the archived-copy preview, and the
+  star/unstar/restore curation commands all survive; only the tree surface is gone.
+  Star, archive, restore, and preview-archived-copy now route through the Organize
+  panel (the row star toggle, the right-click context menu, and the in-panel Archive
+  overlay), so `starChat`, `unstarChat`, `restoreChat`, `archiveChat`, and
+  `previewArchivedChat` stay registered for those programmatic callers but have no
+  menu/palette surface (recorded in the commandSurfaces regression gate). The Preview
+  Full Chat and Export Chat... commands remain the accepted interim gap from #78 (still
+  awaiting the palette / a live-chat preview surface).
 
 ## [0.1.1] - 2026-06-30
 

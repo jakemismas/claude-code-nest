@@ -968,6 +968,124 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-settings.png')));
 
+    // Page 10: the ARCHIVE OVERLAY of the real panel (slice s3b-archive-overlay, issue #87).
+    // Open the harness, click the bottom Archived (N) row to open the in-panel Archive
+    // sub-page, wait for its gray-glow search box and the archived rows (the harness echoes a
+    // synthetic archivedRows reply), and capture the full 320px viewport (the overlay is
+    // position:fixed;inset:0 over the panel).
+    const harnessArchivePage = await openPage(browser);
+    await renderAndCapture(
+      harnessArchivePage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-archive.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        const opened = await evaluate(
+          page,
+          '(function(){' +
+            "var row=document.querySelector('.nest-archived-row');" +
+            "if(!row) return 'no-archived-row';" +
+            'row.click();' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (opened !== 'ok') {
+          throw new Error('Could not open the harness Archive overlay: ' + opened);
+        }
+        await waitForCondition(
+          page,
+          "(function(){var o=document.querySelector('.nest-archive-overlay');" +
+            "return !!o && !!o.querySelector('.nest-archive-search-input') && " +
+            "o.querySelectorAll('.nest-archive-row').length > 0;})()",
+          10000,
+          'harness Archive overlay to render with the search box and rows',
+        );
+        await sleep(150);
+      },
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-archive.png')));
+
+    // Page 11: the ARCHIVE SUB-PAGE of the design prototype, the fidelity baseline the
+    // archive capture is judged against. Click the prototype's Archived row to open its
+    // Archive sub-page, then clip to the 320px sidebar like the other prototype captures.
+    const protoArchivePage = await openPage(browser);
+    await renderAndCapture(
+      protoArchivePage,
+      pathToFileURL(PROTOTYPE_HTML).href,
+      path.join(OUT_DIR, 'prototype-archive.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          '(function(){' +
+            "var loading=document.getElementById('__bundler_loading');" +
+            'if(loading && loading.offsetParent!==null) return false;' +
+            "var divs=document.querySelectorAll('body div');" +
+            'return divs.length > 8;' +
+            '})()',
+          30000,
+          'prototype React mount',
+        );
+        await evaluate(
+          page,
+          '(function(){' +
+            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
+            'var n=document.getElementById(id); if(n) n.remove();' +
+            '} return true; })()',
+        );
+        // Click the "Archived" row (a div whose text starts with "Archived") to open the
+        // Archive sub-page.
+        const clicked = await evaluate(
+          page,
+          '(function(){' +
+            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
+            'for(var i=0;i<divs.length;i++){' +
+            '  var t=(divs[i].textContent||\"\").trim();' +
+            "  if(/^Archived\\s*\\d*$/.test(t) && divs[i].querySelector('svg')){ divs[i].click(); return 'ok'; }" +
+            '}' +
+            "return 'no-archived-row';" +
+            '})()',
+        );
+        if (clicked !== 'ok') {
+          throw new Error('Could not open the prototype Archive sub-page: ' + clicked);
+        }
+        await sleep(400);
+        const rect = await evaluate(
+          page,
+          '(function(){' +
+            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
+            'for(var i=0;i<divs.length;i++){' +
+            '  var el=divs[i]; var cs=getComputedStyle(el);' +
+            '  var r=el.getBoundingClientRect();' +
+            '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
+            '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
+            '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
+            '  }' +
+            '}' +
+            'return null;' +
+            '})()',
+        );
+        if (!rect) {
+          throw new Error(
+            'Could not locate the 320px sidebar column in the prototype Archive state to clip to.',
+          );
+        }
+        return rect;
+      },
+      PROTOTYPE_VIEWPORT_WIDTH,
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-archive.png')));
+
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
     console.log('Compare by eye:');
     console.log('  harness.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
@@ -980,6 +1098,9 @@ async function main() {
     );
     console.log(
       '  harness-settings.png (real panel, Settings overlay) vs prototype-settings.png (settings sub-page fidelity)',
+    );
+    console.log(
+      '  harness-archive.png (real panel, Archive overlay) vs prototype-archive.png (archive sub-page fidelity)',
     );
   } catch (err) {
     fail(

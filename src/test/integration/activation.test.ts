@@ -64,16 +64,13 @@ describe('Polish: activation and empty-state (electron host)', () => {
     const contributes = manifest.contributes as Record<string, unknown>;
     const views = (contributes.views as Record<string, Array<{ id: string }>>).claudeNest;
     const ids = views.map((v) => v.id).sort();
-    // The contributed view set after slice s3a-view-consolidation: the org panel
-    // webview (the SOLE browsing surface, UI-SPEC.md deviation 5) plus the Archive
-    // tree, which survives until part 2 ships its in-panel replacement. The flat
-    // Chats and Smart Groups trees were retired (the native Folders/Tags trees and
-    // the chatsPreview POC went earlier). Asserted as the exact set so adding or
+    // The contributed view set after slice s3b-archive-overlay (issue #87): the org
+    // panel webview is now the SOLE contributed view. The Archive tree was retired this
+    // slice (its rows moved into the in-panel Archive overlay reached from the bottom
+    // "Archived (N)" row); the flat Chats and Smart Groups trees, and the native
+    // Folders/Tags trees, went in earlier slices. Asserted as the exact set so adding or
     // dropping a view forces this gate to be revisited.
-    assert.deepStrictEqual(ids, [
-      'claudeNest.archive',
-      'claudeNest.orgPanel',
-    ]);
+    assert.deepStrictEqual(ids, ['claudeNest.orgPanel']);
     const containers = contributes.viewsContainers as {
       activitybar: Array<{ id: string; icon: string }>;
     };
@@ -82,30 +79,14 @@ describe('Polish: activation and empty-state (electron host)', () => {
     assert.strictEqual(container.icon, 'media/nest.svg');
   });
 
-  it('ships a viewsWelcome empty-state for every tree view, never blaming Claude', () => {
+  it('ships no viewsWelcome now that every tree view is retired', () => {
     const manifest = readManifest();
     const contributes = manifest.contributes as Record<string, unknown>;
     const welcome = contributes.viewsWelcome as Array<{ view: string; contents: string }>;
-    const byView = new Map(welcome.map((w) => [w.view, w.contents]));
-    // Archive is the only remaining TreeView (the org panel is a webview and owns
-    // its own empty state; the flat and smartGroups welcomes left with their views).
-    for (const view of ['claudeNest.archive']) {
-      const contents = byView.get(view);
-      assert.ok(contents, 'expected a viewsWelcome for ' + view);
-      assert.ok(
-        contents.includes('No archived chats'),
-        'empty-state for ' + view + ' should explain the empty state',
-      );
-      // The empty state must not attribute the absence to a Claude failure.
-      assert.ok(!/Claude (failed|broke|crashed|error)/i.test(contents));
-    }
-    // No welcome may target a retired view id.
-    for (const w of welcome) {
-      assert.ok(
-        ['claudeNest.archive'].includes(w.view),
-        'unexpected viewsWelcome for retired view ' + w.view,
-      );
-    }
+    // After slice s3b-archive-overlay (issue #87) the Archive tree is retired and the org
+    // panel is a webview that owns its own empty state, so NO tree view remains to back a
+    // viewsWelcome. The array is empty; any entry would target a retired view id.
+    assert.deepStrictEqual(welcome, [], 'no viewsWelcome after the last tree view retired');
   });
 
   it('ships the raster gallery icon and the getting-started walkthrough', () => {
