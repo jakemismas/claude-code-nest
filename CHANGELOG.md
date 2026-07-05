@@ -164,7 +164,10 @@ this handoff.
   star) through the existing restoreChat command; every inbound message is coerced at the
   host boundary and every label is rendered as textContent, so no new write path or synced
   scalar is introduced and the read-only invariant holds. The overlay is keyboard-operable
-  with a focus-restoring Escape.
+  with a focus-restoring Escape. (The slice landed in 7a9256e, whose message put the
+  Fixes line inside the final paragraph and so kept the `Nest-Slice` trailer from
+  parsing; this follow-up carries the trailer on its own final paragraph so the slice
+  reads as built.)
 
 ### Changed
 
