@@ -82,8 +82,9 @@ vscode-free modules. This index says where each binding contract below lives.
   view helpers.
 - Commands: src/commands/* are vscode-thin orchestrators over the pure modules above
   (folders, tags, tagging, links, curation, export, rollup, export-import,
-  promote-smart-group, preview, refresh-scan); src/settings/settingsWebview.ts is the
-  vscode-bound settings panel.
+  promote-smart-group, preview, refresh-scan). The standalone
+  src/settings/settingsWebview.ts panel is RETIRED (slice s3b-settings-overlay);
+  Settings now render as an in-panel overlay inside the org-panel webview.
 
 ## Ground-truth calibration (verified against the real files, read-only)
 
@@ -420,6 +421,71 @@ synced/local flag separation.
   its reuse key (cardStarred field) so a star toggle rebuilds exactly the affected
   rows and re-renders the badge on the next refresh. See DECISIONS.md Slice
   s2-star-archive.
+
+## In-panel Settings overlay and auto-archive engine (Sprint 3, slice s3b-settings-overlay) — binding
+
+The Settings sub-page is an in-panel OVERLAY inside the org-panel webview, not a
+standalone WebviewPanel; a separate batched engine AUTO-ARCHIVES live chats on a
+window that is DISTINCT from the copy-pruning keep-window above. These rules are
+binding so reviewers never read the two windows as a conflation bug, no new synced
+scalar leaks onto ProjectMeta, and the auto-archive write adds no new fs path.
+
+- TWO DISTINCT WINDOWS, kept structurally apart. The keep-window documented above,
+  claudeNest.archiveKeepWindowDays (enum 7/30/90/0), still drives PRUNING of the
+  Nest-owned body COPIES via the unchanged archiveRetention.ts decideRetention. This
+  slice's AUTO-ARCHIVE window (7/14/30/90/1yr/Never) drives AUTO-ARCHIVING of LIVE
+  chats and lives in its OWN pure module, src/store/autoArchivePolicy.ts, with an
+  injected now. archiveRetention.ts is NOT extended and archiveKeepWindowDays is NOT
+  overloaded: pruning a stale copy and auto-archiving a live chat are separate
+  policies over separate inputs. Choosing "Never" for auto-archiving still keeps
+  starred chats safe from Claude cleanup, because the protective-copy pass below is
+  keyed to the Claude cleanup age, not to the auto-archive window.
+- NO NEW SYNCED SCALARS. The auto-archive window AND the four section-visibility
+  toggles (Starred, Questions, Folders, Unsorted) persist on workspaceState through
+  the EXISTING OrgPanelStateStore get/set with new _KEY constants
+  (AUTO_ARCHIVE_WINDOW_KEY, SECTIONS_VISIBLE_KEY), exactly like SORT_KEY /
+  COLLAPSED_KEY. They are NEVER written to ProjectMeta; the synced surface stays
+  exactly nest.meta.v1::<projectKey>, and autoArchivePolicy.ts never calls
+  setKeysForSync. The section-visibility toggles are CLIENT-SIDE render gates only
+  (they never touch membership or the store), so an unfiled chat stays reachable via
+  the search box and tag chips regardless of the Unsorted toggle, and the Unsorted
+  section still renders when every other section that could hold a given unfiled
+  chat is hidden.
+- RETENTION-CONVENTION REUSE for the pure policy. autoArchivePolicy.decideAutoArchive
+  is pure with an injected now and matches decideRetention's conventions:
+  keepWindowDays <= 0 is the Never sentinel (never auto-archive), STARRED is exempt
+  (never auto-archived), a null last-activity keeps, and the boundary is inclusive
+  (age exactly == window is kept; STRICTLY GREATER triggers the archive). The
+  auto-archive window's default feeds from the effective cleanupPeriodDays via
+  readCleanupPeriodDays (usingDefault -> CLAUDE_DEFAULT_CLEANUP_PERIOD_DAYS = 30).
+  decideAutoArchive takes TWO windows: archiveWindowDays (the user's chosen window,
+  0 = disabled) governs the UNSTARRED 'archive' decision, and protectiveWindowDays
+  (the effective Claude cleanup age) INDEPENDENTLY governs a STARRED 'copy' decision,
+  so a starred chat older than the cleanup age receives a protective body copy even
+  when auto-archiving is Never. The engine returns early only when BOTH windows are
+  disabled.
+- THE AUTO-ARCHIVE WRITE reuses the existing seams: store.setChatArchived (the synced
+  userArchived flag) plus archiveBodyStore.writeArchivedBody (the Nest-owned body
+  copy with archivedAt), BATCHED (N setChatArchived mutations coalesced into ONE
+  flush, then one refresh), running on activation and after a scan refresh. It adds
+  NO new fs write path and stays under the same read-only invariant as the rest of
+  archiveBodyStore. The starred protective-copy branch uses the SAME writeArchivedBody
+  seam (starred:true on the envelope) WITHOUT flipping userArchived, and skips any
+  chat that already has a copy, so the pass is idempotent. src/store/autoArchiveEngine.ts
+  is the vscode-thin orchestrator; the decision is unit-tested in
+  src/test/unit/autoArchivePolicy.test.ts and the engine in autoArchiveEngine.test.ts.
+- THE SETTINGS OVERLAY replaces the retired standalone panel. src/settings/settingsWebview.ts
+  and media/settings.{html,css,js} are DELETED. Settings render as a position:absolute
+  full-panel .nest-overlay DOM node inside the org-panel webview (media/orgPanel.js /
+  orgPanel.css) with a back chevron, a Newsreader heading, a "Keep chats for" window
+  select, and the four section-visibility pill switches. The gear opens it client-side;
+  OPEN_SETTINGS_COMMAND is REPOINTED at the overlay (it focuses the org panel and posts
+  an { type:'openSettings' } message the client handles) rather than opening a WebviewPanel,
+  keeping the palette and the view/title menu homes working. Unlike the click-dismiss
+  popovers, the overlay is a persistent sub-page tracked apart from
+  closeAllTransientOverlays and closed only by the back chevron or Escape. Every label
+  sink is textContent; the window select value and toggle states are coerced at the host
+  boundary before reaching workspaceState. See DECISIONS.md Slice s3b-settings-overlay.
 
 ## Per-chat export and token rollup (Sprint 2, slice 5) — binding
 

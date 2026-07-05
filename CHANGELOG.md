@@ -6,9 +6,9 @@ Keep a Changelog, and the project adheres to semantic versioning.
 ## [Unreleased]
 
 Sprint 3 is Part 1 complete (issues #78 to #83 merged) and Part 2 is in progress
-(the hover card, #84, and the chat-row context menu, #85, are merged; #86 to #87
-remain), NOT yet released. The
-finished v0.2.0 "One Panel" release still needs the rest of Part 2 (#86 to #87),
+(the hover card, #84, the chat-row context menu, #85, and the Settings overlay plus
+auto-archive engine, #86, are merged; #87 remains), NOT yet released. The
+finished v0.2.0 "One Panel" release still needs the rest of Part 2 (#87),
 Part 3 (#88, #89), the human verify gate (#76), and the pre-release security
 council (#90) before the release run (#91) bumps the version and tags. A mid-sprint handoff
 build, `claude-code-nest-0.1.1-sprint3-part1.vsix`, is packaged in the repo root
@@ -112,6 +112,29 @@ this handoff.
   every label sink is textContent, and every outbound field is coerced at the host
   boundary (sessionId and tagId as strings, color via isValidColor-or-null, format as a
   closed union). The synced surface is unchanged.
+- An in-panel Settings overlay and a batched auto-archive engine (#86), slice
+  s3b-settings-overlay. The standalone Settings WebviewPanel is retired: Settings now
+  render as a full-panel overlay inside the Organize panel with a back chevron, a
+  Newsreader heading, a "Keep chats for" window select (7/14/30/90 days, 1 year, or
+  Never), and four section-visibility pill switches (Starred, Questions, Folders,
+  Unsorted). The gear opens it client-side and the palette openSettings command reveals
+  the panel and opens the overlay. The window default follows the effective Claude
+  cleanupPeriodDays (30 when unset); the window and the toggles persist on workspaceState
+  through the existing state-store `_KEY` pattern, never on the synced ProjectMeta, so
+  the synced surface stays exactly `nest.meta.v1::<projectKey>`. The section toggles are
+  client-side render gates only, and an unfiled chat stays reachable via search and tag
+  chips (and the Unsorted section still renders when every other section that could hold
+  it is hidden), so disabling Unsorted can never strand a chat. Separately, a batched
+  engine auto-archives chats: on activation and after a scan refresh it archives unstarred
+  chats older than the auto-archive window (the synced userArchived flag plus a Nest-owned
+  body copy, coalesced into one flush) and, keyed independently to the effective Claude
+  cleanup age, writes a protective body copy for a starred chat past that age WITHOUT
+  archiving it, so choosing "Never" for auto-archiving still keeps starred chats safe from
+  Claude cleanup. The archive decision is a pure module (src/store/autoArchivePolicy.ts)
+  with an injected clock, reusing the retention convention (keepWindowDays <= 0 is Never,
+  starred is exempt, the boundary is inclusive with strictly-greater triggering); it reuses
+  store.setChatArchived and archiveBodyStore, adding no new fs write path, and the read-only
+  invariant and the synced surface are unchanged.
 - A rich hover preview card in the Organize panel (#84), the first Part 2 slice.
   Hovering a chat row (or pressing `p` on a focused row) opens a floating 270px card
   with the chat title; a folder, age, and compact `NNk tok` meta line; the tag pills;
