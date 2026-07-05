@@ -11,11 +11,11 @@ auto-archive engine, #86, and the in-panel Archive overlay, #87, are all merged)
 NOT yet released. The finished v0.2.0 "One Panel" release still needs Part 3
 (#88, #89), the human verify gate (#76), and the pre-release security
 council (#90) before the release run (#91) bumps the version and tags. A mid-sprint handoff
-build, `claude-code-nest-0.1.1-sprint3-part1.vsix`, is packaged in the repo root
-for smoke testing the Part 1 surface, and TESTING.md carries the consolidated
-per-slice smoke checklist drawn from SPRINT-3-PLAN.md (landed sections runnable;
-Part 2/Part 3 sections marked not-yet-built). No version bump and no tag accompany
-this handoff.
+build, `claude-code-nest-0.1.1-sprint3-part2.vsix`, is packaged in the repo root
+for smoke testing the Part 1 and Part 2 surface, and TESTING.md carries the
+consolidated per-slice smoke checklist drawn from SPRINT-3-PLAN.md (every landed
+section, through Part 2, is runnable; only the Part 3 sections are marked
+not-yet-built). No version bump and no tag accompany this handoff.
 
 ### Added
 

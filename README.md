@@ -23,27 +23,32 @@ find and revisit any chat without it ever touching Claude's transcripts.
 - **Full-text content search.** Search across chat content from the Organize
   panel and see a matched-context snippet under each result. Clearing the query
   restores the full list.
-- **Token badges.** Every chat row shows a token badge beside its relative time.
-  (The rich hover preview card, with a chat's folder, age, token total, full tag
-  set, models, files-touched count, and first and last message snippets, returns
-  as an in-panel card later in Sprint 3.)
-- **Star and archive.** Starred chats surface in the Starred section; archived
-  chats move into a dedicated Archive view. Archiving keeps a Nest-owned copy of
-  the chat body in the extension's own storage, so the chat survives Claude
-  Code's own cleanup of the transcript folder. Restore returns it and clears the
-  copy. (In-panel star and archive controls for live chats land with the panel's
-  row actions and context menu later in Sprint 3.)
-- **Per-chat export.** One chat to Markdown (a YAML front-matter org layer plus
-  the readable transcript) or JSON (a versioned, round-trippable document). (The
-  Export Chat... action lands back on chat rows with the panel's context menu
-  later in Sprint 3; whole-library export and import work today.)
+- **Rich hover card.** Hovering a chat row (or pressing `p` on a focused row) opens
+  a floating in-panel card with the chat's folder breadcrumb, age, token total, tag
+  pills, and its first user and last assistant message snippets. The two body lines
+  are read on demand for that one chat and discarded; the card is hover-stable and
+  keyboard-operable.
+- **Star and archive.** Starred chats surface in the Starred section; archived chats
+  move into an in-panel Archive overlay reached from the bottom "Archived" row.
+  Archiving keeps a Nest-owned copy of the chat body in the extension's own storage,
+  so the chat survives Claude Code's own cleanup of the transcript folder. Restore
+  (or starring an archived chat) returns it and clears the copy. An auto-archive
+  engine archives unstarred chats past your keep window and protectively body-copies
+  starred chats past Claude's deletion age. The row star toggle and the right-click
+  context menu carry the live-chat star and archive controls.
+- **Per-chat export.** One chat to Markdown (a YAML front-matter org layer plus the
+  readable transcript) or JSON (a versioned, round-trippable document), from the
+  chat-row context menu or the Archive overlay; whole-library export and import work
+  too.
 - **Token cost rollups.** Sum each chat's token usage by folder and by tag in a
   read-only report. Tokens only, never dollars.
-- **Settings panel.** Read and edit Claude Code's global `cleanupPeriodDays`
-  through a single guarded write.
-- **One panel.** The Organize panel is the single browsing surface, with full
-  keyboard navigation and ARIA tree semantics built in. Only the Archive view
-  rides alongside it, until its in-panel replacement ships.
+- **Settings overlay.** An in-panel Settings overlay (the gear) sets the keep
+  window and section visibility and reads and edits Claude Code's global
+  `cleanupPeriodDays` through a single guarded write.
+- **One panel.** The Organize panel is the single contributed view and the only
+  browsing surface, with full keyboard navigation and ARIA tree semantics built in.
+  Settings and Archive are in-panel overlays; the flat Chats, Smart Groups, and
+  Archive trees and the standalone Settings tab are retired.
 
 Clicking a chat opens or resumes it through Claude Code's public URI handler. Your
 organization is stored per project and follows you across machines on a
@@ -57,13 +62,13 @@ best-effort, last-writer-wins basis, with a JSON export as the authoritative bac
 ## Install
 
 Install the packaged VSIX (the current repo-root artifact is
-`claude-code-nest-0.1.1-sprint3-part1.vsix`, a mid-sprint build carrying Sprint 3
-Part 1 on top of the released 0.1.1; see [TESTING.md](./TESTING.md) for what it
-does and does not yet include):
+`claude-code-nest-0.1.1-sprint3-part2.vsix`, a mid-sprint build carrying Sprint 3
+Part 1 and Part 2 on top of the released 0.1.1; see [TESTING.md](./TESTING.md) for
+what it does and does not yet include):
 
-- From a terminal: `code --install-extension claude-code-nest-0.1.1-sprint3-part1.vsix`
+- From a terminal: `code --install-extension claude-code-nest-0.1.1-sprint3-part2.vsix`
 - Or in VS Code: open the Extensions view, use the `...` menu, choose **Install
-  from VSIX...**, and select `claude-code-nest-0.1.1-sprint3-part1.vsix`
+  from VSIX...**, and select `claude-code-nest-0.1.1-sprint3-part2.vsix`
 
 Reload the window when prompted, then open a folder that has Claude Code sessions
 so the extension has chats to list.

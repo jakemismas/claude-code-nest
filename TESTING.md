@@ -10,22 +10,27 @@ own smoke section; check the ones whose slice is recorded in CHANGELOG.md.
 
 ## Install the packaged VSIX
 
-The current handoff artifact is `claude-code-nest-0.1.1-sprint3-part1.vsix` in the
+The current handoff artifact is `claude-code-nest-0.1.1-sprint3-part2.vsix` in the
 repo root. It is a MID-SPRINT build: it carries all of Sprint 3 Part 1 (the
 one-panel consolidation through full-text search and tag chips, issues #78 to #83)
-on top of the released 0.1.1 surface, plus the first Part 2 slice, the rich hover
-preview card (issue #84). It is NOT the finished v0.2.0 "One Panel" release; the
-rest of Part 2 (context menu, in-panel Settings and Archive overlays,
-auto-archive), Part 3 (the fidelity sweep and the docs/a11y closeout), the human
-verify gate, and the pre-release security council have not run yet. Run only the
-smoke sections whose slice is recorded as landed in CHANGELOG.md.
+plus all of Part 2 (the rich hover card #84, the chat-row context menu #85, the
+in-panel Settings overlay and auto-archive engine #86, and the in-panel Archive
+overlay #87) on top of the released 0.1.1 surface. With Part 2 complete the
+Organize panel is now Nest's ONLY contributed view: the flat Chats, Smart Groups,
+and Archive trees and the standalone Settings editor tab are all retired.
+
+It is NOT the finished v0.2.0 "One Panel" release. Part 3 (the full-state
+fidelity sweep #88 and the docs/a11y closeout #89), the human verify gate (#76),
+and the pre-release security council (#90) have not run yet, so no version bump
+and no tag accompany this handoff. Run only the smoke sections whose slice is
+recorded as landed in CHANGELOG.md.
 
 1. From a terminal, install it directly:
-   `code --install-extension claude-code-nest-0.1.1-sprint3-part1.vsix`. Or in
+   `code --install-extension claude-code-nest-0.1.1-sprint3-part2.vsix`. Or in
    VSCode, open the Extensions view, use the `...` menu, choose "Install from
-   VSIX...", and select `claude-code-nest-0.1.1-sprint3-part1.vsix`.
+   VSIX...", and select `claude-code-nest-0.1.1-sprint3-part2.vsix`.
 2. If you need to rebuild the artifact from source instead, run
-   `npx vsce package --no-dependencies -o claude-code-nest-0.1.1-sprint3-part1.vsix`,
+   `npx vsce package --no-dependencies -o claude-code-nest-0.1.1-sprint3-part2.vsix`,
    or `npm run package` (produces `nest-build-check.vsix`, the build-check name).
 3. Reload the window when prompted.
 4. Open a folder that has Claude Code sessions under `~/.claude/projects/` (for
@@ -774,30 +779,105 @@ read on demand for one chat and discarded, and nothing under
    from opening any number of cards: the body is read on demand for the one hovered
    chat and discarded when the card closes (it is never added to the scan snapshot).
 
-### Not yet built: Part 2 and Part 3 smoke steps (do not run on this VSIX)
+### S3B: chat-row right-click context menu (issue #85)
+
+The menu is a body-level transient overlay the panel builds from the row model and
+the project's full tag set. Its intents route through the thin OrgPanelActions
+seams (toggleChatTag, createTagWithColor, exportChat, archiveChat), reusing the
+existing store, export (exportIO chokepoint with the projects-path guard), and
+read-only archive-body paths, so it adds no new scan or write path. Every outbound
+field is coerced at the host boundary and every label is rendered as textContent.
+The read-only invariant above applies.
+
+1. Open the menu. Right-click a chat row in the Organize panel. Confirm a menu
+   appears listing EVERY project tag (not just the visible filter chips), each with
+   a checkmark on the chat's current tags, plus a Create new tag entry, Export as
+   Markdown, Export as JSON, and (conditionally) Archive chat.
+2. Toggle a tag. Click a tag row. Confirm it toggles the tag on the chat (checkmark
+   appears or clears) and the chat's tag pills update in the list.
+3. Create a new tag. Click Create new tag. Confirm the menu switches to a name input
+   plus the 8-swatch color picker with Add/Cancel. Enter a name, pick a swatch, click
+   Add, and confirm a new tag of that color is minted and applied to the chat.
+4. Export. Click Export as Markdown, then repeat with Export as JSON. Confirm each
+   opens the save dialog and writes the file (same pipeline as the palette export);
+   confirm a save under `~/.claude/projects/` is refused by the guard.
+5. Archive visibility. On an ordinary (not starred, not archived) chat, confirm the
+   Archive chat entry appears and archives the chat. On a STARRED chat, confirm
+   Archive chat is replaced by the note that starred chats are kept and never
+   archived. On an already-archived chat, confirm no Archive entry shows.
+6. Dismissal and keyboard. Confirm Escape and an outside click both dismiss the
+   menu. Open it via the keyboard path, confirm Arrow keys rove the entries and
+   Enter/Space activate the focused one, and that Escape restores focus to the row.
+
+### S3B: Settings overlay and auto-archive engine (issue #86)
+
+The Settings editor TAB is retired: Settings now render as a full-panel overlay
+inside the Organize panel. The window and the section toggles persist on
+workspaceState (never on the synced ProjectMeta). The auto-archive decision is a
+pure module (autoArchivePolicy.ts) reusing store.setChatArchived and
+archiveBodyStore, so it adds no new fs write path. The read-only invariant applies.
+
+1. Open the overlay. Click the gear. Confirm a full-panel Settings overlay opens
+   with a back chevron, a Newsreader-serif heading, a "Keep chats for" window select
+   (7 / 14 / 30 / 90 days, 1 year, or Never), and four section-visibility pill
+   switches (Starred, Questions, Folders, Unsorted). Confirm the back chevron
+   returns to the list.
+2. Window default. On a fresh workspace confirm the window select defaults to the
+   effective Claude `cleanupPeriodDays` (30 when unset). Change it and reopen the
+   overlay to confirm the choice persisted.
+3. Section toggles. Turn a section pill off and confirm that section stops rendering
+   in the list; turn it back on and confirm it returns. Turn Unsorted OFF and confirm
+   an unfiled chat is STILL reachable via search and the tag chips (disabling Unsorted
+   must never strand a chat; the Unsorted section still renders when every other
+   section that could hold it is hidden).
+4. Editor tab retired. Run "Claude Code Nest: Settings" from the Command Palette and
+   confirm it reveals the Organize panel and opens THIS overlay, not a separate
+   editor tab. Confirm no standalone Settings WebviewPanel opens anywhere.
+5. Auto-archive (unstarred). With unstarred chats older than the chosen window,
+   reload the window (or trigger a scan refresh) and confirm those chats become
+   archived (they leave the visible sections, the `Archived (N)` count rises, and a
+   Nest-owned body copy exists). Confirm a first-run notice appears once.
+6. Starred exemption and protective copy. Confirm a STARRED chat past the window is
+   NOT archived. Confirm that choosing "Never" for the keep window still leaves a
+   protective body copy for a starred chat past the effective Claude cleanup age, so
+   the starred chat survives Claude's own transcript cleanup.
+7. Read-only. Confirm nothing under `~/.claude/projects/` changed from any of the
+   above: every body copy lands in the extension's own storage.
+
+### S3B: in-panel Archive overlay (issue #87)
+
+The `Archived (N)` bottom row now opens a full-panel Archive overlay (reusing the
+Settings overlay chrome) instead of focusing a separate tree. The Archive TREE is
+retired, so this is the change that leaves exactly ONE contributed view. Archived
+rows are built by a pure, vscode-free builder (buildArchivedRows) from the synced
+userArchived membership, posted on demand when the overlay opens. The read-only
+invariant applies.
+
+1. Open the overlay. Click the bottom `Archived (N)` row. Confirm a full-panel
+   Archive overlay opens (back chevron, Newsreader heading) listing the archived
+   chats, each with a title over a folder-and-age meta line, an export button, a
+   Restore button, and a star.
+2. Gray focus glow. Focus the overlay's "Search archived" box and confirm its focus
+   glow is deliberately GRAY (distinct from the main orange search glow). Type a
+   query and confirm it filters the archived rows by title client-side.
+3. Restore. Click Restore on a row. Confirm the chat leaves the archive, returns to
+   its section in the list, and the `Archived (N)` count drops. Confirm a star click
+   on an archived row un-archives it too (star-and-restore) while keeping the star.
+4. Copy-only survivor. For a chat whose transcript Claude already cleaned up, confirm
+   it still lists (title from the Nest-owned body copy, shown as "copy only") and its
+   row previews the saved copy.
+5. Empty state. With no archived chats, confirm the overlay shows its empty state.
+6. One view only. Open the Views/Command Palette and confirm there is no separate
+   Archive tree view anymore: the Organize panel is the only Claude Code Nest view.
+7. Dismissal. Confirm Escape closes the overlay and restores focus.
+
+### Not yet built: Part 3 smoke steps (do not run on this VSIX)
 
 These slices from SPRINT-3-PLAN.md have NOT landed on main, so their surfaces do
-not exist in `claude-code-nest-0.1.1-sprint3-part1.vsix`. They are listed here so
+not exist in `claude-code-nest-0.1.1-sprint3-part2.vsix`. They are listed here so
 this checklist stays complete against the plan; each becomes a runnable section
 when its slice merges. Do not attempt these on the current build.
 
-- Part 2 slice 1, right-click context menu (issue #85): right-clicking a chat row
-  opens a menu with tag toggles (checkmarks), create-new-tag (name input plus the
-  8-swatch picker), Export as Markdown / JSON, and Archive (hidden for starred or
-  already-archived rows, with the starred note). Confirm Esc and outside-click
-  dismiss it and that it is keyboard operable.
-- Part 2 slice 2, Settings overlay and auto-archive engine (issue #86): the gear
-  opens a full-panel Settings overlay (back chevron; keep-window select
-  7d/14d/30d/90d/1y/Never defaulting to the effective Claude `cleanupPeriodDays`,
-  30 if unset; section pill toggles with Unsorted kept reachable). The settings
-  EDITOR TAB is retired. Confirm unstarred chats past the window get auto-archived
-  with a body copy (batched, first-run notice) while starred chats stay but get a
-  protective body copy past the Claude deletion age.
-- Part 2 slice 3, Archive overlay (issue #87): the `Archived (N)` row opens an
-  in-panel Archive overlay (gray focus-glow search, rows with export and Restore,
-  empty states); star unarchives; the Archive TREE is retired so exactly ONE
-  contributed view remains; the archived-copy preview is reachable from the
-  overlay.
 - Part 3 slice 0, full-state fidelity sweep (issue #88): capture every UI state
   (default, filtered, hover card, context menu in both modes, drag highlight, both
   overlays, both popovers, rename) in the harness and against the prototype, update
@@ -863,11 +943,11 @@ the headless gate). It asserts:
   host loaded this manifest.
 - The contributed `claudeNest` view set and the activitybar container, read from
   the SAME `package.json` the host loaded as the Extension Manifest (since slice
-  s3a-view-consolidation, exactly the Organize webview plus the Archive tree,
-  asserted as the exact set).
-- A `viewsWelcome` empty-state ships for the Archive tree (the only remaining
-  TreeView), no welcome targets a retired view id, and no welcome string blames
-  Claude for the empty state.
+  s3b-archive-overlay retired the Archive tree, exactly the Organize webview as the
+  SOLE contributed view, asserted as the exact set).
+- No `viewsWelcome` ships now that every tree view is retired: the array is empty,
+  so no welcome targets a retired view id and no welcome string blames Claude for an
+  empty state.
 - The raster gallery icon (`media/icon.png`) and the getting-started walkthrough
   (with multiple steps) are contributed and the icon file exists.
 - `getChildren(undefined)` returns `[]` and never throws for the kept non-view
