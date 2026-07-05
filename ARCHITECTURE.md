@@ -245,6 +245,52 @@ the webview textContent-only render discipline.
   string; postPreviewBody additionally no-ops on an empty id. The sessionId is used only
   to find a scanned record and is never a CSS/HTML sink.
 
+## Org-panel chat-row context menu (Sprint 3, slice s3b-context-menu) — binding
+
+Slice s3b-context-menu (issue #85) lands the chat row's right-click menu: the full tag
+list with checkmarks that toggle a tag on the chat, an in-panel create-tag flow (name
+input plus the 8-swatch color picker), Export as Markdown / JSON, and Archive (or the
+starred-kept note). Like the folder actions menu and the sort popover it is a body-level
+`position:fixed` transient overlay (media/orgPanel.js) torn down on Escape, outside
+click, or any tree re-render, so it can never post a mutation for a row a refresh
+removed. Every label sink is textContent only, keeping the webview render-site security
+class the s3a/s3b slices established. These rules are binding so the menu cannot widen
+the write surface, escape the read-only invariant, or regress the ARIA story.
+
+- THE MENU LISTS EVERY PROJECT TAG, NOT THE FILTER-CHIP SET. The row model gains an
+  additive `allTags` field on OrgSections (orgPanelModel.ts buildAllTags, a TagChip[]
+  with id, label, color-or-null, and count built from meta.tags), posted alongside the
+  visible-chat-only chip set. buildTagChips is UNCHANGED and still drives the filter row;
+  the menu reads allTags so it can list a zero-chat tag the filter row omits (AC #1's
+  all-tags-with-checkmarks menu). The checkmark on each item reflects the chat's current
+  ChatMeta.tags membership.
+- THE MENU INTENTS ROUTE THROUGH THIN OrgPanelActions SEAMS, NEVER A NEW WRITE PATH.
+  toggleChatTag(sessionId, tagId, on) adds/removes via the existing store tag mutation.
+  createTagWithColor(label, color) is a NEW seam that mints via mintTagId, upserts a Tag
+  with an isValidColor-validated color, applies it to the chat, and returns the new tag
+  id so the menu can immediately reflect it. It deliberately does NOT reuse the existing
+  claudeNest.createTag command, which opens a modal ui.prompt and mints a COLORLESS tag
+  and so cannot satisfy AC #2's in-panel name + 8-swatch create-with-color flow.
+  exportChat(sessionId, format) and archiveChat(sessionId) resolve the transcript record
+  from the panel's scan cache and route to the EXISTING exportIO-guarded export pipeline
+  (save dialog + projects-path guard) and the read-only archive-body pipeline, so the
+  chat's real filePath is used and no new scan or write path is added. Archive is shown
+  only when the chat is neither starred nor archived; a starred chat shows the
+  starred-are-kept note instead (AC #4).
+- EVERY OUTBOUND MENU FIELD IS COERCED AT THE HOST BOUNDARY. coerce() in
+  orgPanelWebview.ts validates the new inbound types exactly like setFolderColor:
+  sessionId and tagId as strings, the create-tag color via isValidColor-or-null, and the
+  export format as a closed 'markdown' | 'json' union. A color that fails isValidColor is
+  rejected before it can reach the store or a CSS sink, matching the folder-color
+  boundary rule.
+- THE MENU IS FULLY KEYBOARD OPERABLE (AC #5). Each menu overlay is a role="menu" of
+  `.nest-menu-item` buttons; wireMenuRoving (media/orgPanel.js) wires cyclic
+  ArrowUp/ArrowDown roving focus and Enter/Space activation across the items, mirroring
+  wireSortPopover so every ARIA menu in the panel honors the same pattern it advertises.
+  It is called after all items are appended and before the first item is focused, on both
+  the folder actions menu and the chat context menu. Escape and outside click dismiss;
+  the menu shadow follows the token (0 12px 32px rgba(40,33,20,0.18)).
+
 ## Search-index location (Sprint 2, slice 2) — binding
 
 Full-text content search (slice s2-fulltext-search) is built on MiniSearch with

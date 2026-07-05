@@ -6,8 +6,9 @@ Keep a Changelog, and the project adheres to semantic versioning.
 ## [Unreleased]
 
 Sprint 3 is Part 1 complete (issues #78 to #83 merged) and Part 2 is in progress
-(the hover card, #84, is merged; #85 to #87 remain), NOT yet released. The
-finished v0.2.0 "One Panel" release still needs the rest of Part 2 (#85 to #87),
+(the hover card, #84, and the chat-row context menu, #85, are merged; #86 to #87
+remain), NOT yet released. The
+finished v0.2.0 "One Panel" release still needs the rest of Part 2 (#86 to #87),
 Part 3 (#88, #89), the human verify gate (#76), and the pre-release security
 council (#90) before the release run (#91) bumps the version and tags. A mid-sprint handoff
 build, `claude-code-nest-0.1.1-sprint3-part1.vsix`, is packaged in the repo root
@@ -93,6 +94,24 @@ this handoff.
   for "claude" does not match every chat. The persisted index stays tier-A-only (no
   message body is written to disk); the body is read on demand in memory and discarded.
   No schema change, no new file-write path, and the synced surface is unchanged.
+- A chat-row right-click context menu in the Organize panel (#85), slice
+  s3b-context-menu. Right-clicking a chat row opens a menu that lists EVERY project tag
+  with a checkmark on the chat's current tags; clicking a tag toggles it on the chat. A
+  Create new tag entry switches the menu to a name input plus the 8-swatch color picker
+  with Add/Cancel, mints the tag with that color, and applies it to the chat. Export as
+  Markdown and Export as JSON reuse the existing export pipeline (save dialog and the
+  exportIO chokepoint with the projects-path guard). Archive chat appears only when the
+  chat is neither starred nor archived; a starred chat shows the note that starred chats
+  are kept and never archived. The menu lists all tags (not just the visible-chat filter
+  chips) via an additive `allTags` field on the row model built from `meta.tags`, leaving
+  buildTagChips unchanged; its intents route through thin OrgPanelActions seams
+  (toggleChatTag, the new createTagWithColor, exportChat, archiveChat) that reuse the
+  existing store, export, and read-only archive-body paths, so no new scan or write path
+  is added. The menu is a body-level transient overlay that dismisses on Escape and
+  outside click and is fully keyboard operable (Arrow keys rove, Enter/Space activate);
+  every label sink is textContent, and every outbound field is coerced at the host
+  boundary (sessionId and tagId as strings, color via isValidColor-or-null, format as a
+  closed union). The synced surface is unchanged.
 - A rich hover preview card in the Organize panel (#84), the first Part 2 slice.
   Hovering a chat row (or pressing `p` on a focused row) opens a floating 270px card
   with the chat title; a folder, age, and compact `NNk tok` meta line; the tag pills;

@@ -1437,6 +1437,31 @@
   }
 
   // Right-click a folder header to open the folder actions menu.
+  // Wire ArrowUp/ArrowDown cyclic roving focus and Enter/Space activation across the
+  // .nest-menu-item buttons of a role="menu" overlay, matching the sort popover
+  // (wireSortPopover) so every ARIA menu in the panel honors the same keyboard pattern
+  // it advertises (issue #85 AC #5, "fully keyboard operable"). Native buttons already
+  // fire click on Enter/Space, but keeping an explicit handler is harmless and keeps the
+  // affordance uniform with the sort popover. Call after all items are appended and
+  // BEFORE focusing the first item.
+  function wireMenuRoving(menu) {
+    var items = Array.prototype.slice.call(menu.querySelectorAll('.nest-menu-item'));
+    items.forEach(function (item, i) {
+      item.addEventListener('keydown', function (ev) {
+        if (ev.key === 'ArrowDown') {
+          ev.preventDefault();
+          items[(i + 1) % items.length].focus();
+        } else if (ev.key === 'ArrowUp') {
+          ev.preventDefault();
+          items[(i - 1 + items.length) % items.length].focus();
+        } else if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          item.click();
+        }
+      });
+    });
+  }
+
   let openMenuEl = null;
   function closeFolderMenu() {
     if (openMenuEl) {
@@ -1476,6 +1501,7 @@
     menu.style.top = (e.clientY || 0) + 'px';
     document.body.appendChild(menu);
     openMenuEl = menu;
+    wireMenuRoving(menu);
     const first = menu.querySelector('.nest-menu-item');
     if (first) {
       first.focus();
@@ -1724,6 +1750,7 @@
       menu.appendChild(archiveBtn);
     }
 
+    wireMenuRoving(menu);
     var first = menu.querySelector('.nest-menu-item');
     if (first) {
       first.focus();
