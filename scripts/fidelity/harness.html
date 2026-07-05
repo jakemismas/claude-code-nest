@@ -425,6 +425,17 @@
       // postActive). s-01 is the currently-open chat, so its rows carry the .nest-active
       // tint (the design reference's tinted Starred + Backend-API "Refactor auth" rows).
       window.postMessage({ type: 'state', sort: 'newest', collapsedFolders: [] }, '*');
+      // The Settings overlay state (slice s3b-settings-overlay, issue #86): a 30-day
+      // auto-archive window and all four sections ON, matching the design's default
+      // Settings sub-page. The overlay reads this on the settings-overlay capture page.
+      window.postMessage(
+        {
+          type: 'settings',
+          autoArchiveWindowDays: 30,
+          sectionsVisible: { starred: true, questions: true, folders: true, unsorted: true },
+        },
+        '*',
+      );
       window.postMessage({ type: 'sections', sections: sections }, '*');
       window.postMessage({ type: 'active', sessionId: 's-01' }, '*');
 

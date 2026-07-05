@@ -852,6 +852,122 @@ async function main() {
         path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu-newtag.png')),
     );
 
+    // Page 8: the SETTINGS OVERLAY of the real panel (slice s3b-settings-overlay, issue
+    // #86). Open the harness, click the gear to open the in-panel Settings sub-page, wait
+    // for its "Keep chats for" select and the four section switches, and capture the full
+    // 320px viewport (the overlay is position:fixed;inset:0 over the panel).
+    const harnessSettingsPage = await openPage(browser);
+    await renderAndCapture(
+      harnessSettingsPage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-settings.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        const opened = await evaluate(
+          page,
+          '(function(){' +
+            "var gear=document.getElementById('settings');" +
+            "if(!gear) return 'no-gear';" +
+            'gear.click();' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (opened !== 'ok') {
+          throw new Error('Could not open the harness Settings overlay: ' + opened);
+        }
+        await waitForCondition(
+          page,
+          "(function(){var o=document.querySelector('.nest-settings-overlay');" +
+            "return !!o && !!o.querySelector('.nest-settings-select') && " +
+            "o.querySelectorAll('.nest-switch').length === 4;})()",
+          10000,
+          'harness Settings overlay to render with the select and four switches',
+        );
+        await sleep(150);
+      },
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-settings.png')));
+
+    // Page 9: the SETTINGS SUB-PAGE of the design prototype, the fidelity baseline the
+    // settings capture is judged against. Click the gear (the ⚙ glyph) to open the
+    // prototype's own Settings sub-page, then clip to the 320px sidebar like the other
+    // prototype captures.
+    const protoSettingsPage = await openPage(browser);
+    await renderAndCapture(
+      protoSettingsPage,
+      pathToFileURL(PROTOTYPE_HTML).href,
+      path.join(OUT_DIR, 'prototype-settings.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          '(function(){' +
+            "var loading=document.getElementById('__bundler_loading');" +
+            'if(loading && loading.offsetParent!==null) return false;' +
+            "var divs=document.querySelectorAll('body div');" +
+            'return divs.length > 8;' +
+            '})()',
+          30000,
+          'prototype React mount',
+        );
+        await evaluate(
+          page,
+          '(function(){' +
+            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
+            'var n=document.getElementById(id); if(n) n.remove();' +
+            '} return true; })()',
+        );
+        // Click the gear glyph to open the Settings sub-page.
+        const clicked = await evaluate(
+          page,
+          '(function(){' +
+            "var spans=Array.prototype.slice.call(document.querySelectorAll('span'));" +
+            'for(var i=0;i<spans.length;i++){' +
+            "  if(spans[i].getAttribute('title')==='Settings'){ spans[i].click(); return 'ok'; }" +
+            '}' +
+            "return 'no-gear';" +
+            '})()',
+        );
+        if (clicked !== 'ok') {
+          throw new Error('Could not open the prototype Settings sub-page: ' + clicked);
+        }
+        await sleep(400);
+        const rect = await evaluate(
+          page,
+          '(function(){' +
+            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
+            'for(var i=0;i<divs.length;i++){' +
+            '  var el=divs[i]; var cs=getComputedStyle(el);' +
+            '  var r=el.getBoundingClientRect();' +
+            '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
+            '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
+            '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
+            '  }' +
+            '}' +
+            'return null;' +
+            '})()',
+        );
+        if (!rect) {
+          throw new Error(
+            'Could not locate the 320px sidebar column in the prototype Settings state to clip to.',
+          );
+        }
+        return rect;
+      },
+      PROTOTYPE_VIEWPORT_WIDTH,
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-settings.png')));
+
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
     console.log('Compare by eye:');
     console.log('  harness.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
@@ -861,6 +977,9 @@ async function main() {
     console.log('  harness-context-menu.png (real panel, chat menu) vs the prototype context menu');
     console.log(
       '  harness-context-menu-newtag.png (real panel, create-tag state) vs the prototype new-tag menu',
+    );
+    console.log(
+      '  harness-settings.png (real panel, Settings overlay) vs prototype-settings.png (settings sub-page fidelity)',
     );
   } catch (err) {
     fail(

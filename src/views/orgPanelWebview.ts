@@ -8,6 +8,7 @@ import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { tokenBadge } from './chatTooltip';
 import { relativeTime } from './relativeTime';
 import { buildSections, OrgSections, isArchived } from './orgPanelModel';
+import { coerceAutoArchiveWindowDays } from '../store/autoArchivePolicy';
 import {
   SearchDoc,
   buildIndex,
@@ -44,6 +45,14 @@ import { handleWebviewDrop, WebviewDropDeps } from '../dnd/webviewDropAdapter';
 
 export const ORG_PANEL_VIEW = 'claudeNest.orgPanel';
 
+// The Settings command id. Since slice s3b-settings-overlay the Settings sub-page is
+// an IN-PANEL overlay in this webview (not a separate WebviewPanel), so the command
+// reveals the org panel and opens the overlay rather than creating a panel. The id is
+// unchanged (package.json, activationEvents, the two view/title menu homes) so the
+// gear command keeps working; only its behavior moved into the panel. Its former home
+// (the retired src/settings/settingsWebview.ts) is deleted this slice.
+export const OPEN_SETTINGS_COMMAND = 'claudeNest.openSettings';
+
 // How many transcript bodies to read between yields to the host event loop during
 // the phase-2 body-index build, so a large projects dir cannot freeze the UI.
 const BODY_READ_CHUNK = 20;
@@ -68,9 +77,12 @@ interface SearchRow {
 // POC; drop carries an in-panel drag-and-drop (the adapter maps it to the reducer);
 // renameFolder applies an in-place folder rename; setFolderColor sets/clears a
 // folder color; setState persists the user's sort choice and collapsed set;
-// newSession requests a best-effort new Claude Code chat; openArchive and
-// openSettings surface the interim Archive view and Settings entry until the
-// in-panel overlays ship (s3b). Density was removed in slice s3a-design-shell
+// newSession requests a best-effort new Claude Code chat; openArchive surfaces the
+// interim Archive view. The Settings sub-page is an IN-PANEL overlay opened
+// client-side (the gear) or by the palette command via openSettingsOverlay(), so the
+// client no longer posts an 'openSettings' message; setAutoArchiveWindow and
+// setSectionsVisible persist the overlay's controls on workspaceState (slice
+// s3b-settings-overlay, issue #86). Density was removed in slice s3a-design-shell
 // (the design has a single row density), so setState no longer carries it.
 type Inbound =
   | { type: 'ready' }
@@ -92,7 +104,6 @@ type Inbound =
   | { type: 'createFolder'; name?: string }
   | { type: 'newSession' }
   | { type: 'openArchive' }
-  | { type: 'openSettings' }
   | { type: 'toggleStar'; sessionId: string; starred: boolean }
   // The right-click context menu's tag toggle (slice s3b-context-menu, issue #85 AC #1):
   // set/clear a tag on a chat. `on` is the DESIRED next state; the host routes it to
@@ -111,7 +122,20 @@ type Inbound =
   // the host resolves the filePath from its scan cache and routes to the SAME archiveChat
   // pipeline (synced flag + read-only Nest-owned body copy).
   | { type: 'archiveChat'; sessionId: string }
-  | { type: 'setState'; sort?: string; collapsedFolders?: string[] };
+  // The Settings overlay's controls (slice s3b-settings-overlay, issue #86). The
+  // auto-archive window (in DAYS; 0 = Never) and the four section-visibility toggles
+  // persist on workspaceState through the EXISTING stateStore (new _KEY constants),
+  // never on ProjectMeta and never synced (AC #7, Non-goals). Setting the window also
+  // triggers a fresh auto-archive pass so a shortened window applies without a reload.
+  | { type: 'setState'; sort?: string; collapsedFolders?: string[] }
+  | { type: 'setAutoArchiveWindow'; days: number }
+  | {
+      type: 'setSectionsVisible';
+      starred?: boolean;
+      questions?: boolean;
+      folders?: boolean;
+      unsorted?: boolean;
+    };
 
 // The injectable command seams the org panel needs, wired in extension.ts to the
 // existing store/command paths so the webview never couples to the command layer
@@ -141,9 +165,12 @@ export interface OrgPanelActions {
   // s3b, so until then this reveals the existing claudeNest.archive tree view. The
   // webview only requests it.
   openArchive(): Promise<void> | void;
-  // Surface the interim Settings entry (the gear). The Settings overlay lands in
-  // s3b; until then this runs the existing claudeNest.openSettings command.
-  openSettings(): Promise<void> | void;
+  // Run one auto-archive pass now (slice s3b-settings-overlay, issue #86 AC #4). The
+  // wiring routes this to the batched auto-archive engine over the current auto-archive
+  // window and refreshes; the webview requests it after the user changes the window in
+  // the Settings overlay so a shortened window applies without a window reload. A no-op
+  // when auto-archiving is disabled (Never) or nothing is past the window.
+  runAutoArchive(): Promise<void> | void;
   // Toggle a chat's synced ChatMeta.starred and persist immediately (AC: "Star click
   // persists immediately through the store"). The wiring routes this to the existing
   // star/unstar curation commands (store.setChatStarred + flush + refresh), so the
@@ -201,6 +228,33 @@ const SORT_KEY = 'claudeNest.orgPanel.sort';
 // and density: it lives only on workspaceState through stateStore and is never
 // added to setKeysForSync or the nest.meta.v1 sync surface.
 const COLLAPSED_KEY = 'claudeNest.orgPanel.collapsedFolders';
+// The auto-archive window in DAYS (slice s3b-settings-overlay, issue #86). Persisted
+// per workspace on workspaceState through the same stateStore, NEVER on ProjectMeta
+// and never synced (AC #7, Non-goals). Stored as the string form of the day count; 0
+// is the Never sentinel. When unset the effective default is the Claude
+// cleanupPeriodDays (30 when Claude itself is unset), resolved by the wiring.
+const AUTO_ARCHIVE_WINDOW_KEY = 'claudeNest.orgPanel.autoArchiveWindowDays';
+// The four section-visibility toggles (Starred, Questions, Folders, Unsorted), all ON
+// by default (AC #3). Persisted per workspace as a JSON object of booleans on
+// workspaceState, never on ProjectMeta and never synced. Disabling Unsorted only hides
+// the SECTION; search and chips still reach every unfiled chat, so no chat is ever
+// made unreachable (AC #3, enforced client-side).
+const SECTIONS_VISIBLE_KEY = 'claudeNest.orgPanel.sectionsVisible';
+
+// The section-visibility toggle set. Every toggle defaults to true (all sections ON).
+export interface SectionsVisible {
+  starred: boolean;
+  questions: boolean;
+  folders: boolean;
+  unsorted: boolean;
+}
+
+const DEFAULT_SECTIONS_VISIBLE: SectionsVisible = {
+  starred: true,
+  questions: true,
+  folders: true,
+  unsorted: true,
+};
 
 export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
@@ -235,6 +289,12 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   // first scan; postPreviewBody falls back to one scan only when it is empty.
   private previewPathBySession: Map<string, string> = new Map();
 
+  // Set when openSettingsOverlay() is called before the webview has resolved and sent
+  // 'ready' (the palette/view-title Settings command path: focusing the view is async,
+  // so the open message would post to an unresolved webview and be dropped). The 'ready'
+  // handler consumes this flag and opens the overlay once the client is listening.
+  private pendingOpenSettings = false;
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly workspacePath: string | undefined,
@@ -245,6 +305,12 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     private readonly stateStore: OrgPanelStateStore,
     private readonly readState: OrgPanelReadState,
     private readonly globalStorageUri?: vscode.Uri,
+    // The effective DEFAULT auto-archive window in days when the user has not chosen
+    // one (slice s3b-settings-overlay, issue #86 AC #2): the effective Claude
+    // cleanupPeriodDays, 30 when Claude itself is unset. Injected so this vscode-thin
+    // view does not read settings.json itself; the wiring passes a resolver over
+    // readCleanupPeriodDays. Defaults to CLAUDE_DEFAULT (30) when not supplied.
+    private readonly effectiveAutoArchiveDefault: () => number = () => 30,
   ) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -276,8 +342,15 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private onMessage(msg: Inbound): void {
     if (msg.type === 'ready') {
       this.postState();
+      this.postSettings();
       this.postSections();
       this.postActive();
+      // A Settings-open requested while the webview was still resolving (the palette
+      // command path) is honored now that the client is listening.
+      if (this.pendingOpenSettings) {
+        this.pendingOpenSettings = false;
+        this.postOpenSettings();
+      }
     } else if (msg.type === 'refresh') {
       this.refresh();
     } else if (msg.type === 'open') {
@@ -300,8 +373,6 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       void this.actions.newSession();
     } else if (msg.type === 'openArchive') {
       void this.actions.openArchive();
-    } else if (msg.type === 'openSettings') {
-      void this.actions.openSettings();
     } else if (msg.type === 'toggleStar') {
       void this.onToggleStar(msg.sessionId, msg.starred);
     } else if (msg.type === 'toggleTag') {
@@ -314,6 +385,10 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       void this.onArchiveChat(msg.sessionId);
     } else if (msg.type === 'setState') {
       this.onSetState(msg.sort, msg.collapsedFolders);
+    } else if (msg.type === 'setAutoArchiveWindow') {
+      this.onSetAutoArchiveWindow(msg.days);
+    } else if (msg.type === 'setSectionsVisible') {
+      this.onSetSectionsVisible(msg);
     }
   }
 
@@ -396,6 +471,85 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  // Persist the auto-archive window (in days) and run a fresh auto-archive pass so a
+  // shortened window applies immediately (issue #86 AC #2/#4). The value is
+  // re-validated through the pure coercer (allowed enum, else the effective default)
+  // before it is stored, so a tampered webview value can never persist an arbitrary
+  // window. Re-post the settings state so the overlay reflects the coerced value.
+  private onSetAutoArchiveWindow(days: number): void {
+    const coerced = coerceAutoArchiveWindowDays(days, this.effectiveAutoArchiveDefault());
+    this.stateStore.set(AUTO_ARCHIVE_WINDOW_KEY, String(coerced));
+    this.postSettings();
+    // A shortened window may now sweep chats that were within the old window; run the
+    // pass. runAutoArchive is a no-op when disabled (Never) or nothing is past-window.
+    void this.actions.runAutoArchive();
+  }
+
+  // Persist the section-visibility toggles (issue #86 AC #3). Merges the supplied
+  // partial over the current set so a single-toggle post does not clear the others.
+  // Client-side render gates only: they never touch membership or the store, so an
+  // unfiled chat stays reachable via search/chips even with Unsorted hidden.
+  private onSetSectionsVisible(next: {
+    starred?: boolean;
+    questions?: boolean;
+    folders?: boolean;
+    unsorted?: boolean;
+  }): void {
+    const current = this.readSectionsVisible();
+    const merged: SectionsVisible = {
+      starred: next.starred ?? current.starred,
+      questions: next.questions ?? current.questions,
+      folders: next.folders ?? current.folders,
+      unsorted: next.unsorted ?? current.unsorted,
+    };
+    this.stateStore.set(SECTIONS_VISIBLE_KEY, JSON.stringify(merged));
+    this.postSettings();
+  }
+
+  // The current auto-archive window in days: the persisted value coerced through the
+  // pure coercer, falling back to the effective Claude cleanupPeriodDays default when
+  // unset or invalid.
+  private readAutoArchiveWindowDays(): number {
+    return coerceAutoArchiveWindowDays(
+      this.stateStore.get(AUTO_ARCHIVE_WINDOW_KEY),
+      this.effectiveAutoArchiveDefault(),
+    );
+  }
+
+  // The current auto-archive window in days, exposed for the wiring's engine pass so
+  // the host and the overlay agree on the window without re-reading the memento in two
+  // places.
+  autoArchiveWindowDays(): number {
+    return this.readAutoArchiveWindowDays();
+  }
+
+  // The current section-visibility set. Tolerant: a missing, malformed, or non-object
+  // persisted value yields the all-ON default so a corrupt memento never hides a
+  // section or throws. Each field falls back to true independently.
+  private readSectionsVisible(): SectionsVisible {
+    const raw = this.stateStore.get(SECTIONS_VISIBLE_KEY);
+    if (raw === undefined) {
+      return { ...DEFAULT_SECTIONS_VISIBLE };
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { ...DEFAULT_SECTIONS_VISIBLE };
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return { ...DEFAULT_SECTIONS_VISIBLE };
+    }
+    const obj = parsed as Record<string, unknown>;
+    const bool = (v: unknown): boolean => (typeof v === 'boolean' ? v : true);
+    return {
+      starred: bool(obj.starred),
+      questions: bool(obj.questions),
+      folders: bool(obj.folders),
+      unsorted: bool(obj.unsorted),
+    };
+  }
+
   private postState(): void {
     if (this.view === undefined) {
       return;
@@ -432,6 +586,48 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       return;
     }
     void this.view.webview.postMessage({ type: 'sections', sections: this.buildSectionModel() });
+  }
+
+  // Post the Settings overlay's state (slice s3b-settings-overlay, issue #86): the
+  // current auto-archive window in days and the four section-visibility toggles, so
+  // the overlay's select and pill switches render the persisted values. Both ride
+  // workspaceState; nothing here reads or widens the synced surface.
+  private postSettings(): void {
+    if (this.view === undefined) {
+      return;
+    }
+    void this.view.webview.postMessage({
+      type: 'settings',
+      autoArchiveWindowDays: this.readAutoArchiveWindowDays(),
+      sectionsVisible: this.readSectionsVisible(),
+    });
+  }
+
+  // Tell the client to OPEN the Settings overlay (a client-side render). Sent when the
+  // palette/view-title Settings command fires (openSettingsOverlay); the gear opens the
+  // overlay client-side without this round-trip.
+  private postOpenSettings(): void {
+    if (this.view === undefined) {
+      return;
+    }
+    void this.view.webview.postMessage({ type: 'openSettings' });
+  }
+
+  // Focus the org panel and open the Settings overlay. Wired to the retained
+  // claudeNest.openSettings palette/view-title command: the Settings sub-page lives
+  // INSIDE this webview (not a separate panel), so the command reveals the panel and
+  // posts the open + fresh settings state. When the view has NOT resolved yet (the
+  // panel was closed when the command fired; focusing it is async), the post messages
+  // would be dropped, so we set pendingOpenSettings and let the 'ready' handler open
+  // the overlay once the client is listening. When the view is already resolved this
+  // posts immediately.
+  openSettingsOverlay(): void {
+    if (this.view === undefined) {
+      this.pendingOpenSettings = true;
+      return;
+    }
+    this.postSettings();
+    this.postOpenSettings();
   }
 
   // Scan, read the store, and assemble the section model via the pure builder.
@@ -879,6 +1075,10 @@ function coerce(raw: unknown): Inbound | null {
     on?: unknown;
     label?: unknown;
     format?: unknown;
+    days?: unknown;
+    questions?: unknown;
+    folders?: unknown;
+    unsorted?: unknown;
   };
   if (obj.type === 'ready') {
     return { type: 'ready' };
@@ -931,9 +1131,6 @@ function coerce(raw: unknown): Inbound | null {
   if (obj.type === 'openArchive') {
     return { type: 'openArchive' };
   }
-  if (obj.type === 'openSettings') {
-    return { type: 'openSettings' };
-  }
   if (obj.type === 'toggleStar' && typeof obj.sessionId === 'string') {
     return { type: 'toggleStar', sessionId: obj.sessionId, starred: obj.starred === true };
   }
@@ -969,6 +1166,32 @@ function coerce(raw: unknown): Inbound | null {
   }
   if (obj.type === 'archiveChat' && typeof obj.sessionId === 'string') {
     return { type: 'archiveChat', sessionId: obj.sessionId };
+  }
+  if (obj.type === 'setAutoArchiveWindow') {
+    // The window arrives as a number (or numeric string) of days; accept it as a
+    // finite number here and let onSetAutoArchiveWindow re-validate it through the
+    // pure coercer (allowed enum, else the effective default) before it persists. A
+    // non-numeric value is dropped to NaN, which the coercer maps to the default.
+    const days =
+      typeof obj.days === 'number'
+        ? obj.days
+        : typeof obj.days === 'string' && /^\d+$/.test(obj.days.trim())
+          ? Number(obj.days.trim())
+          : NaN;
+    return { type: 'setAutoArchiveWindow', days };
+  }
+  if (obj.type === 'setSectionsVisible') {
+    // Each toggle is accepted only as a strict boolean; a missing/other value stays
+    // undefined so the handler merges it over the current set rather than clearing it.
+    // These are render gates, never a store or CSS sink.
+    const asBool = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined);
+    return {
+      type: 'setSectionsVisible',
+      starred: asBool(obj.starred),
+      questions: asBool(obj.questions),
+      folders: asBool(obj.folders),
+      unsorted: asBool(obj.unsorted),
+    };
   }
   if (obj.type === 'setState') {
     // collapsedFolders is accepted only as an array of strings; anything else

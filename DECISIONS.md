@@ -1495,3 +1495,97 @@ closeAllTransientOverlays teardown (and the mirrored TRANSIENT_OVERLAY_KEYS) so 
 re-render or Escape tears it down and it can never post a mutation for a row a refresh
 removed. Every label sink is textContent; every outbound field (sessionId, tagId, color,
 format) is validated at coerce().
+
+## 2026-07-05 Slice s3b-settings-overlay (order 2, issue #86): FIT REVIEW - in-panel Settings overlay, separate auto-archive window and policy, workspaceState persistence, batched auto-archive engine
+
+Fit review of the s3b-settings-overlay plan plus its accepted "fit" patch against
+ARCHITECTURE.md and issue #86. All forks below are reversible, auto-resolved, and
+recorded here; none is a data-loss or irreversible fork, so the build proceeds.
+
+Fork 1 (reversible): the Settings sub-page is a full-panel OVERLAY, not a WebviewPanel.
+The retired settingsWebview.ts opened a separate CSP-locked WebviewPanel TAB; the design
+(media/design/ChatSidebar.dc.html:263) renders Settings as a position:absolute;inset:0
+overlay INSIDE the org-panel sidebar webview, over the tree. Resolution: the overlay is a
+DOM node in media/orgPanel.js / orgPanel.css (a body-of-panel .nest-overlay with a back
+chevron and a Newsreader 16px/600 heading), toggled client-side. The gear button opens it
+directly client-side; the retained OPEN_SETTINGS_COMMAND (kept for the palette + the two
+view/title menu homes) focuses the org panel and posts an { type:'openSettings' } message
+that the client handles by opening the overlay. src/settings/settingsWebview.ts and
+media/settings.{html,css,js} are DELETED. Reversible (a message + a DOM overlay).
+
+Fork 2 (reversible): TWO DISTINCT WINDOWS, kept structurally apart (fit patch item 1).
+claudeNest.archiveKeepWindowDays (enum 7/30/90/0, the contributes.configuration value)
+still drives PRUNING of Nest-owned body COPIES via the unchanged archiveRetention.ts
+decideRetention. This slice's new auto-archive window (7/14/30/90/1yr/Never) drives
+AUTO-ARCHIVING of LIVE chats and gets its OWN pure module src/store/autoArchivePolicy.ts
+with an injected now, so the two are never read as a conflation bug. archiveRetention.ts is
+NOT extended and archiveKeepWindowDays is NOT overloaded. Reversible (a new pure module).
+
+Fork 3 (reversible): NO NEW SYNCED SCALARS (AC #7, Non-goals; fit patch item 2). The
+auto-archive window AND the four section-visibility toggles (Starred, Questions, Folders,
+Unsorted) persist on workspaceState through the EXISTING OrgPanelStateStore get/set with
+new _KEY constants (AUTO_ARCHIVE_WINDOW_KEY, SECTIONS_VISIBLE_KEY), exactly like SORT_KEY /
+COLLAPSED_KEY. They are NEVER stored on ProjectMeta; the synced surface stays exactly
+nest.meta.v1::<projectKey>; autoArchivePolicy.ts never calls setKeysForSync. Reversible
+(workspaceState keys).
+
+Fork 4 (reversible): the RETENTION CONVENTION is reused for the auto-archive policy (fit
+patch item 3). autoArchivePolicy.decideAutoArchive is pure with an injected now:
+keepWindowDays<=0 is the Never sentinel (never auto-archive), STARRED is exempt (never
+auto-archived), a null last-activity keeps, and age STRICTLY GREATER than the window
+triggers (age exactly == window is kept, inclusive), matching decideRetention. The default
+window feeds from the effective cleanupPeriodDays via readCleanupPeriodDays (usingDefault
+-> CLAUDE_DEFAULT_CLEANUP_PERIOD_DAYS = 30). The AUTO-ARCHIVE WRITE reuses
+store.setChatArchived + archiveBodyStore.writeArchivedBody (the Nest-owned body copy with
+archivedAt), batched (N setChatArchived mutations coalesced into ONE flush, then one
+refresh), and runs on activation and after a scan refresh, adding NO new fs write path.
+Reversible (a batched pass over existing seams).
+
+Fork 5 (reversible): STARRED-CHAT PROTECTIVE COPY (AC #5). A starred chat is NEVER
+auto-archived, but per AC #5 it "receives a protective body copy once older than the
+effective Claude cleanup age". So the engine, in the same pass, writes a Nest-owned body
+copy for a starred, not-yet-archived, not-yet-copied chat whose last activity is older than
+the effective cleanup window, WITHOUT flipping userArchived. It uses the SAME
+writeArchivedBody seam (starred:true on the envelope) and skips a chat that already has a
+copy (a body-exists check), so the pass is idempotent and never re-copies. Reversible (an
+additive branch in the same batched pass).
+
+Fork 6 (reversible): AC #3 "disabling Unsorted can never make unfiled chats unreachable".
+The Unsorted toggle hides the Unsorted SECTION in the sectioned view, but the search box
+and tag chips still reach every unfiled chat, and (accepted safety rule) when EVERY other
+section that could hold a given unfiled chat is also hidden the Unsorted section is still
+rendered rather than leaving those chats with no on-screen path. The section-visibility
+toggles are CLIENT-SIDE render gates only (they never touch membership or the store), so an
+unfiled chat is always reachable via search/chips regardless of the toggle. Reversible
+(client render gates).
+
+Non-fork note: the overlay, like every other transient surface, is torn down / hidden by
+the shared close-set on a conflicting open; but UNLIKE the popovers it is a persistent
+sub-page (it stays open until the back chevron or Escape), so it is tracked separately from
+closeAllTransientOverlays (which serves the click-dismiss popovers) and is closed by Escape
+and the back chevron. Every label sink is textContent; the window select value and the
+toggle states are coerced at the host boundary before they reach workspaceState.
+
+## 2026-07-05 Slice s3b-settings-overlay (review + fix pass): AC #5 protective copy keyed to the cleanup age, not the auto-archive window
+
+Adversarial review (completeness + data-integrity lenses) refuted the first build's Fork 5
+resolution: the auto-archive engine used ONE window (the user's auto-archive window) for
+BOTH the unstarred-archive decision AND the starred protective copy. AC #5 requires a
+starred chat to "receive a protective body copy once older than the EFFECTIVE Claude
+cleanup age", which is NOT the same as the auto-archive window. When the user set the
+auto-archive window to "Never" (0), the engine short-circuited and NEVER wrote a starred
+protective copy, so a starred chat past the Claude cleanup age would lose its only durable
+form when Claude cleaned up the transcript. Data-loss defect, major.
+
+Fix (this pass): decideAutoArchive now takes TWO windows. archiveWindowDays (the user's
+chosen window, 0 = Never = disabled) governs the UNSTARRED 'archive' decision;
+protectiveWindowDays (the effective Claude cleanup age from readCleanupPeriodDays, 30 when
+unset) governs the STARRED 'copy' decision, INDEPENDENT of the archive window. The engine
+no longer short-circuits on archiveWindowDays <= 0 alone: it still runs the starred
+protective-copy pass whenever protectiveWindowDays is positive, and only returns early when
+BOTH windows are disabled. The wiring passes orgPanelProvider.autoArchiveWindowDays() as the
+archive window and effectiveAutoArchiveDefaultDays() as the protective window. Regression
+tests added: a starred chat still gets its protective copy when auto-archive is Never
+(policy + engine), an unstarred chat is not archived under Never, and both-disabled is a
+no-op. The boundary convention (inclusive edge, strictly-greater triggers) is preserved for
+both windows. Reversible (a policy signature widening + a wiring arg).

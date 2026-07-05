@@ -1241,3 +1241,182 @@ body {
   overflow: hidden;
   word-break: break-word;
 }
+
+/* ---- Settings overlay (slice s3b-settings-overlay, issue #86) ----
+   A full-panel sub-page over the tree/toolbar (design ChatSidebar.dc.html:263). It is
+   position:fixed;inset:0 (appended to document.body) so it covers the 320px panel, on
+   the #FCFBF8 overlay surface. A back chevron + Newsreader 16px/600 heading, then a
+   scrolling body with the ARCHIVING group and the SIDEBAR SECTIONS pill switches. */
+.nest-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--nest-panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.nest-overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 11px 10px;
+  border-bottom: 1px solid var(--nest-border-soft);
+  flex: none;
+}
+
+.nest-overlay-back {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: var(--nest-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--nest-icon);
+  font-size: 19px;
+  line-height: 1;
+  padding: 0;
+}
+
+.nest-overlay-back:hover {
+  background: var(--nest-btn-hover);
+}
+
+.nest-overlay-back:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+/* Sub-page headings use the Newsreader serif at 16px/600 (design tokens: "sub-page
+   titles use Newsreader serif 16px/600"). The bundled face loads via @font-face; the
+   local serif stack is the fallback. */
+.nest-overlay-title {
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--nest-text-strong);
+}
+
+.nest-overlay-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 15px 22px;
+}
+
+.nest-settings-group-label {
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  color: var(--nest-text-label);
+  font-weight: 700;
+  margin-bottom: 9px;
+}
+
+.nest-settings-field-label {
+  font-size: 13px;
+  color: var(--nest-text);
+  margin-bottom: 7px;
+}
+
+.nest-settings-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: var(--nest-radius);
+  border: 1px solid var(--nest-border-input);
+  background: var(--nest-input);
+  font-size: 13px;
+  color: var(--nest-text);
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+.nest-settings-select:focus {
+  border-color: var(--nest-accent);
+  box-shadow: 0 0 0 1px var(--nest-accent);
+}
+
+.nest-settings-note {
+  font-size: 11.5px;
+  color: var(--nest-text-muted);
+  margin-top: 7px;
+  line-height: 1.5;
+}
+
+.nest-settings-divider {
+  height: 1px;
+  background: var(--nest-border-soft);
+  margin: 18px 0 14px;
+}
+
+.nest-settings-toggle-row {
+  display: flex;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid #F1EDE4;
+}
+
+.nest-settings-toggle-row-last {
+  border-bottom: none;
+}
+
+.nest-settings-toggle-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.nest-settings-toggle-name {
+  font-size: 13px;
+  color: var(--nest-text);
+}
+
+.nest-settings-toggle-sub {
+  font-size: 11.5px;
+  color: var(--nest-text-muted);
+  margin-top: 1px;
+}
+
+/* The pill switch (design: track 34x19 radius 999, thumb 15x15 sliding 15px; on =
+   #d97757, off = #D6D0C2). A role="switch" button; .nest-switch-on paints the on
+   state and slides the thumb. */
+.nest-switch {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  flex: none;
+  border: none;
+  padding: 0;
+  border-radius: 999px;
+  background: #D6D0C2;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.nest-switch-on {
+  background: var(--nest-accent);
+}
+
+.nest-switch:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 2px;
+}
+
+.nest-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transform: translateX(0);
+  transition: transform 0.15s ease;
+}
+
+.nest-switch-on .nest-switch-thumb {
+  transform: translateX(15px);
+}
