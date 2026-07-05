@@ -5,10 +5,11 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
-Sprint 3 is Part 1 complete (issues #78 to #83 merged) and NOT yet released. The
-finished v0.2.0 "One Panel" release still needs Part 2 (#84 to #87), Part 3 (#88,
-#89), the human verify gate (#76), and the pre-release security council (#90)
-before the release run (#91) bumps the version and tags. A mid-sprint handoff
+Sprint 3 is Part 1 complete (issues #78 to #83 merged) and Part 2 is in progress
+(the hover card, #84, is merged; #85 to #87 remain), NOT yet released. The
+finished v0.2.0 "One Panel" release still needs the rest of Part 2 (#85 to #87),
+Part 3 (#88, #89), the human verify gate (#76), and the pre-release security
+council (#90) before the release run (#91) bumps the version and tags. A mid-sprint handoff
 build, `claude-code-nest-0.1.1-sprint3-part1.vsix`, is packaged in the repo root
 for smoke testing the Part 1 surface, and TESTING.md carries the consolidated
 per-slice smoke checklist drawn from SPRINT-3-PLAN.md (landed sections runnable;
@@ -92,6 +93,19 @@ this handoff.
   for "claude" does not match every chat. The persisted index stays tier-A-only (no
   message body is written to disk); the body is read on demand in memory and discarded.
   No schema change, no new file-write path, and the synced surface is unchanged.
+- A rich hover preview card in the Organize panel (#84), the first Part 2 slice.
+  Hovering a chat row (or pressing `p` on a focused row) opens a floating 270px card
+  with the chat title; a folder, age, and compact `NNk tok` meta line; the tag pills;
+  and the first user message and last assistant message, each clamped. The card is
+  hover-stable (a short leave delay keeps it up while the pointer travels onto it) and
+  keyboard-operable, with Escape closing it and restoring focus to the row. The card is
+  a webview DOM node, not the retired MarkdownString tooltip, and every content sink is
+  written as textContent (no innerHTML). Its two body lines are read on demand: the
+  client posts a hover-scoped `previewBody` request for the ONE chat, the host reads that
+  single transcript, picks the first user and last assistant body, posts them back keyed
+  by sessionId, and discards them; the reply renders only while the card is still open
+  for that chat. Bodies never enter the scan snapshot, no body is persisted, and the
+  synced surface is unchanged.
 
 ### Changed
 
