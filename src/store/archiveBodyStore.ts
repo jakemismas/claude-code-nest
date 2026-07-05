@@ -175,6 +175,18 @@ export async function readArchivedBody(
   }
 }
 
+// Whether a Nest-owned body copy already exists for one chat. Used by the
+// auto-archive engine (slice s3b-settings-overlay) to skip writing a starred
+// protective copy that already landed, so the pass is idempotent and never
+// re-copies. A read that returns an envelope means the copy exists; any failure
+// (absent, unreadable, malformed) reads as absent. Best-effort, never throws.
+export async function hasArchivedBody(
+  globalStorageUri: vscode.Uri,
+  sessionId: string,
+): Promise<boolean> {
+  return (await readArchivedBody(globalStorageUri, sessionId)) !== null;
+}
+
 // Delete one archived chat's body copy (used by Restore: clearing the
 // userArchived flag also removes the now-redundant Nest-owned copy). Best-effort:
 // a swallowed failure leaves a stale copy that a later prune reclaims. Goes only

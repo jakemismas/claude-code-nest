@@ -103,6 +103,34 @@
   // single tabindex="0". Kept stable across re-renders by id when possible.
   let focusedId = null;
 
+  // ---- Settings overlay (slice s3b-settings-overlay, issue #86) ----
+
+  // The auto-archive window in DAYS (0 = Never), hydrated from the host 'settings'
+  // message. Persisted on workspaceState by the host; the client only reflects and
+  // posts it. The allowed values mirror autoArchivePolicy.AUTO_ARCHIVE_WINDOW_DAYS.
+  let autoArchiveWindowDays = 30;
+  const AUTO_ARCHIVE_OPTIONS = [
+    { days: 7, label: '7 days' },
+    { days: 14, label: '14 days' },
+    { days: 30, label: '30 days' },
+    { days: 90, label: '90 days' },
+    { days: 365, label: '1 year' },
+    { days: 0, label: 'Never archive' },
+  ];
+
+  // The four section-visibility toggles (all ON by default, AC #3). Client-side
+  // render gates only: hiding a section never removes a chat from the model, and
+  // search + chips still reach every chat, so no chat is ever made unreachable.
+  const sectionsVisible = { starred: true, questions: true, folders: true, unsorted: true };
+
+  // The Settings overlay element (body-of-panel position:absolute;inset:0), or null
+  // when closed. Unlike the click-dismiss popovers it is a persistent sub-page: it
+  // stays open until the back chevron or Escape, so it is tracked separately from the
+  // transient-overlay close-set. settingsReturnFocusEl restores focus to the gear on
+  // close.
+  let settingsOverlayEl = null;
+  let settingsReturnFocusEl = null;
+
   // ---- rich hover preview card (slice s3b-hover-card, issue #84) ----
 
   // The floating 270px card element (body-level, position:fixed) or null when no
@@ -696,10 +724,39 @@
       return;
     }
 
-    renderCrossCuttingSection('Starred', sections.starred);
-    renderCrossCuttingSection('Questions', sections.questions, { showBreadcrumb: true });
+    // Section-visibility gates (issue #86 AC #3): each toggle hides only the SECTION's
+    // rendering; the model, search, and chips are untouched, so a hidden section's
+    // chats stay reachable via search and the tag chips. Starred/Questions also hide
+    // when empty (unchanged). Folders hidden -> skip the FOLDERS header and every real
+    // folder; Unsorted hidden -> skip the synthetic Unsorted bucket. Disabling Unsorted
+    // can never strand an unfiled chat: it remains reachable through search/chips (and
+    // through any other section it also belongs to).
+    if (sectionsVisible.starred) {
+      renderCrossCuttingSection('Starred', sections.starred);
+    }
+    if (sectionsVisible.questions) {
+      renderCrossCuttingSection('Questions', sections.questions, { showBreadcrumb: true });
+    }
 
-    renderFoldersHeader();
+    renderFolderTree();
+
+    renderArchivedRow();
+    restoreFocus();
+  }
+
+  // Render the FOLDERS header and the folder tree, honoring the Folders and Unsorted
+  // section-visibility toggles. Split out of render() so the gating reads cleanly; the
+  // collapse/hide bookkeeping is unchanged.
+  function renderFolderTree() {
+    const showFolders = sectionsVisible.folders;
+    const showUnsorted = sectionsVisible.unsorted;
+    // The FOLDERS header belongs to the real folder tree; hide it when Folders is off.
+    // When ONLY Unsorted is on (Folders off), the synthetic Unsorted bucket still
+    // renders below without a FOLDERS header, matching "Unsorted is the always-present
+    // catch-all" while respecting the Folders toggle.
+    if (showFolders) {
+      renderFoldersHeader();
+    }
     // The folders array is a pre-order flattening. When a folder is collapsed we
     // skip every following entry whose depth is greater than the collapsed folder's
     // depth, so the whole collapsed subtree (rows and descendant folder sections) is
@@ -711,6 +768,18 @@
     const depthOf = (f) => (typeof f.treeDepth === 'number' ? f.treeDepth : f.depth);
     let hideDeeperThan = Infinity;
     for (const folder of sections.folders) {
+      // The synthetic Unsorted bucket is gated by the Unsorted toggle; the real
+      // folders by the Folders toggle. A folder skipped by its toggle contributes
+      // nothing to the collapse bookkeeping (it and its subtree are simply not drawn).
+      if (folder.synthetic) {
+        if (showUnsorted) {
+          renderFolderSection(folder);
+        }
+        continue;
+      }
+      if (!showFolders) {
+        continue;
+      }
       const d = depthOf(folder);
       if (d <= hideDeeperThan) {
         hideDeeperThan = Infinity;
@@ -719,13 +788,10 @@
         continue;
       }
       renderFolderSection(folder);
-      if (!folder.synthetic && collapsedFolders.has(folder.folderId)) {
+      if (collapsedFolders.has(folder.folderId)) {
         hideDeeperThan = d;
       }
     }
-
-    renderArchivedRow();
-    restoreFocus();
   }
 
   // Build a sessionId -> row lookup over every section (Starred, Questions, and each
@@ -2155,6 +2221,205 @@
     input.focus();
   }
 
+  // ---- Settings overlay (slice s3b-settings-overlay, issue #86) ----
+
+  // The four section toggles, in the design's order, with their sub-labels
+  // (media/design/ChatSidebar.dc.html:281-299). Each drives sectionsVisible[key] and
+  // posts { type:'setSectionsVisible', [key]:next }.
+  const SECTION_TOGGLES = [
+    { key: 'starred', label: 'Starred', sub: 'Show starred chats at the top' },
+    { key: 'questions', label: 'Questions', sub: 'Surface chats awaiting your reply' },
+    { key: 'folders', label: 'Folders', sub: 'Show the folder tree' },
+    { key: 'unsorted', label: 'Unsorted', sub: 'Show chats not in a folder' },
+  ];
+
+  function closeSettingsOverlay(restoreFocusToGear) {
+    if (settingsOverlayEl) {
+      settingsOverlayEl.remove();
+      settingsOverlayEl = null;
+    }
+    if (restoreFocusToGear && settingsReturnFocusEl && typeof settingsReturnFocusEl.focus === 'function') {
+      settingsReturnFocusEl.focus();
+    }
+    settingsReturnFocusEl = null;
+  }
+
+  function isSettingsOpen() {
+    return settingsOverlayEl !== null;
+  }
+
+  // Build and open the full-panel Settings overlay. A back chevron + Newsreader 16px/600
+  // heading, an ARCHIVING group (a "Keep chats for" select), and a SIDEBAR SECTIONS
+  // group of four pill switches (on = #d97757). The overlay is position:absolute;inset:0
+  // over the panel; it stays open until the back chevron or Escape. Idempotent: opening
+  // it while open re-renders in place (so a fresh 'settings' state re-seeds the controls).
+  function openSettingsOverlay() {
+    // A conflicting transient surface is torn down, but this persistent sub-page is not
+    // in that close-set; opening it dismisses the click-dismiss popovers so nothing
+    // floats over it.
+    closeAllTransientOverlays();
+    closeSort(false);
+    if (settingsOverlayEl) {
+      closeSettingsOverlay(false);
+    }
+    settingsReturnFocusEl = settingsEl || null;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'nest-overlay nest-settings-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-label', 'Settings');
+
+    // Header: back chevron + heading.
+    const header = document.createElement('div');
+    header.className = 'nest-overlay-header';
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'nest-overlay-back';
+    back.title = 'Back';
+    back.setAttribute('aria-label', 'Back');
+    back.textContent = '‹'; // single left angle quote
+    back.addEventListener('click', () => closeSettingsOverlay(true));
+    header.appendChild(back);
+    const heading = document.createElement('span');
+    heading.className = 'nest-overlay-title';
+    heading.textContent = 'Settings';
+    header.appendChild(heading);
+    overlay.appendChild(header);
+
+    // Scrolling body.
+    const body = document.createElement('div');
+    body.className = 'nest-overlay-body';
+
+    // ARCHIVING group.
+    const archLabel = document.createElement('div');
+    archLabel.className = 'nest-settings-group-label';
+    archLabel.textContent = 'ARCHIVING';
+    body.appendChild(archLabel);
+
+    const keepLabel = document.createElement('div');
+    keepLabel.className = 'nest-settings-field-label';
+    keepLabel.textContent = 'Keep chats for';
+    body.appendChild(keepLabel);
+
+    const select = document.createElement('select');
+    select.className = 'nest-settings-select';
+    select.setAttribute('aria-label', 'Keep chats for');
+    for (const opt of AUTO_ARCHIVE_OPTIONS) {
+      const o = document.createElement('option');
+      o.value = String(opt.days);
+      o.textContent = opt.label;
+      if (opt.days === autoArchiveWindowDays) {
+        o.selected = true;
+      }
+      select.appendChild(o);
+    }
+    select.addEventListener('change', () => {
+      const days = Number(select.value);
+      autoArchiveWindowDays = days;
+      vscode.postMessage({ type: 'setAutoArchiveWindow', days });
+    });
+    body.appendChild(select);
+
+    const archNote = document.createElement('div');
+    archNote.className = 'nest-settings-note';
+    archNote.textContent = 'Chats older than this are moved to Archive automatically. Starred chats are kept.';
+    body.appendChild(archNote);
+
+    const divider = document.createElement('div');
+    divider.className = 'nest-settings-divider';
+    divider.setAttribute('aria-hidden', 'true');
+    body.appendChild(divider);
+
+    // SIDEBAR SECTIONS group.
+    const secLabel = document.createElement('div');
+    secLabel.className = 'nest-settings-group-label';
+    secLabel.textContent = 'SIDEBAR SECTIONS';
+    body.appendChild(secLabel);
+
+    SECTION_TOGGLES.forEach((t, i) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'nest-settings-toggle-row';
+      if (i === SECTION_TOGGLES.length - 1) {
+        rowEl.classList.add('nest-settings-toggle-row-last');
+      }
+      const textCol = document.createElement('div');
+      textCol.className = 'nest-settings-toggle-text';
+      const name = document.createElement('div');
+      name.className = 'nest-settings-toggle-name';
+      name.textContent = t.label;
+      const sub = document.createElement('div');
+      sub.className = 'nest-settings-toggle-sub';
+      sub.textContent = t.sub;
+      textCol.appendChild(name);
+      textCol.appendChild(sub);
+      rowEl.appendChild(textCol);
+
+      const sw = document.createElement('button');
+      sw.type = 'button';
+      sw.className = 'nest-switch';
+      sw.setAttribute('role', 'switch');
+      const on = sectionsVisible[t.key] !== false;
+      sw.setAttribute('aria-checked', on ? 'true' : 'false');
+      sw.setAttribute('aria-label', t.label);
+      if (on) {
+        sw.classList.add('nest-switch-on');
+      }
+      const thumb = document.createElement('span');
+      thumb.className = 'nest-switch-thumb';
+      thumb.setAttribute('aria-hidden', 'true');
+      sw.appendChild(thumb);
+      sw.addEventListener('click', () => {
+        const next = !(sectionsVisible[t.key] !== false);
+        sectionsVisible[t.key] = next;
+        sw.setAttribute('aria-checked', next ? 'true' : 'false');
+        sw.classList.toggle('nest-switch-on', next);
+        var payload = { type: 'setSectionsVisible' };
+        payload[t.key] = next;
+        vscode.postMessage(payload);
+        // Re-render the tree beneath the overlay so closing it shows the new gating
+        // immediately (the overlay itself stays open).
+        render();
+      });
+      rowEl.appendChild(sw);
+      body.appendChild(rowEl);
+    });
+
+    overlay.appendChild(body);
+    // Append INSIDE the panel body (not document.body) so it overlays the tree/toolbar
+    // area exactly like the design's inset:0 sub-page and inherits the panel width.
+    document.body.appendChild(overlay);
+    settingsOverlayEl = overlay;
+    back.focus();
+  }
+
+  // Reconcile the OPEN overlay's controls to the current state WITHOUT a rebuild, so a
+  // host-side coercion (e.g. an out-of-range window snapped to the default) is reflected
+  // but focus is NOT stolen back to the back chevron on every toggle. No-op when closed.
+  function reconcileOpenSettingsControls() {
+    if (!settingsOverlayEl) {
+      return;
+    }
+    const select = settingsOverlayEl.querySelector('.nest-settings-select');
+    if (select) {
+      select.value = String(autoArchiveWindowDays);
+    }
+    const rows = settingsOverlayEl.querySelectorAll('.nest-settings-toggle-row');
+    // Rows are in SECTION_TOGGLES order; sync each switch's on-state from sectionsVisible.
+    SECTION_TOGGLES.forEach(function (t, i) {
+      const rowEl = rows[i];
+      if (!rowEl) {
+        return;
+      }
+      const sw = rowEl.querySelector('.nest-switch');
+      if (!sw) {
+        return;
+      }
+      const on = sectionsVisible[t.key] !== false;
+      sw.setAttribute('aria-checked', on ? 'true' : 'false');
+      sw.classList.toggle('nest-switch-on', on);
+    });
+  }
+
   // ---- drag and drop (in-process) ----
 
   function onRowDragStart(e, sessionId) {
@@ -2506,6 +2771,12 @@
     document.addEventListener('click', () => closeSort(false));
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        // The Settings overlay is a persistent sub-page: Escape closes it first (and
+        // returns focus to the gear) rather than falling through to the tree overlays.
+        if (isSettingsOpen()) {
+          closeSettingsOverlay(true);
+          return;
+        }
         closeSort(isSortOpen());
         // Close the hover card first, restoring focus to the row it was opened from
         // when it was a keyboard-opened card (issue #84 AC #5). Runs before the other
@@ -2613,6 +2884,34 @@
         const lastAssistant = typeof msg.lastAssistant === 'string' ? msg.lastAssistant : null;
         applyPreviewBody(msg.sessionId, firstUser, lastAssistant);
       }
+    } else if (msg.type === 'settings') {
+      // The host posted the Settings overlay state (issue #86): the auto-archive window
+      // and the four section-visibility toggles. Adopt them and re-render the tree so
+      // the section gates apply. We do NOT rebuild an OPEN overlay here: the host posts
+      // 'settings' after every setAutoArchiveWindow / setSectionsVisible the user just
+      // made in the open overlay, and rebuilding would steal focus back to the back
+      // chevron on every toggle. The open overlay already reflects the user's own change
+      // optimistically (the switch/select handlers update their control in place); the
+      // fresh state is seeded the next time the overlay is opened. Reconcile the open
+      // overlay's controls in place (without a rebuild) so a host-side coercion (e.g. an
+      // out-of-range window snapped to the default) is still reflected.
+      if (typeof msg.autoArchiveWindowDays === 'number') {
+        autoArchiveWindowDays = msg.autoArchiveWindowDays;
+      }
+      const sv = msg.sectionsVisible;
+      if (sv && typeof sv === 'object') {
+        sectionsVisible.starred = sv.starred !== false;
+        sectionsVisible.questions = sv.questions !== false;
+        sectionsVisible.folders = sv.folders !== false;
+        sectionsVisible.unsorted = sv.unsorted !== false;
+      }
+      render();
+      if (isSettingsOpen()) {
+        reconcileOpenSettingsControls();
+      }
+    } else if (msg.type === 'openSettings') {
+      // The palette/view-title Settings command asked to open the in-panel overlay.
+      openSettingsOverlay();
     } else if (msg.type === 'active') {
       // The host resolved the currently-open chat (best-effort tab-label match). Re-tint
       // in place without a full re-render: clear the old tint, apply the new one.
@@ -2677,7 +2976,10 @@
     newSessionEl.addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
   }
   if (settingsEl) {
-    settingsEl.addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+    // The gear opens the in-panel Settings overlay directly (client-side render). No
+    // host round-trip is needed to OPEN it; the overlay's controls are seeded from the
+    // last 'settings' message the host posted on 'ready' and re-posts on every change.
+    settingsEl.addEventListener('click', () => openSettingsOverlay());
   }
   wireSortPopover();
 

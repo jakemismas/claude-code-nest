@@ -7,7 +7,13 @@ import {
   LinkedChildItem,
   FolderTreeNode,
 } from './views/foldersProvider';
-import { OrgPanelProvider, ORG_PANEL_VIEW, OrgPanelActions, OrgPanelStateStore } from './views/orgPanelWebview';
+import {
+  OrgPanelProvider,
+  ORG_PANEL_VIEW,
+  OrgPanelActions,
+  OrgPanelStateStore,
+  OPEN_SETTINGS_COMMAND,
+} from './views/orgPanelWebview';
 import { ReadStateStore } from './views/readState';
 import { matchTabLabelToChat, isClaudeChatViewType } from './views/tabFocusMatch';
 import { OPEN_CHAT_COMMAND, openChat, OpenUri } from './launch/uriLauncher';
@@ -66,7 +72,6 @@ import {
   promoteGroupToFolder,
   promoteGroupToTag,
 } from './commands/promoteSmartGroup';
-import { OPEN_SETTINGS_COMMAND, openSettingsWebview } from './settings/settingsWebview';
 import {
   AutoExporter,
   EXPORT_COMMAND,
@@ -112,8 +117,14 @@ import {
   updateStarFlag,
   readArchivedBody,
   pruneArchivedBodies,
+  hasArchivedBody,
 } from './store/archiveBodyStore';
 import { coerceKeepWindowDays } from './store/archiveRetention';
+import { runAutoArchivePass, AutoArchiveChat } from './store/autoArchiveEngine';
+import {
+  readCleanupPeriodDays,
+  CLAUDE_DEFAULT_CLEANUP_PERIOD_DAYS,
+} from './settings/claudeSettingsIO';
 import {
   EXPORT_CHAT_COMMAND,
   ExportChatDeps,
@@ -193,6 +204,14 @@ export function activate(context: vscode.ExtensionContext): void {
   // on a mutation, the same way scheduleAutoExport is forwarded. A call before the
   // provider exists (none occur during synchronous activation) is a harmless no-op.
   let refreshOrgPanel: () => void = () => {};
+
+  // Forward handle to the auto-archive engine pass (slice s3b-settings-overlay, issue
+  // #86), assigned once the OrgPanelProvider and the archive-body seams exist (it reads
+  // the provider's scan + the current auto-archive window). Called on activation, after
+  // a scan refresh, and when the user changes the window in the Settings overlay. A
+  // call before it is assigned (none occur during synchronous activation before the
+  // provider is built) is a harmless no-op.
+  let runAutoArchiveNow: () => Promise<void> = () => Promise.resolve();
 
   // The shared progress + cancellation UI for the explicit Refresh commands
   // (Polish slice). vscode.window.withProgress shows a cancellable notification
@@ -443,10 +462,11 @@ export function activate(context: vscode.ExtensionContext): void {
         // The view may not be resolvable yet; nothing else to do.
       }
     },
-    openSettings: (): void => {
-      // The gear opens the Settings sub-page; that overlay lands in s3b. Until then,
-      // run the existing settings command (opens the settings webview tab).
-      void vscode.commands.executeCommand(OPEN_SETTINGS_COMMAND);
+    runAutoArchive: async (): Promise<void> => {
+      // The user changed the auto-archive window in the Settings overlay; run a fresh
+      // pass so a shortened window applies without a window reload (issue #86 AC #4). A
+      // no-op when auto-archiving is disabled (Never) or nothing is past the window.
+      await runAutoArchiveNow();
     },
     setStarred: async (sessionId: string, starred: boolean): Promise<void> => {
       // Route the row's star toggle to the EXISTING star/unstar curation commands
@@ -551,6 +571,17 @@ export function activate(context: vscode.ExtensionContext): void {
     get: (key: string) => context.workspaceState.get<string>(key),
     update: (key: string, value: string) => void context.workspaceState.update(key, value),
   });
+  // The effective DEFAULT auto-archive window in days when the user has not chosen one
+  // (issue #86 AC #2): the effective Claude cleanupPeriodDays read from settings.json,
+  // or CLAUDE_DEFAULT_CLEANUP_PERIOD_DAYS (30) when Claude itself has not set it. Read
+  // fresh each call so a settings.json change is reflected without a reload. Read-only
+  // (readCleanupPeriodDays does a plain readFileSync + tolerant parse).
+  const effectiveAutoArchiveDefaultDays = (): number => {
+    const read = readCleanupPeriodDays();
+    return read.usingDefault || read.value === null
+      ? CLAUDE_DEFAULT_CLEANUP_PERIOD_DAYS
+      : read.value;
+  };
   const orgPanelProvider = new OrgPanelProvider(
     context.extensionUri,
     workspacePath,
@@ -561,6 +592,7 @@ export function activate(context: vscode.ExtensionContext): void {
     orgPanelStateStore,
     readStateStore,
     context.globalStorageUri,
+    effectiveAutoArchiveDefaultDays,
   );
   refreshOrgPanel = () => orgPanelProvider.refresh();
   context.subscriptions.push(
@@ -938,6 +970,100 @@ export function activate(context: vscode.ExtensionContext): void {
   // shows its stored title from the first render.
   void loadArchiveFallbackTitles();
 
+  // ---- Auto-archive engine (slice s3b-settings-overlay, issue #86 AC #4/#5) ----
+  //
+  // A batched pass over the workspace's scanned chats: an unstarred chat whose last
+  // activity is older than the auto-archive window is userArchived (synced flag +
+  // stamped archivedAt) AND gets a Nest-owned body copy; a starred chat past the window
+  // is NEVER archived but receives a protective body copy once. All flag flips coalesce
+  // into ONE store flush; then the org surfaces refresh once. Reuses the SAME store +
+  // archiveBodyStore seams the interactive archive command uses (no new fs write path),
+  // and reads the window from the org panel's persisted setting (workspaceState). Runs
+  // on activation, after a scan refresh, and when the user shortens the window in the
+  // Settings overlay. Best-effort: a failure never blocks activation.
+  //
+  // FIRST-RUN NOTIFICATION (AC #4): the first pass that actually archives a chat shows
+  // a one-time toast explaining the move and pointing at Restore (the Archive view).
+  const AUTO_ARCHIVE_FIRST_RUN_KEY = 'claudeNest.autoArchive.firstRunNotified';
+  runAutoArchiveNow = async (): Promise<void> => {
+    try {
+      const projectKey = foldersProvider.resolveProjectKey();
+      if (projectKey === undefined) {
+        return;
+      }
+      // Two windows (issue #86 AC #4 vs AC #5): the user's auto-archive window governs
+      // UNSTARRED archiving (0 = Never = disabled); the effective Claude cleanup age
+      // governs the STARRED protective copy, INDEPENDENT of the auto-archive window so
+      // "Never" does not strip a starred chat of its durable copy. When BOTH are
+      // disabled there is nothing to do.
+      const archiveWindowDays = orgPanelProvider.autoArchiveWindowDays();
+      const protectiveWindowDays = effectiveAutoArchiveDefaultDays();
+      if (archiveWindowDays <= 0 && protectiveWindowDays <= 0) {
+        return;
+      }
+      const records = orgPanelProvider.scanRecords();
+      if (records.length === 0) {
+        return;
+      }
+      const meta = store.getProjectMeta(projectKey);
+      const chats: AutoArchiveChat[] = records.map((r) => {
+        const chatMeta = meta.chats[r.sessionId];
+        return {
+          sessionId: r.sessionId,
+          filePath: r.filePath,
+          title: r.title,
+          lastActivity: r.timestamp,
+          starred: chatMeta?.starred === true,
+          archived: chatMeta?.userArchived === true,
+        };
+      });
+      const result = await runAutoArchivePass(
+        {
+          setArchived: (sessionId) => store.setChatArchived(projectKey, sessionId, true),
+          flush: () => store.flush(),
+          readBody: (filePath) => readTranscriptBodies(filePath),
+          writeBody: (envelope) => writeArchivedBody(context.globalStorageUri, envelope),
+          hasBody: (sessionId) => hasArchivedBody(context.globalStorageUri, sessionId),
+          getArchivedAt: (sessionId) =>
+            store.getProjectMeta(projectKey).chats[sessionId]?.archivedAt ?? null,
+          now: () => Date.now(),
+        },
+        chats,
+        archiveWindowDays,
+        protectiveWindowDays,
+      );
+      if (result.changed) {
+        // A curation-class change happened (archived chats moved / copies written):
+        // refresh every org surface and re-load archive fallback titles, exactly like
+        // the interactive archive path.
+        refreshAllOrgSurfaces();
+        void loadArchiveFallbackTitles();
+      }
+      if (result.archived > 0 && context.globalState.get<boolean>(AUTO_ARCHIVE_FIRST_RUN_KEY) !== true) {
+        void context.globalState.update(AUTO_ARCHIVE_FIRST_RUN_KEY, true);
+        void vscode.window
+          .showInformationMessage(
+            'Nest moved ' +
+              result.archived +
+              ' older chat' +
+              (result.archived === 1 ? '' : 's') +
+              ' to Archive to keep the list tidy. A Nest-owned copy is kept so each ' +
+              'survives Claude cleanup. Restore any from the Archive view.',
+            'Open Archive',
+          )
+          .then((choice) => {
+            if (choice === 'Open Archive') {
+              void vscode.commands.executeCommand('claudeNest.archive.focus');
+            }
+          });
+      }
+    } catch {
+      // Best-effort: an auto-archive failure must never break activation or a refresh.
+    }
+  };
+  // Run one pass on activation (fire-and-forget).
+  void runAutoArchiveNow();
+
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_CHAT_COMMAND, (sessionId: string) => {
       // Open-via-Nest is a read-state CLEAR TRIGGER (UI-SPEC.md "Read state"): opening
@@ -970,6 +1096,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('claudeNest.refresh', async () => {
       await runRefreshScan(foldersProvider, 'chats');
       refreshOrgPanel();
+      // Run an auto-archive pass after the scan refresh (issue #86 AC #4: "runs on
+      // activation and after scan refresh"): a chat that just aged past the window is
+      // swept now rather than only on the next activation.
+      void runAutoArchiveNow();
     }),
   );
 
@@ -1110,15 +1240,20 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // The Settings gear (Slice 7): opens a CSP-locked, nonce-scripted WebviewPanel
-  // that reads and surgically edits cleanupPeriodDays in Claude's settings.json,
-  // routed through the read-only chokepoint. context.extensionUri is needed so the
-  // webview can build asWebviewUri asset URLs and set localResourceRoots to the
-  // shipped media dir.
+  // The Settings gear (slice s3b-settings-overlay, issue #86): the Settings sub-page
+  // is now an IN-PANEL overlay inside the org panel webview (the retired
+  // settingsWebview.ts WebviewPanel is deleted). The command reveals the org panel and
+  // asks it to open the overlay. Focusing the view resolves it if it was never opened;
+  // once 'ready' arrives the panel posts the settings state and opens the overlay.
   context.subscriptions.push(
-    vscode.commands.registerCommand(OPEN_SETTINGS_COMMAND, () =>
-      openSettingsWebview(context.extensionUri),
-    ),
+    vscode.commands.registerCommand(OPEN_SETTINGS_COMMAND, async () => {
+      try {
+        await vscode.commands.executeCommand('claudeNest.orgPanel.focus');
+      } catch {
+        // The view may not be resolvable yet; the open message below still queues.
+      }
+      orgPanelProvider.openSettingsOverlay();
+    }),
   );
 
   // Slice 8: export/import plus cross-machine sync hardening. The export writes
