@@ -435,6 +435,38 @@ async function typeIntoInput(page, selector, text) {
   );
 }
 
+// Locate the prototype's 320px sidebar column and return its bounding box so the
+// capture is clipped to the panel only (dropping the mock window chrome and the
+// activity-bar rail), matching the harness's panel-only frame. The column is a
+// 320px content-box with a 1px solid right border, so its bounding width is ~321px;
+// match a small tolerance band, require the solid right border, and require a tall
+// box. Throws with an actionable message when the column cannot be found (the
+// prototype layout changed). Shared by every prototype capture stage.
+async function clipToSidebar(page) {
+  const rect = await evaluate(
+    page,
+    '(function(){' +
+      "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
+      'for(var i=0;i<divs.length;i++){' +
+      '  var el=divs[i]; var cs=getComputedStyle(el);' +
+      '  var r=el.getBoundingClientRect();' +
+      '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
+      '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
+      '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
+      '  }' +
+      '}' +
+      'return null;' +
+      '})()',
+  );
+  if (!rect) {
+    throw new Error(
+      'Could not locate the 320px sidebar column in the prototype to clip to. ' +
+        'The prototype layout may have changed; update the sidebar selector in screenshot.js.',
+    );
+  }
+  return rect;
+}
+
 // The query the results-state captures stage. It matches a body line in the mock
 // (the harness reply) and the prototype's c2 body ("...backed by Redis...") while
 // being ABSENT from those chats' titles, so the flat "N RESULTS" list shows a
@@ -1086,6 +1118,332 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-archive.png')));
 
+    // Page 12: the DRAG DROP-HIGHLIGHT state of the real panel (slice s3c-fidelity-sweep,
+    // issue #88). The .nest-drop-over highlight only paints while a chat drag is in flight
+    // (attachDropTarget's dragover handler is gated on draggingChatIds.length > 0), so this
+    // stage first dispatches a dragstart on a chat row to arm the in-process drag, then a
+    // dragover onto a folder header so the header paints its inset-ring drop target. The
+    // capture is the clipped 320px tree (the highlight is an in-list state, not a body-level
+    // overlay), matching the "clipped tree for in-list states" rule in the fit patch.
+    const harnessDropPage = await openPage(browser);
+    await renderAndCapture(
+      harnessDropPage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-drop-highlight.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        // Arm the drag on the 'Fix N+1 query in orders' row (s-05), then drag over the
+        // 'Backend API' folder header (the second .nest-folder-row) so that header shows
+        // the drop highlight. A DragEvent carries a real DataTransfer so the panel's
+        // dragstart handler (onRowDragStart) records draggingChatIds and the dragover
+        // handler paints .nest-drop-over (the handler paints on any folder header while a
+        // drag is armed; the highlight is purely visual and does not depend on the target
+        // being a non-home folder).
+        const dropped = await evaluate(
+          page,
+          '(function(){' +
+            "var row=document.querySelector('#list .nest-row[data-id=\"s-05\"]')" +
+            " || document.querySelector('#list .nest-row');" +
+            "if(!row) return 'no-row';" +
+            'var dt=new DataTransfer();' +
+            "row.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));" +
+            "var folders=document.querySelectorAll('#list .nest-folder-row');" +
+            "if(folders.length===0) return 'no-folder';" +
+            'var target=folders[folders.length>1?1:0];' +
+            'var r=target.getBoundingClientRect();' +
+            "target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dt,clientX:r.left+20,clientY:r.top+8}));" +
+            "return 'ok';" +
+            '})()',
+        );
+        if (dropped !== 'ok') {
+          throw new Error('Could not arm the harness drag drop-highlight: ' + dropped);
+        }
+        await waitForCondition(
+          page,
+          "!!document.querySelector('#list .nest-folder-row.nest-drop-over')",
+          10000,
+          'harness folder drop-highlight to paint',
+        );
+        await sleep(150);
+        // Clip to the panel's own tree column (in-list state), returning the body box.
+        return await evaluate(
+          page,
+          '(function(){var b=document.body.getBoundingClientRect();' +
+            'return {x:0,y:0,width:Math.min(b.width,320),height:document.documentElement.scrollHeight};})()',
+        );
+      },
+    );
+    console.log(
+      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-drop-highlight.png')),
+    );
+
+    // Page 13: the SORT POPOVER (open) state of the real panel (issue #88). Click the sort
+    // button and wait for the popover to un-hide, then capture the full 320px viewport (the
+    // popover is a body-adjacent toolbar overlay, so capture the whole panel like the menus).
+    const harnessSortPage = await openPage(browser);
+    await renderAndCapture(
+      harnessSortPage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-sort-popover.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        const opened = await evaluate(
+          page,
+          '(function(){' +
+            "var b=document.getElementById('sortBtn');" +
+            "if(!b) return 'no-sort-btn';" +
+            'b.click();' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (opened !== 'ok') {
+          throw new Error('Could not open the harness sort popover: ' + opened);
+        }
+        await waitForCondition(
+          page,
+          "(function(){var p=document.getElementById('sortPopover');" +
+            "return !!p && !p.hidden && p.querySelectorAll('.nest-popover-item').length === 3;})()",
+          10000,
+          'harness sort popover to open with its three items',
+        );
+        await sleep(150);
+      },
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-sort-popover.png')));
+
+    // Page 14: the SORT POPOVER of the design prototype, the fidelity baseline the sort
+    // capture is judged against. Click the prototype's Sort glyph to open its popover, then
+    // clip to the 320px sidebar like the other prototype captures.
+    const protoSortPage = await openPage(browser);
+    await renderAndCapture(
+      protoSortPage,
+      pathToFileURL(PROTOTYPE_HTML).href,
+      path.join(OUT_DIR, 'prototype-sort-popover.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          '(function(){' +
+            "var loading=document.getElementById('__bundler_loading');" +
+            'if(loading && loading.offsetParent!==null) return false;' +
+            "var divs=document.querySelectorAll('body div');" +
+            'return divs.length > 8;' +
+            '})()',
+          30000,
+          'prototype React mount',
+        );
+        await evaluate(
+          page,
+          '(function(){' +
+            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
+            'var n=document.getElementById(id); if(n) n.remove();' +
+            '} return true; })()',
+        );
+        // Click the Sort trigger (the ⇅ glyph carries title="Sort").
+        const clicked = await evaluate(
+          page,
+          '(function(){' +
+            "var e=document.querySelector('[title=\"Sort\"]');" +
+            "if(!e) return 'no-sort';" +
+            '(e.closest("button") || e).click();' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (clicked !== 'ok') {
+          throw new Error('Could not open the prototype sort popover: ' + clicked);
+        }
+        await waitForCondition(
+          page,
+          "Array.prototype.some.call(document.querySelectorAll('*'),function(e){return e.children.length===0 && /SORT BY/i.test((e.textContent||'').trim());})",
+          10000,
+          'prototype sort popover (SORT BY) to open',
+        );
+        await sleep(300);
+        return await clipToSidebar(page);
+      },
+      PROTOTYPE_VIEWPORT_WIDTH,
+    );
+    console.log(
+      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-sort-popover.png')),
+    );
+
+    // Page 15: the NEW-FOLDER POPOVER (open) state of the real panel (issue #88). Click the
+    // FOLDERS-header + button (openNewFolderPopover) and wait for the popover with its name
+    // input and Create/Cancel actions, then capture the full 320px viewport.
+    const harnessNewFolderPage = await openPage(browser);
+    await renderAndCapture(
+      harnessNewFolderPage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-newfolder-popover.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        // The FOLDERS header renders a + (new folder) mini-btn as its first .nest-mini-btn.
+        const opened = await evaluate(
+          page,
+          '(function(){' +
+            "var add=document.querySelector('.nest-folders-header .nest-mini-btn');" +
+            "if(!add) return 'no-add-btn';" +
+            'add.click();' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (opened !== 'ok') {
+          throw new Error('Could not open the harness new-folder popover: ' + opened);
+        }
+        await waitForCondition(
+          page,
+          "(function(){var p=document.querySelector('.nest-newfolder-popover');" +
+            "return !!p && !!p.querySelector('.nest-newfolder-input') && " +
+            "!!p.querySelector('.nest-newfolder-create');})()",
+          10000,
+          'harness new-folder popover to open with its input and Create action',
+        );
+        await sleep(150);
+      },
+    );
+    console.log(
+      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-newfolder-popover.png')),
+    );
+
+    // Page 16: the NEW-FOLDER POPOVER of the design prototype, the fidelity baseline the
+    // new-folder capture is judged against. Click the prototype's + glyph (title="New folder")
+    // to open its popover, then clip to the 320px sidebar.
+    const protoNewFolderPage = await openPage(browser);
+    await renderAndCapture(
+      protoNewFolderPage,
+      pathToFileURL(PROTOTYPE_HTML).href,
+      path.join(OUT_DIR, 'prototype-newfolder-popover.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          '(function(){' +
+            "var loading=document.getElementById('__bundler_loading');" +
+            'if(loading && loading.offsetParent!==null) return false;' +
+            "var divs=document.querySelectorAll('body div');" +
+            'return divs.length > 8;' +
+            '})()',
+          30000,
+          'prototype React mount',
+        );
+        await evaluate(
+          page,
+          '(function(){' +
+            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
+            'var n=document.getElementById(id); if(n) n.remove();' +
+            '} return true; })()',
+        );
+        const clicked = await evaluate(
+          page,
+          '(function(){' +
+            "var e=document.querySelector('[title=\"New folder\"]');" +
+            "if(!e) return 'no-nf';" +
+            '(e.closest("button") || e).click();' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (clicked !== 'ok') {
+          throw new Error('Could not open the prototype new-folder popover: ' + clicked);
+        }
+        await waitForCondition(
+          page,
+          "Array.prototype.some.call(document.querySelectorAll('*'),function(e){return /NEW FOLDER/i.test((e.textContent||''));})",
+          10000,
+          'prototype new-folder popover (NEW FOLDER) to open',
+        );
+        await sleep(300);
+        return await clipToSidebar(page);
+      },
+      PROTOTYPE_VIEWPORT_WIDTH,
+    );
+    console.log(
+      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-newfolder-popover.png')),
+    );
+
+    // Page 17: the INLINE FOLDER RENAME state of the real panel (issue #88). Double-click a
+    // folder header (its dblclick handler calls beginRename), wait for the .nest-rename-input
+    // to replace the folder name in place, then capture the clipped 320px tree (an in-list
+    // state). The prototype has no headlessly reproducible rename-input path (verified during
+    // the fit review), so the harness capture is this state's committed baseline; see
+    // DECISIONS.md Slice s3c-fidelity-sweep.
+    const harnessRenamePage = await openPage(browser);
+    await renderAndCapture(
+      harnessRenamePage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-rename.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        // Double-click the first folder header ('Work') to begin an in-place rename.
+        const opened = await evaluate(
+          page,
+          '(function(){' +
+            "var header=document.querySelector('#list .nest-folder-row');" +
+            "if(!header) return 'no-folder';" +
+            "header.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));" +
+            "return 'ok';" +
+            '})()',
+        );
+        if (opened !== 'ok') {
+          throw new Error('Could not begin the harness inline rename: ' + opened);
+        }
+        await waitForCondition(
+          page,
+          "!!document.querySelector('#list .nest-folder-row .nest-rename-input')",
+          10000,
+          'harness inline rename input to appear',
+        );
+        await sleep(150);
+        return await evaluate(
+          page,
+          '(function(){var b=document.body.getBoundingClientRect();' +
+            'return {x:0,y:0,width:Math.min(b.width,320),height:document.documentElement.scrollHeight};})()',
+        );
+      },
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-rename.png')));
+
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
     console.log('Compare by eye:');
     console.log('  harness.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
@@ -1101,6 +1459,18 @@ async function main() {
     );
     console.log(
       '  harness-archive.png (real panel, Archive overlay) vs prototype-archive.png (archive sub-page fidelity)',
+    );
+    console.log(
+      '  harness-drop-highlight.png (real panel, folder drop target) vs the prototype drop highlight',
+    );
+    console.log(
+      '  harness-sort-popover.png (real panel, sort open) vs prototype-sort-popover.png (sort popover fidelity)',
+    );
+    console.log(
+      '  harness-newfolder-popover.png (real panel, new-folder open) vs prototype-newfolder-popover.png (new-folder popover fidelity)',
+    );
+    console.log(
+      '  harness-rename.png (real panel, inline folder rename) vs the prototype rename input',
     );
   } catch (err) {
     fail(

@@ -1644,3 +1644,55 @@ via orgPanelProvider.openArchiveOverlay; the org-panel openArchive posts the ove
 star/unstar/restore/archiveChat/previewArchivedChat stay registered for programmatic/overlay
 callers but lose their menu surface (commandSurfaces regression gate updated). Exactly one
 view (claudeNest.orgPanel) remains contributed (AC #6).
+
+## 2026-07-05 Slice s3c-fidelity-sweep: which new states get a prototype-side baseline
+
+Issue #88 adds four capture stages to the fidelity harness (drag drop-highlight, sort
+popover open, new-folder popover open, inline folder rename) and promotes a committed
+baseline for each into media/design/reference/. This slice is dev-tooling only: it
+touches scripts/fidelity/screenshot.js (excluded from the VSIX), media/design/reference/
+(excluded from the VSIX), and docs. It adds no src change; the shipped orgPanel asset
+already renders all four states to the README tokens, so the visual lens converged with
+no asset edit.
+
+Fork (reversible): AC2 says "promote a committed prototype baseline for each newly
+captured state," but the established harness convention (verified in the code and the
+s3a-visual-harness decision) captures a prototype-side clipped baseline only for stable
+full-panel states (default, results, settings, archive) and treats transient body-level
+overlays (hover card, context menu, create-tag) as harness-only, eye-compared against the
+prototype. The four new states do not all reach the prototype headlessly.
+
+Evidence (probed the hydrated prototype headlessly, then removed the throwaway probes):
+- Sort popover IS drivable: clicking the prototype's title="Sort" glyph reveals "SORT BY"
+  + "Newest first". Captured prototype-side (prototype-sort-popover.png) and promoted as
+  sort-popover-320.png.
+- New-folder popover IS drivable: clicking title="New folder" reveals "NEW FOLDER" + the
+  Folder name input. Captured prototype-side (prototype-newfolder-popover.png) and promoted
+  as newfolder-popover-320.png.
+- Drag drop-highlight is NOT reproducible prototype-side: it is a pure mid-drag interaction
+  state with no reachable headless path in the compiled bundle.
+- Inline rename is NOT reproducible prototype-side: no dblclick/context-menu path opened a
+  rename input in the prototype.
+
+Resolution: every new state gets a committed baseline (AC2 satisfied). The two
+prototype-drivable states get a prototype-side clip (mirroring settings/archive); the two
+interaction-only states get the REAL shipped-asset harness capture as their baseline
+(drop-highlight-320.png, rename-320.png), since the shipped asset is the authority for its
+own drop-highlight and rename chrome and both are styled to the exact README tokens
+(drop highlight background #FAE6DC + inset ring #d97757, README line 70; rename input
+accent border). Reversible: re-run npm run fidelity and re-copy per the reference README's
+promotion table to re-baseline.
+
+Accepted deviations (recorded in UI-SPEC.md 9 and 10, not flagged in review): the sort
+popover shows a focus ring on the active item because opening the popover focuses it
+(correct ARIA for a keyboard-opened menu; the prototype does not move focus), and the
+new-folder popover anchors to the FOLDERS-header + button mid-panel where the prototype
+floats it near the top. Both states' content and chrome match the handoff tokens; only the
+focus ring and the anchor offset differ.
+
+Non-fork note (DRY): the repeated prototype sidebar-clip block (find the 320px column with
+a solid right border and return its box) was extracted into one clipToSidebar(page) helper
+used by the two new prototype stages; the pre-existing prototype stages keep their inline
+copies (unchanged) to bound the slice's diff. Gates: npm test green, vsce package clean
+with scripts/ and media/design/** absent from the .vsix, npm run fidelity writes all
+seventeen captures. Closes issue #88.
