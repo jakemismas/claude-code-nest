@@ -150,6 +150,15 @@ export interface OrgSections {
   questions: OrgChatRow[];
   folders: FolderSection[];
   tags: TagChip[];
+  // The FULL project tag list (every tag in meta.tags, with id, label, color, and
+  // its carrying-chat count over the scanned records). DISTINCT from `tags`, which is
+  // the filter-chip row and OMITS zero-chat tags (an empty chip is filter noise).
+  // The right-click context menu (slice s3b-context-menu, issue #85 AC #1) must list
+  // ALL tags with a checkmark on the chat's current tags, INCLUDING tags no chat
+  // carries yet, so it reads allTags rather than the chip set. Additive: buildTagChips
+  // is unchanged. Sorted the same way (label case-insensitive, then id) for a stable
+  // menu order.
+  allTags: TagChip[];
   archivedCount: number;
 }
 
@@ -216,8 +225,9 @@ export function buildSections(
 
   const folders = buildFolderSections(meta, rowsByFolder);
   const tags = buildTagChips(visibleRecords, meta);
+  const allTags = buildAllTags(visibleRecords, meta);
 
-  return { starred, questions, folders, tags, archivedCount };
+  return { starred, questions, folders, tags, allTags, archivedCount };
 }
 
 // Whether a scanned chat is user-archived per the SYNCED ChatMeta.userArchived
@@ -538,6 +548,44 @@ function buildTagChips(
     return byLabel !== 0 ? byLabel : a.tagId.localeCompare(b.tagId);
   });
   return chips;
+}
+
+// Build the FULL project tag list for the right-click context menu (issue #85 AC #1):
+// EVERY tag in meta.tags with its id, label, optional color, and the count of SCANNED
+// (visible, non-archived) chats carrying it. Unlike buildTagChips this KEEPS a
+// zero-chat tag (count 0), so the menu can list and check tags no chat carries yet; a
+// blank-label tag is still dropped (a menu row with no label is unusable). Sorted by
+// label (case-insensitive) then id, matching the chip order, so the menu is stable and
+// readable. Pure and tolerant: an absent meta yields [].
+function buildAllTags(
+  records: readonly ChatRecord[],
+  meta: ProjectMeta | undefined,
+): TagChip[] {
+  if (meta === undefined) {
+    return [];
+  }
+  const counts = new Map<string, number>();
+  const scanned = new Set(records.map((r) => r.sessionId));
+  for (const [chatId, chatMeta] of Object.entries(meta.chats)) {
+    if (!scanned.has(chatId) || !Array.isArray(chatMeta.tags)) {
+      continue;
+    }
+    for (const tagId of chatMeta.tags) {
+      counts.set(tagId, (counts.get(tagId) ?? 0) + 1);
+    }
+  }
+  const all: TagChip[] = [];
+  for (const [tagId, tag] of Object.entries(meta.tags)) {
+    if (typeof tag.label !== 'string' || tag.label.length === 0) {
+      continue;
+    }
+    all.push({ tagId, label: tag.label, color: tag.color, count: counts.get(tagId) ?? 0 });
+  }
+  all.sort((a, b) => {
+    const byLabel = a.label.toLowerCase().localeCompare(b.label.toLowerCase());
+    return byLabel !== 0 ? byLabel : a.tagId.localeCompare(b.tagId);
+  });
+  return all;
 }
 
 // Sort a row list newest-first (no timestamp sorts last), matching the flat and

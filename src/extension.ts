@@ -56,7 +56,8 @@ import {
   unlinkChat,
   unlinkChatFromPalette,
 } from './commands/linkCommands';
-import { Link } from './store/schema';
+import { Link, isValidColor } from './store/schema';
+import { mintTagId } from './model/idFactory';
 import {
   PROMOTE_GROUP_TO_FOLDER_COMMAND,
   PROMOTE_GROUP_TO_TAG_COMMAND,
@@ -457,6 +458,76 @@ export function activate(context: vscode.ExtensionContext): void {
         starred ? STAR_CHAT_COMMAND : UNSTAR_CHAT_COMMAND,
         sessionId,
       );
+    },
+    toggleChatTag: async (sessionId: string, tagId: string, on: boolean): Promise<void> => {
+      // Route the context-menu tag toggle straight to the store's add/remove (which
+      // coalesce into one pending write), then flush + refresh, mirroring setStarred so
+      // the webview never invents a mutation. addChatTag is a no-op when the tag is
+      // already present and removeChatTag when absent, so a redundant toggle is harmless.
+      const projectKey = foldersProvider.resolveProjectKey();
+      if (projectKey === undefined) {
+        return;
+      }
+      if (on) {
+        store.addChatTag(projectKey, sessionId, tagId);
+      } else {
+        store.removeChatTag(projectKey, sessionId, tagId);
+      }
+      await store.flush();
+      refreshAllOrgSurfaces();
+    },
+    createTagWithColor: async (
+      sessionId: string,
+      label: string,
+      color: string | null,
+    ): Promise<void> => {
+      // Mint a NEW colored tag and apply it to the chat (issue #85 AC #2). The existing
+      // createTag command opens a modal prompt and mints a COLORLESS tag, so this seam
+      // exists to satisfy the in-panel name + swatch create-with-color flow. Mint via the
+      // id factory (separator-free, mintable), upsert the Tag with an isValidColor-guarded
+      // color (defense in depth: coerce already validated it), then addChatTag it. The two
+      // store writes coalesce into one pending write; a single flush + refresh follows.
+      const projectKey = foldersProvider.resolveProjectKey();
+      if (projectKey === undefined) {
+        return;
+      }
+      const trimmed = label.trim();
+      if (trimmed.length === 0) {
+        return;
+      }
+      const tagId = mintTagId();
+      const safeColor = isValidColor(color) ? color : undefined;
+      store.upsertTag(projectKey, { id: tagId, label: trimmed, color: safeColor });
+      store.addChatTag(projectKey, sessionId, tagId);
+      await store.flush();
+      refreshAllOrgSurfaces();
+    },
+    exportChat: async (sessionId: string, format: ExportFormat): Promise<void> => {
+      // Resolve the chat's transcript record (with its real filePath) from the org
+      // panel's scan cache, then route to the EXISTING exportChat pipeline (save dialog +
+      // exportIO chokepoint + projects-path guard). The format the user picked in the
+      // in-panel menu is threaded through the deps' pickFormat so the menu, not a second
+      // QuickPick, chooses it. A missing/unresolvable id is a no-op.
+      const record = orgPanelProvider.resolveRecord(sessionId);
+      if (record === undefined) {
+        return;
+      }
+      await exportChat({ ...exportChatDeps, pickFormat: async () => format }, record);
+    },
+    archiveChat: async (sessionId: string): Promise<void> => {
+      // Resolve the chat's record from the scan cache and route to the EXISTING archiveChat
+      // command (synced userArchived flag + read-only Nest-owned body copy). The command
+      // takes a CurationTarget {sessionId, filePath, title}; build it from the resolved
+      // record so the body copy is saved (a bare sessionId would archive with no copy).
+      const record = orgPanelProvider.resolveRecord(sessionId);
+      if (record === undefined) {
+        return;
+      }
+      await archiveChat(curationDeps, {
+        sessionId: record.sessionId,
+        filePath: record.filePath,
+        title: record.title,
+      });
     },
   };
   // The org panel's webview drop deps: the adapter applies the reducer's intents as

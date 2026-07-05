@@ -728,12 +728,140 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-hover.png')));
 
+    // Page 6: the CHAT CONTEXT MENU (list state) of the real panel (issue #85 AC #7).
+    // Re-render the harness, dispatch a contextmenu on a chat row, wait for the menu, and
+    // capture the full 320px viewport so the floating menu is in frame. The menu is a
+    // body-level position:fixed node, so this capture is NOT clipped to the tree.
+    const harnessMenuPage = await openPage(browser);
+    await renderAndCapture(
+      harnessMenuPage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-context-menu.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        // Open the menu on the starred 'Refactor auth middleware' row (s-01), which is
+        // starred so its menu shows the "kept and never archived" note in place of Archive.
+        const opened = await evaluate(
+          page,
+          '(function(){' +
+            "var row=document.querySelector('#list .nest-row[data-id=\"s-01\"]');" +
+            "if(!row) return 'no-row';" +
+            'var r=row.getBoundingClientRect();' +
+            "var ev=new MouseEvent('contextmenu',{bubbles:true,clientX:r.left+30,clientY:r.top+8});" +
+            'row.dispatchEvent(ev);' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (opened !== 'ok') {
+          throw new Error('Could not open the harness chat context menu: ' + opened);
+        }
+        await waitForCondition(
+          page,
+          "(function(){var m=document.querySelector('.nest-chat-menu');" +
+            "return !!m && m.querySelectorAll('.nest-menu-tag').length > 0;})()",
+          10000,
+          'harness chat context menu to render with tag rows',
+        );
+        await sleep(150);
+      },
+    );
+    console.log(
+      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu.png')),
+    );
+
+    // Page 7: the CREATE-TAG state of the chat context menu (issue #85 AC #2/#7). Open
+    // the menu, click "Create new tag" to switch to the name-input + 8-swatch state, and
+    // capture it.
+    const harnessNewTagPage = await openPage(browser);
+    await renderAndCapture(
+      harnessNewTagPage,
+      pathToFileURL(HARNESS_HTML).href,
+      path.join(OUT_DIR, 'harness-context-menu-newtag.png'),
+      async (page) => {
+        await waitForCondition(
+          page,
+          'window.__nestHarnessReady === true',
+          10000,
+          'harness mock post',
+        );
+        await waitForCondition(
+          page,
+          "document.querySelectorAll('#list .nest-row').length > 0",
+          10000,
+          'harness sectioned rows to render',
+        );
+        // Open on an UNSORTED (unstarred) row so the list mode shows the Archive entry,
+        // then switch to the create-tag state.
+        const opened = await evaluate(
+          page,
+          '(function(){' +
+            "var row=document.querySelector('#list .nest-row[data-id=\"s-08\"]')" +
+            " || document.querySelector('#list .nest-row');" +
+            "if(!row) return 'no-row';" +
+            'var r=row.getBoundingClientRect();' +
+            "var ev=new MouseEvent('contextmenu',{bubbles:true,clientX:r.left+30,clientY:r.top+8});" +
+            'row.dispatchEvent(ev);' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (opened !== 'ok') {
+          throw new Error('Could not open the harness chat context menu: ' + opened);
+        }
+        await waitForCondition(
+          page,
+          "!!document.querySelector('.nest-chat-menu .nest-menu-create')",
+          10000,
+          'harness chat menu create-tag entry to render',
+        );
+        const switched = await evaluate(
+          page,
+          '(function(){' +
+            "var b=document.querySelector('.nest-chat-menu .nest-menu-create');" +
+            "if(!b) return 'no-create';" +
+            'b.click();' +
+            "return 'ok';" +
+            '})()',
+        );
+        if (switched !== 'ok') {
+          throw new Error('Could not switch the harness chat menu to create-tag: ' + switched);
+        }
+        await waitForCondition(
+          page,
+          "(function(){var m=document.querySelector('.nest-chat-menu');" +
+            "return !!m && !!m.querySelector('.nest-menu-newtag-input') && " +
+            "m.querySelectorAll('.nest-menu-newtag-swatch').length === 8;})()",
+          10000,
+          'harness chat menu create-tag state to render',
+        );
+        await sleep(150);
+      },
+    );
+    console.log(
+      '  wrote ' +
+        path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu-newtag.png')),
+    );
+
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
     console.log('Compare by eye:');
     console.log('  harness.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
     console.log('  prototype.png (freshly rendered) vs media/design/reference/prototype-320.png (drift check)');
     console.log('  harness-results.png (real panel, filtered) vs prototype-results.png (results-state fidelity)');
     console.log('  harness-hover.png (real panel, hover card) vs the prototype hover card');
+    console.log('  harness-context-menu.png (real panel, chat menu) vs the prototype context menu');
+    console.log(
+      '  harness-context-menu-newtag.png (real panel, create-tag state) vs the prototype new-tag menu',
+    );
   } catch (err) {
     fail(
       'Fidelity capture failed: ' +

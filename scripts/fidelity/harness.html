@@ -404,6 +404,19 @@
           { tagId: 't-idea', label: 'idea', color: TAG.idea, count: 2 },
           { tagId: 't-docs', label: 'docs', color: TAG.docs, count: 3 },
         ],
+        // allTags is the FULL project tag list the chat context menu lists (issue #85
+        // AC #1): every tag with id/label/color/count, INCLUDING a zero-chat tag the chip
+        // row (tags) omits. 't-migration' (count 0) exercises the "list a tag no chat
+        // carries yet" case in the harness context-menu capture.
+        allTags: [
+          { tagId: 't-bug', label: 'bug', color: TAG.bug, count: 2 },
+          { tagId: 't-docs', label: 'docs', color: TAG.docs, count: 3 },
+          { tagId: 't-feature', label: 'feature', color: TAG.feature, count: 2 },
+          { tagId: 't-idea', label: 'idea', color: TAG.idea, count: 2 },
+          { tagId: 't-migration', label: 'migration', color: TAG.research, count: 0 },
+          { tagId: 't-refactor', label: 'refactor', color: TAG.refactor, count: 1 },
+          { tagId: 't-research', label: 'research', color: TAG.research, count: 1 },
+        ],
         archivedCount: 2,
       };
 

@@ -1453,3 +1453,45 @@ tokenBadge from chatTooltip.ts, not buildChatTooltip. buildChatTooltip and its
 vscode.MarkdownString wrap stay intact in the retired-view services (foldersProvider.ts,
 tagsProvider.ts), per the accepted patch. The panel's card is a webview DOM node with
 textContent-only sinks, never a MarkdownString.
+
+## 2026-07-05 Slice s3b-context-menu (issue #85): chat-row right-click menu
+
+Fork 1 (reversible): export and archive from the menu need the chat's real transcript
+filePath, but the context-menu row carries only a sessionId (the webview has no tree
+node). The existing EXPORT_CHAT_COMMAND resolves a ChatRecord and ARCHIVE_CHAT_COMMAND a
+CurationTarget, both with a real filePath (export reads the body; archive reads the body
+to save the Nest-owned copy). A bare sessionId through curationTargetFrom yields an EMPTY
+filePath, which would export a body-less document and archive with no body copy.
+Resolution: the client posts { type:'exportChat'|'archiveChat', sessionId, format? } with
+only the sessionId; the HOST resolves the filePath from its existing previewPathBySession
+cache (already maintained for the hover card: seeded by every scan, cleared on
+invalidateContentIndex), falling back to ONE scan only when the cache is empty, exactly the
+postPreviewBody path. It builds the ChatRecord from that scan and routes to the SAME
+exportChat(deps, record) / archiveChat pipelines via new thin OrgPanelActions seams
+(exportChat, archiveChat), so the exportIO chokepoint + projects-path guard and the
+read-only archive-body copy stay the sole write paths and NO new scan path is added.
+Reversible (a message + a host resolve over an existing cache).
+
+Fork 2 (reversible): the in-panel create-tag-with-color flow (AC #2). The existing
+CREATE_TAG_COMMAND opens a modal ui.prompt and mints a COLORLESS tag, so it cannot satisfy
+the in-panel name + 8-swatch create-with-color-and-apply flow. Resolution (accepted patch):
+a new thin OrgPanelActions.createTagWithColor(sessionId, label, color) seam mirroring
+setFolderColor/createFolder: it mints via mintTagId, upserts a Tag with an
+isValidColor-validated color (color-or-null), addChatTags it to the chat, flushes, and
+refreshes. The client sends only HANDOFF_PALETTE literals (or null); the host re-validates
+via isValidColor at coerce() before the color reaches the store or any CSS sink, exactly
+like setFolderColor. Reversible (an additive seam + message).
+
+Fork 3 (reversible): AC #1 lists ALL tags with checkmarks, but buildTagChips omits
+zero-chat tags (a chip with count 0 is filter noise). Resolution (accepted patch): an
+additive allTags: TagChip[] field on OrgSections built from meta.tags (every tag with id,
+label, color, and its carrying-chat count), so the menu can list a zero-chat tag while the
+chip filter row (buildTagChips) stays unchanged. buildTagChips is NOT modified.
+Reversible (an additive model field).
+
+Non-fork note: the menu is a body-level position:fixed overlay in the SAME transient-overlay
+class as the folder menu / color picker / new-folder popover. It is added to the shared
+closeAllTransientOverlays teardown (and the mirrored TRANSIENT_OVERLAY_KEYS) so a tree
+re-render or Escape tears it down and it can never post a mutation for a row a refresh
+removed. Every label sink is textContent; every outbound field (sessionId, tagId, color,
+format) is validated at coerce().

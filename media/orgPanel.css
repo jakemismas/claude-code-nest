@@ -982,6 +982,161 @@ body {
   background: #F4F2EA;
 }
 
+/* ---- Chat row context menu (slice s3b-context-menu, issue #85) ---- */
+
+/* The chat menu reuses .nest-menu (surface, radius, the design context-menu shadow
+   0 12px 32px rgba(40,33,20,0.18)); this widens it to the prototype's ~200px min and
+   pins a z-index above the tree/popovers so it sits over a row. */
+.nest-chat-menu {
+  min-width: 200px;
+  max-width: 210px;
+  z-index: 61;
+}
+
+/* Muted uppercase caption (TAGS / NEW TAG), matching the section-label treatment
+   (prototype ChatSidebar.dc.html:381/405). */
+.nest-menu-caption {
+  padding: 5px 10px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  color: var(--nest-text-label);
+}
+
+/* A hairline divider between menu groups (prototype #EEEBE2 rule with 5px 6px margin). */
+.nest-menu-divider {
+  height: 1px;
+  margin: 5px 6px;
+  background: #EEEBE2;
+}
+
+/* A tag row in the menu: color dot, label (flex), trailing checkmark. */
+.nest-menu-tag {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.nest-menu-tag-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+  background: var(--nest-folder-default);
+}
+
+.nest-menu-tag-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nest-menu-tag-check {
+  width: 12px;
+  color: var(--nest-accent);
+  font-size: 12px;
+  text-align: right;
+}
+
+/* The accented "Create new tag" entry (prototype: color #d97757, weight 600). */
+.nest-menu-create {
+  color: var(--nest-accent);
+  font-weight: 600;
+}
+
+/* The starred-chat "kept and never archived" note (prototype ChatSidebar.dc.html:400):
+   muted, non-interactive text in place of the Archive entry. */
+.nest-menu-note {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--nest-text-breadcrumb);
+}
+
+/* The NEW TAG mode body: name input, swatch grid, and the Add/Cancel actions. */
+.nest-menu-newtag {
+  padding: 0 8px 4px;
+}
+
+.nest-menu-newtag-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--nest-border-input);
+  background: var(--nest-input);
+  color: var(--nest-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.nest-menu-newtag-input:focus {
+  border-color: var(--nest-accent);
+  box-shadow: 0 0 0 1px var(--nest-accent);
+  background: #fff;
+}
+
+.nest-menu-newtag-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 1px 4px;
+}
+
+.nest-menu-newtag-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 6px;
+}
+
+/* Add tag: accent-filled primary; Cancel: quiet text button (prototype:189 line 414). */
+.nest-menu-newtag-add {
+  flex: 1;
+  padding: 6px 0;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background: var(--nest-accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.nest-menu-newtag-add:hover {
+  background: var(--nest-accent-hover);
+}
+
+.nest-menu-newtag-add:focus-visible {
+  outline: 2px solid var(--nest-accent-deep);
+  outline-offset: 1px;
+}
+
+.nest-menu-newtag-cancel {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--nest-text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.nest-menu-newtag-cancel:hover {
+  background: #F4F2EA;
+  color: var(--nest-text);
+}
+
+.nest-menu-newtag-cancel:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
 /* ---- Rich hover preview card (slice s3b-hover-card, issue #84) ---- */
 
 /* The floating 270px card near the cursor (prototype ChatSidebar.dc.html:819):

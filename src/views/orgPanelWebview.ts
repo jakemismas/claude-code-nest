@@ -94,6 +94,23 @@ type Inbound =
   | { type: 'openArchive' }
   | { type: 'openSettings' }
   | { type: 'toggleStar'; sessionId: string; starred: boolean }
+  // The right-click context menu's tag toggle (slice s3b-context-menu, issue #85 AC #1):
+  // set/clear a tag on a chat. `on` is the DESIRED next state; the host routes it to
+  // store.addChatTag / removeChatTag. Both ids are validated as strings at coerce().
+  | { type: 'toggleTag'; sessionId: string; tagId: string; on: boolean }
+  // The context menu's in-panel create-tag-with-color flow (issue #85 AC #2): mint a new
+  // tag with the typed label and a chosen swatch color, then apply it to the chat. The
+  // color is a HANDOFF_PALETTE literal or null, re-validated via isValidColor at coerce()
+  // exactly like setFolderColor before it can reach the store or a CSS sink.
+  | { type: 'createTagWithColor'; sessionId: string; label: string; color: string | null }
+  // The context menu's Export as Markdown / JSON entries (issue #85 AC #3). Carries ONLY
+  // the sessionId; the host resolves the transcript filePath from its scan cache and
+  // routes to the SAME exportChat pipeline (save dialog + exportIO chokepoint + guard).
+  | { type: 'exportChat'; sessionId: string; format: 'markdown' | 'json' }
+  // The context menu's Archive chat entry (issue #85 AC #4). Carries ONLY the sessionId;
+  // the host resolves the filePath from its scan cache and routes to the SAME archiveChat
+  // pipeline (synced flag + read-only Nest-owned body copy).
+  | { type: 'archiveChat'; sessionId: string }
   | { type: 'setState'; sort?: string; collapsedFolders?: string[] };
 
 // The injectable command seams the org panel needs, wired in extension.ts to the
@@ -132,7 +149,35 @@ export interface OrgPanelActions {
   // star/unstar curation commands (store.setChatStarred + flush + refresh), so the
   // webview never invents a write path. `starred` is the DESIRED next state.
   setStarred(sessionId: string, starred: boolean): Promise<void> | void;
+  // Set or clear a tag on a chat from the context menu (issue #85 AC #1). `on` is the
+  // DESIRED next state; the wiring routes it to store.addChatTag / removeChatTag (which
+  // coalesce into one pending write) + flush + refresh, mirroring setStarred, so the
+  // webview never invents a mutation. Both ids are validated as strings at coerce().
+  toggleChatTag(sessionId: string, tagId: string, on: boolean): Promise<void> | void;
+  // Mint a NEW tag with a label and an optional color and apply it to the chat (issue
+  // #85 AC #2). The existing createTag command opens a modal prompt and mints a COLORLESS
+  // tag, so it cannot satisfy the in-panel name + swatch create-with-color flow. This
+  // seam mints via mintTagId, upserts a Tag with an isValidColor-validated color, and
+  // addChatTags it, then flushes and refreshes. color is a palette literal or null (the
+  // host already re-validated it at coerce()). The webview only requests it.
+  createTagWithColor(sessionId: string, label: string, color: string | null): Promise<void> | void;
+  // Export ONE chat to Markdown or JSON from the context menu (issue #85 AC #3),
+  // resolving the chat by its sessionId. The wiring resolves the transcript record and
+  // routes to the EXISTING exportChat pipeline (save dialog + exportIO chokepoint +
+  // projects-path guard), so the read-only invariant holds and the webview never touches
+  // the filesystem. A missing/unresolvable id is a no-op.
+  exportChat(sessionId: string, format: ExportFormat): Promise<void> | void;
+  // Archive ONE chat from the context menu (issue #85 AC #4), resolving the chat by its
+  // sessionId. The wiring routes to the EXISTING archiveChat pipeline (synced
+  // userArchived flag + a read-only Nest-owned body copy). A missing/unresolvable id is a
+  // no-op. The client only shows this entry when the chat is neither starred nor archived.
+  archiveChat(sessionId: string): Promise<void> | void;
 }
+
+// The export format the context menu requests. Mirrors exportChatCommands.ExportFormat
+// (markdown | json); named locally so the webview host does not import the command
+// module's type surface for one union.
+export type ExportFormat = 'markdown' | 'json';
 
 // The persisted view-state keys (Memento) for the user's sort and density choice,
 // so the panel reopens in the same mode. Stored on workspaceState by the wiring.
@@ -259,6 +304,14 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       void this.actions.openSettings();
     } else if (msg.type === 'toggleStar') {
       void this.onToggleStar(msg.sessionId, msg.starred);
+    } else if (msg.type === 'toggleTag') {
+      void this.onToggleTag(msg.sessionId, msg.tagId, msg.on);
+    } else if (msg.type === 'createTagWithColor') {
+      void this.onCreateTagWithColor(msg.sessionId, msg.label, msg.color);
+    } else if (msg.type === 'exportChat') {
+      void this.actions.exportChat(msg.sessionId, msg.format);
+    } else if (msg.type === 'archiveChat') {
+      void this.onArchiveChat(msg.sessionId);
     } else if (msg.type === 'setState') {
       this.onSetState(msg.sort, msg.collapsedFolders);
     }
@@ -269,6 +322,32 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       return;
     }
     await this.actions.setStarred(sessionId, starred);
+  }
+
+  private async onToggleTag(sessionId: string, tagId: string, on: boolean): Promise<void> {
+    if (sessionId.length === 0 || tagId.length === 0) {
+      return;
+    }
+    await this.actions.toggleChatTag(sessionId, tagId, on);
+  }
+
+  private async onCreateTagWithColor(
+    sessionId: string,
+    label: string,
+    color: string | null,
+  ): Promise<void> {
+    const trimmed = label.trim();
+    if (sessionId.length === 0 || trimmed.length === 0) {
+      return;
+    }
+    await this.actions.createTagWithColor(sessionId, trimmed, color);
+  }
+
+  private async onArchiveChat(sessionId: string): Promise<void> {
+    if (sessionId.length === 0) {
+      return;
+    }
+    await this.actions.archiveChat(sessionId);
   }
 
   // Apply an in-panel drop through the adapter (which runs the UNCHANGED reducer
@@ -364,6 +443,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       questions: [],
       folders: [],
       tags: [],
+      allTags: [],
       archivedCount: 0,
     };
     if (this.workspacePath === undefined) {
@@ -468,6 +548,27 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       lastAssistant = selected.lastAssistant;
     }
     void this.view.webview.postMessage({ type: 'previewBody', sessionId, firstUser, lastAssistant });
+  }
+
+  // Resolve a scanned ChatRecord by sessionId for the context menu's export/archive
+  // actions (issue #85 AC #3/#4), which arrive from the webview with ONLY a sessionId.
+  // The chat's real transcript filePath is REQUIRED downstream: exportChat reads the body
+  // to render, and archiveChat reads the body to save the Nest-owned copy; a bare
+  // sessionId (an empty filePath) would export a body-less document and archive with no
+  // copy. Resolve from the cheap previewPathBySession cache (seeded by every scan, cleared
+  // on invalidateContentIndex), falling back to ONE scan only when the cache lacks the id,
+  // exactly the postPreviewBody path. Never re-scans per action when the cache is warm; no
+  // new scan path is added. Returns undefined for an empty/unknown id (the caller no-ops).
+  resolveRecord(sessionId: string): ChatRecord | undefined {
+    if (sessionId.length === 0) {
+      return undefined;
+    }
+    if (this.previewPathBySession.has(sessionId) || this.previewPathBySession.size === 0) {
+      return this.scanRecords().find((r) => r.sessionId === sessionId);
+    }
+    // The cache is warm but does not carry this id: the chat is not currently scanned
+    // (e.g. its transcript was cleaned up), so there is no record to export/archive.
+    return undefined;
   }
 
   // ---- Content search (reused from the POC; durable logic in src/search/*) ----
@@ -774,6 +875,10 @@ function coerce(raw: unknown): Inbound | null {
     sort?: unknown;
     collapsedFolders?: unknown;
     starred?: unknown;
+    tagId?: unknown;
+    on?: unknown;
+    label?: unknown;
+    format?: unknown;
   };
   if (obj.type === 'ready') {
     return { type: 'ready' };
@@ -831,6 +936,39 @@ function coerce(raw: unknown): Inbound | null {
   }
   if (obj.type === 'toggleStar' && typeof obj.sessionId === 'string') {
     return { type: 'toggleStar', sessionId: obj.sessionId, starred: obj.starred === true };
+  }
+  if (
+    obj.type === 'toggleTag' &&
+    typeof obj.sessionId === 'string' &&
+    typeof obj.tagId === 'string'
+  ) {
+    // sessionId and tagId are record- id references (used only to find a chat and a
+    // tag, never a CSS/HTML sink); accept them as plain strings. `on` is the desired
+    // next state, coerced to a strict boolean.
+    return { type: 'toggleTag', sessionId: obj.sessionId, tagId: obj.tagId, on: obj.on === true };
+  }
+  if (
+    obj.type === 'createTagWithColor' &&
+    typeof obj.sessionId === 'string' &&
+    typeof obj.label === 'string'
+  ) {
+    // The tag color is untrusted webview input: accept ONLY a strict #rrggbb color
+    // (isValidColor); anything else (a CSS token like url(...) a tampered message could
+    // carry, or an absent color) falls to null, exactly the setFolderColor boundary, so a
+    // color can never reach a --tag-color CSS sink unvalidated. The label is trimmed and
+    // length-checked at the handler; it becomes a Tag.label through the store path and is
+    // rendered only as textContent.
+    const color = isValidColor(obj.color) ? obj.color : null;
+    return { type: 'createTagWithColor', sessionId: obj.sessionId, label: obj.label, color };
+  }
+  if (obj.type === 'exportChat' && typeof obj.sessionId === 'string') {
+    // format is a closed union; anything but 'json' defaults to 'markdown' so a tampered
+    // value cannot pick an unknown formatter.
+    const format: 'markdown' | 'json' = obj.format === 'json' ? 'json' : 'markdown';
+    return { type: 'exportChat', sessionId: obj.sessionId, format };
+  }
+  if (obj.type === 'archiveChat' && typeof obj.sessionId === 'string') {
+    return { type: 'archiveChat', sessionId: obj.sessionId };
   }
   if (obj.type === 'setState') {
     // collapsedFolders is accepted only as an array of strings; anything else

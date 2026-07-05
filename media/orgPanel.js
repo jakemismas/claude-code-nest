@@ -47,8 +47,11 @@
   const sortBtnEl = document.getElementById('sortBtn');
   const sortPopoverEl = document.getElementById('sortPopover');
 
-  // The latest host-posted section model.
-  let sections = { starred: [], questions: [], folders: [], tags: [], archivedCount: 0 };
+  // The latest host-posted section model. allTags is the FULL project tag list (every
+  // tag with id/label/color/count), distinct from tags (the filter-chip row, which omits
+  // zero-chat tags); the chat context menu (issue #85 AC #1) lists allTags so a zero-chat
+  // tag can still be checked/toggled.
+  let sections = { starred: [], questions: [], folders: [], tags: [], allTags: [], archivedCount: 0 };
   // The set of active tag-id filters (AND across selected chips: a row must carry
   // every selected tag to show).
   const activeTags = new Set();
@@ -348,6 +351,14 @@
     }
 
     el.addEventListener('click', () => activateRow(row.sessionId));
+    // Right-click a chat row to open its context menu (issue #85): tag toggles, create
+    // tag, export, archive. The row model carries everything the menu needs (tagIds,
+    // starred); a fresh sections model may replace this row object, so the menu resolves
+    // the LIVE row by sessionId on open rather than closing over this stale one.
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openChatMenu(e, row.sessionId);
+    });
     el.addEventListener('dragstart', (e) => onRowDragStart(e, row.sessionId));
     el.addEventListener('dragend', onDragEnd);
     // Rich hover card (issue #84): entering the row opens the card near the cursor;
@@ -1470,6 +1481,388 @@
       first.focus();
     }
   }
+  // ---- chat context menu (issue #85: tags, create tag, export, archive) ----
+
+  // The right-click menu on a chat row. Body-level position:fixed, in the SAME transient-
+  // overlay class as the folder menu / color picker / new-folder popover, so a tree
+  // re-render or Escape tears it down (closeAllTransientOverlays) and it can never post a
+  // mutation for a row a refresh removed. Two modes: the LIST mode (tag toggles, create
+  // tag, export, archive-or-starred-note) and the NEW-TAG mode (name input + 8-swatch
+  // picker + Add/Cancel). chatMenuSessionId is the chat the open menu targets; the menu
+  // re-resolves the LIVE row by that id on each (re)render so a toggle reads current tags.
+  let openChatMenuEl = null;
+  let chatMenuSessionId = null;
+  let chatMenuReturnFocusEl = null;
+  let chatMenuNewTagMode = false;
+  let chatMenuNewTagColor = HANDOFF_PALETTE[0];
+  let chatMenuNewTagName = '';
+
+  function closeChatMenu() {
+    if (openChatMenuEl) {
+      openChatMenuEl.remove();
+      openChatMenuEl = null;
+    }
+    chatMenuSessionId = null;
+    chatMenuNewTagMode = false;
+    chatMenuNewTagName = '';
+    chatMenuNewTagColor = HANDOFF_PALETTE[0];
+    if (chatMenuReturnFocusEl) {
+      const el = chatMenuReturnFocusEl;
+      chatMenuReturnFocusEl = null;
+      if (typeof el.focus === 'function') {
+        el.focus();
+      }
+    }
+  }
+
+  // Resolve the live row object for the open menu's chat, or null when it is gone (a
+  // refresh removed it). Used so a tag toggle reads the CURRENT tag set, not the stale
+  // row captured when the menu opened.
+  function chatMenuRow() {
+    if (!chatMenuSessionId) {
+      return null;
+    }
+    return rowsBySessionId().get(chatMenuSessionId) || null;
+  }
+
+  function openChatMenu(e, sessionId) {
+    // Opening the menu dismisses any hover card and aborts an armed folder-row toggle, so
+    // no other transient surface fights it or fires a re-render that orphans it.
+    closePreview(false);
+    cancelPendingFolderToggle();
+    closeAllTransientOverlays();
+    if (!sessionId) {
+      return;
+    }
+    chatMenuSessionId = sessionId;
+    chatMenuNewTagMode = false;
+    chatMenuNewTagName = '';
+    chatMenuNewTagColor = HANDOFF_PALETTE[0];
+    // Restore focus to the row on close when it survives (a keyboard-opened menu returns
+    // there); a pointer right-click has no meaningful return target beyond the row.
+    var rows = focusableRows();
+    chatMenuReturnFocusEl =
+      rows.find(function (r) {
+        return r.dataset.kind === 'chat' && r.dataset.id === sessionId;
+      }) || null;
+    var menu = document.createElement('div');
+    menu.className = 'nest-menu nest-chat-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Chat actions');
+    menu.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+    });
+    menu.addEventListener('contextmenu', function (ev) {
+      ev.preventDefault();
+    });
+    // Clamp near the click point so the menu never overflows (prototype openCtx clamp:
+    // width ~210, height allowance ~320 for the tag list).
+    var left = Math.max(6, Math.min((e && e.clientX) || 0, window.innerWidth - 214));
+    var top = Math.max(6, Math.min((e && e.clientY) || 0, window.innerHeight - 320));
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    document.body.appendChild(menu);
+    openChatMenuEl = menu;
+    renderChatMenu();
+  }
+
+  // (Re)render the open chat menu's body for the current mode. Rebuilt in place so the
+  // list <-> new-tag switch reuses the one positioned container.
+  function renderChatMenu() {
+    if (!openChatMenuEl) {
+      return;
+    }
+    openChatMenuEl.textContent = '';
+    if (chatMenuNewTagMode) {
+      renderChatMenuNewTag(openChatMenuEl);
+    } else {
+      renderChatMenuList(openChatMenuEl);
+    }
+  }
+
+  // A muted uppercase section caption inside the menu (TAGS / NEW TAG).
+  function chatMenuCaption(text) {
+    var cap = document.createElement('div');
+    cap.className = 'nest-menu-caption';
+    cap.textContent = text;
+    return cap;
+  }
+
+  function chatMenuDivider() {
+    var d = document.createElement('div');
+    d.className = 'nest-menu-divider';
+    d.setAttribute('aria-hidden', 'true');
+    return d;
+  }
+
+  // The LIST mode: TAGS (all project tags with a checkmark on the chat's current tags),
+  // Create new tag, Export as Markdown / JSON, and Archive-or-starred-note.
+  function renderChatMenuList(menu) {
+    var row = chatMenuRow();
+    if (!row) {
+      closeChatMenu();
+      return;
+    }
+    var sessionId = row.sessionId;
+    var currentTagIds = row.tagIds || [];
+
+    menu.appendChild(chatMenuCaption('TAGS'));
+    var allTags = sections.allTags || [];
+    for (var i = 0; i < allTags.length; i++) {
+      (function (tag) {
+        var on = currentTagIds.indexOf(tag.tagId) !== -1;
+        var item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'nest-menu-item nest-menu-tag';
+        item.setAttribute('role', 'menuitemcheckbox');
+        item.setAttribute('aria-checked', on ? 'true' : 'false');
+        var dot = document.createElement('span');
+        dot.className = 'nest-menu-tag-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        if (tag.color) {
+          dot.style.background = tag.color;
+        }
+        item.appendChild(dot);
+        var labelEl = document.createElement('span');
+        labelEl.className = 'nest-menu-tag-label';
+        labelEl.textContent = tag.label;
+        item.appendChild(labelEl);
+        var check = document.createElement('span');
+        check.className = 'nest-menu-tag-check';
+        check.setAttribute('aria-hidden', 'true');
+        check.textContent = on ? '✓' : '';
+        item.appendChild(check);
+        item.setAttribute(
+          'aria-label',
+          (on ? 'Remove tag ' : 'Add tag ') + tag.label,
+        );
+        item.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          // Toggle against the LIVE tag set (re-resolved), so a stale captured `on` cannot
+          // send the wrong direction. The store no-ops a redundant add/remove.
+          var live = chatMenuRow();
+          var isOn = !!live && (live.tagIds || []).indexOf(tag.tagId) !== -1;
+          vscode.postMessage({
+            type: 'toggleTag',
+            sessionId: sessionId,
+            tagId: tag.tagId,
+            on: !isOn,
+          });
+          // The refresh that follows the store write re-renders the tree AND (via the
+          // sections handler's teardown) closes this menu, so the checkmark reflects the
+          // new state on reopen. Close now so the menu does not linger over a re-render.
+          closeChatMenu();
+        });
+        menu.appendChild(item);
+      })(allTags[i]);
+    }
+
+    menu.appendChild(chatMenuDivider());
+
+    var createBtn = document.createElement('button');
+    createBtn.type = 'button';
+    createBtn.className = 'nest-menu-item nest-menu-create';
+    createBtn.setAttribute('role', 'menuitem');
+    createBtn.textContent = '＋ Create new tag';
+    createBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      chatMenuNewTagMode = true;
+      chatMenuNewTagName = '';
+      chatMenuNewTagColor = HANDOFF_PALETTE[0];
+      renderChatMenu();
+    });
+    menu.appendChild(createBtn);
+
+    menu.appendChild(chatMenuDivider());
+
+    var exportMd = document.createElement('button');
+    exportMd.type = 'button';
+    exportMd.className = 'nest-menu-item';
+    exportMd.setAttribute('role', 'menuitem');
+    exportMd.textContent = '⤓ Export as Markdown';
+    exportMd.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      vscode.postMessage({ type: 'exportChat', sessionId: sessionId, format: 'markdown' });
+      closeChatMenu();
+    });
+    menu.appendChild(exportMd);
+
+    var exportJson = document.createElement('button');
+    exportJson.type = 'button';
+    exportJson.className = 'nest-menu-item';
+    exportJson.setAttribute('role', 'menuitem');
+    exportJson.textContent = '⤓ Export as JSON';
+    exportJson.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      vscode.postMessage({ type: 'exportChat', sessionId: sessionId, format: 'json' });
+      closeChatMenu();
+    });
+    menu.appendChild(exportJson);
+
+    // Archive is shown ONLY when the chat is neither starred nor archived (issue #85
+    // AC #4; the archived flag lives behind the archived-exclusion, so a visible row is
+    // never already archived, but a starred row must instead show the keep note). A
+    // starred chat shows the "kept and never archived" note in its place.
+    if (row.starred) {
+      menu.appendChild(chatMenuDivider());
+      var note = document.createElement('div');
+      note.className = 'nest-menu-note';
+      note.textContent = '★ Starred chats are kept and never archived.';
+      menu.appendChild(note);
+    } else {
+      menu.appendChild(chatMenuDivider());
+      var archiveBtn = document.createElement('button');
+      archiveBtn.type = 'button';
+      archiveBtn.className = 'nest-menu-item';
+      archiveBtn.setAttribute('role', 'menuitem');
+      archiveBtn.textContent = '🗄 Archive chat';
+      archiveBtn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        vscode.postMessage({ type: 'archiveChat', sessionId: sessionId });
+        closeChatMenu();
+      });
+      menu.appendChild(archiveBtn);
+    }
+
+    var first = menu.querySelector('.nest-menu-item');
+    if (first) {
+      first.focus();
+    }
+  }
+
+  // The NEW-TAG mode: a name input, the 8-swatch color picker, and Add tag / Cancel. On
+  // Add, post createTagWithColor with only a HANDOFF_PALETTE literal (or the default), the
+  // trimmed name, and the target sessionId; the host mints + applies + refreshes.
+  function renderChatMenuNewTag(menu) {
+    var row = chatMenuRow();
+    if (!row) {
+      closeChatMenu();
+      return;
+    }
+    var sessionId = row.sessionId;
+
+    menu.appendChild(chatMenuCaption('NEW TAG'));
+
+    var body = document.createElement('div');
+    body.className = 'nest-menu-newtag';
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'nest-menu-newtag-input';
+    input.placeholder = 'Tag name';
+    input.value = chatMenuNewTagName;
+    input.setAttribute('aria-label', 'New tag name');
+    input.addEventListener('input', function () {
+      chatMenuNewTagName = input.value;
+    });
+    body.appendChild(input);
+
+    var grid = document.createElement('div');
+    grid.className = 'nest-menu-newtag-swatches';
+    var swatches = [];
+    for (var i = 0; i < HANDOFF_PALETTE.length; i++) {
+      (function (color) {
+        var sw = document.createElement('button');
+        sw.type = 'button';
+        sw.className = 'nest-swatch nest-menu-newtag-swatch';
+        sw.setAttribute('role', 'menuitemradio');
+        var selected = color.toLowerCase() === chatMenuNewTagColor.toLowerCase();
+        sw.setAttribute('aria-checked', selected ? 'true' : 'false');
+        if (selected) {
+          sw.classList.add('nest-swatch-selected');
+        }
+        sw.style.setProperty('--swatch-color', color);
+        sw.setAttribute('aria-label', 'Tag color ' + color);
+        sw.title = color;
+        sw.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          chatMenuNewTagColor = color;
+          for (var j = 0; j < swatches.length; j++) {
+            var isSel = swatches[j] === sw;
+            swatches[j].setAttribute('aria-checked', isSel ? 'true' : 'false');
+            if (isSel) {
+              swatches[j].classList.add('nest-swatch-selected');
+            } else {
+              swatches[j].classList.remove('nest-swatch-selected');
+            }
+          }
+        });
+        grid.appendChild(sw);
+        swatches.push(sw);
+      })(HANDOFF_PALETTE[i]);
+    }
+    // Arrow-key movement across swatches (mirrors the folder color picker).
+    swatches.forEach(function (sw, i) {
+      sw.addEventListener('keydown', function (ev) {
+        if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') {
+          ev.preventDefault();
+          swatches[(i + 1) % swatches.length].focus();
+        } else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') {
+          ev.preventDefault();
+          swatches[(i - 1 + swatches.length) % swatches.length].focus();
+        }
+      });
+    });
+    body.appendChild(grid);
+
+    var actions = document.createElement('div');
+    actions.className = 'nest-menu-newtag-actions';
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'nest-menu-newtag-add';
+    addBtn.textContent = 'Add tag';
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'nest-menu-newtag-cancel';
+    cancelBtn.textContent = 'Cancel';
+    actions.appendChild(addBtn);
+    actions.appendChild(cancelBtn);
+    body.appendChild(actions);
+    menu.appendChild(body);
+
+    var commit = function () {
+      var name = input.value.trim();
+      if (name.length === 0) {
+        input.focus();
+        return;
+      }
+      vscode.postMessage({
+        type: 'createTagWithColor',
+        sessionId: sessionId,
+        label: name,
+        color: chatMenuNewTagColor,
+      });
+      // The refresh after the mint re-renders and closes the menu; close now so it does
+      // not linger. The new tag is already applied to the chat by the host.
+      closeChatMenu();
+    };
+    addBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      commit();
+    });
+    cancelBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      // Cancel returns to the tag LIST (the prototype's cancelNewTag), not closing the
+      // whole menu.
+      chatMenuNewTagMode = false;
+      chatMenuNewTagName = '';
+      renderChatMenu();
+    });
+    input.addEventListener('keydown', function (ev) {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        commit();
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        chatMenuNewTagMode = false;
+        chatMenuNewTagName = '';
+        renderChatMenu();
+      }
+    });
+    input.focus();
+  }
+
   document.addEventListener('click', (e) => {
     if (openMenuEl && !openMenuEl.contains(e.target)) {
       closeFolderMenu();
@@ -1479,6 +1872,9 @@
     }
     if (openNewFolderEl && !openNewFolderEl.contains(e.target)) {
       closeNewFolderPopover();
+    }
+    if (openChatMenuEl && !openChatMenuEl.contains(e.target)) {
+      closeChatMenu();
     }
   });
 
@@ -1636,6 +2032,10 @@
     closeColorPicker();
     closeNewFolderPopover();
     closeFolderMenu();
+    // The chat context menu (issue #85) is another body-level position:fixed overlay in
+    // this class; a tree re-render or Escape must tear it down too so its captured-closure
+    // items cannot post a toggle/export/archive for a row a refresh removed.
+    closeChatMenu();
     // The hover card is also a body-level position:fixed overlay that a tree
     // re-render (listEl.textContent = '') would orphan, floating at a stale point
     // while it references a row that no longer exists. Tear it down with the rest.
