@@ -221,6 +221,7 @@ try {
   const MAX_FIX_ROUNDS = (A && A.maxFixRounds) ? A.maxFixRounds : 3;
   const COUNCIL_MIN = (A && A.councilMinConfidence) ? A.councilMinConfidence : 0.6;
   PLAN_DOC = (A && A.planDoc) ? A.planDoc : "PLAN.md";
+  const MAX_PER_RUN = (A && A.maxSlicesPerRun) ? A.maxSlicesPerRun : 0;
   const SEC_ID = (A && A.securityCouncil && A.securityCouncil.trailerId) ? A.securityCouncil.trailerId : "sprint-2";
   const SEC_TRAILER = "Nest-Security: " + SEC_ID + " (audit)";
 
@@ -245,6 +246,7 @@ try {
 
   const startIndex = lowestMissingOrder(pf.completedOrders, slices.length);
   const builtSlices = (pf.completedOrders || []).map(o => (slices[o] ? slices[o].id : String(o)));
+  let landedThisRun = 0;
   const decisions = [];
   // Opt-in pre-release security council (args.securityCouncil). Runs once, before the named release slice.
   const securityCfg = (A && A.securityCouncil) ? A.securityCouncil : null;
@@ -295,7 +297,9 @@ try {
         "If there were NO code fixes, still create a marker by appending a dated 'Security audit: no actionable " +
         "findings' line under the CHANGELOG.md [Unreleased] section. Either way commit as Jake via local git config " +
         "(NO --author, NO GIT_AUTHOR_*/GIT_COMMITTER_* overrides, NO AI co-author trailer; subject under 70 chars; " +
-        "no em or en dashes; no emoji) with the trailer '" + SEC_TRAILER + "'. Create branch " +
+        "no em or en dashes; no emoji) with the trailer '" + SEC_TRAILER + "' as the ONLY line of the final " +
+        "paragraph (the 'Fixes #' line goes ONLY in the PR body; a colon-less line beside the trailer breaks " +
+        "trailer parsing). Create branch " +
         "'security/" + SEC_ID + "-audit', push it, open a PR with 'gh pr create --base main', merge with 'gh pr merge " +
         "--merge --delete-branch', then sync local main with 'git fetch origin' + 'git checkout main' + 'git merge " +
         "--ff-only origin/main'. NEVER put 'git push' and the word main in the SAME shell command; run them as " +
@@ -483,7 +487,12 @@ try {
       "both Jake. Create a branch 'slice/" + slice.id + "' with 'git checkout -b slice/" + slice.id + "' (this " +
       "carries the uncommitted build changes onto the branch, leaving main clean), and commit there. Subject " +
       "imperative, under 70 chars, no emoji, no em or en dashes, NO AI co-author trailer, NO generated-by " +
-      "marker. Append trailer 'Nest-Slice: " + slice.id + " (" + i + ")'. 4) Push the branch with " +
+      "marker. Append trailer 'Nest-Slice: " + slice.id + " (" + i + ")' as the ONLY line of the commit " +
+      "message's FINAL paragraph: no 'Fixes #', no other text in that paragraph (a colon-less line there makes " +
+      "git reject the ENTIRE trailer block, and preflight then treats the slice as unbuilt and rebuilds it; the " +
+      "Fixes line belongs ONLY in the PR body). After committing, verify the trailer PARSES: git log -1 " +
+      "--format='%(trailers:key=Nest-Slice,valueonly)' must print exactly '" + slice.id + " (" + i + ")'; if it " +
+      "prints nothing, amend the message before pushing. 4) Push the branch with " +
       "'git push -u origin slice/" + slice.id + "', open a PR into main with 'gh pr create --base main --head " +
       "slice/" + slice.id + " --title <subject> --body <short body" + (slice.issue ? "; the body MUST contain " +
       "a line 'Fixes #" + slice.issue + "' so the merge closes the slice issue" : "") + ">', then merge it with a MERGE COMMIT so the " +
@@ -492,7 +501,8 @@ try {
       "by the hook): 'git fetch origin', 'git checkout main', then 'git merge --ff-only origin/main' (local " +
       "main is strictly behind origin/main after the merge, so this fast-forwards cleanly). 6) VERIFY: the " +
       "slice commit carrying the Nest-Slice trailer is now on " +
-      "origin/main (git log origin/main), and on THAT slice commit the author is 'Jake Mismas " +
+      "origin/main, checked with git log origin/main --format='%(trailers:key=Nest-Slice,valueonly)' (the " +
+      "trailer must PARSE there, not merely appear as text), and on THAT slice commit the author is 'Jake Mismas " +
       "<jake@jakemismas.com>' and the committer is the same. Report committed, pushed, verifiedOnRemote (true " +
       "only if the trailer commit is on origin/main), sha (the slice commit sha), authorVerified, and " +
       "committerVerified (both checked on the slice commit, not the GitHub merge commit).",
@@ -503,7 +513,15 @@ try {
       throw new HaltError("Commit/push/verify failed for " + slice.id, { stage: "commit", slice: slice.id, commit });
     }
     builtSlices.push(slice.id);
+    landedThisRun += 1;
     log("Slice " + slice.id + " committed and pushed: " + commit.sha);
+    // Planned pause: cap landed slices per invocation so long runs stop cleanly between slices instead of
+    // dying mid-slice on a session/token limit. Self-recovering: re-invoking resumes at the next order.
+    if (MAX_PER_RUN && landedThisRun >= MAX_PER_RUN && i + 1 < slices.length) {
+      await persistState(slices, i + 1, "planned-pause", { landedThisRun, nextOrder: i + 1 });
+      throw new HaltError("Planned pause: maxSlicesPerRun=" + MAX_PER_RUN + " reached after " + slice.id +
+        "; re-invoke to resume at order " + (i + 1) + ".", { stage: "planned-pause", nextOrder: i + 1 });
+    }
   }
 
   // ---- Release and handoff ----
