@@ -1589,3 +1589,58 @@ tests added: a starred chat still gets its protective copy when auto-archive is 
 (policy + engine), an unstarred chat is not archived under Never, and both-disabled is a
 no-op. The boundary convention (inclusive edge, strictly-greater triggers) is preserved for
 both windows. Reversible (a policy signature widening + a wiring arg).
+
+## 2026-07-05 Slice s3b-archive-overlay (fit review): four reversible forks, auto-resolved
+
+Slice s3b-archive-overlay (issue #87) retires the claudeNest.archive tree and lands the
+in-panel Archive overlay. The fit review found four reversible design forks; all were
+auto-resolved and built, none irreversible or data-loss.
+
+Fork A (reversible): where archived rows are built and how they reach the client. Resolved:
+a NEW pure, vscode-free builder orgPanelModel.buildArchivedRows projects the synced
+userArchived membership into JSON-serializable ArchivedRow[], mirroring buildSections. The
+host posts { type:'archivedRows', rows } in response to the client's openArchive message
+(repointed from focusing the tree), and the client renders the overlay from that post. This
+ports the membership + sort + fallback-title logic out of the deleted archiveProvider.ts into
+the pure builder (unit-tested in orgPanelModel.test.ts), keeping the unit-gate split.
+Reversible (a pure builder + a post).
+
+Fork B (reversible): fallback title for a missing-transcript archived row. Membership comes
+from the synced flag, so an archived chat whose transcript Claude cleaned up has no scanned
+record. Resolved: the host loads the stored body-copy titles on demand via a new
+OrgPanelActions.loadArchivedTitles seam (reading the same Nest-owned copies the retired
+tree's loader read), and ONLY when at least one archived chat is missing from the scan, so a
+fully-present set needs no async read. buildArchivedRows takes the title map and falls back
+title -> copy title -> sessionId. Reversible (a seam + a builder arg).
+
+Fork C (reversible): the archive search stays CLIENT-SIDE. The main search is host-only
+(MiniSearch), which deliberately EXCLUDES archived chats. Resolved: the overlay's "Search
+archived" box filters the already-posted small row set by title substring on the client
+(the prototype's c.title.includes(aq)), with no host round-trip and no parallel index. This
+avoids re-indexing archived chats and matches the prototype exactly. Reversible (a client
+filter over a posted array).
+
+Fork D (reversible): star-unarchive and copy-only Restore. setChatStarred does NOT itself
+clear userArchived (starChat is "independent of archive"), so AC #4 (starring un-archives)
+needs a combined client intent. Resolved: a starUnarchive message = setStarred(true) +
+restoreArchivedChat, and a Restore = restoreArchivedChat alone; both route through the
+existing restoreChat curation command with a CurationTarget resolved from the scan cache
+(real filePath when present so the redundant copy is deleted; empty filePath when the
+transcript is gone so restoreChat's transcriptExists guard KEEPS the copy). No new write
+path or synced scalar. Reversible (client intents over existing seams).
+
+Non-fork note (fidelity): the design's archive row (ChatSidebar.dc.html:320-333) shows only
+export + Restore, with no star. AC #4 requires a star-unarchive trigger and the design row
+provides none, so the overlay row adds a small hollow star (consistent with every other chat
+row's star affordance) that posts starUnarchive. This is a deliberate, minimal, faithful
+addition, not a divergence: it makes the archive row consistent with the design system's
+per-row star rather than omitting the AC-required trigger. Recorded here as the one
+intentional deviation from the prototype's archive-row markup.
+
+Non-fork note (view retirement): the Archive tree, its onView event, viewsWelcome, menus, and
+the claudeNest.refreshArchive command are swept from package.json and extension.ts; the two
+claudeNest.archive.focus call sites are repointed (the auto-archive toast opens the overlay
+via orgPanelProvider.openArchiveOverlay; the org-panel openArchive posts the overlay).
+star/unstar/restore/archiveChat/previewArchivedChat stay registered for programmatic/overlay
+callers but lose their menu surface (commandSurfaces regression gate updated). Exactly one
+view (claudeNest.orgPanel) remains contributed (AC #6).

@@ -5,9 +5,10 @@ import { readTranscriptBodies, selectPreviewBodies } from '../claude/bodyReader'
 import { MetadataStore } from '../store/metadataStore';
 import { ProjectMeta, isValidColor } from '../store/schema';
 import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
+import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 import { tokenBadge } from './chatTooltip';
-import { relativeTime } from './relativeTime';
-import { buildSections, OrgSections, isArchived } from './orgPanelModel';
+import { relativeTime, relativeTimeCompact } from './relativeTime';
+import { buildSections, buildArchivedRows, OrgSections, isArchived } from './orgPanelModel';
 import { coerceAutoArchiveWindowDays } from '../store/autoArchivePolicy';
 import {
   SearchDoc,
@@ -103,7 +104,23 @@ type Inbound =
   | { type: 'deleteFolder'; folderId: string }
   | { type: 'createFolder'; name?: string }
   | { type: 'newSession' }
+  // Open the in-panel Archive overlay (slice s3b-archive-overlay, issue #87). The host
+  // answers by posting the current archived rows ('archivedRows'); the client renders the
+  // overlay. Repointed from the interim tree focus (which this slice retires).
   | { type: 'openArchive' }
+  // Restore an archived chat from the overlay's Restore button (issue #87 AC #3): clears
+  // the synced userArchived flag (keeps the star). The host resolves the record from its
+  // scan cache (real filePath when present, empty when the transcript was cleaned up) and
+  // routes to the EXISTING restoreChat curation command.
+  | { type: 'restoreChat'; sessionId: string }
+  // Star-unarchive from the overlay (issue #87 AC #4): starring an archived chat also
+  // un-archives it. Routes to setChatStarred(true) + setChatArchived(false) through the
+  // existing star + restore seams, so no new write path is introduced.
+  | { type: 'starUnarchive'; sessionId: string }
+  // Preview an archived chat's Nest-owned body copy from the overlay row (issue #87 AC #6).
+  // Routes to the EXISTING claudeNest.previewArchivedChat command (the archived-copy read
+  // path), so a cleaned-up chat is still readable from the overlay. sessionId only.
+  | { type: 'previewArchivedChat'; sessionId: string }
   | { type: 'toggleStar'; sessionId: string; starred: boolean }
   // The right-click context menu's tag toggle (slice s3b-context-menu, issue #85 AC #1):
   // set/clear a tag on a chat. `on` is the DESIRED next state; the host routes it to
@@ -160,11 +177,19 @@ export interface OrgPanelActions {
   // contributed command with a graceful fallback + toast; the webview only requests
   // it. See DECISIONS.md slice s3a-design-shell.
   newSession(): Promise<void> | void;
-  // Surface the interim Archive view. The design puts an Archived (N) row at the
-  // bottom of the list that opens a full-panel Archive overlay; the overlay lands in
-  // s3b, so until then this reveals the existing claudeNest.archive tree view. The
-  // webview only requests it.
-  openArchive(): Promise<void> | void;
+  // Load the stored body-copy titles for archived chats whose live transcript was
+  // cleaned up out of band (slice s3b-archive-overlay, issue #87). Keyed by sessionId;
+  // the wiring reads the Nest-owned body copies (readArchivedBody) so a missing-transcript
+  // archived row shows its stored title instead of a raw UUID (patch item 3). Returns an
+  // empty map when no copies are readable; the overlay falls back to the sessionId. The
+  // present-chat rows do not need this (their title rides the scan). Async and best-effort.
+  loadArchivedTitles(): Promise<Map<string, string>>;
+  // Restore an archived chat from the overlay (issue #87 AC #3): clears the synced
+  // userArchived flag, keeps the star, and (when the live transcript survives) deletes the
+  // now-redundant body copy. Routes to the EXISTING restoreChat curation command via a
+  // record resolved from the scan cache; a copy-only (gone-transcript) chat passes an empty
+  // filePath so the command keeps the copy. The webview only requests it by sessionId.
+  restoreArchivedChat(sessionId: string): Promise<void> | void;
   // Run one auto-archive pass now (slice s3b-settings-overlay, issue #86 AC #4). The
   // wiring routes this to the batched auto-archive engine over the current auto-archive
   // window and refreshes; the webview requests it after the user changes the window in
@@ -295,6 +320,12 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   // handler consumes this flag and opens the overlay once the client is listening.
   private pendingOpenSettings = false;
 
+  // Set when openArchiveOverlay() is called before the webview has resolved (the
+  // auto-archive toast's "Open Archive" path, issue #87). Focusing the view is async, so an
+  // open message posted to an unresolved webview is dropped; the 'ready' handler consumes
+  // this flag and opens the overlay once the client is listening. Mirrors pendingOpenSettings.
+  private pendingOpenArchive = false;
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly workspacePath: string | undefined,
@@ -351,6 +382,13 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
         this.pendingOpenSettings = false;
         this.postOpenSettings();
       }
+      // An Archive-open requested while the webview was still resolving (the auto-archive
+      // toast path) is honored now that the client is listening.
+      if (this.pendingOpenArchive) {
+        this.pendingOpenArchive = false;
+        void this.postArchivedRows();
+        this.postOpenArchive();
+      }
     } else if (msg.type === 'refresh') {
       this.refresh();
     } else if (msg.type === 'open') {
@@ -372,7 +410,17 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     } else if (msg.type === 'newSession') {
       void this.actions.newSession();
     } else if (msg.type === 'openArchive') {
-      void this.actions.openArchive();
+      void this.postArchivedRows();
+    } else if (msg.type === 'restoreChat') {
+      void this.onRestoreChat(msg.sessionId);
+    } else if (msg.type === 'starUnarchive') {
+      void this.onStarUnarchive(msg.sessionId);
+    } else if (msg.type === 'previewArchivedChat') {
+      // Preview the archived body copy from the overlay row (issue #87 AC #6). Route to the
+      // existing command with the sessionId; a missing copy surfaces an info notice there.
+      if (msg.sessionId.length > 0) {
+        void vscode.commands.executeCommand(PREVIEW_ARCHIVED_CHAT_COMMAND, msg.sessionId);
+      }
     } else if (msg.type === 'toggleStar') {
       void this.onToggleStar(msg.sessionId, msg.starred);
     } else if (msg.type === 'toggleTag') {
@@ -423,6 +471,69 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       return;
     }
     await this.actions.archiveChat(sessionId);
+  }
+
+  // Restore an archived chat from the overlay (issue #87 AC #3). Routes to the existing
+  // restoreChat curation command, then re-posts the archived rows so the overlay drops the
+  // restored chat immediately (the shared refresh also re-renders the tree, where the chat
+  // reappears under its folder or Unsorted). An empty id is ignored.
+  private async onRestoreChat(sessionId: string): Promise<void> {
+    if (sessionId.length === 0) {
+      return;
+    }
+    await this.actions.restoreArchivedChat(sessionId);
+    await this.postArchivedRows();
+  }
+
+  // Star-unarchive from the overlay (issue #87 AC #4: starring an archived chat un-archives
+  // it). Set the synced star, then restore (clear userArchived). Both route through the
+  // existing coerced seams; the star is applied FIRST so the restore's copy handling reads
+  // the current star, then the overlay rows are re-posted so the chat leaves the list. An
+  // empty id is ignored.
+  private async onStarUnarchive(sessionId: string): Promise<void> {
+    if (sessionId.length === 0) {
+      return;
+    }
+    await this.actions.setStarred(sessionId, true);
+    await this.actions.restoreArchivedChat(sessionId);
+    await this.postArchivedRows();
+  }
+
+  // Build and post the Archive overlay's rows (issue #87). Membership is the SYNCED
+  // userArchived flag via the pure buildArchivedRows; present-chat titles/ages ride the
+  // scan, and a missing-transcript archived chat's title falls back to its stored body-copy
+  // title (loaded async via the wiring). Tolerant: no workspace/project posts an empty list
+  // so the overlay renders its "Nothing archived." empty state rather than throwing.
+  private async postArchivedRows(): Promise<void> {
+    if (this.view === undefined) {
+      return;
+    }
+    const records = this.scanRecords();
+    const projectKey = this.getProjectKey();
+    const meta: ProjectMeta | undefined =
+      projectKey !== undefined ? this.store.getProjectMeta(projectKey) : undefined;
+    // Load the stored copy titles ONLY when at least one archived chat is missing from the
+    // scan (a gone transcript); a fully-present set needs no async copy read. buildArchivedRows
+    // is pure and total, so a failed title load degrades to the sessionId fallback.
+    let fallbackTitles = new Map<string, string>();
+    const anyGone =
+      meta !== undefined &&
+      Object.entries(meta.chats).some(
+        ([id, m]) => m.userArchived === true && !records.some((r) => r.sessionId === id),
+      );
+    if (anyGone) {
+      try {
+        fallbackTitles = await this.actions.loadArchivedTitles();
+      } catch {
+        fallbackTitles = new Map();
+      }
+      // The webview may have been disposed during the async load.
+      if (this.view === undefined) {
+        return;
+      }
+    }
+    const rows = buildArchivedRows(records, meta, relativeTimeCompact, fallbackTitles);
+    void this.view.webview.postMessage({ type: 'archivedRows', rows });
   }
 
   // Apply an in-panel drop through the adapter (which runs the UNCHANGED reducer
@@ -628,6 +739,29 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
     this.postSettings();
     this.postOpenSettings();
+  }
+
+  // Tell the client to OPEN the Archive overlay (a client-side render). Sent by the
+  // auto-archive toast's "Open Archive" action via openArchiveOverlay.
+  private postOpenArchive(): void {
+    if (this.view === undefined) {
+      return;
+    }
+    void this.view.webview.postMessage({ type: 'openArchive' });
+  }
+
+  // Reveal the org panel and open the Archive overlay (issue #87), for the auto-archive
+  // toast's "Open Archive" action now that the Archive tree is retired. Posts the archived
+  // rows and the open message; when the view has NOT resolved yet the messages would be
+  // dropped, so pendingOpenArchive defers to the 'ready' handler, mirroring
+  // openSettingsOverlay. The caller focuses the view first (executeCommand focus).
+  openArchiveOverlay(): void {
+    if (this.view === undefined) {
+      this.pendingOpenArchive = true;
+      return;
+    }
+    void this.postArchivedRows();
+    this.postOpenArchive();
   }
 
   // Scan, read the store, and assemble the section model via the pure builder.
@@ -1130,6 +1264,19 @@ function coerce(raw: unknown): Inbound | null {
   }
   if (obj.type === 'openArchive') {
     return { type: 'openArchive' };
+  }
+  if (obj.type === 'restoreChat' && typeof obj.sessionId === 'string') {
+    // sessionId is a record-id reference (used only to find a chat, never a CSS/HTML
+    // sink); accept it as a plain string. The handler no-ops on an empty id.
+    return { type: 'restoreChat', sessionId: obj.sessionId };
+  }
+  if (obj.type === 'starUnarchive' && typeof obj.sessionId === 'string') {
+    return { type: 'starUnarchive', sessionId: obj.sessionId };
+  }
+  if (obj.type === 'previewArchivedChat' && typeof obj.sessionId === 'string') {
+    // sessionId is a record-id reference handed to the archived-copy reader command,
+    // never a CSS/HTML sink; accept it as a plain string.
+    return { type: 'previewArchivedChat', sessionId: obj.sessionId };
   }
   if (obj.type === 'toggleStar' && typeof obj.sessionId === 'string') {
     return { type: 'toggleStar', sessionId: obj.sessionId, starred: obj.starred === true };

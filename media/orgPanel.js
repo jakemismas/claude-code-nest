@@ -131,6 +131,24 @@
   let settingsOverlayEl = null;
   let settingsReturnFocusEl = null;
 
+  // ---- Archive overlay (slice s3b-archive-overlay, issue #87) ----
+
+  // The archived rows the host posted for the OPEN overlay (an ArchivedRow[] carrying
+  // sessionId, title, folder, relativeTime, starred, present). Held only while the overlay
+  // is open; the host re-posts on every open and after a Restore. The archive-search box
+  // filters this set CLIENT-SIDE by title substring (the prototype's
+  // c.title.includes(aq)); text is a tiny local filter over a small posted set, NOT the
+  // host MiniSearch index (which deliberately excludes archived chats).
+  let archivedRows = [];
+  // The archive overlay element (position:fixed;inset:0), or null when closed. Like the
+  // Settings overlay it is a PERSISTENT sub-page (stays open until the back chevron or
+  // Escape), tracked apart from closeAllTransientOverlays. archiveReturnFocusEl restores
+  // focus to the Archived (N) row on close (or to the gear-equivalent trigger).
+  let archiveOverlayEl = null;
+  let archiveReturnFocusEl = null;
+  // The current archive-search text (normalized: trimmed + lowercased), client-side only.
+  let archiveSearchText = '';
+
   // ---- rich hover preview card (slice s3b-hover-card, issue #84) ----
 
   // The floating 270px card element (body-level, position:fixed) or null when no
@@ -675,7 +693,14 @@
     count.className = 'nest-archived-count';
     count.textContent = String(sections.archivedCount);
     btn.appendChild(count);
-    btn.addEventListener('click', () => vscode.postMessage({ type: 'openArchive' }));
+    btn.addEventListener('click', () => {
+      // Remember the trigger so closing the overlay restores focus here (the row is
+      // re-created on each render, so resolve it by class on close instead of holding this
+      // node). Request the archived rows + open the overlay; the host answers with an
+      // 'archivedRows' post the client renders into the overlay.
+      archiveReturnFocusEl = btn;
+      vscode.postMessage({ type: 'openArchive' });
+    });
     listEl.appendChild(btn);
   }
 
@@ -2259,6 +2284,10 @@
     // floats over it.
     closeAllTransientOverlays();
     closeSort(false);
+    // Two persistent sub-pages never stack: opening Settings closes the Archive overlay.
+    if (isArchiveOpen()) {
+      closeArchiveOverlay(false);
+    }
     if (settingsOverlayEl) {
       closeSettingsOverlay(false);
     }
@@ -2418,6 +2447,349 @@
       sw.setAttribute('aria-checked', on ? 'true' : 'false');
       sw.classList.toggle('nest-switch-on', on);
     });
+  }
+
+  // ---- Archive overlay (slice s3b-archive-overlay, issue #87) ----
+
+  function isArchiveOpen() {
+    return archiveOverlayEl !== null;
+  }
+
+  // Coerce one inbound archived row to a safe shape (defensive; the host already builds
+  // these, but the client validates every inbound field). sessionId/title/folder/relativeTime
+  // are strings (rendered as textContent only, never a sink); starred/present are booleans.
+  // A row missing a string sessionId is dropped by the filter below.
+  function isArchivedRow(r) {
+    return !!r && typeof r.sessionId === 'string' && r.sessionId.length > 0;
+  }
+
+  // Close the Archive overlay. restoreFocusToTrigger returns focus to the Archived (N) row
+  // (resolved by class, since a re-render replaces the node) when true, mirroring the
+  // Settings overlay's back-to-gear restore. Clears the held rows and the search text.
+  function closeArchiveOverlay(restoreFocusToTrigger) {
+    if (archiveOverlayEl) {
+      archiveOverlayEl.remove();
+      archiveOverlayEl = null;
+    }
+    archivedRows = [];
+    archiveSearchText = '';
+    var target = null;
+    if (restoreFocusToTrigger) {
+      target =
+        (archiveReturnFocusEl && document.body.contains(archiveReturnFocusEl)
+          ? archiveReturnFocusEl
+          : document.querySelector('.nest-archived-row')) || null;
+    }
+    archiveReturnFocusEl = null;
+    if (target && typeof target.focus === 'function') {
+      target.focus();
+    }
+  }
+
+  // The archived rows to render, filtered by the client-side archive-search text (title
+  // substring, the prototype's c.title.includes(aq)). An empty search shows all rows.
+  function filteredArchivedRows() {
+    if (archiveSearchText.length === 0) {
+      return archivedRows.slice();
+    }
+    return archivedRows.filter(function (r) {
+      var t = typeof r.title === 'string' ? r.title : '';
+      return t.toLowerCase().indexOf(archiveSearchText) !== -1;
+    });
+  }
+
+  // Build and open the full-panel Archive overlay (issue #87 AC #1): a back chevron +
+  // Newsreader heading + count, a note, the GRAY-glow "Search archived" box, and the archived
+  // rows (title, folder . age, an export button, a Restore button). Reuses the .nest-overlay
+  // chrome, back chevron, and Newsreader heading from the Settings overlay verbatim.
+  // Idempotent: opening while open re-renders in place so a fresh 'archivedRows' post
+  // re-seeds the list. Persistent sub-page: stays open until the back chevron or Escape.
+  function openArchiveOverlay() {
+    // Dismiss the click-dismiss popovers and the sort popover; this persistent sub-page is
+    // not in that close-set, so nothing floats over it. If the Settings overlay is open,
+    // close it first (two persistent sub-pages never stack).
+    closeAllTransientOverlays();
+    closeSort(false);
+    if (isSettingsOpen()) {
+      closeSettingsOverlay(false);
+    }
+    if (archiveOverlayEl) {
+      // Re-render in place: tear down the body and rebuild so a fresh post re-seeds it,
+      // preserving the current search text.
+      renderArchiveOverlayBody();
+      return;
+    }
+
+    var overlay = document.createElement('div');
+    overlay.className = 'nest-overlay nest-archive-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-label', 'Archived chats');
+
+    // Header: back chevron + heading + count.
+    var header = document.createElement('div');
+    header.className = 'nest-overlay-header';
+    var back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'nest-overlay-back';
+    back.title = 'Back';
+    back.setAttribute('aria-label', 'Back');
+    back.textContent = '‹'; // single left angle quote
+    back.addEventListener('click', function () {
+      closeArchiveOverlay(true);
+    });
+    header.appendChild(back);
+    var heading = document.createElement('span');
+    heading.className = 'nest-overlay-title';
+    heading.textContent = 'Archived';
+    header.appendChild(heading);
+    var count = document.createElement('span');
+    count.className = 'nest-archive-count';
+    count.textContent = String(archivedRows.length);
+    header.appendChild(count);
+    overlay.appendChild(header);
+
+    // A body wrapper the row list re-renders into (the search box stays put; the row list
+    // and empty state swap under it on each keystroke).
+    var bodyWrap = document.createElement('div');
+    bodyWrap.className = 'nest-archive-wrap';
+    overlay.appendChild(bodyWrap);
+
+    document.body.appendChild(overlay);
+    archiveOverlayEl = overlay;
+    renderArchiveOverlayBody();
+    back.focus();
+  }
+
+  // (Re)build the Archive overlay's body under the header: the note, the gray-glow search
+  // box, and the archived row list (or an empty state). Called on open, on each keystroke,
+  // and after a fresh 'archivedRows' post. Preserves the search box's focus/caret when it
+  // is only the row list that changed by rebuilding the whole body but restoring focus to
+  // the search input when it had focus.
+  function renderArchiveOverlayBody() {
+    if (!archiveOverlayEl) {
+      return;
+    }
+    // Keep the header count in sync with the full (unfiltered) archived set.
+    var headerCount = archiveOverlayEl.querySelector('.nest-archive-count');
+    if (headerCount) {
+      headerCount.textContent = String(archivedRows.length);
+    }
+    var wrap = archiveOverlayEl.querySelector('.nest-archive-wrap');
+    if (!wrap) {
+      return;
+    }
+    var searchWasFocused =
+      document.activeElement && document.activeElement.classList
+        ? document.activeElement.classList.contains('nest-archive-search-input')
+        : false;
+    var caret = null;
+    if (searchWasFocused) {
+      var prev = wrap.querySelector('.nest-archive-search-input');
+      caret = prev ? prev.selectionStart : null;
+    }
+    wrap.textContent = '';
+
+    // The note under the heading.
+    var note = document.createElement('div');
+    note.className = 'nest-archive-note';
+    note.textContent =
+      'Chats kept past your archive window. Starred chats are never archived.';
+    wrap.appendChild(note);
+
+    // The gray-glow "Search archived" box (AC #2): the gray focus ring is a distinct token
+    // from the main orange glow (CSS .nest-archive-search-input:focus).
+    var searchRow = document.createElement('div');
+    searchRow.className = 'nest-archive-search';
+    var icon = document.createElement('span');
+    icon.className = 'nest-archive-search-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.appendChild(searchGlyphGray());
+    searchRow.appendChild(icon);
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'nest-archive-search-input';
+    input.placeholder = 'Search archived';
+    input.setAttribute('aria-label', 'Search archived chats');
+    input.value = archiveSearchText;
+    input.addEventListener('input', function () {
+      archiveSearchText = normalizeQuery(input.value);
+      renderArchiveOverlayBody();
+    });
+    input.addEventListener('keydown', function (ev) {
+      // Escape in the box clears it first, then (if already empty) bubbles to close the
+      // overlay via the document Escape handler; stop propagation only on the clear.
+      if (ev.key === 'Escape' && input.value.length > 0) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        input.value = '';
+        archiveSearchText = '';
+        renderArchiveOverlayBody();
+      }
+    });
+    searchRow.appendChild(input);
+    wrap.appendChild(searchRow);
+
+    // The scrolling row list.
+    var listWrap = document.createElement('div');
+    listWrap.className = 'nest-archive-list';
+    var rows = filteredArchivedRows();
+    if (rows.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'nest-empty';
+      empty.textContent =
+        archiveSearchText.length > 0
+          ? 'No archived chats match your search.'
+          : 'Nothing archived.';
+      listWrap.appendChild(empty);
+    } else {
+      for (var i = 0; i < rows.length; i++) {
+        listWrap.appendChild(makeArchivedRow(rows[i]));
+      }
+    }
+    wrap.appendChild(listWrap);
+
+    if (searchWasFocused) {
+      var next = wrap.querySelector('.nest-archive-search-input');
+      if (next) {
+        next.focus();
+        if (caret !== null && typeof next.setSelectionRange === 'function') {
+          try {
+            next.setSelectionRange(caret, caret);
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+    }
+  }
+
+  // One archived-chat row: title over a "folder . age" meta line, an export button, and a
+  // Restore button. Every label is textContent (untrusted transcript title/folder). Export
+  // routes to the exportIO-guarded exportChat seam; Restore clears the synced userArchived
+  // flag (keeps the star); a click on the row body previews the archived copy (AC #6). A
+  // starred archived row (rare, e.g. star-unarchive raced a refresh) still shows Restore.
+  function makeArchivedRow(row) {
+    var el = document.createElement('div');
+    el.className = 'nest-archive-row';
+    el.setAttribute('role', 'group');
+
+    var textCol = document.createElement('button');
+    textCol.type = 'button';
+    textCol.className = 'nest-archive-row-text';
+    // The row body previews the archived copy (AC #6): a cleaned-up chat is reachable from
+    // the overlay row, and a present chat previews its saved copy too.
+    textCol.setAttribute(
+      'aria-label',
+      'Preview archived chat ' + row.title,
+    );
+    textCol.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      vscode.postMessage({ type: 'previewArchivedChat', sessionId: row.sessionId });
+    });
+    var title = document.createElement('span');
+    title.className = 'nest-archive-row-title';
+    title.textContent = row.title;
+    textCol.appendChild(title);
+    var meta = document.createElement('span');
+    meta.className = 'nest-archive-row-meta';
+    var folderSpan = document.createElement('span');
+    folderSpan.className = 'nest-archive-row-folder';
+    folderSpan.textContent = row.folder || 'Unsorted';
+    meta.appendChild(folderSpan);
+    // The age dot . age (only when the chat is present and has an age; a cleaned-up chat
+    // shows "copy only" instead so the row is not left with a bare folder).
+    if (row.present && row.relativeTime && row.relativeTime.length > 0) {
+      var sep = document.createElement('span');
+      sep.className = 'nest-archive-row-sep';
+      sep.setAttribute('aria-hidden', 'true');
+      sep.textContent = '·';
+      meta.appendChild(sep);
+      var age = document.createElement('span');
+      age.className = 'nest-archive-row-age';
+      age.textContent = row.relativeTime;
+      meta.appendChild(age);
+    } else if (!row.present) {
+      var sep2 = document.createElement('span');
+      sep2.className = 'nest-archive-row-sep';
+      sep2.setAttribute('aria-hidden', 'true');
+      sep2.textContent = '·';
+      meta.appendChild(sep2);
+      var copyOnly = document.createElement('span');
+      copyOnly.className = 'nest-archive-row-age';
+      copyOnly.textContent = 'copy only';
+      meta.appendChild(copyOnly);
+    }
+    textCol.appendChild(meta);
+    el.appendChild(textCol);
+
+    // Star affordance (AC #4: starring an archived chat un-archives it). A hollow star
+    // (archived rows are not starred, since starred chats are never archived); clicking it
+    // posts starUnarchive, which sets the synced star AND clears userArchived through the
+    // existing seams, so the chat leaves the overlay and reappears in the list, starred. A
+    // <button> so it is independently keyboard-focusable and labelled.
+    var star = document.createElement('button');
+    star.type = 'button';
+    star.className = 'nest-star nest-star-empty nest-archive-star';
+    star.setAttribute('aria-label', 'Star and restore ' + row.title);
+    star.textContent = '☆';
+    star.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      vscode.postMessage({ type: 'starUnarchive', sessionId: row.sessionId });
+    });
+    el.appendChild(star);
+
+    var exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.className = 'nest-archive-export';
+    exportBtn.title = 'Export as Markdown';
+    exportBtn.setAttribute('aria-label', 'Export ' + row.title + ' as Markdown');
+    exportBtn.textContent = '⤓'; // downwards arrow to bar
+    exportBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      vscode.postMessage({ type: 'exportChat', sessionId: row.sessionId, format: 'markdown' });
+    });
+    el.appendChild(exportBtn);
+
+    var restore = document.createElement('button');
+    restore.type = 'button';
+    restore.className = 'nest-archive-restore';
+    restore.textContent = 'Restore';
+    restore.setAttribute('aria-label', 'Restore ' + row.title);
+    restore.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      vscode.postMessage({ type: 'restoreChat', sessionId: row.sessionId });
+    });
+    el.appendChild(restore);
+    return el;
+  }
+
+  // The gray magnifier glyph for the archive search box (stroke #A6A294), matching the
+  // main search icon but living in the archive overlay so its gray-glow box reads distinct.
+  function searchGlyphGray() {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '13');
+    svg.setAttribute('height', '13');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('aria-hidden', 'true');
+    var circle = document.createElementNS(NS, 'circle');
+    circle.setAttribute('cx', '7');
+    circle.setAttribute('cy', '7');
+    circle.setAttribute('r', '5');
+    circle.setAttribute('stroke', '#A6A294');
+    circle.setAttribute('stroke-width', '1.6');
+    svg.appendChild(circle);
+    var line = document.createElementNS(NS, 'line');
+    line.setAttribute('x1', '10.8');
+    line.setAttribute('y1', '10.8');
+    line.setAttribute('x2', '14.5');
+    line.setAttribute('y2', '14.5');
+    line.setAttribute('stroke', '#A6A294');
+    line.setAttribute('stroke-width', '1.6');
+    line.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(line);
+    return svg;
   }
 
   // ---- drag and drop (in-process) ----
@@ -2771,8 +3143,13 @@
     document.addEventListener('click', () => closeSort(false));
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        // The Settings overlay is a persistent sub-page: Escape closes it first (and
-        // returns focus to the gear) rather than falling through to the tree overlays.
+        // The Archive and Settings overlays are persistent sub-pages: Escape closes the open
+        // one first (returning focus to its trigger) rather than falling through to the tree
+        // overlays. The archive search box handles its own Escape-to-clear before this fires.
+        if (isArchiveOpen()) {
+          closeArchiveOverlay(true);
+          return;
+        }
         if (isSettingsOpen()) {
           closeSettingsOverlay(true);
           return;
@@ -2912,6 +3289,17 @@
     } else if (msg.type === 'openSettings') {
       // The palette/view-title Settings command asked to open the in-panel overlay.
       openSettingsOverlay();
+    } else if (msg.type === 'archivedRows') {
+      // The host posted the archived rows for the Archive overlay (issue #87), in response
+      // to an openArchive request (the Archived (N) row, the auto-archive toast, or a
+      // Restore that re-posts the trimmed set). Adopt them and open-or-refresh the overlay.
+      archivedRows = Array.isArray(msg.rows) ? msg.rows.filter(isArchivedRow) : [];
+      openArchiveOverlay();
+    } else if (msg.type === 'openArchive') {
+      // The auto-archive toast's "Open Archive" (or a deferred open on 'ready') asked to
+      // open the overlay; the rows arrive in the accompanying 'archivedRows' post, so this
+      // just ensures the overlay is open (idempotent).
+      openArchiveOverlay();
     } else if (msg.type === 'active') {
       // The host resolved the currently-open chat (best-effort tab-label match). Re-tint
       // in place without a full re-render: clear the old tint, apply the new one.

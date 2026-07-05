@@ -90,18 +90,20 @@ every workspace.
 
 ## Commands
 
-Commands live under the **Claude Code Nest** category in the Command Palette, as
-view-title buttons, or as row actions in the Archive view:
+Commands live under the **Claude Code Nest** category in the Command Palette or as
+view-title buttons on the Organize panel:
 
 - **Refresh** re-scans the transcripts under a cancellable progress indicator.
-- **Preview Archived Copy** opens an archived chat's saved body as read-only text.
 - **New Folder**, **New Tag**, **Link to Chat...**, and **Unlink** organize chats
   (the link commands quick-pick their chats when run from the palette).
-- **Star Chat** and **Restore Chat** curate archived rows from the Archive view.
 - **Export Library to JSON...** and **Import Library from JSON...** move your
   library in and out.
 - **Show Token Cost Rollup** opens the by-folder and by-tag token report.
 - **Settings** (shown as "Claude Code Nest: Settings") opens the `cleanupPeriodDays` panel.
+
+Starring, archiving, restoring, and previewing an archived copy live inside the
+Organize panel: the row star toggle, the right-click context menu, and the in-panel
+Archive overlay reached from the bottom "Archived" row carry those actions.
 
 ## Data and privacy
 

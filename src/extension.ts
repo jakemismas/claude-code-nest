@@ -97,7 +97,6 @@ import {
 } from './commands/previewChatCommand';
 import { ChatRecord } from './model/types';
 import { findChildByName } from './model/folderTree';
-import { ArchiveProvider, ArchivedChatItem } from './views/archiveProvider';
 import {
   STAR_CHAT_COMMAND,
   UNSTAR_CHAT_COMMAND,
@@ -451,16 +450,45 @@ export function activate(context: vscode.ExtensionContext): void {
         );
       }
     },
-    openArchive: async (): Promise<void> => {
-      // The design's Archived (N) row opens the Archive sub-page; that in-panel
-      // overlay lands in s3b. Until then, reveal the interim claudeNest.archive tree
-      // view (focus its container). A failure is swallowed so a missing view never
-      // throws out of a webview message handler.
-      try {
-        await vscode.commands.executeCommand('claudeNest.archive.focus');
-      } catch {
-        // The view may not be resolvable yet; nothing else to do.
+    loadArchivedTitles: async (): Promise<Map<string, string>> => {
+      // Load the stored body-copy titles for archived chats whose live transcript was
+      // cleaned up out of band (issue #87, patch item 3), keyed by sessionId, from the
+      // Nest-owned body copies. Read-only (readArchivedBody reads the globalStorage copy);
+      // best-effort per id so one unreadable copy does not fail the whole overlay. Only the
+      // gone-transcript rows consult this; a present chat's title rides the scan. Uses the
+      // panel's scan to find which archived chats are missing (the same records the overlay
+      // posts), then reads only those copies.
+      const projectKey = foldersProvider.resolveProjectKey();
+      const titles = new Map<string, string>();
+      if (projectKey === undefined) {
+        return titles;
       }
+      const meta = store.getProjectMeta(projectKey);
+      const scanned = new Set(orgPanelProvider.scanRecords().map((r) => r.sessionId));
+      for (const [chatId, chatMeta] of Object.entries(meta.chats)) {
+        if (chatMeta.userArchived !== true || scanned.has(chatId)) {
+          continue;
+        }
+        const env = await readArchivedBody(context.globalStorageUri, chatId);
+        if (env !== null && typeof env.title === 'string' && env.title.length > 0) {
+          titles.set(chatId, env.title);
+        }
+      }
+      return titles;
+    },
+    restoreArchivedChat: async (sessionId: string): Promise<void> => {
+      // Restore from the overlay (issue #87 AC #3): clear the synced userArchived flag,
+      // keep the star. Route to the EXISTING restoreChat curation command with a
+      // CurationTarget built from the scan record when present (real filePath so the command
+      // can delete the now-redundant copy), or an empty filePath when the transcript was
+      // cleaned up (a copy-only row) so restoreChat KEEPS the copy (its transcriptExists
+      // guard). A missing/unresolvable id still restores the flag with an empty filePath.
+      const record = orgPanelProvider.resolveRecord(sessionId);
+      await restoreChat(curationDeps, {
+        sessionId,
+        filePath: record?.filePath ?? '',
+        title: record?.title ?? sessionId,
+      });
     },
     runAutoArchive: async (): Promise<void> => {
       // The user changed the auto-archive window in the Settings overlay; run a fresh
@@ -598,6 +626,19 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ORG_PANEL_VIEW, orgPanelProvider),
   );
+  // Reveal the org panel and open the in-panel Archive overlay (issue #87). The auto-archive
+  // toast's "Open Archive" action calls this now that the Archive tree is retired: focus the
+  // view (async), then the provider posts the archived rows + open message (deferring to
+  // 'ready' when the view has not resolved yet). A focus failure is swallowed so a missing
+  // view never throws out of a toast callback.
+  const openArchiveOverlay = async (): Promise<void> => {
+    try {
+      await vscode.commands.executeCommand(ORG_PANEL_VIEW + '.focus');
+    } catch {
+      // The view may not be resolvable yet; the provider still defers the open.
+    }
+    orgPanelProvider.openArchiveOverlay();
+  };
 
   const tagUi: TagCommandUi = {
     prompt: (options) =>
@@ -825,18 +866,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // The claudeNest.archive view (Slice 4): a flat, read-mostly list of the chats
-  // the user has user-archived (the SYNCED ChatMeta.userArchived flag, NOT the
-  // local orphan flag). Registered WITHOUT a dragAndDropController (archive/restore
-  // are commands, matching the smartGroups read-only registration shape). The
-  // provider resolves the project key on demand like the others.
-  const archiveProvider = new ArchiveProvider(workspacePath, store);
-  const archiveView = vscode.window.createTreeView('claudeNest.archive', {
-    treeDataProvider: archiveProvider,
-    showCollapseAll: false,
-    // No dragAndDropController: archive/restore are commands, not drops.
-  });
-  context.subscriptions.push(archiveView);
+  // The Archive tree view (claudeNest.archive) is RETIRED this slice
+  // (s3b-archive-overlay, issue #87). The archived chats now live behind the in-panel
+  // Archive overlay inside the org panel webview, reached from the bottom "Archived (N)"
+  // row, so the org panel is Nest's ONLY contributed view. The archived membership,
+  // Nest-owned body copy, preview, and the star/restore curation commands all survive; only
+  // the tree surface is gone. See DECISIONS.md Slice s3b-archive-overlay.
 
   // Read the configured keep-window (the extension's FIRST contributes.configuration
   // value) in the vscode-thin layer and coerce it to a plain keepWindowDays number
@@ -849,23 +884,10 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.workspace.getConfiguration('claudeNest').get<number>('archiveKeepWindowDays'),
     );
 
-  // Load fallback titles for archived chats whose transcript was cleaned up out of
-  // band, from the Nest-owned body copies, and hand them to the provider so a
-  // missing-transcript row shows its stored title instead of a raw UUID. Async and
-  // best-effort: getChildren stays synchronous and reads whatever titles have loaded.
-  const loadArchiveFallbackTitles = async (): Promise<void> => {
-    const ids = archiveProvider.archivedSessionIds();
-    const titles = new Map<string, string>();
-    for (const id of ids) {
-      const env = await readArchivedBody(context.globalStorageUri, id);
-      if (env !== null && typeof env.title === 'string' && env.title.length > 0) {
-        titles.set(id, env.title);
-      }
-    }
-    if (titles.size > 0) {
-      archiveProvider.setFallbackTitles(titles);
-    }
-  };
+  // Missing-transcript archived chats get their stored body-copy title from the
+  // orgPanelActions.loadArchivedTitles seam (the Archive overlay's on-demand title load,
+  // issue #87), which reads the same Nest-owned copies. The old provider-side fallback-title
+  // loader was retired with the Archive tree.
 
   // The curation commands (STAR/UNSTAR/ARCHIVE/RESTORE). A curation change alters
   // the Archive view membership and the star badge across every chat surface, so the
@@ -878,12 +900,11 @@ export function activate(context: vscode.ExtensionContext): void {
       refresh: () => {
         foldersProvider.refresh();
         tagsProvider.refresh();
-        archiveProvider.refresh();
         refreshOrgPanel();
         scheduleAutoExport();
-        // Re-load fallback titles for any newly-archived chat whose transcript may
-        // already be gone (and to drop titles for restored chats). Fire-and-forget.
-        void loadArchiveFallbackTitles();
+        // The org panel re-renders the tree AND, when the Archive overlay is open, the
+        // client re-requests the archived rows on the next openArchive; the retired tree's
+        // fallback-title loader is gone (the overlay loads copy titles on demand).
       },
     },
     getProjectKey: () => foldersProvider.resolveProjectKey(),
@@ -925,10 +946,10 @@ export function activate(context: vscode.ExtensionContext): void {
       const target = curationTargetFrom(item);
       return target ? restoreChat(curationDeps, target) : undefined;
     }),
-    vscode.commands.registerCommand('claudeNest.refreshArchive', async () => {
-      await runRefreshScan(archiveProvider, 'archive');
-      void loadArchiveFallbackTitles();
-    }),
+    // claudeNest.refreshArchive is retired with the Archive tree (issue #87): the org
+    // panel's Refresh (claudeNest.refresh) re-primes the shared scan snapshot, and the
+    // Archive overlay re-requests its rows each time it opens, so a dedicated archive
+    // refresh command has no surface.
   );
 
   // The live-store backstop for the prune. A body copy carries its OWN snapshot of
@@ -966,9 +987,9 @@ export function activate(context: vscode.ExtensionContext): void {
     Date.now(),
     isArchivedCopyLiveProtected,
   );
-  // Prime the archive fallback titles once on activation so a missing-transcript row
-  // shows its stored title from the first render.
-  void loadArchiveFallbackTitles();
+  // The archive fallback titles are now loaded on demand by the Archive overlay
+  // (orgPanelActions.loadArchivedTitles) each time it opens, so no activation-time prime is
+  // needed (the retired Archive tree needed one because its rows rendered eagerly).
 
   // ---- Auto-archive engine (slice s3b-settings-overlay, issue #86 AC #4/#5) ----
   //
@@ -1034,10 +1055,10 @@ export function activate(context: vscode.ExtensionContext): void {
       );
       if (result.changed) {
         // A curation-class change happened (archived chats moved / copies written):
-        // refresh every org surface and re-load archive fallback titles, exactly like
-        // the interactive archive path.
+        // refresh every org surface. The Archive overlay reloads its rows (and their copy
+        // titles) on demand the next time it opens, so no separate fallback-title load runs
+        // here (the retired tree needed one; the overlay does not).
         refreshAllOrgSurfaces();
-        void loadArchiveFallbackTitles();
       }
       if (result.archived > 0 && context.globalState.get<boolean>(AUTO_ARCHIVE_FIRST_RUN_KEY) !== true) {
         void context.globalState.update(AUTO_ARCHIVE_FIRST_RUN_KEY, true);
@@ -1048,12 +1069,15 @@ export function activate(context: vscode.ExtensionContext): void {
               ' older chat' +
               (result.archived === 1 ? '' : 's') +
               ' to Archive to keep the list tidy. A Nest-owned copy is kept so each ' +
-              'survives Claude cleanup. Restore any from the Archive view.',
+              'survives Claude cleanup. Restore any from the Archive overlay.',
             'Open Archive',
           )
           .then((choice) => {
             if (choice === 'Open Archive') {
-              void vscode.commands.executeCommand('claudeNest.archive.focus');
+              // Reveal the org panel and open the in-panel Archive overlay (issue #87): the
+              // Archive tree is retired, so "Open Archive" now opens the overlay rather than
+              // focusing a view. A failure is swallowed so a missing view never throws.
+              void openArchiveOverlay();
             }
           });
       }
@@ -1146,13 +1170,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       PREVIEW_ARCHIVED_CHAT_COMMAND,
-      (item?: ArchivedChatItem | string) => {
-        const sessionId =
-          typeof item === 'string'
-            ? item
-            : item instanceof ArchivedChatItem
-              ? item.sessionId
-              : undefined;
+      // Since the Archive tree is retired (issue #87), this command's only callers are the
+      // palette (no arg) and the Archive overlay's row preview (a sessionId string). It no
+      // longer receives an ArchivedChatItem tree node.
+      (item?: string) => {
+        const sessionId = typeof item === 'string' ? item : undefined;
         return sessionId !== undefined
           ? previewArchivedBody(previewArchivedChatDeps, sessionId)
           : undefined;
@@ -1279,7 +1301,7 @@ export function activate(context: vscode.ExtensionContext): void {
     refresh: () => {
       foldersProvider.refresh();
       tagsProvider.refresh();
-      archiveProvider.refresh();
+      refreshOrgPanel();
     },
   });
   activeAutoExporter = autoExporter;
@@ -1304,7 +1326,6 @@ export function activate(context: vscode.ExtensionContext): void {
     refresh: () => {
       foldersProvider.refresh();
       tagsProvider.refresh();
-      archiveProvider.refresh();
       refreshOrgPanel();
       autoExporter.schedule();
     },
@@ -1464,20 +1485,20 @@ function chatRecordFrom(
 }
 
 // The chat-row node shapes a curation command (star/unstar/archive/restore) can
-// fire on: a folder member, a tags occurrence, an archived row, or a bare
-// sessionId from a programmatic caller.
+// fire on: a folder member, a tags occurrence, or a bare sessionId from a
+// programmatic caller (the Archive tree's ArchivedChatItem was retired with the tree,
+// issue #87; the Archive overlay's Restore/star-unarchive route through the org-panel
+// OrgPanelActions.restoreArchivedChat seam, which builds the target directly).
 type CurationClickable =
   | ChatMemberItem
   | ChatOccurrenceItem
-  | ArchivedChatItem
   | string;
 
 // Recover the CurationTarget (sessionId + filePath + title) from a clicked chat
 // row in any view. All chat-row wrappers dereference the ONE shared ChatRecord,
-// which carries filePath and title; an ArchivedChatItem whose transcript was
-// cleaned up has no record, so it yields a target with an EMPTY filePath (archive
-// would read no body, but star/unstar/restore on an already-archived chat need only
-// the sessionId). A non-chat node yields undefined, so a curation command is a
+// which carries filePath and title. A bare sessionId (a programmatic caller) yields a
+// target with an EMPTY filePath (star/unstar/restore on an already-archived chat need
+// only the sessionId). A non-chat node yields undefined, so a curation command is a
 // no-op on a folder/tag/group row.
 function curationTargetFrom(item?: CurationClickable): CurationTarget | undefined {
   if (typeof item === 'string') {
@@ -1485,18 +1506,6 @@ function curationTargetFrom(item?: CurationClickable): CurationTarget | undefine
   }
   if (item instanceof ChatMemberItem || item instanceof ChatOccurrenceItem) {
     return { sessionId: item.record.sessionId, filePath: item.record.filePath, title: item.record.title };
-  }
-  if (item instanceof ArchivedChatItem) {
-    // A present archived chat carries its record (filePath/title); a cleaned-up one
-    // has none, so fall back to the sessionId for identity and an empty filePath.
-    if (item.record !== undefined) {
-      return {
-        sessionId: item.record.sessionId,
-        filePath: item.record.filePath,
-        title: item.record.title,
-      };
-    }
-    return { sessionId: item.sessionId, filePath: '', title: item.sessionId };
   }
   return undefined;
 }
