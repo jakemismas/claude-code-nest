@@ -82,6 +82,21 @@ Claude's UI without replying does not clear it.
 8. The prototype's in-memory state is replaced by the existing metadata store, sync, and
    settings machinery; UI-only state (sort, collapsed set, section toggles, read state,
    archive search) is local Memento state, never synced.
+9. Sort-popover focus ring on open (slice s3c-fidelity-sweep). When the sort popover
+   opens, the panel programmatically focuses the active item, so the fidelity capture
+   shows a focus ring (the `:focus-visible` inset accent box) around "Newest first" that
+   the prototype does not draw (the prototype does not move focus into its popover). The
+   at-rest chrome matches the handoff exactly (checkmark `#d97757` on the active item;
+   README line 25); the ring is correct ARIA focus behavior for a keyboard-opened menu,
+   not a styling deviation from the tokens. Do not flag it as a mismatch against
+   `sort-popover-320.png`.
+10. New-folder popover anchor position (slice s3c-fidelity-sweep). The shipped panel
+    anchors the New folder popover to the FOLDERS-header `＋` button (mid-panel); the
+    prototype floats it near the top of the sidebar. The popover CONTENT and chrome (NEW
+    FOLDER title, "Folder name" input with the accent focus ring, filled `#d97757` Create
+    button, text Cancel) match the handoff (README line 73); only the anchor offset
+    differs, driven by each surface's own layout. Do not flag the anchor offset against
+    `newfolder-popover-320.png`.
 
 ## The read-only line (unchanged, sacred)
 
