@@ -123,6 +123,34 @@
           ],
         };
       };
+      // The host reply for a hover-scoped previewBody request (slice s3b-hover-card,
+      // issue #84). When the panel opens the rich hover card it posts
+      // { type:'previewBody', sessionId }; the real extension host reads that one
+      // transcript on demand and answers with the first user body + the last assistant
+      // body. The harness must reply too, or the card's body block stays empty and the
+      // hover-card fidelity capture (issue #84 AC #6) shows a card with no message
+      // lines. The reply is synthetic and deterministic per sessionId so the captured
+      // card reads like the prototype's card. All bodies here are invented.
+      window.__nestHarnessPreviewReply = function (sessionId) {
+        const bodies = {
+          's-01': {
+            firstUser:
+              'Can you refactor the auth middleware so the token check and the role check are separate layers? Right now they are tangled in one function and it is hard to test.',
+            lastAssistant:
+              'Done. I split it into requireToken and requireRole, each a small middleware you compose per route. The token layer verifies and attaches req.user; the role layer reads req.user.role and 403s on a mismatch. Tests cover both paths.',
+          },
+        };
+        const found = bodies[sessionId] || {
+          firstUser: 'What is the cleanest way to structure this?',
+          lastAssistant: 'Here is the approach I would take, with the tradeoffs called out.',
+        };
+        return {
+          type: 'previewBody',
+          sessionId: sessionId,
+          firstUser: found.firstUser,
+          lastAssistant: found.lastAssistant,
+        };
+      };
       window.acquireVsCodeApi = function () {
         return {
           postMessage: function (m) {
@@ -131,6 +159,12 @@
             // results view populates exactly as it would against the real host.
             if (m && m.type === 'search') {
               const reply = window.__nestHarnessSearchReply(m.query);
+              window.postMessage(reply, '*');
+            }
+            // Echo a synthetic host reply for a hover-card previewBody request so the
+            // card's message lines populate exactly as they would against the host.
+            if (m && m.type === 'previewBody') {
+              const reply = window.__nestHarnessPreviewReply(m.sessionId);
               window.postMessage(reply, '*');
             }
           },

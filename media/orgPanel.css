@@ -981,3 +981,108 @@ body {
   outline: none;
   background: #F4F2EA;
 }
+
+/* ---- Rich hover preview card (slice s3b-hover-card, issue #84) ---- */
+
+/* The floating 270px card near the cursor (prototype ChatSidebar.dc.html:819):
+   white surface, 11px radius, the design's hover-card shadow (README line 101:
+   0 14px 38px rgba(40,33,20,0.20)). Body-level position:fixed, above the tree and
+   the other popovers. pointer-events auto so the card is itself hoverable (the
+   130ms leave delay plus this keeps it up while the pointer travels to it). */
+.nest-preview-card {
+  position: fixed;
+  z-index: 62;
+  width: 270px;
+  background: #fff;
+  border: 1px solid var(--nest-border);
+  border-radius: 11px;
+  box-shadow: 0 14px 38px rgba(40, 33, 20, 0.20);
+  padding: 13px 14px;
+  pointer-events: auto;
+}
+
+.nest-preview-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  /* The prototype card title is #23211C (ChatSidebar.dc.html:354), a hair darker
+     than the row --nest-text-strong; matched verbatim for the card. */
+  color: #23211C;
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+
+/* The folder · age · NNk tok meta line (prototype ChatSidebar.dc.html:355). */
+.nest-preview-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--nest-text-muted);
+  margin-bottom: 9px;
+}
+
+.nest-preview-meta-sep {
+  color: var(--nest-text-muted);
+}
+
+/* Tag pills on the card: color @15% background, full-color text, matching the row
+   pills and the prototype card pills (ChatSidebar.dc.html:360). */
+.nest-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.nest-preview-tag {
+  --tag-color: var(--nest-accent);
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--tag-color);
+  background: var(--nest-accent-soft);
+}
+
+/* The two body lines (first user, last assistant), each a role label plus the body
+   text clamped to 3 lines (prototype ChatSidebar.dc.html:366-369). */
+.nest-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nest-preview-body:empty {
+  display: none;
+}
+
+.nest-preview-role {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  margin-bottom: 2px;
+}
+
+.nest-preview-role-you {
+  color: #8A857A;
+}
+
+.nest-preview-role-claude {
+  color: var(--nest-accent-deep);
+}
+
+/* The clamp: the design shows at most 3 lines per body, ellipsized. -webkit-box +
+   line-clamp is the Chromium-supported clamp on the engines floor (VS Code 1.66
+   ships Chromium 98), the same technique the prototype uses. */
+.nest-preview-text {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #5A564E;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}

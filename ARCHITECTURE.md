@@ -208,6 +208,43 @@ slice s3a-view-consolidation, and the kept builders now ride the view-less
 folders/tags services, so no attached view renders the card until the s3b
 in-panel hover card lands; the rule continues to bind the kept node builders.)
 
+## Org-panel hover card and the previewBody contract (Sprint 3, slice s3b-hover-card) — binding
+
+Slice s3b-hover-card (issue #84) lands the org panel's own rich preview card. It does
+NOT reuse the Sprint-2 buildChatTooltip MarkdownString path: a WebviewView cannot host
+a vscode.MarkdownString, so the card is a webview DOM node (media/orgPanel.js, a
+body-level position:fixed `.nest-preview-card`) whose every content sink is textContent
+only (no innerHTML), keeping the security render-site class the s3a slices established.
+buildChatTooltip and its vscode.MarkdownString wrap stay INTACT in the retired-view
+services (foldersProvider.ts, tagsProvider.ts) for a future consumer; the panel simply
+never imports it (it imports only tokenBadge from chatTooltip.ts). These rules are
+binding so the card cannot violate the "full body never on the snapshot" tier-A rule or
+the webview textContent-only render discipline.
+
+- THE CARD BODY LINES RIDE A HOVER-SCOPED previewBody ROUND-TRIP, read on demand and
+  retained NOWHERE but the open card's DOM. The row model (OrgChatRow, the sectioned
+  post) carries the card's title, folder breadcrumb, token label, and tag pills, so the
+  card's chrome renders with NO host read; only the two body lines need the transcript.
+  The client posts `{ type:'previewBody', sessionId }` for the ONE hovered (or
+  keyboard-previewed) chat; the host (orgPanelWebview.ts postPreviewBody) scans, finds
+  that record, reads its bodies ONCE on demand via bodyReader.readTranscriptBodies,
+  selects the FIRST role==='user' body and the LAST role==='assistant' body through the
+  vscode-free bodyReader.selectPreviewBodies, posts them back as
+  `{ type:'previewBody', sessionId, firstUser, lastAssistant }`, and DISCARDS the bodies
+  (they are locals that die when the method returns). Bodies never enter the scan
+  snapshot; the host holds nothing after the reply. This is the SAME on-demand-read /
+  discard shape as the search body feed and the Preview Full Chat command.
+- THE REPLY IS sessionId-ECHOED AND STALE-DROPPED. The host echoes the requested
+  sessionId; the client (applyPreviewBody) renders the lines ONLY when the card is still
+  open for that same chat (previewSessionId match), so a late reply for a chat the
+  pointer has already left is ignored. A missing/unknown id or an unreadable transcript
+  posts null lines and the card renders its title/meta with no body block rather than the
+  host throwing (the never-throw tolerance carried from the Sprint-2 card).
+- THE INBOUND previewBody MESSAGE IS COERCED like every other webview message: coerce()
+  in orgPanelWebview.ts accepts it only when `type === 'previewBody'` and sessionId is a
+  string; postPreviewBody additionally no-ops on an empty id. The sessionId is used only
+  to find a scanned record and is never a CSS/HTML sink.
+
 ## Search-index location (Sprint 2, slice 2) — binding
 
 Full-text content search (slice s2-fulltext-search) is built on MiniSearch with

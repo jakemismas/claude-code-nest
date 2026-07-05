@@ -1426,3 +1426,30 @@ specifically (2-unit hex delta, sub-perceptible at screenshot fidelity). The chi
 delivered and reviewed in slice s3a-design-shell; aligning them would need a dedicated chip-
 border token (the search box legitimately uses #E4E0D6), so it is left for a design-shell touch-
 up rather than reopened here. Recorded for the backlog.
+
+## 2026-07-04 Slice s3b-hover-card (issue #84): token label form and keyboard preview key
+
+Fork 1 (reversible): the card's `NNk tok` token line. The design (README line 53,
+prototype ChatSidebar.dc.html:356) shows the compact `NNk tok` form, but the row-model
+seam (OrgChatRow.tokens, tokenBadge) carries the `~NNk tokens` form used everywhere else.
+The accepted patch says the card's tokens come from the row model already on the client
+(no extra host read). Resolution: render `row.tokens` verbatim but trim the trailing
+`tokens`/`token` word to `tok` for the card only (previewTokensLabel), so the card matches
+the design without a second host read and without changing the shared tokenBadge form.
+An empty token seam drops the segment rather than showing a bare `tok`. Reversible (a
+webview display transform; no data or contract change).
+
+Fork 2 (reversible): the keyboard-equivalent preview trigger (issue #84 AC #5). The AC
+requires a key on the focused treeitem to open the same card, riding the EXISTING
+roving-tabindex ARIA tree (UI-SPEC deviation 5), with Escape closing and restoring focus.
+Enter/Space already open the chat and arrows navigate, so the preview needs its own key.
+Resolution: `p` (mnemonic for preview) on a focused chat row opens the card anchored to
+the row; the shared Escape handler closes it and restores focus to that row. No typeahead
+exists in the tree, so a letter key does not collide. Reversible (a single keydown branch).
+
+Non-fork note: AC #4 ("remove the old MarkdownString tooltip path from the panel") needed
+NO code change. The org panel never had a MarkdownString tooltip: it imports only
+tokenBadge from chatTooltip.ts, not buildChatTooltip. buildChatTooltip and its
+vscode.MarkdownString wrap stay intact in the retired-view services (foldersProvider.ts,
+tagsProvider.ts), per the accepted patch. The panel's card is a webview DOM node with
+textContent-only sinks, never a MarkdownString.

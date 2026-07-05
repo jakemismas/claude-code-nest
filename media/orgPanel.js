@@ -100,6 +100,23 @@
   // single tabindex="0". Kept stable across re-renders by id when possible.
   let focusedId = null;
 
+  // ---- rich hover preview card (slice s3b-hover-card, issue #84) ----
+
+  // The floating 270px card element (body-level, position:fixed) or null when no
+  // card is open. previewSessionId is the chat the open card is for; previewHideTimer
+  // is the 130ms leave-delay timer that keeps the card up while the pointer travels to
+  // it (issue #84 AC #2); previewFromKeyboard is true when the card was opened by a
+  // keystroke on the focused row, so Escape restores focus to that row (issue #84
+  // AC #5). Body lines are fetched on demand from the host (previewBody message) for
+  // this one chat and are NEVER stored anywhere but the card DOM the close tears down
+  // (issue #84 AC #3).
+  const PREVIEW_LEAVE_DELAY_MS = 130;
+  const PREVIEW_WIDTH = 270;
+  let previewEl = null;
+  let previewSessionId = null;
+  let previewHideTimer = null;
+  let previewFromKeyboard = false;
+
   // Convert a strict #rrggbb hex color to an rgba() string at the given alpha. Used
   // for the tag-pill @15% background and the active-chip @15%/@45% background/border
   // (design README). Computed here rather than via CSS color-mix(), which needs
@@ -333,6 +350,17 @@
     el.addEventListener('click', () => activateRow(row.sessionId));
     el.addEventListener('dragstart', (e) => onRowDragStart(e, row.sessionId));
     el.addEventListener('dragend', onDragEnd);
+    // Rich hover card (issue #84): entering the row opens the card near the cursor;
+    // leaving arms the 130ms delayed close so the pointer can travel onto the card.
+    // A drag in progress suppresses the card (the prototype clears hoverId on
+    // dragstart) so a floating card never fights the drop UI.
+    el.addEventListener('mouseenter', (e) => {
+      if (draggingChatIds.length > 0) {
+        return;
+      }
+      openPreview(row, e.clientX, e.clientY, false);
+    });
+    el.addEventListener('mouseleave', schedulePreviewClose);
     return el;
   }
 
@@ -853,6 +881,226 @@
 
     // The Archived (N) row is present in the filtered view too (handoff parity).
     renderArchivedRow();
+  }
+
+  // The card's folder label: the row's folder-path breadcrumb, or 'Unsorted' when the
+  // chat is unfiled (breadcrumb null), matching the prototype (folderPath || 'Unsorted').
+  function previewFolderLabel(row) {
+    return row.breadcrumb && row.breadcrumb.length > 0 ? row.breadcrumb : 'Unsorted';
+  }
+
+  // The card's token label. The row seam carries the host's '~NNk tokens' badge; the
+  // design card shows the compact 'NNk tok' form (README line 53). Trim the trailing
+  // 'tokens' word to 'tok' for display WITHOUT a second host read (issue #84 patch:
+  // tokens on the card come from the row model already on the client). Empty when the
+  // chat recorded no usage, so the meta line drops the token segment rather than
+  // showing a bare 'tok'.
+  function previewTokensLabel(row) {
+    var t = typeof row.tokens === 'string' ? row.tokens.trim() : '';
+    if (t.length === 0) {
+      return '';
+    }
+    return t.replace(/\s*tokens?$/i, ' tok');
+  }
+
+  // Open (or move) the rich hover card for a row. Builds the card from the row/section
+  // model already on the client (title, folder, age, tokens, tags) and requests the two
+  // body lines from the host on demand (previewBody). x/y anchor the card near the
+  // cursor (hover) or the row (keyboard). fromKeyboard drives the Escape focus-restore.
+  // The card is a body-level position:fixed node; every content sink is textContent
+  // (never innerHTML), the s3a render-site security class (issue #84 AC #5).
+  function openPreview(row, x, y, fromKeyboard) {
+    clearPreviewHideTimer();
+    if (!row) {
+      return;
+    }
+    closePreview(false);
+    previewSessionId = row.sessionId;
+    previewFromKeyboard = !!fromKeyboard;
+
+    var card = document.createElement('div');
+    card.className = 'nest-preview-card';
+    card.setAttribute('role', 'tooltip');
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'nest-preview-title';
+    titleEl.textContent = row.title;
+    card.appendChild(titleEl);
+
+    var meta = document.createElement('div');
+    meta.className = 'nest-preview-meta';
+    var metaParts = [previewFolderLabel(row), relative(row.timestamp)];
+    var tokLabel = previewTokensLabel(row);
+    if (tokLabel.length > 0) {
+      metaParts.push(tokLabel);
+    }
+    for (var mi = 0; mi < metaParts.length; mi++) {
+      if (mi > 0) {
+        var sep = document.createElement('span');
+        sep.className = 'nest-preview-meta-sep';
+        sep.setAttribute('aria-hidden', 'true');
+        sep.textContent = '·';
+        meta.appendChild(sep);
+      }
+      var seg = document.createElement('span');
+      seg.textContent = metaParts[mi];
+      meta.appendChild(seg);
+    }
+    card.appendChild(meta);
+
+    if (row.tags && row.tags.length > 0) {
+      var tagWrap = document.createElement('div');
+      tagWrap.className = 'nest-preview-tags';
+      for (var ti = 0; ti < row.tags.length; ti++) {
+        var pill = document.createElement('span');
+        pill.className = 'nest-preview-tag';
+        var tagColor = row.tagColors && row.tagColors[ti];
+        if (tagColor) {
+          pill.style.setProperty('--tag-color', tagColor);
+          var bg = hexToRgba(tagColor, 0.15);
+          if (bg) {
+            pill.style.background = bg;
+          }
+        }
+        pill.textContent = row.tags[ti];
+        tagWrap.appendChild(pill);
+      }
+      card.appendChild(tagWrap);
+    }
+
+    // The two body lines land asynchronously from the host (previewBody reply); until
+    // then the body block is empty. A placeholder keeps the card from jumping when the
+    // lines arrive.
+    var bodyWrap = document.createElement('div');
+    bodyWrap.className = 'nest-preview-body';
+    card.appendChild(bodyWrap);
+
+    // Keep the card up while the pointer travels onto it (issue #84 AC #2): entering
+    // the card cancels the leave timer, leaving it re-arms the delayed close.
+    card.addEventListener('mouseenter', clearPreviewHideTimer);
+    card.addEventListener('mouseleave', schedulePreviewClose);
+
+    document.body.appendChild(card);
+    previewEl = card;
+    positionPreview(card, x, y);
+
+    // Request the body lines for this ONE chat. The host reads the transcript on
+    // demand, returns the first user + last assistant text, and discards them; the
+    // reply is applied only if the card is still open for this same chat.
+    vscode.postMessage({ type: 'previewBody', sessionId: row.sessionId });
+  }
+
+  // Position the card near the anchor, clamped into the viewport so it never overflows
+  // (prototype pvLeft/pvTop clamp, ChatSidebar.dc.html:789-790).
+  function positionPreview(card, x, y) {
+    var left = Math.min((x || 0) + 16, window.innerWidth - (PREVIEW_WIDTH + 20));
+    left = Math.max(8, left);
+    var top = Math.max(10, Math.min((y || 0) - 16, window.innerHeight - 220));
+    card.style.left = left + 'px';
+    card.style.top = top + 'px';
+  }
+
+  // Apply a host previewBody reply: render the first-user / last-assistant lines into
+  // the OPEN card, but only when the reply is for the chat the card is still showing
+  // (a late reply for a chat the pointer already left is dropped). Each line is a
+  // role label plus the body text, clamped to 3 lines by CSS (issue #84 AC #1); the
+  // text sink is textContent so transcript content can never inject markup.
+  function applyPreviewBody(sessionId, firstUser, lastAssistant) {
+    if (!previewEl || previewSessionId !== sessionId) {
+      return;
+    }
+    var bodyWrap = previewEl.querySelector('.nest-preview-body');
+    if (!bodyWrap) {
+      return;
+    }
+    bodyWrap.textContent = '';
+    var lines = [];
+    if (typeof firstUser === 'string' && firstUser.length > 0) {
+      lines.push({ role: 'YOU', cls: 'nest-preview-role-you', text: firstUser });
+    }
+    if (typeof lastAssistant === 'string' && lastAssistant.length > 0) {
+      lines.push({ role: 'CLAUDE', cls: 'nest-preview-role-claude', text: lastAssistant });
+    }
+    for (var i = 0; i < lines.length; i++) {
+      var block = document.createElement('div');
+      block.className = 'nest-preview-line';
+      var label = document.createElement('div');
+      label.className = 'nest-preview-role ' + lines[i].cls;
+      label.textContent = lines[i].role;
+      block.appendChild(label);
+      var text = document.createElement('div');
+      text.className = 'nest-preview-text';
+      text.textContent = lines[i].text;
+      block.appendChild(text);
+      bodyWrap.appendChild(block);
+    }
+  }
+
+  function clearPreviewHideTimer() {
+    if (previewHideTimer !== null) {
+      clearTimeout(previewHideTimer);
+      previewHideTimer = null;
+    }
+  }
+
+  // Arm the 130ms leave-delay close (issue #84 AC #2). Cancelled if the pointer re-enters
+  // the row or the card before it fires.
+  function schedulePreviewClose() {
+    clearPreviewHideTimer();
+    previewHideTimer = setTimeout(function () {
+      previewHideTimer = null;
+      closePreview(false);
+    }, PREVIEW_LEAVE_DELAY_MS);
+  }
+
+  // Tear the card down and forget the chat it showed (the body lines it held die with
+  // the DOM node, honoring issue #84 AC #3: bodies are discarded when the card closes).
+  // When restoreFocus is true AND the card was opened from the keyboard, focus returns
+  // to the row it was opened from (issue #84 AC #5).
+  function closePreview(restoreFocusToRow) {
+    clearPreviewHideTimer();
+    if (!previewEl) {
+      previewSessionId = null;
+      return;
+    }
+    var wasKeyboard = previewFromKeyboard;
+    var forId = previewSessionId;
+    previewEl.remove();
+    previewEl = null;
+    previewSessionId = null;
+    previewFromKeyboard = false;
+    if (restoreFocusToRow && wasKeyboard && forId) {
+      var rows = focusableRows();
+      var target = rows.find(function (r) {
+        return r.dataset.kind === 'chat' && r.dataset.id === forId;
+      });
+      if (target) {
+        setFocus(target);
+      }
+    }
+  }
+
+  // Open the card for the currently focused chat row via the keyboard (issue #84 AC #5),
+  // anchored to the row's own box so it reads next to the row it previews.
+  function openPreviewForFocusedRow(rowEl) {
+    var row = rowByEl(rowEl);
+    if (!row) {
+      return;
+    }
+    var rect =
+      rowEl && typeof rowEl.getBoundingClientRect === 'function'
+        ? rowEl.getBoundingClientRect()
+        : { right: 12, top: 12 };
+    openPreview(row, rect.right, rect.top, true);
+  }
+
+  // Resolve a chat row element to its section-model row object (title/folder/age/
+  // tokens/tags). Uses the same rowsBySessionId lookup the search join uses.
+  function rowByEl(rowEl) {
+    if (!rowEl || !rowEl.dataset || rowEl.dataset.kind !== 'chat') {
+      return null;
+    }
+    return rowsBySessionId().get(rowEl.dataset.id) || null;
   }
 
   // ---- collapse / expand (issue #64) ----
@@ -1388,6 +1636,12 @@
     closeColorPicker();
     closeNewFolderPopover();
     closeFolderMenu();
+    // The hover card is also a body-level position:fixed overlay that a tree
+    // re-render (listEl.textContent = '') would orphan, floating at a stale point
+    // while it references a row that no longer exists. Tear it down with the rest.
+    // No focus restore here: render() re-seats the roving tabindex, and the Escape
+    // path already ran closePreview(true) before reaching this shared close-set.
+    closePreview(false);
   }
   function openNewFolderPopover(anchorEl) {
     cancelPendingFolderToggle();
@@ -1477,6 +1731,9 @@
   // ---- drag and drop (in-process) ----
 
   function onRowDragStart(e, sessionId) {
+    // A drag starting dismisses any open hover card (prototype clears hoverId on
+    // dragstart) so a floating card never overlaps the drop UI.
+    closePreview(false);
     draggingChatIds = [sessionId];
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
@@ -1558,10 +1815,16 @@
   }
 
   function activateRow(sessionId) {
+    // Opening a chat dismisses the hover card (prototype openChat sets hoverId null).
+    closePreview(false);
     vscode.postMessage({ type: 'open', sessionId });
   }
 
   function moveFocus(delta) {
+    // Arrow navigation dismisses a keyboard-opened hover card so a stale card does
+    // not linger over a row the focus has left (issue #84 AC #5). closePreview(false)
+    // does not restore focus, so it will not fight the setFocus below.
+    closePreview(false);
     const rows = focusableRows();
     if (rows.length === 0) {
       return;
@@ -1660,6 +1923,13 @@
         const nameEl = active.querySelector('.nest-folder-name');
         beginRename(active, active.dataset.renameFolderId, nameEl ? nameEl.textContent : '');
       }
+    } else if ((e.key === 'p' || e.key === 'P') && isRow && active.dataset.kind === 'chat') {
+      // Keyboard-equivalent hover preview (issue #84 AC #5): 'p' on a focused chat row
+      // opens the SAME card the pointer hover opens, anchored to the row; Escape (the
+      // shared document handler) closes it and restores focus to this row. Rides the
+      // EXISTING roving-tabindex ARIA tree (UI-SPEC deviation 5), not a new focus model.
+      e.preventDefault();
+      openPreviewForFocusedRow(active);
     }
   });
 
@@ -1810,6 +2080,10 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeSort(isSortOpen());
+        // Close the hover card first, restoring focus to the row it was opened from
+        // when it was a keyboard-opened card (issue #84 AC #5). Runs before the other
+        // overlay closes so a keyboard preview reliably returns focus to its row.
+        closePreview(true);
         closeAllTransientOverlays();
         // Escape is a documented abort trigger for the deferred folder-row toggle
         // (orgPanelInteractions.ts clearFolderToggleArm): dismissing the UI must also
@@ -1902,6 +2176,15 @@
       // active (it is, since q === textFilter and q is non-empty here).
       if (textFilter.length > 0) {
         render();
+      }
+    } else if (msg.type === 'previewBody') {
+      // Host reply to a hover-scoped previewBody request (issue #84). Apply the first-
+      // user / last-assistant lines to the OPEN card only when it is still showing this
+      // same chat; applyPreviewBody drops a stale reply for a chat the pointer has left.
+      if (typeof msg.sessionId === 'string') {
+        const firstUser = typeof msg.firstUser === 'string' ? msg.firstUser : null;
+        const lastAssistant = typeof msg.lastAssistant === 'string' ? msg.lastAssistant : null;
+        applyPreviewBody(msg.sessionId, firstUser, lastAssistant);
       }
     } else if (msg.type === 'active') {
       // The host resolved the currently-open chat (best-effort tab-label match). Re-tint

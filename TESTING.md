@@ -13,8 +13,9 @@ own smoke section; check the ones whose slice is recorded in CHANGELOG.md.
 The current handoff artifact is `claude-code-nest-0.1.1-sprint3-part1.vsix` in the
 repo root. It is a MID-SPRINT build: it carries all of Sprint 3 Part 1 (the
 one-panel consolidation through full-text search and tag chips, issues #78 to #83)
-on top of the released 0.1.1 surface. It is NOT the finished v0.2.0 "One Panel"
-release; Part 2 (hover card, context menu, in-panel Settings and Archive overlays,
+on top of the released 0.1.1 surface, plus the first Part 2 slice, the rich hover
+preview card (issue #84). It is NOT the finished v0.2.0 "One Panel" release; the
+rest of Part 2 (context menu, in-panel Settings and Archive overlays,
 auto-archive), Part 3 (the fidelity sweep and the docs/a11y closeout), the human
 verify gate, and the pre-release security council have not run yet. Run only the
 smoke sections whose slice is recorded as landed in CHANGELOG.md.
@@ -51,14 +52,15 @@ superseded by the org panel.
 Note on the one-panel consolidation (Sprint 3, slice s3a, unreleased): on a build
 that includes s3a-view-consolidation, the flat Chats and Smart Groups TREES are
 GONE too, and the Organize panel is the ONLY browsing surface (only the Archive
-view and the Settings tab ride alongside it). Earlier steps that hover a chat row
-for the rich preview card, run "Preview Full Chat" or "Export Chat..." from a
+view and the Settings tab ride alongside it). The org panel's own rich hover
+preview card landed with the Part 2 slice s3b-hover-card (issue #84); exercise it
+through the runnable S3B section below, not through the earlier Sprint-2 tree-row
+hover steps. Earlier steps that run "Preview Full Chat" or "Export Chat..." from a
 chat row, star or archive a LIVE chat, or exercise the flat or Smart Groups views
-have no UI surface on such a build until the Sprint 3 part-2 in-panel hover card
-and context menu land; skip those steps there (the commands and the card builder
-stay registered and unit-tested). The per-row ~token badge still shows on
-Organize panel rows, and every Archive view step still applies. See the Sprint 3
-checklist below.
+have no UI surface on such a build until the Sprint 3 part-2 context menu and
+in-panel overlays land; skip those steps there (the commands stay registered and
+unit-tested). The per-row ~token badge still shows on Organize panel rows, and
+every Archive view step still applies. See the Sprint 3 checklist below.
 
 ## The read-only invariant (assert on every session)
 
@@ -573,10 +575,12 @@ behavior. The index invariant below still holds.
 5. Confirm the Archive view still works end to end (the S2-4 steps): archived
    rows list, and Preview Archived Copy, Star/Unstar, and Restore all run from
    the row's context menu.
-6. Interim gaps (accepted; they land later in Sprint 3): no hover preview card,
-   no Preview Full Chat, no per-chat Export Chat..., and no star/archive of a
-   LIVE chat anywhere in the UI. Confirm none of these appear in the palette or
-   on any surviving surface, and that the per-row ~token badge still shows.
+6. Interim gaps (accepted; they land later in Sprint 3): no Preview Full Chat, no
+   per-chat Export Chat..., and no star/archive of a LIVE chat anywhere in the UI.
+   Confirm none of these appear in the palette or on any surviving surface, and
+   that the per-row ~token badge still shows. (The rich hover preview card is no
+   longer a gap: it landed with slice s3b-hover-card, issue #84; exercise it via
+   the runnable S3B section below.)
 7. Confirm nothing under `~/.claude/projects/` changed.
 
 ### S3A-1: visual fidelity harness (issue #79)
@@ -731,6 +735,45 @@ sets so later slices can be eye-compared against the design.
     responsive (the query is debounced; the list fills in as results land). Confirm
     nothing under `~/.claude/projects/` changed by any search.
 
+### S3B: rich hover preview card (issue #84)
+
+The card is a floating, body-level overlay the panel builds from the row model
+already on the client (title, folder, age, tokens, tags); only the two body
+snippets are fetched from the host on demand. The pure selection logic (first
+user + last assistant body) is covered by the headless unit suite
+(`bodyReader.test.ts`); the steps below are the only verification of the
+vscode-bound card behavior. The read-only invariant above applies: the body is
+read on demand for one chat and discarded, and nothing under
+`~/.claude/projects/` may change.
+
+1. Hover open. Move the pointer onto a chat row in the Organize panel. Confirm a
+   floating ~270px card appears near the cursor showing the chat's title; a
+   meta line with the folder breadcrumb (or `Unsorted`), the relative age, and a
+   `~NNk tok` token label; the chat's tag pills; and a two-line body block with a
+   `YOU` first-message snippet and a `CLAUDE` last-message snippet. Move the
+   pointer off the row and confirm the card closes on its own.
+2. Travel onto the card (130ms leave delay). Hover a row to open the card, then
+   move the pointer OFF the row and directly ONTO the card within a moment.
+   Confirm the card stays up (it does not vanish mid-travel), and that leaving the
+   card then closes it after the short delay. This is the hover-stability path
+   (`PREVIEW_LEAVE_DELAY_MS`, 130ms).
+3. Keyboard open with `p`. Tab into the tree, arrow to a chat row so it holds the
+   roving focus, and press `p` (or `P`). Confirm the SAME card opens, anchored to
+   the focused row's box rather than the cursor. No pointer hover is required.
+4. Escape closes and restores focus. With a `p`-opened card showing, press
+   Escape. Confirm the card closes AND keyboard focus returns to the chat row it
+   was opened from (not dropped to `<body>`), so arrow navigation continues from
+   that row. A card opened by hover (not the keyboard) closes on Escape without
+   moving focus.
+5. Suppressed during drag. Start dragging a chat row. Confirm no hover card
+   appears while the drag is in progress (the card never fights the drop UI), and
+   that hovering works again after the drop.
+6. On-demand read, no transcript write. Open a card and confirm the body snippets
+   fill in a beat after the card appears (they arrive from the host asynchronously
+   per chat). Confirm nothing under `~/.claude/projects/` changed mtime or content
+   from opening any number of cards: the body is read on demand for the one hovered
+   chat and discarded when the card closes (it is never added to the scan snapshot).
+
 ### Not yet built: Part 2 and Part 3 smoke steps (do not run on this VSIX)
 
 These slices from SPRINT-3-PLAN.md have NOT landed on main, so their surfaces do
@@ -738,12 +781,6 @@ not exist in `claude-code-nest-0.1.1-sprint3-part1.vsix`. They are listed here s
 this checklist stays complete against the plan; each becomes a runnable section
 when its slice merges. Do not attempt these on the current build.
 
-- Part 2 slice 0, rich hover preview card (issue #84): hovering a chat row opens a
-  floating 270px card with the title; a folder, age, and `~NNk tok` line; tag
-  pills; and a first-user plus last-assistant snippet clamped to three lines. The
-  card is hover-stable (survives moving onto it, ~130ms leave delay) and has a
-  keyboard-accessible equivalent. Confirm the body is read on demand and discarded
-  and nothing under `~/.claude/projects/` changes.
 - Part 2 slice 1, right-click context menu (issue #85): right-clicking a chat row
   opens a menu with tag toggles (checkmarks), create-new-tag (name input plus the
   8-swatch picker), Export as Markdown / JSON, and Archive (hidden for starred or

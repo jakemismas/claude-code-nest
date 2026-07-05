@@ -435,3 +435,85 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
     }
   });
 });
+
+// The previewBody (hover card) resolve path must NOT trigger a full workspace
+// rescan+reparse per mouseenter. The webview fires previewBody passively as the pointer
+// sweeps rows, so the host has to resolve sessionId->filePath from the cache the scan
+// already built, re-scanning only as a one-time fallback when that cache is still empty.
+// The provider imports the vscode module and cannot be constructed headlessly, so these
+// guards read the shipped host source and pin the caching invariant, matching the
+// read-the-source technique above. A regression that re-inlines an unconditional
+// scanRecords()/scanChats() into the hover path fails here.
+describe('org panel host previewBody hover resolve (src/views/orgPanelWebview.ts)', () => {
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const hostSrc = fs.readFileSync(
+    path.join(repoRoot, 'src', 'views', 'orgPanelWebview.ts'),
+    'utf8',
+  );
+
+  // Return the exact body of a class method by brace matching from its DEFINITION.
+  // Matches the signature only where it begins a line (optionally after private/async),
+  // so a call site (this.foo()) earlier in the file is not mistaken for the definition.
+  function methodBody(name: string): string {
+    const def = new RegExp('^\\s*(?:private\\s+|async\\s+)*' + name + '\\(', 'm');
+    const m = def.exec(hostSrc);
+    assert.ok(m, name + '() is defined in orgPanelWebview.ts');
+    const start = m!.index + m![0].length - (name.length + 1);
+    const open = hostSrc.indexOf('{', start);
+    let depth = 0;
+    for (let k = open; k < hostSrc.length; k++) {
+      const c = hostSrc[k];
+      if (c === '{') {
+        depth++;
+      } else if (c === '}') {
+        depth--;
+        if (depth === 0) {
+          return hostSrc.slice(start, k + 1);
+        }
+      }
+    }
+    throw new Error('unbalanced braces after ' + name + '()');
+  }
+
+  // Strip whole-line comments so a match cannot be satisfied by explanatory prose.
+  function code(body: string): string {
+    return body
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+  }
+
+  it('postPreviewBody resolves the transcript path from the cache, not an unconditional scan', () => {
+    const body = code(methodBody('postPreviewBody'));
+    assert.ok(
+      body.includes('this.previewPathBySession.get(sessionId)'),
+      'postPreviewBody must resolve the hovered chat via the cached sessionId->filePath map',
+    );
+    // The only scanRecords() call allowed in the method is the empty-cache fallback,
+    // gated on previewPathBySession.size === 0. Assert the gate precedes any scan.
+    const scanAt = body.indexOf('scanRecords()');
+    if (scanAt >= 0) {
+      const before = body.slice(0, scanAt);
+      assert.ok(
+        before.includes('this.previewPathBySession.size === 0'),
+        'any scanRecords() in postPreviewBody must be gated on an empty cache (one-time fallback)',
+      );
+    }
+  });
+
+  it('both scan sites seed the previewPath cache so a hover never has to rescan', () => {
+    for (const method of ['buildSectionModel', 'scanRecords']) {
+      assert.ok(
+        code(methodBody(method)).includes('this.cachePreviewPaths('),
+        method + '() must seed the previewPath cache from its scan',
+      );
+    }
+  });
+
+  it('cache invalidation clears the previewPath map so a stale (deleted) path is never served', () => {
+    assert.ok(
+      code(methodBody('invalidateContentIndex')).includes('this.previewPathBySession.clear()'),
+      'invalidateContentIndex must clear the previewPath cache (refresh re-seeds it)',
+    );
+  });
+});
