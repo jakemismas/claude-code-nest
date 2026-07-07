@@ -90,13 +90,44 @@ Claude's UI without replying does not clear it.
    README line 25); the ring is correct ARIA focus behavior for a keyboard-opened menu,
    not a styling deviation from the tokens. Do not flag it as a mismatch against
    `sort-popover-320.png`.
-10. New-folder popover anchor position (slice s3c-fidelity-sweep). The shipped panel
-    anchors the New folder popover to the FOLDERS-header `＋` button (mid-panel); the
-    prototype floats it near the top of the sidebar. The popover CONTENT and chrome (NEW
-    FOLDER title, "Folder name" input with the accent focus ring, filled `#d97757` Create
-    button, text Cancel) match the handoff (README line 73); only the anchor offset
-    differs, driven by each surface's own layout. Do not flag the anchor offset against
+10. New-folder popover anchor position and baseline framing (slice s3c-fidelity-sweep).
+    The shipped panel anchors the New folder popover to the FOLDERS-header `＋` button
+    (mid-panel); the prototype floats it to the viewport top-left, above and left of the
+    320px sidebar box. The popover CONTENT and chrome (NEW FOLDER title, "Folder name"
+    input with the accent focus ring, filled `#d97757` Create button, text Cancel) match
+    the handoff (README line 73); only the anchor offset differs, driven by each surface's
+    own layout. Because the prototype floats the popover outside the sidebar box, the
+    committed `newfolder-popover-320.png` baseline is clipped to the UNION of the sidebar
+    column and the floating popover (not the sidebar alone), so the whole popover chrome is
+    in frame; this makes that one baseline wider than the other 640px references and makes
+    it include a thin sliver of the mock activity-bar rail and window title bar under the
+    floated popover. Compare the popover chrome against the harness capture; do not flag the
+    anchor offset, the wider frame, or the surrounding mock chrome against
     `newfolder-popover-320.png`.
+11. Five fidelity states have NO prototype-side (`ChatSidebar.html`) baseline and are
+    captured harness-only (slice s3c-fidelity-sweep): the hover card, the chat context
+    menu (tag-list mode), the context menu (create-tag mode), the drag drop-highlight,
+    and the inline folder rename. This narrows issue #88 AC #2 ("the same states are
+    captured from `media/design/ChatSidebar.html`") for these five: the compiled
+    prototype exposes no headless path to them. The two interaction states (drop-highlight,
+    rename) are pure mid-drag / transient in-list states with no reachable prototype path;
+    the three body-level overlays (hover card, both context-menu modes) follow the
+    s3a-visual-harness harness-only convention for transient overlays. Their committed
+    baselines are the REAL shipped-asset harness captures (`drop-highlight-320.png`,
+    `rename-320.png` in `media/design/reference/`; the three overlays are eye-compared
+    against the prototype at review time), since the shipped asset is the authority for
+    its own chrome and each is styled to the exact README tokens. The other six states
+    (default, filtered results, settings overlay, archive overlay, sort popover,
+    new-folder popover) do get a `ChatSidebar.html` clip, but only three of them are
+    FROZEN as committed baselines under `media/design/reference/` (default, sort popover,
+    new-folder popover); the remaining three (filtered results, settings overlay, archive
+    overlay) are headlessly drivable and are compared each run against a runtime-fresh
+    prototype clip written to the gitignored `.claude-working/fidelity/`, with no frozen
+    committed baseline, by design per the `media/design/reference/README.md` methodology
+    (the committed set is a curated frozen baseline, not a per-state mirror). Full probe
+    evidence is in DECISIONS.md Slice s3c-fidelity-sweep. Do not flag the absence of a
+    prototype-side baseline for these five states, nor the intentional absence of a frozen
+    committed baseline for filtered results / settings / archive, in review.
 
 ## The read-only line (unchanged, sacred)
 

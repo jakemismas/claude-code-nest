@@ -7,7 +7,10 @@ UI slice must pass a by-eye comparison against them before its review is dry
 ## Files
 
 Each baseline is a 320px reference width capture (UI-SPEC.md deviation 1) at a 2x
-device scale, so every file is 640px wide.
+device scale, so most files are 640px wide. The one exception is
+`newfolder-popover-320.png`: the prototype floats that popover outside the 320px
+sidebar box, so its baseline is clipped to the union of the sidebar and the popover
+and is wider than 640px (see its entry below).
 
 - `prototype-320.png` - the default sectioned state, from the design authority
   (`media/design/ChatSidebar.html`), captured after the embedded React bundle mounts
@@ -17,8 +20,13 @@ device scale, so every file is 640px wide.
 - `sort-popover-320.png` - the Sort popover open, from the prototype (its `⇅` Sort
   glyph clicked), clipped to the sidebar. Baseline for the sort-open state.
 - `newfolder-popover-320.png` - the New folder popover open, from the prototype (its
-  `＋` New folder glyph clicked), clipped to the sidebar. Baseline for the
-  new-folder-open state.
+  `＋` New folder glyph clicked). Baseline for the new-folder-open state. The prototype
+  floats this popover to the viewport top-left, ABOVE and LEFT of the sidebar clip origin,
+  so this one baseline is clipped to the UNION of the sidebar column and the floating
+  popover (not the sidebar alone) to keep the whole popover chrome in frame; the union
+  therefore includes a thin sliver of the mock activity-bar rail and window title bar under
+  the floated popover. Compare the popover chrome (NEW FOLDER title, Folder name input,
+  filled Create, text Cancel), not that surrounding mock chrome. See UI-SPEC deviation 10.
 - `drop-highlight-320.png` - a folder row showing the drag drop target highlight
   (background `#FAE6DC`, inset ring `#d97757`; design README line 70). Captured from
   the REAL shipped panel asset through the harness, because the drop highlight is a
