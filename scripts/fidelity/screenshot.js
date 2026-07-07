@@ -467,6 +467,79 @@ async function clipToSidebar(page) {
   return rect;
 }
 
+// Clip to the UNION of the sidebar column and a floating popover, so a popover the
+// prototype anchors OUTSIDE the sidebar box stays fully in frame. The prototype floats
+// its New folder popover to the viewport top-left (position:fixed at ~0,0), which is
+// above and left of the sidebar's clip origin; clipping to the sidebar alone crops away
+// most of the popover chrome (NEW FOLDER title, Folder name input, Create button) and
+// leaves the baseline useless for by-eye comparison. Union the sidebar box with the
+// popover box (matched by its floating title text) so the whole popover is captured
+// while the sidebar context stays in view. selector picks the popover by a text probe;
+// the popover box is the smallest position:fixed ancestor carrying that text. Throws
+// with an actionable message if either the sidebar or the popover cannot be located.
+async function clipToSidebarWithPopover(page, titleText) {
+  const rect = await evaluate(
+    page,
+    '(function(){' +
+      // Locate the 320px sidebar column (same tolerance band as clipToSidebar).
+      "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
+      'var side=null;' +
+      'for(var i=0;i<divs.length;i++){' +
+      '  var el=divs[i]; var cs=getComputedStyle(el);' +
+      '  var r=el.getBoundingClientRect();' +
+      '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
+      '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
+      '    side={x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height}; break;' +
+      '  }' +
+      '}' +
+      'if(!side) return {error:"no-sidebar"};' +
+      // Locate the floating popover: the smallest position:fixed element whose text
+      // contains the title probe. Picking the smallest fixed box avoids grabbing a
+      // fixed full-page overlay wrapper.
+      'var all=Array.prototype.slice.call(document.querySelectorAll("*"));' +
+      'var pop=null; var probe=' + JSON.stringify(titleText) + ';' +
+      'for(var j=0;j<all.length;j++){' +
+      '  var e=all[j]; var t=(e.textContent||"");' +
+      '  if(t.indexOf(probe)===-1) continue;' +
+      '  if(getComputedStyle(e).position!=="fixed") continue;' +
+      '  var pr=e.getBoundingClientRect();' +
+      '  if(pr.width<=0 || pr.height<=0 || pr.width>420) continue;' +
+      '  if(!pop || (pr.width*pr.height) < (pop.width*pop.height)){' +
+      '    pop={x:pr.x,y:pr.y,width:pr.width,height:pr.height};' +
+      '  }' +
+      '}' +
+      'if(!pop) return {error:"no-popover"};' +
+      // Union the two boxes so both are fully captured: the min of the two origins
+      // and the max of the two far edges. In practice the sidebar is the taller box,
+      // so the union bottom resolves to the sidebar bottom; only the top and left
+      // extend outward to reach the popover the prototype floats above and left.
+      'var left=Math.min(side.x, pop.x);' +
+      'var top=Math.min(side.y, pop.y);' +
+      'var right=Math.max(side.x+side.width, pop.x+pop.width);' +
+      'var bottom=Math.max(side.y+side.height, pop.y+pop.height);' +
+      'return {x:left, y:top, width:right-left, height:bottom-top};' +
+      '})()',
+  );
+  if (rect && rect.error === 'no-sidebar') {
+    throw new Error(
+      'Could not locate the 320px sidebar column in the prototype to clip to. ' +
+        'The prototype layout may have changed; update the sidebar selector in screenshot.js.',
+    );
+  }
+  if (rect && rect.error === 'no-popover') {
+    throw new Error(
+      'Could not locate the floating "' +
+        titleText +
+        '" popover in the prototype to include in the clip. ' +
+        'The prototype layout may have changed; update the popover probe in screenshot.js.',
+    );
+  }
+  if (!rect || !(rect.width > 0) || !(rect.height > 0)) {
+    throw new Error('Computed an empty clip for the prototype "' + titleText + '" popover.');
+  }
+  return rect;
+}
+
 // The query the results-state captures stage. It matches a body line in the mock
 // (the harness reply) and the prototype's c2 body ("...backed by Redis...") while
 // being ABSENT from those chats' titles, so the flat "N RESULTS" list shows a
@@ -1383,7 +1456,11 @@ async function main() {
           'prototype new-folder popover (NEW FOLDER) to open',
         );
         await sleep(300);
-        return await clipToSidebar(page);
+        // The prototype floats this popover to the viewport top-left, above and left of
+        // the sidebar clip origin, so clipToSidebar alone would crop the popover chrome
+        // away (issue #88 fix). Clip to the UNION of the sidebar and the popover so the
+        // whole popover (NEW FOLDER title, Folder name input, Create/Cancel) is in frame.
+        return await clipToSidebarWithPopover(page, 'NEW FOLDER');
       },
       PROTOTYPE_VIEWPORT_WIDTH,
     );

@@ -1683,6 +1683,14 @@ own drop-highlight and rename chrome and both are styled to the exact README tok
 accent border). Reversible: re-run npm run fidelity and re-copy per the reference README's
 promotion table to re-baseline.
 
+Because AC2 reads "the same states are captured from media/design/ChatSidebar.html," the
+fact that these two interaction states (plus the three pre-existing body-level overlays
+carried from s3a: hover card, context menu tag-list, context menu create-tag) have NO
+prototype-side capture is a deliberate narrowing of AC2 for those five states. Per AC3
+("recorded as a new agreed deviation in UI-SPEC.md with rationale"), that narrowing is
+recorded as UI-SPEC.md deviation 11, so the deviations authority (UI-SPEC.md), not just
+this decision log, reflects it.
+
 Accepted deviations (recorded in UI-SPEC.md 9 and 10, not flagged in review): the sort
 popover shows a focus ring on the active item because opening the popover focuses it
 (correct ARIA for a keyboard-opened menu; the prototype does not move focus), and the
@@ -1696,3 +1704,22 @@ used by the two new prototype stages; the pre-existing prototype stages keep the
 copies (unchanged) to bound the slice's diff. Gates: npm test green, vsce package clean
 with scripts/ and media/design/** absent from the .vsix, npm run fidelity writes all
 seventeen captures. Closes issue #88.
+
+Fix (2026-07-05, review round 2): the first newfolder-popover-320.png baseline was captured
+with clipToSidebar and was mostly UNUSABLE. The prototype floats its new-folder popover to
+the viewport top-left (a position:fixed box measured at ~x0,y0,w212,h109 in the 560px
+capture viewport), which is ABOVE and LEFT of the sidebar clip origin (measured ~x51,y37),
+so clipping to the sidebar alone cropped away the NEW FOLDER title, the top of the Folder
+name input, and the left edge of the Create button. The baseline could not serve as the
+by-eye comparison the reference set exists for. Fixed by giving this ONE stage a dedicated
+clipToSidebarWithPopover(page, 'NEW FOLDER') that unions the sidebar box with the floating
+popover box (matched by its title text, smallest position:fixed carrier), so the whole
+popover chrome stays in frame while the sidebar context remains. The union necessarily
+includes a thin sliver of the mock activity-bar rail and window title bar under the floated
+popover (unavoidable: the prototype floats the popover over that region); the popover chrome
+itself is complete. The re-baselined newfolder-popover-320.png is 742x2800 (wider/taller
+than the old 640x2726 sidebar-only crop). Class sweep: the sort popover is the only sibling
+that also clips a floating popover to the sidebar; it was measured (position:absolute at
+~x210,y77,w152,h120) to sit FULLY inside the sidebar box, so it is not cropped and keeps
+plain clipToSidebar. The settings/archive prototype overlays are position:fixed;inset:0
+full-panel sub-pages that cannot overflow the sidebar box, so they are unaffected.
