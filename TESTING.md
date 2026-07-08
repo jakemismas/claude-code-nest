@@ -122,6 +122,10 @@ transcript mtime moved afterward.
 2. Unread dot. Find (or create) a chat whose last turn is an assistant REPLY that
    does not ask a question and that you have not opened since. Confirm the row shows
    a solid unread dot.
+2b. First-run seed (issue #123). On a FRESH install (or after clearing workspace
+   state), confirm pre-existing chats do NOT all show the unread dot: the first scan
+   marks every existing chat read once, and only assistant activity arriving after
+   that shows unread. Trigger a new reply in one chat and confirm its dot appears.
 3. Question badge. Find (or create) a chat whose last unread turn is an assistant
    message that ASKS something. Confirm the row shows a blinking `?` badge and a
    folder breadcrumb, and that the chat appears in the QUESTIONS section.

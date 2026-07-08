@@ -220,6 +220,15 @@ version stays 0.1.1 until the release run.
   panel; the retired trees' Refresh Smart Groups command and their view menus,
   welcome views, walkthrough step, and activation events were swept out.
 
+### Fixed
+
+- Pre-existing chats no longer all show the unread dot (#123): the first scan after
+  install seeds the local read-state store, marking every chat that already exists
+  as read at its own last-activity time. Assistant messages arriving after the seed
+  still show unread per the existing heuristics. The seed runs once per workspace
+  (a local flag), stays in never-synced workspace state, and never regresses a
+  lastSeenAt the user already advanced.
+
 ### Removed
 
 - The rich hover preview card (#117, retiring the #84 surface after the verify
