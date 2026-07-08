@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ChatRecord } from '../model/types';
 import { scanChats } from '../claude/chatScanner';
-import { readTranscriptBodies, selectPreviewBodies } from '../claude/bodyReader';
+import { readTranscriptBodies } from '../claude/bodyReader';
 import { MetadataStore } from '../store/metadataStore';
 import { ProjectMeta, isValidColor } from '../store/schema';
 import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
@@ -90,14 +90,6 @@ type Inbound =
   | { type: 'refresh' }
   | { type: 'open'; sessionId: string }
   | { type: 'search'; query: string }
-  // A hover-scoped request for the two body lines the rich hover card shows (slice
-  // s3b-hover-card, issue #84). The client posts this for the ONE hovered chat; the
-  // host reads that single transcript on demand via readTranscriptBodies, picks the
-  // FIRST role==='user' body and the LAST role==='assistant' body (the prototype
-  // dc.html:777-778 logic), posts them back for that one hover, and retains nothing.
-  // Bodies never enter the scan snapshot (ARCHITECTURE.md tier-A rule: full bodies
-  // are read on demand for one chat and discarded).
-  | { type: 'previewBody'; sessionId: string }
   | { type: 'drop'; sourceChatIds: string[]; targetKind: 'folder' | 'tag'; targetId: string | undefined }
   | { type: 'renameFolder'; folderId: string; name: string }
   | { type: 'setFolderColor'; folderId: string; color: string | null }
@@ -302,16 +294,14 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   // tinted). This is the ONLY row tint (starred rows are NOT tinted).
   private activeChatId: string | null = null;
 
-  // Cached sessionId->filePath map from the MOST RECENT scan, so a passive-hover
-  // previewBody request can resolve the hovered chat's transcript path WITHOUT a fresh
-  // full-directory rescan+reparse per mouseenter (issue #84 hover card). The scan that
-  // buildSectionModel/scanRecords already performs on a discrete user action or refresh
-  // seeds this; refresh() clears it (invalidateContentIndex) so a stale path is never
-  // served. Mirrors the search path's indexedRecords cache: the previewBody path holds
-  // its own cheap resolve map instead of re-scanning every transcript on every hover.
-  // Holds ONLY the file path per session (no bodies): the hovered transcript is still
-  // read ONCE on demand and discarded (ARCHITECTURE.md tier-A rule). Empty until the
-  // first scan; postPreviewBody falls back to one scan only when it is empty.
+  // Cached sessionId->filePath map from the MOST RECENT scan, so resolveRecord (the
+  // context menu's export/archive path) can resolve a chat's transcript path WITHOUT a
+  // fresh full-directory rescan+reparse per action. The scan that buildSectionModel/
+  // scanRecords already performs on a discrete user action or refresh seeds this;
+  // refresh() clears it (invalidateContentIndex) so a stale path is never served.
+  // Holds ONLY the file path per session (no bodies): a transcript is still read ONCE
+  // on demand and discarded (ARCHITECTURE.md tier-A rule). Empty until the first scan;
+  // resolveRecord falls back to one scan only when it is empty.
   private previewPathBySession: Map<string, string> = new Map();
 
   // Set when openSettingsOverlay() is called before the webview has resolved and sent
@@ -395,8 +385,6 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       void vscode.commands.executeCommand(OPEN_CHAT_COMMAND, msg.sessionId);
     } else if (msg.type === 'search') {
       void this.postSearch(msg.query);
-    } else if (msg.type === 'previewBody') {
-      this.postPreviewBody(msg.sessionId);
     } else if (msg.type === 'drop') {
       void this.onDrop(msg.sourceChatIds, msg.targetKind, msg.targetId);
     } else if (msg.type === 'renameFolder') {
@@ -809,9 +797,9 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   }
 
   // Refresh the sessionId->filePath cache from a completed scan. Called by every scan
-  // site (buildSectionModel, scanRecords) so the passive-hover previewBody path can
-  // resolve a transcript path without its own full rescan. Overwrites wholesale so a
-  // deleted/renamed transcript never lingers.
+  // site (buildSectionModel, scanRecords) so resolveRecord can resolve a transcript
+  // path without its own full rescan. Overwrites wholesale so a deleted/renamed
+  // transcript never lingers.
   private cachePreviewPaths(records: ChatRecord[]): void {
     this.previewPathBySession = new Map(records.map((r) => [r.sessionId, r.filePath]));
   }
@@ -846,49 +834,15 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     void this.view.webview.postMessage({ type: 'active', sessionId: this.activeChatId });
   }
 
-  // Answer a hover-scoped previewBody request (slice s3b-hover-card, issue #84). Reads
-  // the ONE hovered chat's transcript on demand, selects the first user body and the
-  // last assistant body, posts them back keyed by sessionId, and retains NOTHING: the
-  // bodies and the selection are locals that die when this method returns. The result
-  // is held only by the client for the life of the open card (issue #84 AC #3;
-  // ARCHITECTURE.md tier-A rule). Tolerant: an empty/unknown id or an unreadable
-  // transcript posts null lines so the card renders its title/meta with no body lines
-  // rather than the host throwing. sessionId is echoed so a late reply for a chat the
-  // pointer has already left is ignored by the client.
-  private postPreviewBody(sessionId: string): void {
-    if (this.view === undefined || sessionId.length === 0) {
-      return;
-    }
-    let firstUser: string | null = null;
-    let lastAssistant: string | null = null;
-    // Resolve the hovered chat's transcript path from the cached scan snapshot, NOT a
-    // fresh full-directory rescan+reparse. Passive pointer movement fires previewBody
-    // per row (media/orgPanel.js mouseenter); resolving from the cache keeps hover from
-    // triggering N whole-workspace scans as the pointer sweeps N rows. The cache is
-    // seeded by the scan buildSectionModel/scanRecords already ran; only when it is
-    // still empty (a hover before any scan completed) do we fall back to ONE scan,
-    // which also seeds the cache for subsequent hovers.
-    let filePath = this.previewPathBySession.get(sessionId);
-    if (filePath === undefined && this.previewPathBySession.size === 0) {
-      filePath = this.scanRecords().find((r) => r.sessionId === sessionId)?.filePath;
-    }
-    if (filePath !== undefined) {
-      const selected = selectPreviewBodies(readTranscriptBodies(filePath));
-      firstUser = selected.firstUser;
-      lastAssistant = selected.lastAssistant;
-    }
-    void this.view.webview.postMessage({ type: 'previewBody', sessionId, firstUser, lastAssistant });
-  }
-
   // Resolve a scanned ChatRecord by sessionId for the context menu's export/archive
   // actions (issue #85 AC #3/#4), which arrive from the webview with ONLY a sessionId.
   // The chat's real transcript filePath is REQUIRED downstream: exportChat reads the body
   // to render, and archiveChat reads the body to save the Nest-owned copy; a bare
   // sessionId (an empty filePath) would export a body-less document and archive with no
   // copy. Resolve from the cheap previewPathBySession cache (seeded by every scan, cleared
-  // on invalidateContentIndex), falling back to ONE scan only when the cache lacks the id,
-  // exactly the postPreviewBody path. Never re-scans per action when the cache is warm; no
-  // new scan path is added. Returns undefined for an empty/unknown id (the caller no-ops).
+  // on invalidateContentIndex), falling back to ONE scan only when the cache lacks the id.
+  // Never re-scans per action when the cache is warm; no new scan path is added. Returns
+  // undefined for an empty/unknown id (the caller no-ops).
   resolveRecord(sessionId: string): ChatRecord | undefined {
     if (sessionId.length === 0) {
       return undefined;
@@ -1225,9 +1179,6 @@ function coerce(raw: unknown): Inbound | null {
   }
   if (obj.type === 'search' && typeof obj.query === 'string') {
     return { type: 'search', query: obj.query };
-  }
-  if (obj.type === 'previewBody' && typeof obj.sessionId === 'string') {
-    return { type: 'previewBody', sessionId: obj.sessionId };
   }
   if (obj.type === 'drop' && Array.isArray(obj.sourceChatIds)) {
     const kind = obj.targetKind === 'tag' ? 'tag' : 'folder';

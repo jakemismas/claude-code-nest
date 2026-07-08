@@ -86,37 +86,3 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// The two body strings the rich hover card shows (slice s3b-hover-card, issue #84):
-// the FIRST genuine user message and the LAST genuine assistant message. Either is
-// null when the chat has no such turn (a chat that opens with an assistant line, or
-// one with no assistant reply yet). Both are the extracted prose only; the card
-// clamps them to 3 lines at render.
-export interface PreviewBodies {
-  firstUser: string | null;
-  lastAssistant: string | null;
-}
-
-// Select the card's two preview lines from a chat's ordered message bodies. Mirrors
-// the design prototype (ChatSidebar.dc.html:777-778):
-//   firstUser      = the FIRST body whose role is 'user'
-//   lastAssistant  = the LAST body whose role is 'assistant'
-// Only turns with extractable, non-empty text count (a pure tool_use assistant turn
-// or a tool_result-only user line has text===null and is skipped), so the card never
-// shows a blank line for a textless turn. Pure and vscode-free (headless unit gate);
-// the caller reads the bodies on demand and discards both them and this result once
-// the card closes.
-export function selectPreviewBodies(bodies: readonly ChatMessageBody[]): PreviewBodies {
-  let firstUser: string | null = null;
-  let lastAssistant: string | null = null;
-  for (const body of bodies) {
-    if (body.text === null || body.text.length === 0) {
-      continue;
-    }
-    if (body.role === 'user' && firstUser === null) {
-      firstUser = body.text;
-    } else if (body.role === 'assistant') {
-      lastAssistant = body.text;
-    }
-  }
-  return { firstUser, lastAssistant };
-}

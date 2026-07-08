@@ -775,64 +775,6 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-results.png')));
 
-    // Page 5: the HOVER CARD state of the real panel (issue #84 AC #6). Re-render the
-    // harness, dispatch a mouseenter on a chat row (with cursor coords), wait for the
-    // card to open AND for its message lines to land (the harness echoes a synthetic
-    // previewBody reply), then capture the full 320px viewport so the floating card is
-    // in frame. The card is a body-level position:fixed node, so this capture is NOT
-    // clipped to the tree; it shows the panel with the card overlaid, matching how the
-    // reviewer eyeballs it against the prototype's card.
-    const harnessHoverPage = await openPage(browser);
-    await renderAndCapture(
-      harnessHoverPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-hover.png'),
-      async (page) => {
-        await waitForCondition(
-          page,
-          'window.__nestHarnessReady === true',
-          10000,
-          'harness mock post',
-        );
-        await waitForCondition(
-          page,
-          "document.querySelectorAll('#list .nest-row').length > 0",
-          10000,
-          'harness sectioned rows to render',
-        );
-        // Open the card on the starred 'Refactor auth middleware' row (s-01), which the
-        // harness gives a rich synthetic body reply, by dispatching a mouseenter with
-        // cursor coords low enough that the card (which anchors near the cursor) sits in
-        // the captured frame.
-        const opened = await evaluate(
-          page,
-          '(function(){' +
-            "var row=document.querySelector('#list .nest-row[data-id=\"s-01\"]');" +
-            "if(!row) return 'no-row';" +
-            'var r=row.getBoundingClientRect();' +
-            "var ev=new MouseEvent('mouseenter',{bubbles:false,clientX:r.left+40,clientY:r.top+200});" +
-            'row.dispatchEvent(ev);' +
-            "return 'ok';" +
-            '})()',
-        );
-        if (opened !== 'ok') {
-          throw new Error('Could not open the harness hover card: ' + opened);
-        }
-        // Wait for the card AND its two message lines (the synthetic previewBody reply
-        // lands after the postMessage round-trip, so poll rather than fix a delay).
-        await waitForCondition(
-          page,
-          "(function(){var c=document.querySelector('.nest-preview-card');" +
-            "return !!c && c.querySelectorAll('.nest-preview-text').length >= 2;})()",
-          10000,
-          'harness hover card to render with body lines',
-        );
-        // A short settle so the card's layout/fonts finish before capture.
-        await sleep(150);
-      },
-    );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-hover.png')));
-
     // Page 6: the CHAT CONTEXT MENU (list state) of the real panel (issue #85 AC #7).
     // Re-render the harness, dispatch a contextmenu on a chat row, wait for the menu, and
     // capture the full 320px viewport so the floating menu is in frame. The menu is a
@@ -1526,7 +1468,6 @@ async function main() {
     console.log('  harness.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
     console.log('  prototype.png (freshly rendered) vs media/design/reference/prototype-320.png (drift check)');
     console.log('  harness-results.png (real panel, filtered) vs prototype-results.png (results-state fidelity)');
-    console.log('  harness-hover.png (real panel, hover card) vs the prototype hover card');
     console.log('  harness-context-menu.png (real panel, chat menu) vs the prototype context menu');
     console.log(
       '  harness-context-menu-newtag.png (real panel, create-tag state) vs the prototype new-tag menu',

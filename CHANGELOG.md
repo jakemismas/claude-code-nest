@@ -214,6 +214,13 @@ version stays 0.1.1 until the release run.
 
 ### Removed
 
+- The rich hover preview card (#117, retiring the #84 surface after the verify
+  gate): the floating chat-row preview card, its `p`-key keyboard trigger, the
+  `previewBody` host round-trip, and the vscode-free `selectPreviewBodies`
+  selector. Hovering a chat row now shows nothing. The on-demand body reader, the
+  host's sessionId-to-filePath resolve cache (still used by the context menu's
+  export/archive path), and the retired-view tooltip builder all survive. Recorded
+  as UI-SPEC.md deviation 12.
 - The `claudeNest.flat` and `claudeNest.smartGroups` views and every contribution
   that targeted them. Smart-group promote commands remain registered for
   programmatic callers but have no UI surface. The per-row token badge stays on the

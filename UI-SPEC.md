@@ -50,7 +50,7 @@ and Archive live INSIDE the panel as full-panel overlay sub-pages per the handof
 | Archived | `ChatMeta.userArchived` + `archivedAt` (synced) plus the Nest-owned body copy in globalStorage |
 | `status: 'question'` (blinking ? badge) | Unread assistant turn whose text asks something (question mark or input request near the end) |
 | `status: 'done'` (solid dot) | Unread assistant turn that is not a question (see read-state below) |
-| Tokens in hover card (`NNk tok`) | Tier-A `tokenTotals`, labeled approximate |
+| Token totals (`~NNk`) | Tier-A `tokenTotals`, labeled approximate; surfaced in the token rollup only (the per-row badge was removed in s3a and the hover card was retired by #117) |
 | New session button | Best-effort launch of a new Claude Code chat via the `claude-vscode.*` contributed commands or the public URI handler, with a graceful failure message |
 | Open chat (row click sets active) | Existing resume-by-URI launch; active detection is the Tabs-API label-match heuristic (named chats only) |
 | Auto-archive ("chats older than N days move to Archive") | Nest org-layer auto-archive at the keep-window setting; default keep-window follows the user's effective Claude `cleanupPeriodDays` (30 if unset); a body copy is taken at archive time; starred chats are never auto-archived but receive a protective body copy before Claude's deletion age |
@@ -104,19 +104,20 @@ Claude's UI without replying does not clear it.
     floated popover. Compare the popover chrome against the harness capture; do not flag the
     anchor offset, the wider frame, or the surrounding mock chrome against
     `newfolder-popover-320.png`.
-11. Five fidelity states have NO prototype-side (`ChatSidebar.html`) baseline and are
-    captured harness-only (slice s3c-fidelity-sweep): the hover card, the chat context
-    menu (tag-list mode), the context menu (create-tag mode), the drag drop-highlight,
-    and the inline folder rename. This narrows issue #88 AC #2 ("the same states are
-    captured from `media/design/ChatSidebar.html`") for these five: the compiled
-    prototype exposes no headless path to them. The two interaction states (drop-highlight,
-    rename) are pure mid-drag / transient in-list states with no reachable prototype path;
-    the three body-level overlays (hover card, both context-menu modes) follow the
-    s3a-visual-harness harness-only convention for transient overlays. Their committed
-    baselines are the REAL shipped-asset harness captures (`drop-highlight-320.png`,
-    `rename-320.png` in `media/design/reference/`; the three overlays are eye-compared
-    against the prototype at review time), since the shipped asset is the authority for
-    its own chrome and each is styled to the exact README tokens. The other six states
+11. Four fidelity states have NO prototype-side (`ChatSidebar.html`) baseline and are
+    captured harness-only (slice s3c-fidelity-sweep; originally five until the hover
+    card's retirement, deviation 12): the chat context menu (tag-list mode), the
+    context menu (create-tag mode), the drag drop-highlight, and the inline folder
+    rename. This narrows issue #88 AC #2 ("the same states are captured from
+    `media/design/ChatSidebar.html`") for these four: the compiled prototype exposes
+    no headless path to them. The two interaction states (drop-highlight, rename) are
+    pure mid-drag / transient in-list states with no reachable prototype path; the
+    body-level overlays (both context-menu modes) follow the s3a-visual-harness
+    harness-only convention for transient overlays. Their committed baselines are the
+    REAL shipped-asset harness captures (`drop-highlight-320.png`, `rename-320.png` in
+    `media/design/reference/`; the menu overlays are eye-compared against the
+    prototype at review time), since the shipped asset is the authority for its own
+    chrome and each is styled to the exact README tokens. The other six states
     (default, filtered results, settings overlay, archive overlay, sort popover,
     new-folder popover) do get a `ChatSidebar.html` clip, but only three of them are
     FROZEN as committed baselines under `media/design/reference/` (default, sort popover,
@@ -126,8 +127,14 @@ Claude's UI without replying does not clear it.
     committed baseline, by design per the `media/design/reference/README.md` methodology
     (the committed set is a curated frozen baseline, not a per-state mirror). Full probe
     evidence is in DECISIONS.md Slice s3c-fidelity-sweep. Do not flag the absence of a
-    prototype-side baseline for these five states, nor the intentional absence of a frozen
+    prototype-side baseline for these four states, nor the intentional absence of a frozen
     committed baseline for filtered results / settings / archive, in review.
+12. The rich hover preview card is RETIRED (issue #117, owner verify-gate decision,
+    2026-07-08). The prototype and issue #84 specify a floating preview card on chat-row
+    hover; the shipped panel intentionally renders NO hover card, and the `previewBody`
+    host round-trip was removed with it. The owner's post-mockup decisions supersede the
+    prototype here. Do not flag the missing hover card against `ChatSidebar.html`, and do
+    not re-introduce a hover surface without a new decision.
 
 ## The read-only line (unchanged, sacred)
 

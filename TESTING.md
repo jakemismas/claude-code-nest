@@ -24,8 +24,8 @@ panel:
 - A toolbar (New session pill, gear, sort popover) and a search box with tag chips.
 - Sections in order STARRED / QUESTIONS / FOLDERS / UNSORTED, with per-row status
   markers (a blinking `?` for an unread question, a solid dot for an unread reply).
-- A rich hover card, a right-click context menu, inline folder rename, a folder
-  color picker, a new-folder popover, and in-panel drag-and-drop.
+- A right-click context menu, inline folder rename, a folder color picker, a
+  new-folder popover, and in-panel drag-and-drop.
 - Two full-panel overlay sub-pages reached from inside the panel: Settings (the
   gear) and Archive (the bottom `Archived (N)` row).
 
@@ -115,7 +115,7 @@ transcript mtime moved afterward.
 1. Row anatomy. Confirm each chat row shows the status slot, title, tag pills, a
    tabular relative time (formats `35m` / `3h` / `1d` / `2w` / `1mo`), and a star
    toggle, with the exact paddings and colors of the prototype. There is no per-row
-   token badge (it moved to the hover card).
+   token badge.
 2. Unread dot. Find (or create) a chat whose last turn is an assistant REPLY that
    does not ask a question and that you have not opened since. Confirm the row shows
    a solid unread dot.
@@ -217,36 +217,14 @@ transcript mtime moved afterward.
     responsive (the query is debounced; the list fills in as results land). Confirm
     nothing under `~/.claude/projects/` changed by any search.
 
-## Rich hover preview card (issue #84)
+## No hover preview card (issue #117)
 
-The card is a floating, body-level overlay the panel builds from the row model
-already on the client (title, folder, age, tokens, tags); only the two body snippets
-are fetched from the host on demand. The read-only invariant applies: the body is
-read on demand for one chat and discarded, and nothing under `~/.claude/projects/`
-may change.
+The rich hover preview card shipped for issue #84 is retired (verify-gate decision,
+issue #117).
 
-1. Hover open. Move the pointer onto a chat row. Confirm a floating ~270px card
-   appears near the cursor showing the chat's title; a meta line with the folder
-   breadcrumb (or `Unsorted`), the relative age, and a `~NNk tok` token label; the
-   chat's tag pills; and a two-line body block with a `YOU` first-message snippet and
-   a `CLAUDE` last-message snippet. Move the pointer off the row and confirm the card
-   closes on its own.
-2. Travel onto the card (130ms leave delay). Hover a row to open the card, then move
-   the pointer OFF the row and directly ONTO the card within a moment. Confirm the card
-   stays up (it does not vanish mid-travel), and that leaving the card then closes it
-   after the short delay.
-3. Keyboard open with `p`. Tab into the tree, arrow to a chat row so it holds the
-   roving focus, and press `p` (or `P`). Confirm the SAME card opens, anchored to the
-   focused row's box rather than the cursor. No pointer hover is required.
-4. Escape closes and restores focus. With a `p`-opened card showing, press Escape.
-   Confirm the card closes AND keyboard focus returns to the chat row it was opened
-   from (not dropped to `<body>`), so arrow navigation continues from that row. A card
-   opened by hover closes on Escape without moving focus.
-5. Suppressed during drag. Start dragging a chat row. Confirm no hover card appears
-   while the drag is in progress, and that hovering works again after the drop.
-6. On-demand read, no transcript write. Open a card and confirm the body snippets fill
-   in a beat after the card appears. Confirm nothing under `~/.claude/projects/`
-   changed mtime or content from opening any number of cards.
+1. No card on hover. Move the pointer across several chat rows and rest it on one.
+   Confirm no floating preview card appears.
+2. No card from the keyboard. Focus a chat row and press `p`. Confirm nothing opens.
 
 ## Chat-row right-click context menu (issue #85)
 
@@ -365,7 +343,7 @@ but the human gate should spot-check it against the prototype.
    reference width, and that it FAILS LOUDLY when no headless Chrome or Edge is installed
    rather than passing silently.
 2. Open the harness captures beside `media/design/ChatSidebar.html`. Eye-compare every
-   captured state (default, filtered results, hover card, context menu in both modes, drag
+   captured state (default, filtered results, context menu in both modes, drag
    highlight, both overlays, both popovers, inline rename) and confirm no visible mismatch
    against the handoff tokens and metrics, except the agreed deviations recorded in
    UI-SPEC.md (which reviews do not flag).

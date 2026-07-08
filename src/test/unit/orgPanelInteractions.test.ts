@@ -559,15 +559,14 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
   });
 });
 
-// The previewBody (hover card) resolve path must NOT trigger a full workspace
-// rescan+reparse per mouseenter. The webview fires previewBody passively as the pointer
-// sweeps rows, so the host has to resolve sessionId->filePath from the cache the scan
-// already built, re-scanning only as a one-time fallback when that cache is still empty.
-// The provider imports the vscode module and cannot be constructed headlessly, so these
-// guards read the shipped host source and pin the caching invariant, matching the
-// read-the-source technique above. A regression that re-inlines an unconditional
-// scanRecords()/scanChats() into the hover path fails here.
-describe('org panel host previewBody hover resolve (src/views/orgPanelWebview.ts)', () => {
+// The resolveRecord path (context-menu export/archive) must NOT trigger a full
+// workspace rescan+reparse per action: the host resolves sessionId->filePath from the
+// cache the scan already built, re-scanning only as a one-time fallback when that
+// cache is still empty. The provider imports the vscode module and cannot be
+// constructed headlessly, so these guards read the shipped host source and pin the
+// caching invariant, matching the read-the-source technique above. A regression that
+// re-inlines an unconditional scanRecords()/scanChats() into the action path fails here.
+describe('org panel host record resolve cache (src/views/orgPanelWebview.ts)', () => {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
   const hostSrc = fs.readFileSync(
     path.join(repoRoot, 'src', 'views', 'orgPanelWebview.ts'),
@@ -606,25 +605,25 @@ describe('org panel host previewBody hover resolve (src/views/orgPanelWebview.ts
       .join('\n');
   }
 
-  it('postPreviewBody resolves the transcript path from the cache, not an unconditional scan', () => {
-    const body = code(methodBody('postPreviewBody'));
+  it('resolveRecord consults the cache before any scan (warm-cache actions never rescan)', () => {
+    const body = code(methodBody('resolveRecord'));
     assert.ok(
-      body.includes('this.previewPathBySession.get(sessionId)'),
-      'postPreviewBody must resolve the hovered chat via the cached sessionId->filePath map',
+      body.includes('this.previewPathBySession.has(sessionId)'),
+      'resolveRecord must consult the cached sessionId->filePath map',
     );
-    // The only scanRecords() call allowed in the method is the empty-cache fallback,
-    // gated on previewPathBySession.size === 0. Assert the gate precedes any scan.
+    // The only scanRecords() call allowed is behind the cache gate: a warm cache that
+    // lacks the id returns undefined without scanning; an empty cache may scan once.
     const scanAt = body.indexOf('scanRecords()');
     if (scanAt >= 0) {
       const before = body.slice(0, scanAt);
       assert.ok(
         before.includes('this.previewPathBySession.size === 0'),
-        'any scanRecords() in postPreviewBody must be gated on an empty cache (one-time fallback)',
+        'any scanRecords() in resolveRecord must be gated on the cache (one-time fallback)',
       );
     }
   });
 
-  it('both scan sites seed the previewPath cache so a hover never has to rescan', () => {
+  it('both scan sites seed the previewPath cache so an action never has to rescan', () => {
     for (const method of ['buildSectionModel', 'scanRecords']) {
       assert.ok(
         code(methodBody(method)).includes('this.cachePreviewPaths('),
