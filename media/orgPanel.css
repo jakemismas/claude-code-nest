@@ -246,7 +246,9 @@ body {
 .nest-search-icon {
   position: absolute;
   left: 19px;
-  top: 7px;
+  /* 10px centers the 13px glyph against the input's placeholder text; the old 7px
+     sat it visibly high (issue #119). */
+  top: 10px;
   pointer-events: none;
   display: inline-flex;
   /* Drives the glyph's currentColor stroke (issue #118 theming). */
@@ -1374,7 +1376,9 @@ body {
 .nest-archive-search-icon {
   position: absolute;
   left: 21px;
-  top: 7px;
+  /* Same 10px optical centering as the main search icon (issue #119 class sweep):
+     identical input padding, font size, and border. */
+  top: 10px;
   pointer-events: none;
   display: inline-flex;
   /* Drives the glyph's currentColor stroke (issue #118 theming). */
