@@ -55,6 +55,7 @@ const inertStateStore = { get: (): string | undefined => undefined, set: (): voi
 const inertReadState = {
   getMap: (): Map<string, number> => new Map(),
   markSeen: (): void => undefined,
+  seedIfFirstRun: (): boolean => false,
 };
 
 function totals(): TokenTotals {

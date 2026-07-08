@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { ReadStateStore, ReadStateMemento, READ_STATE_KEY } from '../../views/readState';
+import { ReadStateStore, ReadStateMemento, READ_STATE_KEY, READ_STATE_SEEDED_KEY } from '../../views/readState';
 
 // Headless unit tests for the per-device lastSeenAt read-state store. It takes an
 // injected Memento (get/update over a JSON string), so no vscode import is needed
@@ -107,5 +107,73 @@ describe('ReadStateStore tolerance', () => {
     mem.update(READ_STATE_KEY, JSON.stringify([1, 2, 3]));
     const store = new ReadStateStore(mem);
     assert.strictEqual(store.getMap().size, 0);
+  });
+});
+
+// The one-time first-run seed (issue #123): every chat present at the first scan is
+// marked read at its own last-activity timestamp, exactly once, so pre-existing
+// chats never light the unread dot while later assistant activity still does.
+describe('ReadStateStore first-run seed (issue #123)', () => {
+  const records = [
+    { sessionId: 'old-1', timestamp: 1000 },
+    { sessionId: 'old-2', timestamp: 2000 },
+    { sessionId: 'no-ts', timestamp: null },
+  ];
+
+  it('seeds every scanned chat once and sets the flag', () => {
+    const mem = new FakeMemento();
+    const store = new ReadStateStore(mem);
+    const ran = store.seedIfFirstRun(records, 9999);
+    assert.strictEqual(ran, true);
+    const map = store.getMap();
+    assert.strictEqual(map.get('old-1'), 1000, 'seeded at its own timestamp');
+    assert.strictEqual(map.get('old-2'), 2000, 'seeded at its own timestamp');
+    assert.strictEqual(map.get('no-ts'), 9999, 'null timestamp falls back to now');
+    assert.strictEqual(mem.raw(READ_STATE_SEEDED_KEY), 'true');
+  });
+
+  it('is a no-op once the flag is set (a later scan cannot re-seed)', () => {
+    const mem = new FakeMemento();
+    const store = new ReadStateStore(mem);
+    assert.strictEqual(store.seedIfFirstRun(records, 9999), true);
+    const ranAgain = store.seedIfFirstRun(
+      [{ sessionId: 'new-chat', timestamp: 5000 }],
+      10000,
+    );
+    assert.strictEqual(ranAgain, false);
+    assert.strictEqual(
+      store.getMap().get('new-chat'),
+      undefined,
+      'a chat scanned after the seed stays unseen until a real clear trigger',
+    );
+  });
+
+  it('a newer assistant message still reads unread after the seed', () => {
+    const store = new ReadStateStore(new FakeMemento());
+    store.seedIfFirstRun([{ sessionId: 'c1', timestamp: 1000 }], 9999);
+    // The rowStatus predicate shows unread when record.timestamp > seenAt; a
+    // message at 1500 is newer than the seeded 1000.
+    const seenAt = store.getMap().get('c1');
+    assert.ok(seenAt !== undefined && 1500 > seenAt);
+  });
+
+  it('never regresses a lastSeenAt the user already advanced past the scan', () => {
+    const mem = new FakeMemento();
+    const store = new ReadStateStore(mem);
+    store.markSeen('c1', 5000);
+    store.seedIfFirstRun([{ sessionId: 'c1', timestamp: 1000 }], 9999);
+    assert.strictEqual(store.getMap().get('c1'), 5000);
+  });
+
+  it('skips empty or invalid session ids without throwing', () => {
+    const store = new ReadStateStore(new FakeMemento());
+    const ran = store.seedIfFirstRun(
+      [{ sessionId: '', timestamp: 1000 }, { sessionId: 'ok', timestamp: 2000 }],
+      9999,
+    );
+    assert.strictEqual(ran, true);
+    const map = store.getMap();
+    assert.strictEqual(map.size, 1);
+    assert.strictEqual(map.get('ok'), 2000);
   });
 });

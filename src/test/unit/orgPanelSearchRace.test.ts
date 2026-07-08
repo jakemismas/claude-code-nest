@@ -89,6 +89,7 @@ const inertStateStore = {
 const inertReadState = {
   getMap: (): Map<string, number> => new Map(),
   markSeen: (): void => undefined,
+  seedIfFirstRun: (): boolean => false,
 };
 
 function makeProvider(workspacePath: string): unknown {

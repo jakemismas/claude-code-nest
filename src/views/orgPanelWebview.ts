@@ -232,11 +232,14 @@ export interface OrgPanelStateStore {
 
 // The per-device read-state seam the panel needs (backed by readState.ts's
 // ReadStateStore in the host). getMap feeds the pure buildSections; markSeen clears a
-// chat's unread affordance on a clear trigger (open-via-Nest, matching-tab focus).
-// LOCAL and NEVER synced (UI-SPEC.md "Read state").
+// chat's unread affordance on a clear trigger (open-via-Nest, matching-tab focus);
+// seedIfFirstRun marks every chat present at the FIRST scan as already read (issue
+// #123) so pre-existing chats do not all show unread. LOCAL and NEVER synced
+// (UI-SPEC.md "Read state").
 export interface OrgPanelReadState {
   getMap(): Map<string, number>;
   markSeen(sessionId: string, at?: number): void;
+  seedIfFirstRun(records: ReadonlyArray<{ sessionId: string; timestamp: number | null }>): boolean;
 }
 
 const SORT_KEY = 'claudeNest.orgPanel.sort';
@@ -774,6 +777,10 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       return empty;
     }
     this.cachePreviewPaths(records);
+    // One-time read-state seed (issue #123): the first scan of this workspace marks
+    // every existing chat as already read, so a fresh install does not light the
+    // unread dot on months-old chats. No-op on every scan after the flag is set.
+    this.readState.seedIfFirstRun(records);
     const projectKey = this.getProjectKey();
     const meta: ProjectMeta | undefined =
       projectKey !== undefined ? this.store.getProjectMeta(projectKey) : undefined;
