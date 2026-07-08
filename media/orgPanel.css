@@ -782,10 +782,22 @@ body {
   animation: ccblink 1.15s ease-in-out infinite;
 }
 
-/* UI-SPEC.md deviation 3: blinking disabled under reduced-motion (static badge). */
+/* UI-SPEC.md deviation 3: honor prefers-reduced-motion. The question badge stops
+   blinking (a static badge) and every panel transition and animation is neutralized so
+   no motion plays for a user who asked for none: the settings switch thumb slide and its
+   track color fade, and the focus-glow border/shadow eases on the search boxes. Kept as
+   a targeted list (not a global *{} reset) so the harness and the shipped panel share the
+   exact same set of neutralized surfaces. */
 @media (prefers-reduced-motion: reduce) {
   .nest-status-question {
     animation: none;
+  }
+
+  .nest-switch,
+  .nest-switch-thumb,
+  .nest-filter,
+  .nest-archive-search-input {
+    transition: none;
   }
 }
 

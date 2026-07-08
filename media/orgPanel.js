@@ -2173,6 +2173,7 @@
     const pop = document.createElement('div');
     pop.className = 'nest-newfolder-popover';
     pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-modal', 'true');
     pop.setAttribute('aria-label', 'New folder');
 
     const title = document.createElement('div');
@@ -2223,6 +2224,11 @@
       closeNewFolderPopover();
     });
     input.addEventListener('keydown', (e) => {
+      // Let Tab/Shift+Tab pass to the dialog focus trap; swallowing it here would let focus
+      // escape the modal into the tree behind the popover.
+      if (e.key === 'Tab') {
+        return;
+      }
       e.stopPropagation();
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -2243,6 +2249,7 @@
 
     document.body.appendChild(pop);
     openNewFolderEl = pop;
+    wireDialogFocusTrap(pop);
     input.focus();
   }
 
@@ -2257,6 +2264,66 @@
     { key: 'folders', label: 'Folders', sub: 'Show the folder tree' },
     { key: 'unsorted', label: 'Unsorted', sub: 'Show chats not in a folder' },
   ];
+
+  // Shared focus trap for every role="dialog" aria-modal="true" surface in the panel: the
+  // two full-panel sub-pages (Settings, Archive) that cover the tree/toolbar, and the
+  // anchored New-folder popover dialog. Keyboard Tab must cycle WITHIN the open dialog
+  // rather than escaping to the tree still in the DOM behind/around it. Attaches a Tab
+  // keydown handler on the dialog node (Tab bubbles up from the focused child inside it):
+  // Tab past the last focusable wraps to the first, Shift+Tab before the first wraps to the
+  // last, and a Tab from outside (or from a since-removed node) snaps back to the first
+  // focusable. Escape is owned by the document handler (and each dialog's own Escape wiring);
+  // this only manages Tab. Each dialog calls this once at build time; the listener dies with
+  // the removed dialog node.
+  function dialogFocusables(overlay) {
+    var sel =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]),' +
+      ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    return Array.prototype.filter.call(overlay.querySelectorAll(sel), function (el) {
+      // Skip hidden nodes (offsetParent null) so the trap lands on a real, visible control.
+      return el.offsetParent !== null || el === document.activeElement;
+    });
+  }
+
+  function wireDialogFocusTrap(overlay) {
+    // Capture phase (third arg true): the trap must see Tab BEFORE any focused child's own
+    // keydown handler runs. Some dialog children (e.g. the New-folder name input) call
+    // e.stopPropagation() unconditionally, which would kill a bubbling trap listener before
+    // Tab ever reached it and let focus escape the modal. Capturing on the dialog node fires
+    // on the way down, ahead of the child, so no child stopPropagation can defeat the trap.
+    overlay.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab') {
+        return;
+      }
+      // MIRRORS dialogFocusTrapAction in src/views/orgPanelInteractions.ts (unit-gated).
+      // The DOM parts (which controls are focusable, where focus is, moving it) live here;
+      // the pure edge/wrap/snap decision is pinned by that kernel's tests.
+      var items = dialogFocusables(overlay);
+      var active = document.activeElement;
+      var activeIndex = overlay.contains(active)
+        ? Array.prototype.indexOf.call(items, active)
+        : -1;
+      var count = items.length;
+      var action;
+      if (count <= 0) {
+        action = { preventDefault: true, focusIndex: null };
+      } else if (activeIndex < 0) {
+        action = { preventDefault: true, focusIndex: 0 };
+      } else if (e.shiftKey && activeIndex === 0) {
+        action = { preventDefault: true, focusIndex: count - 1 };
+      } else if (!e.shiftKey && activeIndex === count - 1) {
+        action = { preventDefault: true, focusIndex: 0 };
+      } else {
+        action = { preventDefault: false, focusIndex: null };
+      }
+      if (action.preventDefault) {
+        e.preventDefault();
+      }
+      if (action.focusIndex !== null && items[action.focusIndex]) {
+        items[action.focusIndex].focus();
+      }
+    }, true);
+  }
 
   function closeSettingsOverlay(restoreFocusToGear) {
     if (settingsOverlayEl) {
@@ -2296,6 +2363,7 @@
     const overlay = document.createElement('div');
     overlay.className = 'nest-overlay nest-settings-overlay';
     overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', 'Settings');
 
     // Header: back chevron + heading.
@@ -2418,6 +2486,7 @@
     // area exactly like the design's inset:0 sub-page and inherits the panel width.
     document.body.appendChild(overlay);
     settingsOverlayEl = overlay;
+    wireDialogFocusTrap(overlay);
     back.focus();
   }
 
@@ -2523,6 +2592,7 @@
     var overlay = document.createElement('div');
     overlay.className = 'nest-overlay nest-archive-overlay';
     overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', 'Archived chats');
 
     // Header: back chevron + heading + count.
@@ -2556,6 +2626,7 @@
 
     document.body.appendChild(overlay);
     archiveOverlayEl = overlay;
+    wireDialogFocusTrap(overlay);
     renderArchiveOverlayBody();
     back.focus();
   }

@@ -61,14 +61,14 @@ best-effort, last-writer-wins basis, with a JSON export as the authoritative bac
 
 ## Install
 
-Install the packaged VSIX (the current repo-root artifact is
-`claude-code-nest-0.1.1-sprint3-part2.vsix`, a mid-sprint build carrying Sprint 3
-Part 1 and Part 2 on top of the released 0.1.1; see [TESTING.md](./TESTING.md) for
-what it does and does not yet include):
+Install the packaged VSIX (the current repo-root build-check artifact is
+`nest-build-check.vsix`, a mid-sprint build carrying all of Sprint 3 on top of the
+released 0.1.1; `npm run package` regenerates it. See [TESTING.md](./TESTING.md)
+for what it does and does not yet include):
 
-- From a terminal: `code --install-extension claude-code-nest-0.1.1-sprint3-part2.vsix`
+- From a terminal: `code --install-extension nest-build-check.vsix`
 - Or in VS Code: open the Extensions view, use the `...` menu, choose **Install
-  from VSIX...**, and select `claude-code-nest-0.1.1-sprint3-part2.vsix`
+  from VSIX...**, and select `nest-build-check.vsix`
 
 Reload the window when prompted, then open a folder that has Claude Code sessions
 so the extension has chats to list.
@@ -88,10 +88,11 @@ so the extension has chats to list.
 | --- | --- | --- |
 | `claudeNest.archiveKeepWindowDays` | `30` | How long Nest keeps its own copy of an archived chat body before pruning it (`7`, `30`, `90`, or `0` for never). Starred archived chats are always kept. The copy is local and is never synced. |
 
-A separate Settings panel (the gear icon on any Nest view) reads and edits Claude
-Code's global `cleanupPeriodDays` in `~/.claude/settings.json`. This is a global
-Claude Code setting, not a Nest setting, so the panel warns you that it affects
-every workspace.
+The in-panel Settings overlay (the gear in the Organize panel toolbar) sets the
+keep window and section visibility, and reads and edits Claude Code's global
+`cleanupPeriodDays` in `~/.claude/settings.json`. That is a global Claude Code
+setting, not a Nest setting, so it affects every workspace; the write is a single
+surgical key edit routed through the read-only chokepoint.
 
 ## Commands
 
@@ -104,7 +105,7 @@ view-title buttons on the Organize panel:
 - **Export Library to JSON...** and **Import Library from JSON...** move your
   library in and out.
 - **Show Token Cost Rollup** opens the by-folder and by-tag token report.
-- **Settings** (shown as "Claude Code Nest: Settings") opens the `cleanupPeriodDays` panel.
+- **Settings** (shown as "Claude Code Nest: Settings") reveals the Organize panel and opens its in-panel Settings overlay.
 
 Starring, archiving, restoring, and previewing an archived copy live inside the
 Organize panel: the row star toggle, the right-click context menu, and the in-panel

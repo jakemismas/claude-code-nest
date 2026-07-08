@@ -886,6 +886,45 @@ fit review and the review+fix pass); the binding structural facts:
   against a matching filtered prototype capture; the default harness.png capture is
   unchanged.
 
+## Accessibility closeout: the overlay modal-dialog contract (Sprint 3, slice s3c-docs-a11y) — binding
+
+Slice s3c-docs-a11y (issue #89) is the docs and accessibility closeout. Beyond the
+doc reconciliation (README, this file, CHANGELOG, TESTING rewritten for the one-panel
+surface, walkthrough media updated), it hardens the two full-panel overlay sub-pages
+into proper ARIA modal dialogs and completes the reduced-motion contract. These rules
+are binding so the panel's ARIA story (UI-SPEC.md deviation 5, this panel is Nest's only
+surface) is complete.
+
+- EVERY role="dialog" SURFACE IS A MODAL DIALOG WITH A FOCUS TRAP. The CLASS is all three
+  role="dialog" nodes in media/orgPanel.js: the full-panel Settings overlay
+  (openSettingsOverlay), the full-panel Archive overlay (openArchiveOverlay), and the
+  anchored New-folder popover dialog (openNewFolderPopover). Each now carries aria-modal="true"
+  AND is wired at build time to the SHARED focus-trap helper wireDialogFocusTrap(node). The
+  trap is a Tab keydown handler on the dialog node: Tab past the last focusable wraps to the
+  first, Shift+Tab before the first wraps to the last, and a Tab while focus is somehow
+  outside the dialog snaps back to the first focusable. This closes the gap where a keyboard
+  or screen-reader user could Tab out of an open dialog into the org-panel tree still in the
+  DOM behind or around it (the two overlays are position:fixed/absolute;inset:0 but do not
+  remove the tree; the New-folder popover is a small anchored box over the same tree). The
+  trap only manages Tab; Escape stays owned by the single document-level keydown handler and
+  each dialog's own Escape wiring, which close the surface and restore focus to its trigger
+  (the gear, the Archived (N) row, or the FOLDERS-header + button). The helper resolves
+  focusables live on each Tab (querySelectorAll over the standard focusable set, skipping
+  offsetParent-null hidden nodes), so the Archive overlay's per-keystroke body re-render does
+  not stale the trap: the listener lives on the dialog node, which persists across those body
+  rebuilds, and dies with the removed dialog. The transient menus and popovers that are NOT
+  role="dialog" (the sort popover, the chat context menu, the folder color picker, the
+  create-tag swatch picker) keep their arrow-key menu navigation and are deliberately not
+  Tab-trapped: a role="menu" is driven by arrow keys, not Tab.
+- PREFERS-REDUCED-MOTION IS HONORED PANEL-WIDE, not only on the question badge. The
+  orgPanel.css @media (prefers-reduced-motion: reduce) block now neutralizes every panel
+  transition and animation a reduced-motion user could perceive: the question `?` badge
+  animation (already present, UI-SPEC.md deviation 3), the Settings section-switch thumb
+  slide (transform transition) and its track-color fade, and the focus-glow border/shadow
+  eases on the main and archive search inputs. It is a targeted rule list (the exact set
+  of animated surfaces), not a global *{} reset, so the shipped panel and the fidelity
+  harness neutralize the identical set. See DECISIONS.md Slice s3c-docs-a11y.
+
 ## Read-only invariant (the sacred constraint)
 
 The extension is strictly read-only on Claude's transcript files under
