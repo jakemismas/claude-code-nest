@@ -2581,7 +2581,7 @@
     return el;
   }
 
-  // The gray magnifier glyph for the archive search box (stroke #A6A294), matching the
+  // The gray magnifier glyph for the archive search box (currentColor, themed via CSS),
   // main search icon but living in the archive overlay so its gray-glow box reads distinct.
   function searchGlyphGray() {
     var NS = 'http://www.w3.org/2000/svg';
@@ -2595,7 +2595,7 @@
     circle.setAttribute('cx', '7');
     circle.setAttribute('cy', '7');
     circle.setAttribute('r', '5');
-    circle.setAttribute('stroke', '#A6A294');
+    circle.setAttribute('stroke', 'currentColor');
     circle.setAttribute('stroke-width', '1.6');
     svg.appendChild(circle);
     var line = document.createElementNS(NS, 'line');
@@ -2603,7 +2603,7 @@
     line.setAttribute('y1', '10.8');
     line.setAttribute('x2', '14.5');
     line.setAttribute('y2', '14.5');
-    line.setAttribute('stroke', '#A6A294');
+    line.setAttribute('stroke', 'currentColor');
     line.setAttribute('stroke-width', '1.6');
     line.setAttribute('stroke-linecap', 'round');
     svg.appendChild(line);
