@@ -241,6 +241,10 @@ applies.
    confirm the SAME chat menu opens anchored under the control. Tab to the control
    and press Enter to confirm the keyboard path. On a chat with many tags, confirm
    the pill strip clips on one line instead of squeezing the title or time.
+0b. Tag overflow drift (issue #122). On a chat whose tags overflow the strip, confirm
+   the pills drift slowly toward the hidden tail, dwell, and drift back in a loop;
+   rows without overflow stay still. Rest the pointer on the strip and confirm the
+   drift pauses. With reduced motion enabled in the OS, confirm the strip is static.
 1. Open the menu. Right-click a chat row. Confirm a menu appears listing EVERY project
    tag (not just the visible filter chips), each with a checkmark on the chat's current
    tags, plus a Create new tag entry, Export as Markdown, Export as JSON, and

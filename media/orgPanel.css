@@ -804,6 +804,12 @@ body {
     animation: none;
   }
 
+  /* The overflowed tag strip stays static (issue #122): the clipped tail remains
+     reachable via the chat menu's full tag list. */
+  .nest-tags-overflow .nest-row-tags-strip {
+    animation: none;
+  }
+
   .nest-switch,
   .nest-switch-thumb,
   .nest-filter,
@@ -861,6 +867,37 @@ body {
   gap: 4px;
   align-items: center;
   flex: none;
+}
+
+/* Slow back-and-forth drift for a strip that overflows its clip box (issue #122):
+   translate to the measured overflow (--tag-scroll, set by armTagMarquee in JS) and
+   back, with dwell at each end so both the head and the tail get read. Duration
+   scales with the overflow (--tag-scroll-duration). Hovering the box pauses the
+   drift so a pill can be read or the + control clicked; prefers-reduced-motion
+   disables it entirely (see the deviation-3 block). */
+@keyframes nest-tags-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+
+  46%,
+  54% {
+    transform: translateX(var(--tag-scroll, 0px));
+  }
+
+  88%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.nest-tags-overflow .nest-row-tags-strip {
+  animation: nest-tags-marquee var(--tag-scroll-duration, 8s) linear infinite;
+}
+
+.nest-row-tags.nest-tags-overflow:hover .nest-row-tags-strip {
+  animation-play-state: paused;
 }
 
 /* The add-tag + control (issue #121): quiet, revealed on row hover or keyboard

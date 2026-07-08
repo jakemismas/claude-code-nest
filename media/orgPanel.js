@@ -737,6 +737,7 @@
     if (isFiltering()) {
       renderFiltered();
       restoreFocus();
+      armTagMarquee();
       return;
     }
 
@@ -767,7 +768,51 @@
 
     renderArchivedRow();
     restoreFocus();
+    armTagMarquee();
   }
+
+  // Measure each row's tag strip and arm the slow back-and-forth marquee on the ones
+  // that overflow their clip box (issue #122). Runs on a rAF after a render commits
+  // (layout must exist to measure) and again on panel resize. Pure presentation: no
+  // state, no host message. The animation itself lives in CSS, where hovering the
+  // strip pauses it and prefers-reduced-motion disables it.
+  let tagMarqueePending = false;
+  function armTagMarquee() {
+    if (tagMarqueePending) {
+      return;
+    }
+    tagMarqueePending = true;
+    requestAnimationFrame(function () {
+      tagMarqueePending = false;
+      var boxes = listEl.querySelectorAll('.nest-row-tags');
+      for (var i = 0; i < boxes.length; i++) {
+        var box = boxes[i];
+        var strip = box.firstElementChild;
+        if (!strip) {
+          continue;
+        }
+        var overflow = strip.scrollWidth - box.clientWidth;
+        // A few px of slack: sub-pixel rounding must not start a marquee that
+        // travels nowhere.
+        if (overflow > 4) {
+          box.classList.add('nest-tags-overflow');
+          box.style.setProperty('--tag-scroll', -overflow + 'px');
+          // Slow travel (~25px/s each way) with an 8s floor so even a small
+          // overflow reads as a gentle drift, not a ticker.
+          var secs = Math.max(8, Math.round((overflow / 25) * 2) + 4);
+          box.style.setProperty('--tag-scroll-duration', secs + 's');
+        } else {
+          box.classList.remove('nest-tags-overflow');
+          box.style.removeProperty('--tag-scroll');
+          box.style.removeProperty('--tag-scroll-duration');
+        }
+      }
+    });
+  }
+
+  // The sidebar is user-resizable: a wider panel can absorb an overflow (stop the
+  // marquee) and a narrower one can create it, so re-measure on resize.
+  window.addEventListener('resize', armTagMarquee);
 
   // Render the FOLDERS header and the folder tree, honoring the Folders and Unsorted
   // section-visibility toggles. Split out of render() so the gating reads cleanly; the
