@@ -23,11 +23,6 @@ find and revisit any chat without it ever touching Claude's transcripts.
 - **Full-text content search.** Search across chat content from the Organize
   panel and see a matched-context snippet under each result. Clearing the query
   restores the full list.
-- **Rich hover card.** Hovering a chat row (or pressing `p` on a focused row) opens
-  a floating in-panel card with the chat's folder breadcrumb, age, token total, tag
-  pills, and its first user and last assistant message snippets. The two body lines
-  are read on demand for that one chat and discarded; the card is hover-stable and
-  keyboard-operable.
 - **Star and archive.** Starred chats surface in the Starred section; archived chats
   move into an in-panel Archive overlay reached from the bottom "Archived" row.
   Archiving keeps a Nest-owned copy of the chat body in the extension's own storage,

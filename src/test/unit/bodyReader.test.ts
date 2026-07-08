@@ -2,12 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import {
-  readTranscriptBodies,
-  extractBodies,
-  selectPreviewBodies,
-  ChatMessageBody,
-} from '../../claude/bodyReader';
+import { readTranscriptBodies, extractBodies } from '../../claude/bodyReader';
 
 // Headless unit tests for the on-demand single-chat body reader (slice 1). The
 // file-reading path runs against a scratch fixture under the OS temp dir, NEVER
@@ -98,52 +93,5 @@ describe('bodyReader: tolerance (never throws)', () => {
     );
     assert.strictEqual(bodies[0].text, 'bare string body');
     assert.strictEqual(bodies[1].text, 'block text');
-  });
-});
-
-// The hover card's first-user / last-assistant selection (slice s3b-hover-card,
-// issue #84). Pure over the ordered bodies; the caller reads them on demand and
-// discards both the bodies and this result when the card closes.
-describe('bodyReader: selectPreviewBodies (hover card lines, issue #84)', () => {
-  function b(role: 'user' | 'assistant', text: string | null): ChatMessageBody {
-    return { role, text, uuid: null };
-  }
-
-  it('picks the FIRST user body and the LAST assistant body', () => {
-    const sel = selectPreviewBodies([
-      b('user', 'u1 first'),
-      b('assistant', 'a1'),
-      b('user', 'u2'),
-      b('assistant', 'a2 last'),
-    ]);
-    assert.strictEqual(sel.firstUser, 'u1 first');
-    assert.strictEqual(sel.lastAssistant, 'a2 last');
-  });
-
-  it('skips textless turns (tool_use / tool_result) when selecting', () => {
-    const sel = selectPreviewBodies([
-      b('user', null), // a tool_result-only user line: not the "first user"
-      b('user', 'real first user'),
-      b('assistant', 'real assistant'),
-      b('assistant', null), // a pure tool_use assistant turn: not the "last assistant"
-    ]);
-    assert.strictEqual(sel.firstUser, 'real first user');
-    assert.strictEqual(sel.lastAssistant, 'real assistant');
-  });
-
-  it('returns null for a missing role (no user, or no assistant reply yet)', () => {
-    const noAssistant = selectPreviewBodies([b('user', 'only a question')]);
-    assert.strictEqual(noAssistant.firstUser, 'only a question');
-    assert.strictEqual(noAssistant.lastAssistant, null);
-
-    const noUser = selectPreviewBodies([b('assistant', 'opens with assistant')]);
-    assert.strictEqual(noUser.firstUser, null);
-    assert.strictEqual(noUser.lastAssistant, 'opens with assistant');
-  });
-
-  it('returns null/null for an empty transcript', () => {
-    const sel = selectPreviewBodies([]);
-    assert.strictEqual(sel.firstUser, null);
-    assert.strictEqual(sel.lastAssistant, null);
   });
 });
