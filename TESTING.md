@@ -236,6 +236,11 @@ export (the exportIO chokepoint with the projects-path guard), and read-only
 archive-body paths, so it adds no new scan or write path. The read-only invariant
 applies.
 
+0. Add-tag plus control (issue #121). Hover a chat row and confirm a small `+`
+   appears after its tag pills (or in that slot when the chat has none). Click it and
+   confirm the SAME chat menu opens anchored under the control. Tab to the control
+   and press Enter to confirm the keyboard path. On a chat with many tags, confirm
+   the pill strip clips on one line instead of squeezing the title or time.
 1. Open the menu. Right-click a chat row. Confirm a menu appears listing EVERY project
    tag (not just the visible filter chips), each with a checkmark on the chat's current
    tags, plus a Create new tag entry, Export as Markdown, Export as JSON, and

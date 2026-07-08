@@ -327,8 +327,15 @@
     }
 
     if (row.tags && row.tags.length > 0) {
+      // The clip box (.nest-row-tags, overflow hidden, bounded width) holds a strip
+      // (.nest-row-tags-strip) carrying the pills, so a chat with more tags than the
+      // row can show clips on one line instead of squeezing the title or time
+      // (issue #121). The strip is a separate node so overflow behavior can act on
+      // it without touching the pills.
       const tagRow = document.createElement('span');
       tagRow.className = 'nest-row-tags';
+      const tagStrip = document.createElement('span');
+      tagStrip.className = 'nest-row-tags-strip';
       for (let i = 0; i < row.tags.length; i++) {
         const t = document.createElement('span');
         t.className = 'nest-tag';
@@ -343,10 +350,31 @@
           }
         }
         t.textContent = row.tags[i];
-        tagRow.appendChild(t);
+        tagStrip.appendChild(t);
       }
+      tagRow.appendChild(tagStrip);
       main.appendChild(tagRow);
     }
+
+    // The add-tag control (issue #121): a small + after the last pill (or where the
+    // pills would sit), shown on row hover or focus. Opens the SAME chat menu the
+    // right-click opens (tag toggles + create new tag), anchored under the control,
+    // so tagging reuses the existing validated toggleTag/createTagWithColor paths.
+    // A <button> like the star, so it is keyboard-focusable and its click does not
+    // bubble to the row's open handler.
+    const addTag = document.createElement('button');
+    addTag.type = 'button';
+    addTag.className = 'nest-tag-add';
+    addTag.setAttribute('aria-label', 'Add tag to ' + row.title);
+    addTag.setAttribute('aria-haspopup', 'menu');
+    addTag.title = 'Add tag';
+    addTag.textContent = '+';
+    addTag.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const r = addTag.getBoundingClientRect();
+      openChatMenu({ clientX: r.left, clientY: r.bottom + 4 }, row.sessionId);
+    });
+    main.appendChild(addTag);
 
     const time = document.createElement('span');
     time.className = 'nest-row-time';

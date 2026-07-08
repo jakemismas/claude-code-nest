@@ -844,11 +844,57 @@ body {
   text-overflow: ellipsis;
 }
 
+/* The pill clip box (issue #121): bounded and overflow-hidden so a chat with more
+   tags than fits clips on one line instead of squeezing the title or the time. The
+   strip inside carries the pills at their natural width. */
 .nest-row-tags {
   display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+}
+
+.nest-row-tags-strip {
+  display: inline-flex;
   gap: 4px;
   align-items: center;
+  flex: none;
+}
+
+/* The add-tag + control (issue #121): quiet, revealed on row hover or keyboard
+   focus, opens the chat menu's tag section anchored under itself. */
+.nest-tag-add {
   flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nest-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.nest-row:hover .nest-tag-add,
+.nest-row-main:focus-within .nest-tag-add {
+  visibility: visible;
+}
+
+.nest-tag-add:hover {
+  background: var(--nest-btn-hover);
+  color: var(--nest-text);
+}
+
+.nest-tag-add:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+  visibility: visible;
 }
 
 /* Tag pills on a chat row: color @15% background / full color text. The @15%
