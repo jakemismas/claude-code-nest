@@ -85,10 +85,12 @@ transcript mtime moved afterward.
 
 ## Panel shell: tokens, toolbar, sort, search visuals (issue #80)
 
-1. Warm light design on a dark theme. On a DARK VSCode theme, open the Organize
-   panel. Confirm it renders the warm light design (panel background `#FCFBF8`,
-   accent `#d97757`), NOT the dark theme colors: the hardcoded handoff palette
-   drives the panel this sprint.
+1. Theme-matched surfaces (issue #118, UI-SPEC deviation 13). On a DARK VS Code
+   theme, open the Organize panel. Confirm the panel background, text, and borders
+   match the dark theme (the sidebar background, not the old off-white), while the
+   accent stays Claude orange `#d97757` (New session pill, focus glow, active-row
+   inset border). Switch to a LIGHT theme and confirm the panel follows it too,
+   with text readable in both.
 2. Toolbar layout. Confirm a "New session" pill on the LEFT, a spacer, then a gear
    button, matching the prototype.
 3. Sort popover. Open the sort control. Confirm exactly three options, Newest first

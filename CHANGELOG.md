@@ -193,6 +193,14 @@ version stays 0.1.1 until the release run.
 
 ### Changed
 
+- The panel's surfaces now follow the active VS Code theme (#118, superseding the
+  hardcoded handoff palette): backgrounds, text, borders, hovers, and quiet control
+  chrome read the theme's sideBar/list/input/editorWidget/descriptionForeground
+  colors, so the panel matches the editor in light and dark themes alike. The Claude
+  orange accent family and the tag/folder swatch colors stay hardcoded. Every theme
+  token falls back to the original handoff value, which is what the themeless
+  fidelity harness still renders (UI-SPEC.md deviation 13). The two search magnifier
+  glyphs now stroke with currentColor so they theme with their inputs.
 - Row density (comfortable/compact) is removed from the Organize panel (#80): the
   Sprint 3 handoff has a single row density. The tag pills and the last-message
   snippet, previously shown only in the comfortable density, are now always shown.

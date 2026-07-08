@@ -25,9 +25,11 @@ and Archive live INSIDE the panel as full-panel overlay sub-pages per the handof
 
 ## Fidelity rules
 
-- The handoff palette is hardcoded verbatim (user decision, 2026-07-01). The panel does
-  NOT read VS Code theme tokens; it renders the warm light design identically on every
-  theme, including dark themes. Theme adaptation is explicitly out of scope this sprint.
+- SUPERSEDED by deviation 13 (issue #118, owner decision 2026-07-08): the panel's
+  surfaces, text, and borders now follow the active VS Code theme; only the accent
+  family stays the hardcoded Claude orange. The original rule (palette hardcoded
+  verbatim, user decision 2026-07-01) still describes the FALLBACK values and what
+  the themeless fidelity harness renders.
 - Section order, row anatomy, paddings, font sizes, colors, radii, shadows, the focus
   glows (orange main, gray archive), the drop highlight, and the popover styling follow
   `media/design/README.md` exactly.
@@ -135,6 +137,18 @@ Claude's UI without replying does not clear it.
     host round-trip was removed with it. The owner's post-mockup decisions supersede the
     prototype here. Do not flag the missing hover card against `ChatSidebar.html`, and do
     not re-introduce a hover surface without a new decision.
+13. Theme-driven surfaces (issue #118, owner verify-gate decision, 2026-07-08),
+    superseding the hardcoded-palette fidelity rule. Every surface, text, border, and
+    quiet-control token in media/orgPanel.css now reads the active VS Code theme
+    (sideBar/list/input/editorWidget/descriptionForeground and friends); the accent
+    family (`#d97757` and its hover/deep/soft variants) and content colors (tag and
+    folder swatches) stay hardcoded. Each theme token falls back to the original
+    handoff value, so the fidelity harness, which defines no `--vscode-*` variables,
+    still renders the handoff palette and the committed reference baselines remain
+    the comparison authority for GEOMETRY and for accent usage. In a live VS Code the
+    panel intentionally does NOT match the prototype's colors on non-matching themes.
+    Do not flag theme-following surface colors against `ChatSidebar.html`; do flag a
+    wrong accent, wrong geometry, or unreadable text on a light or dark theme.
 
 ## The read-only line (unchanged, sacred)
 

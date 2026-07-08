@@ -1,47 +1,51 @@
 /* Primary org-panel webview styling. Sprint 3 slice s3a-design-shell (issue #80)
-   re-skins the panel to the pixel-exact Claude handoff at media/design/ (UI-SPEC.md).
-   The palette is HARDCODED verbatim (UI-SPEC.md "Fidelity rules", user decision
-   2026-07-01): the panel does NOT read VS Code theme tokens and renders the warm
-   light design identically on every theme, including dark. All colors, spacing,
-   type, radii, shadows, and the focus glows follow media/design/README.md.
-
-   Scope of this slice: the design tokens, the toolbar (New session pill, gear, sort
-   popover), the search box visuals, the section scaffold in design order, and the
-   Archived row. Chat/folder row anatomy is carried forward from the prior asset and
-   is refined in the next slice (issue #80 non-goals); density modes are removed. */
+   re-skinned the panel to the Claude handoff at media/design/ (UI-SPEC.md); issue
+   #118 (UI-SPEC deviation 13, owner verify-gate decision) then moved every SURFACE,
+   TEXT, and BORDER token onto the active VS Code theme so the panel matches the
+   editor chrome in light and dark themes alike. The accent family stays the
+   hardcoded Claude orange. Each theme-driven token falls back to the original
+   handoff value: the fidelity harness defines no --vscode-* variables, so harness
+   captures still render the handoff palette and stay comparable to the committed
+   baselines. Spacing, type, radii, shadows, and the focus glows still follow
+   media/design/README.md. */
 
 :root {
-  /* Accent (Claude orange) */
+  /* Accent (Claude orange): theme-independent by design. */
   --nest-accent: #d97757;
   --nest-accent-hover: #c6613f;
   --nest-accent-deep: #C15F3C;
   --nest-accent-soft: rgba(217, 119, 87, 0.16);
 
-  /* Surfaces */
-  --nest-panel: #FCFBF8;
-  --nest-input: #FBFAF6;
-  --nest-hover-row: #F0EEE6;
-  --nest-active-row: #F6E5DB;
-  --nest-drop-target: #FAE6DC;
-  --nest-btn-hover: #EEEBE2;
+  /* Surfaces: the active VS Code theme, falling back to the handoff palette. */
+  --nest-panel: var(--vscode-sideBar-background, #FCFBF8);
+  --nest-input: var(--vscode-input-background, #FBFAF6);
+  --nest-hover-row: var(--vscode-list-hoverBackground, #F0EEE6);
+  --nest-active-row: var(--vscode-list-activeSelectionBackground, #F6E5DB);
+  --nest-drop-target: var(--vscode-list-dropBackground, #FAE6DC);
+  --nest-btn-hover: var(--vscode-toolbar-hoverBackground, #EEEBE2);
+  /* Floating surfaces (popovers, menus, focused inputs) and their item hover. */
+  --nest-surface: var(--vscode-editorWidget-background, #fff);
+  --nest-surface-hover: var(--vscode-list-hoverBackground, #F4F2EA);
 
   /* Borders / dividers */
-  --nest-border: #E6E2D9;
-  --nest-border-input: #E4E0D6;
-  --nest-border-soft: #ECE8DF;
+  --nest-border: var(--vscode-panel-border, #E6E2D9);
+  --nest-border-input: var(--vscode-input-border, #E4E0D6);
+  --nest-border-soft: var(--vscode-panel-border, #ECE8DF);
 
   /* Text */
-  --nest-text: #2B2A27;
-  --nest-text-strong: #26241F;
-  --nest-text-folder: #3A3833;
-  --nest-text-secondary: #8C887E;
-  --nest-text-snippet: #9A958A;
-  --nest-text-muted: #A8A398;
-  --nest-text-breadcrumb: #B0AB9E;
-  --nest-text-label: #AEA99C;
-  --nest-icon: #6E6A60;
+  --nest-text: var(--vscode-foreground, #2B2A27);
+  --nest-text-strong: var(--vscode-sideBar-foreground, var(--vscode-foreground, #26241F));
+  --nest-text-folder: var(--vscode-sideBar-foreground, var(--vscode-foreground, #3A3833));
+  --nest-text-secondary: var(--vscode-descriptionForeground, #8C887E);
+  --nest-text-snippet: var(--vscode-descriptionForeground, #9A958A);
+  --nest-text-muted: var(--vscode-descriptionForeground, #A8A398);
+  --nest-text-breadcrumb: var(--vscode-descriptionForeground, #B0AB9E);
+  --nest-text-label: var(--vscode-descriptionForeground, #AEA99C);
+  --nest-icon: var(--vscode-icon-foreground, #6E6A60);
+  /* Quiet control chrome (hollow star, switch-off track). */
+  --nest-control-off: var(--vscode-descriptionForeground, #D6D0C2);
 
-  /* Tag / folder color fallbacks */
+  /* Tag / folder color fallbacks (content colors, theme-independent) */
   --nest-folder-default: #C2A56E;
 
   --nest-radius: 6px;
@@ -159,7 +163,7 @@ body {
 /* The gear active tint (Settings sub-page open; the overlay lands in s3b). */
 .nest-icon-btn.nest-active {
   color: var(--nest-accent);
-  background: #F5EAE3;
+  background: var(--nest-accent-soft);
 }
 
 /* ---- Sort popover ---- */
@@ -174,7 +178,7 @@ body {
   right: 0;
   top: 31px;
   z-index: 42;
-  background: #fff;
+  background: var(--nest-surface);
   border: 1px solid var(--nest-border);
   border-radius: 8px;
   box-shadow: 0 10px 28px rgba(40, 33, 20, 0.16);
@@ -212,12 +216,12 @@ body {
 }
 
 .nest-popover-item:hover {
-  background: #F4F2EA;
+  background: var(--nest-surface-hover);
 }
 
 .nest-popover-item:focus-visible {
   outline: none;
-  background: #F4F2EA;
+  background: var(--nest-surface-hover);
   box-shadow: inset 0 0 0 1px var(--nest-accent);
 }
 
@@ -245,6 +249,8 @@ body {
   top: 7px;
   pointer-events: none;
   display: inline-flex;
+  /* Drives the glyph's currentColor stroke (issue #118 theming). */
+  color: var(--nest-text-muted);
 }
 
 .nest-filter {
@@ -268,7 +274,7 @@ body {
 .nest-filter:focus {
   border-color: var(--nest-accent);
   box-shadow: 0 0 0 1px var(--nest-accent), 0 0 14px 2px rgba(217, 119, 87, 0.35);
-  background: #fff;
+  background: var(--nest-surface);
 }
 
 .nest-search-clear {
@@ -291,7 +297,7 @@ body {
 }
 
 .nest-search-clear:hover {
-  background: #E8E5DC;
+  background: var(--nest-btn-hover);
 }
 
 .nest-search-clear:focus-visible {
@@ -480,7 +486,7 @@ body {
   width: 10px;
   flex: 0 0 auto;
   font-size: 9px;
-  color: #9A968B;
+  color: var(--nest-text-secondary);
   text-align: center;
   cursor: pointer;
 }
@@ -527,7 +533,7 @@ body {
   padding: 1px 5px;
   border: 1px solid var(--nest-accent);
   border-radius: 4px;
-  background: #fff;
+  background: var(--nest-surface);
   color: var(--nest-text);
   font-family: inherit;
   font-size: 13px;
@@ -542,7 +548,7 @@ body {
 .nest-color-popover {
   position: fixed;
   z-index: 60;
-  background: #fff;
+  background: var(--nest-surface);
   border: 1px solid var(--nest-border);
   border-radius: 8px;
   box-shadow: 0 10px 28px rgba(40, 33, 20, 0.16);
@@ -575,7 +581,7 @@ body {
 }
 
 .nest-swatch-selected {
-  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--swatch-color);
+  box-shadow: 0 0 0 2px var(--nest-surface), 0 0 0 4px var(--swatch-color);
 }
 
 .nest-swatch:focus-visible {
@@ -600,7 +606,7 @@ body {
 }
 
 .nest-swatch-clear:hover {
-  background: #F4F2EA;
+  background: var(--nest-surface-hover);
   color: var(--nest-text);
 }
 
@@ -617,7 +623,7 @@ body {
 .nest-newfolder-popover {
   position: fixed;
   z-index: 60;
-  background: #fff;
+  background: var(--nest-surface);
   border: 1px solid var(--nest-border);
   border-radius: 8px;
   box-shadow: 0 10px 28px rgba(40, 33, 20, 0.16);
@@ -648,7 +654,7 @@ body {
 .nest-newfolder-input:focus {
   border-color: var(--nest-accent);
   box-shadow: 0 0 0 1px var(--nest-accent);
-  background: #fff;
+  background: var(--nest-surface);
 }
 
 .nest-newfolder-actions {
@@ -695,7 +701,7 @@ body {
 }
 
 .nest-newfolder-cancel:hover {
-  background: #F4F2EA;
+  background: var(--nest-surface-hover);
   color: var(--nest-text);
 }
 
@@ -884,7 +890,7 @@ body {
 }
 
 .nest-star-empty {
-  color: #D6D0C2;
+  color: var(--nest-control-off);
 }
 
 .nest-row:hover .nest-star-empty {
@@ -920,7 +926,7 @@ body {
   border-radius: 4px;
   cursor: pointer;
   background: transparent;
-  color: #9A968B;
+  color: var(--nest-text-secondary);
   font-family: inherit;
   font-size: 12px;
   width: 100%;
@@ -966,7 +972,7 @@ body {
 .nest-menu {
   position: fixed;
   z-index: 60;
-  background: #fff;
+  background: var(--nest-surface);
   border: 1px solid var(--nest-border);
   border-radius: 8px;
   box-shadow: 0 12px 32px rgba(40, 33, 20, 0.18);
@@ -991,7 +997,7 @@ body {
 .nest-menu-item:hover,
 .nest-menu-item:focus-visible {
   outline: none;
-  background: #F4F2EA;
+  background: var(--nest-surface-hover);
 }
 
 /* ---- Chat row context menu (slice s3b-context-menu, issue #85) ---- */
@@ -1019,7 +1025,7 @@ body {
 .nest-menu-divider {
   height: 1px;
   margin: 5px 6px;
-  background: #EEEBE2;
+  background: var(--nest-border-soft);
 }
 
 /* A tag row in the menu: color dot, label (flex), trailing checkmark. */
@@ -1087,7 +1093,7 @@ body {
 .nest-menu-newtag-input:focus {
   border-color: var(--nest-accent);
   box-shadow: 0 0 0 1px var(--nest-accent);
-  background: #fff;
+  background: var(--nest-surface);
 }
 
 .nest-menu-newtag-swatches {
@@ -1140,7 +1146,7 @@ body {
 }
 
 .nest-menu-newtag-cancel:hover {
-  background: #F4F2EA;
+  background: var(--nest-surface-hover);
   color: var(--nest-text);
 }
 
@@ -1263,7 +1269,7 @@ body {
   display: flex;
   align-items: center;
   padding: 11px 0;
-  border-bottom: 1px solid #F1EDE4;
+  border-bottom: 1px solid var(--nest-border-soft);
 }
 
 .nest-settings-toggle-row-last {
@@ -1297,7 +1303,7 @@ body {
   border: none;
   padding: 0;
   border-radius: 999px;
-  background: #D6D0C2;
+  background: var(--nest-control-off);
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -1318,6 +1324,8 @@ body {
   width: 15px;
   height: 15px;
   border-radius: 50%;
+  /* The knob stays white on every theme: it rides the accent (on) or the muted
+     track (off), never the panel surface. */
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   transform: translateX(0);
@@ -1369,6 +1377,8 @@ body {
   top: 7px;
   pointer-events: none;
   display: inline-flex;
+  /* Drives the glyph's currentColor stroke (issue #118 theming). */
+  color: var(--nest-text-muted);
 }
 
 /* The gray-glow search box: a distinct focus token from the main orange search glow
@@ -1390,7 +1400,7 @@ body {
 .nest-archive-search-input:focus {
   border-color: #A6A294;
   box-shadow: 0 0 0 1px #A6A294, 0 0 14px 2px rgba(120, 114, 102, 0.30);
-  background: #fff;
+  background: var(--nest-surface);
 }
 
 .nest-archive-list {
@@ -1458,7 +1468,7 @@ body {
 
 .nest-archive-row-sep {
   font-size: 10.5px;
-  color: #C2BCAE;
+  color: var(--nest-text-breadcrumb);
 }
 
 /* The archived-row star (star-unarchive, AC #4). Hollow muted star; hover fills the
@@ -1506,8 +1516,8 @@ body {
   padding: 3px 10px;
   border-radius: 6px;
   border: 1px solid var(--nest-border-input);
-  background: #fff;
-  color: #8A857A;
+  background: var(--nest-surface);
+  color: var(--nest-text-secondary);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
