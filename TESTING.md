@@ -17,7 +17,8 @@ covered in the sections below.
 
 ## The one-panel surface at a glance
 
-The product is ONE VS Code sidebar view, `claudeNest.orgPanel` ("Organize"),
+The product is ONE VS Code sidebar view, `claudeNest.orgPanel` (titled "Claude
+Code Nest"; the view name matches its container so the header shows the name once),
 rebuilt to the Claude-design handoff at `media/design/`. Everything lives in that
 panel:
 
