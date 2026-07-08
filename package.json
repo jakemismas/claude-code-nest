@@ -58,7 +58,7 @@
       "claudeNest": [
         {
           "id": "claudeNest.orgPanel",
-          "name": "Organize",
+          "name": "Claude Code Nest",
           "type": "webview",
           "contextualTitle": "Claude Code Nest"
         }
@@ -95,7 +95,7 @@
           {
             "id": "claudeNest.walkthrough.openView",
             "title": "Open the Nest panel",
-            "description": "Click the Claude Code Nest icon in the Activity Bar to open the Organize panel for the current workspace.\n[Refresh](command:claudeNest.refresh)",
+            "description": "Click the Claude Code Nest icon in the Activity Bar to open the panel for the current workspace.\n[Refresh](command:claudeNest.refresh)",
             "media": {
               "markdown": "media/walkthrough/open-view.md"
             }
