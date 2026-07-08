@@ -1723,3 +1723,76 @@ that also clips a floating popover to the sidebar; it was measured (position:abs
 ~x210,y77,w152,h120) to sit FULLY inside the sidebar box, so it is not cropped and keeps
 plain clipToSidebar. The settings/archive prototype overlays are position:fixed;inset:0
 full-panel sub-pages that cannot overflow the sidebar box, so they are unaffected.
+
+## 2026-07-07 Slice s3c-docs-a11y (order 1, issue #89): docs reconciliation and a11y closeout
+
+Issue #89 is the docs and accessibility closeout for the one-panel surface, the last
+Part 3 slice before the human verify gate. Four reversible forks, all auto-resolved at
+fit review (no irreversible or data-loss fork, so no council and no hard stop); recorded
+here per the reversible-fork discipline.
+
+Fork A (reversible): rewrite TESTING.md vs. append to it. AC1 says TESTING.md is
+"rewritten as the consolidated human smoke checklist for the NEW panel, drawn from every
+Sprint 3 slice's smoke steps." The old file (957 lines) carried Sprint 1 slice sections
+(0..9) and Sprint 2 sections describing the retired Folders/Tags/Smart Groups/Archive
+trees, the flat Chats fallback, and the standalone Settings editor tab, plus a Sprint 3
+section whose Part 3 items were marked "not yet built." Keeping those would violate the
+plan's "stale Sprint 2 surface references are gone." Resolution: full rewrite around the
+one-panel surface (464 lines), section-per-slice for the shipped panel (shell, rows,
+folders, search, hover card, context menu, Settings overlay, Archive overlay, palette
+commands, fidelity, accessibility), the Part 3 items promoted to runnable sections, the
+retired-tree procedures dropped. Preserved: the install steps (repointed to
+nest-build-check.vsix), the read-only invariant assertion, the human-verify-gate framing,
+and the deferred-integration-tests section (the two integration specs are kept as
+historical records of the retired-tree DnD contract and the sole-view activation
+assertion, which is what they now prove). Reversible: git history holds the old file.
+
+Fork B (reversible): update vs. retire the walkthrough media. media/walkthrough/
+open-view.md described Archive as a SEPARATE Activity Bar view (stale since
+s3b-archive-overlay retired the tree). The walkthrough is still a contributed onboarding
+surface in package.json (the activation integration test asserts a multi-step walkthrough
+ships). Resolution: UPDATE in place, not retire. open-view.md rewritten to describe the
+single Organize view with its in-panel Settings and Archive overlays; organize.md tightened
+to the one-sublevel folder cap and drag-to-unfile; backup.md left as-is (export/import prose
+is surface-agnostic and still accurate). Reversible: the files are plain markdown.
+
+Fork C (reversible): scope of the keyboard/ARIA pass. AC3 wants "every interactive element
+reachable and operable, visible focus, correct ARIA roles and labels ..., prefers-reduced-
+motion honored." The audit found the infrastructure already strong (role=tree with roving
+tabindex, menu/menuitemradio/menuitemcheckbox roles on every popover and menu, aria-labels
+and focus-visible rings across all interactive classes, Escape-and-restore on every
+transient surface). Two genuine gaps remained; the fork was whether to treat them as in
+scope for "gaps fixed." Resolution: fix both. (1) The role="dialog" surfaces lacked
+aria-modal and a focus trap, so Tab could leave an open dialog for the tree still in the DOM
+behind it. CLASS SWEEP over every role="dialog" node (grepped: THREE, not two - the initial
+fix caught the Settings and Archive full-panel overlays; the sweep found the anchored
+New-folder popover dialog too): added aria-modal="true" on all three and wired each to a
+shared wireDialogFocusTrap(node) helper at build (Tab wraps last->first, Shift+Tab
+first->last, outside-focus snaps back to first). The trap owns only Tab; Escape stays on the
+document handler and each dialog's own Escape wiring, which close the surface and restore
+focus to its trigger (gear / Archived (N) row / FOLDERS-header + button). The helper resolves
+focusables live per Tab so the Archive overlay's per-keystroke body re-render does not stale
+it (the listener rides the dialog node, which survives the body rebuild). The transient
+role="menu" surfaces (sort popover, context menu, color picker, create-tag swatch picker) are
+deliberately NOT Tab-trapped: a menu is arrow-key driven, and their existing arrow/Escape
+handling is the correct pattern. (2)
+prefers-reduced-motion covered only the question-badge blink; extended the @media block to
+also neutralize the Settings switch thumb slide + track fade and the two search-box
+focus-glow transitions (class sweep over every transition/animation in orgPanel.css: the
+only ones a reduced-motion user could perceive). Documented as a new binding ARCHITECTURE.md
+section (the overlay modal-dialog contract). Reversible: the changes are additive DOM
+attributes, one JS helper, and CSS rules.
+
+Fork D (reversible): depth of the ARCHITECTURE/README/CHANGELOG reconciliation. The module
+map, retired-views, harness, read-state, and auto-archive ARCHITECTURE sections were already
+accurate against the shipped surface; only this slice's own a11y additions were undocumented.
+Resolution: SURGICAL reconciliation, not a rewrite. README: repointed the install artifact to
+nest-build-check.vsix and corrected the stale "separate Settings panel"/"the panel warns you"
+wording to the in-panel overlay. CHANGELOG: added the missing #88 fidelity-sweep Added entry
+(it had landed with no CHANGELOG line), added the #89 a11y entry, and updated the [Unreleased]
+summary to feature-complete-Sprint-3. ARCHITECTURE: added the new a11y closeout section only.
+
+No src/ TypeScript changed (the a11y fixes are in the media/ webview asset and CSS, outside
+the tsc/eslint gate but exercised by the fidelity harness, which was re-run and renders all
+states after the edits). Gates: npm test green, tsc/eslint clean, vsce package clean. Closes
+issue #89.

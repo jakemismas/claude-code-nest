@@ -199,6 +199,53 @@ export interface JoinTextHitsResult<R extends JoinRow> {
   snippets: Map<string, string>;
 }
 
+// ---- Dialog focus-trap decision kernel (slice s3b-a11y, issue #89 AC3) ----
+
+// The pure decision behind wireDialogFocusTrap in media/orgPanel.js. Given the count of
+// visible focusable controls inside an open role="dialog" surface, the index of the
+// currently-focused control within that list (-1 when focus is outside the dialog or on a
+// node no longer in the list), and whether Shift was held, decide what a Tab keydown should
+// do: whether to preventDefault the native tab, and which focusable index to move focus to
+// (null = do not move; let the browser's native Tab advance focus within the dialog).
+//
+// The webview owns the DOM (querySelectorAll, offsetParent visibility filter, .focus()) and
+// MIRRORS this decision; this kernel never touches a DOM. Branches, matching the contract in
+// ARCHITECTURE.md and the TESTING.md keyboard step:
+//   - count === 0        -> block Tab, focus nothing (no target exists).
+//   - activeIndex < 0    -> focus escaped/outside; snap back to the first focusable.
+//   - Shift+Tab at first -> wrap to the last focusable.
+//   - Tab at last        -> wrap to the first focusable.
+//   - otherwise          -> let native Tab move within the dialog.
+// A single-focusable dialog (count === 1) keeps focus pinned on index 0 on either edge.
+export interface DialogFocusTrapAction {
+  // True when the native Tab must be suppressed (the kernel is taking over focus movement,
+  // or there is nothing to move to).
+  preventDefault: boolean;
+  // The focusable index to move focus to, or null to leave focus where the browser puts it.
+  focusIndex: number | null;
+}
+
+export function dialogFocusTrapAction(
+  count: number,
+  activeIndex: number,
+  shiftKey: boolean,
+): DialogFocusTrapAction {
+  if (count <= 0) {
+    return { preventDefault: true, focusIndex: null };
+  }
+  if (activeIndex < 0) {
+    return { preventDefault: true, focusIndex: 0 };
+  }
+  const last = count - 1;
+  if (shiftKey && activeIndex === 0) {
+    return { preventDefault: true, focusIndex: last };
+  }
+  if (!shiftKey && activeIndex === last) {
+    return { preventDefault: true, focusIndex: 0 };
+  }
+  return { preventDefault: false, focusIndex: null };
+}
+
 // Join the host text-hit ids with the client tag filter into the flat results set.
 // Walk the host order once, skip ids already seen, skip ids that do not resolve to a
 // row or that fail the tag filter, collect the row and (when present and non-empty)

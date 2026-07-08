@@ -5,17 +5,17 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
-Sprint 3 is Part 1 complete (issues #78 to #83 merged) and Part 2 is now complete
-(the hover card, #84, the chat-row context menu, #85, the Settings overlay plus
-auto-archive engine, #86, and the in-panel Archive overlay, #87, are all merged),
-NOT yet released. The finished v0.2.0 "One Panel" release still needs Part 3
-(#88, #89), the human verify gate (#76), and the pre-release security
-council (#90) before the release run (#91) bumps the version and tags. A mid-sprint handoff
-build, `claude-code-nest-0.1.1-sprint3-part2.vsix`, is packaged in the repo root
-for smoke testing the Part 1 and Part 2 surface, and TESTING.md carries the
-consolidated per-slice smoke checklist drawn from SPRINT-3-PLAN.md (every landed
-section, through Part 2, is runnable; only the Part 3 sections are marked
-not-yet-built). No version bump and no tag accompany this handoff.
+Sprint 3 is now feature-complete: Part 1 (issues #78 to #83), Part 2 (the hover card
+#84, the chat-row context menu #85, the Settings overlay plus auto-archive engine #86,
+and the in-panel Archive overlay #87), and Part 3 (the full-state fidelity sweep #88 and
+this docs and accessibility closeout #89) are all merged, NOT yet released. The finished
+v0.2.0 "One Panel" release still needs the human verify gate (#76) and the pre-release
+security council (#90) before the release run (#91) bumps the version and tags. A
+build-check artifact, `nest-build-check.vsix`, is packaged in the repo root (regenerate
+it with `npm run package`) for smoke testing the whole one-panel surface, and TESTING.md
+is the consolidated one-panel human smoke checklist drawn from SPRINT-3-PLAN.md that the
+human verify gate runs end to end next to the design prototype. No version bump and no
+tag accompany this build.
 
 ### Added
 
@@ -168,6 +168,26 @@ not-yet-built). No version bump and no tag accompany this handoff.
   Fixes line inside the final paragraph and so kept the `Nest-Slice` trailer from
   parsing; this follow-up carries the trailer on its own final paragraph so the slice
   reads as built.)
+- A full-state visual-fidelity sweep (#88), slice s3c-fidelity-sweep, opening Part 3.
+  The harness now stages and captures every UI state (default, filtered results, hover
+  card, context menu in both the tag-list and create-tag modes, the drag drop-highlight,
+  the Settings and Archive overlays, the sort and new-folder popovers, and the inline
+  folder rename), the drivable states get a matching prototype capture, and the committed
+  reference set under `media/design/reference/` was refreshed. Every visible mismatch was
+  fixed or recorded as an agreed deviation in UI-SPEC.md (deviations 9 through 11: the
+  sort-popover keyboard focus ring, the new-folder popover anchor and baseline framing,
+  and the five harness-only states that the compiled prototype exposes no headless path
+  to). The harness and reference images remain excluded from the packaged extension.
+- A full keyboard and screen-reader accessibility pass over the one-panel surface (#89),
+  slice s3c-docs-a11y. Every `role="dialog"` surface (the full-panel Settings and Archive
+  overlays and the anchored New-folder popover) is now a proper modal dialog: each carries
+  `aria-modal="true"` and a shared Tab focus trap so keyboard and screen-reader focus cycles
+  WITHIN the open dialog instead of escaping to the tree still in the DOM behind it (Escape
+  and the back chevron / Cancel still close and restore focus to the trigger). The transient
+  arrow-key menus (sort, context menu, color and tag pickers) keep their menu navigation and
+  are intentionally not Tab-trapped. `prefers-reduced-motion` is now honored across the whole panel,
+  not just the question badge: the Settings switch thumb slide and track fade and the
+  search-box focus-glow transitions are neutralized alongside the already-static `?` badge.
 
 ### Changed
 

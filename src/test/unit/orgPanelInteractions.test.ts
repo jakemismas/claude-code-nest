@@ -12,6 +12,7 @@ import {
   isFreshSearchReply,
   joinTextHits,
   JoinRow,
+  dialogFocusTrapAction,
 } from '../../views/orgPanelInteractions';
 
 // Headless unit tests for the PURE org-panel interaction kernels (issue #82 AC2
@@ -232,6 +233,81 @@ describe('host-hit x client-tag join (joinTextHits) — AC #3/#4 membership + or
   });
 });
 
+describe('dialog focus-trap decision kernel (dialogFocusTrapAction) — issue #89 AC3', () => {
+  it('empty focusable list: blocks Tab and moves focus nowhere', () => {
+    const a = dialogFocusTrapAction(0, -1, false);
+    assert.deepStrictEqual(a, { preventDefault: true, focusIndex: null });
+    // shiftKey is irrelevant when there is nothing to focus.
+    assert.deepStrictEqual(dialogFocusTrapAction(0, -1, true), {
+      preventDefault: true,
+      focusIndex: null,
+    });
+  });
+
+  it('focus outside the dialog (activeIndex < 0): snaps back to the first focusable', () => {
+    assert.deepStrictEqual(dialogFocusTrapAction(3, -1, false), {
+      preventDefault: true,
+      focusIndex: 0,
+    });
+    // The snap is independent of Shift: a stray Shift+Tab from outside also lands on first.
+    assert.deepStrictEqual(dialogFocusTrapAction(3, -1, true), {
+      preventDefault: true,
+      focusIndex: 0,
+    });
+  });
+
+  it('Tab at the last focusable wraps to the first', () => {
+    assert.deepStrictEqual(dialogFocusTrapAction(3, 2, false), {
+      preventDefault: true,
+      focusIndex: 0,
+    });
+  });
+
+  it('Shift+Tab at the first focusable wraps to the last', () => {
+    assert.deepStrictEqual(dialogFocusTrapAction(3, 0, true), {
+      preventDefault: true,
+      focusIndex: 2,
+    });
+  });
+
+  it('Tab in the middle lets native focus movement proceed (no preventDefault, no jump)', () => {
+    assert.deepStrictEqual(dialogFocusTrapAction(3, 1, false), {
+      preventDefault: false,
+      focusIndex: null,
+    });
+    assert.deepStrictEqual(dialogFocusTrapAction(3, 1, true), {
+      preventDefault: false,
+      focusIndex: null,
+    });
+  });
+
+  it('Tab at the first (non-shift) and Shift+Tab at the last are middle cases: let native Tab move within', () => {
+    // Forward Tab from the first control advances to the second natively; only the LAST
+    // control wraps. Symmetrically, Shift+Tab from the last retreats natively.
+    assert.deepStrictEqual(dialogFocusTrapAction(3, 0, false), {
+      preventDefault: false,
+      focusIndex: null,
+    });
+    assert.deepStrictEqual(dialogFocusTrapAction(3, 2, true), {
+      preventDefault: false,
+      focusIndex: null,
+    });
+  });
+
+  it('single-focusable dialog: both edges pin focus on the only control (index 0)', () => {
+    // count === 1 means index 0 is simultaneously first and last. The shift branch is
+    // checked first, so Shift+Tab pins to index 0 (count-1); plain Tab also pins to 0.
+    assert.deepStrictEqual(dialogFocusTrapAction(1, 0, true), {
+      preventDefault: true,
+      focusIndex: 0,
+    });
+    assert.deepStrictEqual(dialogFocusTrapAction(1, 0, false), {
+      preventDefault: true,
+      focusIndex: 0,
+    });
+  });
+});
+
 // The overlay-teardown / deferred-toggle correctness fix lives in the webview
 // (media/orgPanel.js), which the headless suite cannot import (it needs a DOM and the
 // vscode webview bridge). These structural guards read the shipped source and pin the
@@ -356,6 +432,53 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
       Number(m![1]),
       DOUBLE_CLICK_MS,
       'the webview DOUBLE_CLICK_MS mirror must equal the kernel export',
+    );
+  });
+
+  // Dialog focus-trap wiring guards (issue #89 AC3). The trap must survive a focused
+  // child that calls e.stopPropagation() on Tab. Two independent defenses are pinned:
+  // (1) the trap listener is registered in the CAPTURE phase (fires before any child
+  // handler, so no child stopPropagation can starve it), and (2) the one child that
+  // stops Tab (the New-folder name input) lets Tab through before it stops the event.
+  // A regression on EITHER lets Shift+Tab escape the New-folder popover into the tree.
+  it('wireDialogFocusTrap registers its keydown listener in the capture phase', () => {
+    const body = fnBody('wireDialogFocusTrap');
+    // The addEventListener('keydown', ...) call must pass a truthy third arg (capture).
+    assert.ok(
+      /addEventListener\(\s*'keydown'[\s\S]*\}\s*,\s*true\s*\)/.test(body),
+      "wireDialogFocusTrap must add its keydown listener with capture=true so a child's stopPropagation cannot defeat it",
+    );
+  });
+
+  it('all three role="dialog" surfaces are wired with wireDialogFocusTrap (Settings, Archive, New-folder)', () => {
+    const code = webviewSrc
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+    const calls = code.match(/wireDialogFocusTrap\(/g) || [];
+    // One definition site + three call sites = four occurrences of the token.
+    const callSites = calls.length - (code.includes('function wireDialogFocusTrap(') ? 1 : 0);
+    assert.strictEqual(
+      callSites,
+      3,
+      'the trap must be wired on exactly the three dialog surfaces; a new dialog must add its call here',
+    );
+  });
+
+  it('the New-folder name input lets Tab reach the trap before it stops other keys', () => {
+    // Scope to the input's OWN keydown handler (not the sibling button click handlers,
+    // which also stopPropagation). It must early-return for Tab BEFORE stopPropagation,
+    // otherwise Shift+Tab off the input escapes the modal into the tree.
+    const body = fnBody('openNewFolderPopover');
+    const handlerAt = body.indexOf("input.addEventListener('keydown'");
+    assert.ok(handlerAt >= 0, 'the New-folder input registers a keydown handler');
+    const handler = body.slice(handlerAt);
+    const tabGuardAt = handler.indexOf("e.key === 'Tab'");
+    const stopAt = handler.indexOf('e.stopPropagation()');
+    assert.ok(stopAt >= 0, 'the input keydown handler still guards non-Tab keys');
+    assert.ok(
+      tabGuardAt >= 0 && tabGuardAt < stopAt,
+      'the input keydown must return early for Tab BEFORE calling e.stopPropagation()',
     );
   });
 
