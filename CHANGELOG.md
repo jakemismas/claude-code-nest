@@ -5,17 +5,19 @@ Keep a Changelog, and the project adheres to semantic versioning.
 
 ## [Unreleased]
 
-Sprint 3 is now feature-complete: Part 1 (issues #78 to #83), Part 2 (the hover card
-#84, the chat-row context menu #85, the Settings overlay plus auto-archive engine #86,
-and the in-panel Archive overlay #87), and Part 3 (the full-state fidelity sweep #88 and
-this docs and accessibility closeout #89) are all merged, NOT yet released. The finished
-v0.2.0 "One Panel" release still needs the human verify gate (#76) and the pre-release
-security council (#90) before the release run (#91) bumps the version and tags. A
-build-check artifact, `nest-build-check.vsix`, is packaged in the repo root (regenerate
-it with `npm run package`) for smoke testing the whole one-panel surface, and TESTING.md
-is the consolidated one-panel human smoke checklist drawn from SPRINT-3-PLAN.md that the
-human verify gate runs end to end next to the design prototype. No version bump and no
-tag accompany this build.
+Sprint 3 is feature-complete and this is its handoff build. Part 1 (issues #78 to #83),
+Part 2 (the hover card #84, the chat-row context menu #85, the Settings overlay plus
+auto-archive engine #86, and the in-panel Archive overlay #87), and Part 3 (the
+full-state fidelity sweep #88 and the docs and accessibility closeout #89) are all merged
+to main. The whole "One Panel" surface is built; what remains before the tagged v0.2.0
+release is process, not code: the human verify gate (#76) and the pre-release security
+council (#90) gate the release run (#91), which is the step that bumps the version and
+tags. A handoff artifact, `nest-build-check.vsix`, is packaged in the repo root
+(regenerate it with `npm run package` or `npx vsce package`) so the human verify gate can
+install and smoke-test the finished one-panel surface end to end next to the design
+prototype. TESTING.md is that consolidated smoke checklist, drawn from every Sprint 3
+slice's steps in SPRINT-3-PLAN.md. This handoff carries no version bump and no tag; the
+version stays 0.1.1 until the release run.
 
 ### Added
 

@@ -61,10 +61,10 @@ best-effort, last-writer-wins basis, with a JSON export as the authoritative bac
 
 ## Install
 
-Install the packaged VSIX (the current repo-root build-check artifact is
-`nest-build-check.vsix`, a mid-sprint build carrying all of Sprint 3 on top of the
-released 0.1.1; `npm run package` regenerates it. See [TESTING.md](./TESTING.md)
-for what it does and does not yet include):
+Install the packaged VSIX (the current repo-root handoff artifact is
+`nest-build-check.vsix`, the feature-complete Sprint 3 one-panel build on top of the
+released 0.1.1; `npm run package` or `npx vsce package` regenerates it. See
+[TESTING.md](./TESTING.md) for the install steps and the full smoke checklist):
 
 - From a terminal: `code --install-extension nest-build-check.vsix`
 - Or in VS Code: open the Extensions view, use the `...` menu, choose **Install
