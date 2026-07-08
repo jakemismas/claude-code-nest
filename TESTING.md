@@ -35,21 +35,25 @@ Rollup, Settings), which reveal or drive the one panel.
 
 ## Install the packaged VSIX
 
-The build-check artifact produced by the engine is `nest-build-check.vsix` in the
-repo root (`npm run package` regenerates it). It is a MID-SPRINT build carrying all
-of Sprint 3 (Parts 1 through 3) on top of the released 0.1.1 surface. It is NOT the
-finished v0.2.0 "One Panel" release: the human verify gate (#76) and the
-pre-release security council (#90) still gate the release run (#91) that bumps the
-version and tags, so no version bump and no tag accompany this build.
+The handoff artifact produced by the engine is `nest-build-check.vsix` in the repo
+root (`npm run package`, or `npx vsce package --no-dependencies -o nest-build-check.vsix`,
+regenerates it). It is the FEATURE-COMPLETE Sprint 3 one-panel build, carrying all of
+Parts 1 through 3 on top of the released 0.1.1 surface. It is the build the human verify
+gate installs. It is NOT yet the TAGGED v0.2.0 "One Panel" release: the human verify gate
+(#76) and the pre-release security council (#90) gate the release run (#91) that bumps the
+version and tags, so this handoff still reports version 0.1.1 and carries no tag.
 
-1. From a terminal, install it directly:
-   `code --install-extension nest-build-check.vsix`. Or in VSCode, open the
-   Extensions view, use the `...` menu, choose "Install from VSIX...", and select
-   the `.vsix`.
-2. To rebuild the artifact from source, run `npm run package` (produces
+1. From a terminal, install it directly by path:
+   `code --install-extension nest-build-check.vsix` (use the full path to the `.vsix`
+   if you are not in the repo root, e.g.
+   `code --install-extension /path/to/nest-build-check.vsix`).
+2. Or from inside VSCode: open the Command Palette and run
+   "Extensions: Install from VSIX...", then select the `.vsix`. (Equivalently, open the
+   Extensions view, use the `...` menu at the top, and choose "Install from VSIX...".)
+3. To rebuild the artifact from source, run `npm run package` (produces
    `nest-build-check.vsix`).
-3. Reload the window when prompted.
-4. Open a folder that has Claude Code sessions under `~/.claude/projects/` (for
+4. Reload the window when prompted.
+5. Open a folder that has Claude Code sessions under `~/.claude/projects/` (for
    example this repo's own workspace), so the extension has chats to list.
 
 ## How to run this checklist
