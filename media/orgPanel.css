@@ -513,8 +513,11 @@ body {
   color: var(--nest-text-breadcrumb);
 }
 
-/* The synthetic UNSORTED header: a plain section label that is also a drop target. */
+/* The synthetic UNSORTED header: a plain section label that is also a drop target.
+   The margin-top separates UNSORTED from the FOLDERS section above it (issue #120);
+   margin rather than padding so the drop-target highlight box stays tight. */
 .nest-unsorted-header {
+  margin-top: 10px;
   padding: 9px 8px 3px;
   font-size: 10px;
   font-weight: 600;
