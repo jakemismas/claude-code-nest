@@ -190,3 +190,35 @@ describe('autoArchiveEngine.runAutoArchivePass', () => {
     assert.strictEqual(h.copies.has('b'), true);
   });
 });
+
+// Security fix pass round 1: the engine threads restoredAt (the deliberate-restore
+// intent marker) into the pure policy, so a chat the user restored is not swept by
+// the very next pass even though its transcript age is past the window.
+describe('runAutoArchivePass: restored chats are not re-archived', () => {
+  it('skips a past-window chat with a recent restoredAt and archives its sibling without one', async () => {
+    const h = harness();
+    const result = await runAutoArchivePass(
+      h.deps,
+      [
+        chat({ sessionId: 'restored', restoredAt: NOW - 1 * MS_PER_DAY }),
+        chat({ sessionId: 'stale' }),
+      ],
+      30,
+      30,
+    );
+    assert.strictEqual(h.archivedFlag.has('restored'), false, 'restored chat must stay live');
+    assert.strictEqual(h.archivedFlag.has('stale'), true);
+    assert.strictEqual(result.archived, 1);
+  });
+
+  it('archives a restored chat once the restore itself is past the window', async () => {
+    const h = harness();
+    await runAutoArchivePass(
+      h.deps,
+      [chat({ sessionId: 'old-restore', restoredAt: NOW - 31 * MS_PER_DAY })],
+      30,
+      30,
+    );
+    assert.strictEqual(h.archivedFlag.has('old-restore'), true);
+  });
+});

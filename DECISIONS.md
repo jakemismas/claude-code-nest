@@ -1796,3 +1796,235 @@ No src/ TypeScript changed (the a11y fixes are in the media/ webview asset and C
 the tsc/eslint gate but exercised by the fidelity harness, which was re-run and renders all
 states after the edits). Gates: npm test green, tsc/eslint clean, vsce package clean. Closes
 issue #89.
+
+## Security fix pass round 1 (2026-07-09): sprint 3 security-council findings
+
+Fixes applied working-tree-first for the post-handoff security review; no schema
+version bump (all schema additions are optional fields tolerated by normalize).
+
+(1) questionHeuristic quadratic trim regex. The end-anchored `[class]+$` trailing
+trim in asksSomething backtracked polynomially (measured 16s at 100k chars) and
+the function relied on a caller-side 200-char truncation in jsonlReader for its
+safety. The trim is now a linear backward character scan, and the function
+enforces its OWN input bound (MAX_SCAN_WINDOW = 2048, tail slice before any
+scanning). Regression tests use the pathological run-of-class-chars shape, not
+benign filler. Class sweep over shipped src for other end-anchored
+unbounded-quantifier trims: the exportChatCommands slug's `-+$` runs on input
+whose dash runs are pre-collapsed to length 1 (linear); all other `$`-anchored
+patterns are fixed-width or start-anchored numeric/id validations. No other
+instance.
+
+(2) Newsreader font license + provenance. media/fonts/OFL.txt now ships the SIL
+Open Font License 1.1 text with the Newsreader copyright line (Copyright 2017
+The Newsreader Project Authors, https://github.com/production-type/Newsreader),
+and THIRD-PARTY-NOTICES.md (repo root, ships in the VSIX) enumerates every
+bundled third-party artifact: the font (OFL 1.1, license file alongside) and
+src/search/vendor/minisearch.js (MIT, license inline in its header). Provenance
+record for the binary: media/fonts/newsreader-600-latin.woff2, 23,876 bytes,
+sha256 05c91a26d19a61eafe7ce8e0b77eff3fd279ce994dc89f432f4cd06784935e84, wOF2
+magic verified at add time (commit 90890ed). HONEST GAP: the original download
+URL and the subset-generation command were not recorded when the file was added
+in Sprint 3; the file is byte-identical to a Google-Fonts-style latin subset of
+Newsreader 600 but that could not be re-verified offline in this pass. Rule
+going forward (class): any binary/asset added under media/ must land WITH its
+license file, source URL, sha256, and the exact subset/build command, recorded
+here before merge.
+
+(3) Auto-archive reconcile-before-write barrier (critical laundering fix). Every
+auto-archive trigger (activation, claudeNest.refresh, Settings-overlay window
+change) previously staged setChatArchived writes that could execute AFTER a
+foreign Settings Sync value landed in globalState but BEFORE
+reconcileAllProjects ran; the staged write re-stamped the project with THIS
+device's id, so the reconcile classified the lossy foreign document as a
+self-write, adopted it into the shadow, and permanently dropped local-only
+curation (a regression of the slice-8 reconcile data-loss class).
+runAutoArchiveNow now AWAITS a reconcile barrier (reconcileAllProjects via a
+forward handle) before reading ProjectMeta or staging any mutation, on every
+trigger; the activation kick is chained after the activation reconcile instead
+of running before it. Class rule: any automated (non-user-initiated) writer to
+the synced store must run behind the same barrier.
+
+(4) Restore intent persisted (ChatMeta.restoredAt). Restoring a chat only
+cleared userArchived, so the very next auto-archive pass silently re-archived it
+(its transcript lastActivity is by definition past the window). setChatArchived
+now couples a THIRD scalar to the archive pair: archiving sets archivedAt and
+clears restoredAt; unarchiving clears archivedAt and stamps restoredAt. The pure
+policy treats restoredAt as activity for the ARCHIVE decision (an unstarred chat
+is re-archived only a full window after the restore), while the STARRED
+protective-copy decision deliberately ignores restoredAt (the copy guards
+against Claude cleanup, which is keyed to transcript age, and restore keeps the
+copy when the transcript is gone). restoredAt travels with the archive pair
+through normalize, cloneChat, and the merge, so a cross-machine restore also
+suppresses the other machine's next pass once it syncs.
+
+(5) Automated archive no longer steals the per-record LWW stamp.
+store.setChatArchived gains an options.automated flag (used only by the
+auto-archive engine): an automated flip updates the archive pair but does NOT
+stampRecord, so the record's updatedAt/deviceId (which arbitrate folderId,
+starred, and the useFile winner in mergeProjectMeta) stay at their last USER
+edit and an unsynced deliberate folder move / restore on another device wins the
+merge as designed. The archive pair itself still propagates: when the automated
+side loses the record-stamp arbitration, the winner did not set the pair and the
+existing loser-fallback carries it. A record the automated pass CREATES (a
+previously untracked chat) is stamped updatedAt=0, so a user-created record for
+the same chat on another device always wins the record arbitration. Manual
+archive/restore keep the full stamp (deliberate edits keep LWW weight); the
+documented irreducible floor (two user edits racing) is unchanged.
+
+(6) Length caps on free-text persisted to the synced store. Webview-supplied
+strings were persisted uncapped, and one multi-megabyte name could break
+Settings Sync for the whole nest.meta.v1::<projectKey> item. One shared cap
+(schema.MAX_NAME_LENGTH = 200) now closes the class at BOTH boundaries: the
+normalize ingest path (normalizeFolder/normalizeTag truncate name/label, so
+import/sync-merged documents are capped) and the store write sinks
+(upsertFolder/upsertTag truncate, covering the webview handlers AND the native
+input-box command paths). coerce() in orgPanelWebview additionally truncates
+renameFolder/createFolder names and createTagWithColor labels at arrival, caps
+search.query (transient) at 512, validates setState.sort against the closed
+newest/oldest/name enum, and accepts setState.collapsedFolders entries only in
+the safe record-id shape (isSafeRecordId, <= 64 chars) capped at 5000 entries.
+
+## Security fix pass round 2 (2026-07-09): residual findings after round 1
+
+(1) Drain-path check-then-act guard (metadataStore.mementoBelief). The round-1
+reconcile barrier orders automated writers behind reconcileAllProjects, but the
+classification and the store's drain are separated by awaits (the mutate
+debounce, the engine's per-chat hasArchivedBody reads), so a foreign Settings
+Sync value could still land in the Memento between staging and
+memento.update and be clobbered wholesale before any reconcile read it; the
+next poll then laundered the clobber into a self-write. Class fix at the drain
+(covers EVERY mutate+flush writer, not just the engine): the store records the
+JSON of the raw Memento value each pending chain was rooted on (mementoBelief,
+seeded in readBase, refreshed after each successful update), and drainPending
+diffs the live Memento value against it immediately before writing, with no
+await between the diff and the update. On a mismatch the drain diverts to the
+additive mergeProjectMeta (ours as base: ties keep the local edit, foreign-only
+records are restored, newer foreign per-record stamps win LWW exactly as a
+reconcile would arbitrate) and writes the merged document instead. The merged
+value keeps the foreign records' stamps, so the next reconcile poll still
+classifies it as a foreign write, reconciles against the shadow, and surfaces
+the LWW warning; nothing foreign is ever destroyed unread. Residual floor: a
+foreign change expressed ONLY in document-level-arbitrated fields (a folder
+rename/color with no record stamp) can still lose to the just-stamped local
+document, the same concurrent-edit LWW floor the architecture documents.
+
+(2) Empty-bodies archive envelope is poison, not a copy (archiveBodyStore).
+bodyReader.readTranscriptBodies returns [] on ANY read failure (AV-held,
+locked, just-deleted transcript), and an envelope persisted with bodies:[] was
+permanent: hasArchivedBody counted it as an existing copy, so the starred
+protective-copy pass never retried, and the interactive path's "a later
+re-archive retries" was false for the engine (decideAutoArchive never
+re-archives an archived chat). When Claude cleanup later removed the source,
+the chat's only durable form was an empty shell. Class fix at both
+chokepoints, covering every writer (engine and interactive command) and every
+consumer: writeArchivedBody now REFUSES an empty-bodies envelope (returns
+false, the storage-failure signal, so an existing good copy is never
+downgraded and the interactive command surfaces its honest retry toast), and
+hasArchivedBody treats an empty-bodies envelope as ABSENT (envelope-exists is
+not content-exists), so a legacy poisoned copy is retried and overwritten by
+the next protective-copy pass.
+
+(3) Webview drop payload capped at arrival (orgPanelWebview.coerce). The
+'drop' branch accepted an unbounded sourceChatIds array filtered only by
+typeof string; every id flows through reduceDrop into
+setChatFolder/addChatTag, whose ensureChat MINTS a synced ChatMeta record for
+any unknown safe-shaped id, so one tampered message could mint an unbounded
+number of phantom records into the Settings-Synced document in one coalesced
+write. The branch now filters entries with isSafeRecordId and caps the array
+at MAX_DROP_IDS=512 (the collapsedFolders pattern). Class sweep of every
+coerce() branch reaching the ensureChat minting sink: the remaining
+single-sessionId branches (toggleStar/toggleTag/archiveChat/restoreChat/
+starUnarchive/createTagWithColor) are bounded to one id per message and gated
+by ensureChat's own isSafeRecordId check; the native-tree DnD path sources its
+ids from the extension's own drag handler, not from webview input.
+
+(4) Third-party notices completed (round-1 honest gap closed). The Newsreader
+subset's provenance was re-verified ONLINE this pass: the bundled woff2 is
+byte-identical (sha256
+05c91a26d19a61eafe7ce8e0b77eff3fd279ce994dc89f432f4cd06784935e84) to the
+latin-subset woff2 Google Fonts serves for Newsreader:wght@600 (v26), so the
+subset is the Google Fonts pipeline's own, and the source URL is recorded in
+THIRD-PARTY-NOTICES.md. The notices file also now enumerates the React 18.3.1
+and ReactDOM 18.3.1 production bundles embedded (gzip+base64, MIT @license
+headers intact inside the blobs) in media/design/ChatSidebar.html, which the
+PUBLIC REPO distributes (the VSIX excludes media/design/**), with the full MIT
+text. Sweep of media/** found no other third-party asset (icon.png, nest.svg,
+reference PNGs, and mockups are first-party).
+
+(5) Verified still-standing from round 1: questionHeuristic's linear trim +
+MAX_SCAN_WINDOW self-bound with pathological-shape regression tests; the
+REQUEST_PHRASES slice-before-test ordering (phrases run only on the 160-char
+tail slice); the /\s+/g collapses in orgPanelWebview.readBodyText,
+searchIndex, and jsonlReader.truncate and the bodyReader split(/\r?\n/) are
+linear by construction; MAX_SEARCH_QUERY_LENGTH=512, the clampName arrival
+caps, MAX_COLLAPSED_FOLDERS=5000 + isSafeRecordId, and the closed SORT_VALUES
+vocabulary all present in coerce().
+
+## Security fix pass round 3 (2026-07-09): residual findings after round 2
+
+(1) Root-of-chain foreign reconcile (metadataStore.lastAdopted +
+reconciledBase). The round-2 drain guard only covers a foreign Settings Sync
+value landing AFTER a pending chain roots; a value landing BEFORE the root
+read had the chain root ON it (readBase recorded belief=F, so the drain saw
+belief==current and blind-wrote F+edit), mutate re-stamped the project with
+this device's id, and the poll's chat-level heuristic was the only net left.
+Sprint 3's no-stamp automated archive flips (themselves the round-1 fix) can
+produce a foreign doc with ZERO fresh chat-level stamps, so that net misses
+and local-only records are laundered away for good. Class fix at the ONE
+chokepoint every writer flows through: mutate() now roots every new pending
+chain on reconciledBase, which diffs the raw Memento value against a NEW
+lastAdopted map (the JSON of the last value this device WROTE at the drain or
+POSITIVELY classified; plain reads never update it, so a read can never bless
+a foreign value) and, on a mismatch, classifies with the SAME
+reconcileProjectSync the focus poll uses (base = lastAdopted, or the
+persistent sync shadow on the first touch of a session). A self-write
+classification (same-device write from another window) adopts the value
+verbatim, so cross-window deletions are honored and never resurrected by the
+merge; a foreign classification roots the chain on the ADDITIVE merge, so the
+local edit lands on top of the restoration. The sync shadow is not touched and
+lastAdopted only advances when the drain persists, so the next poll still
+classifies the persisted merge (foreign records keep their stamps) and
+surfaces the LWW warning; a crash before the drain leaves detection intact for
+the next session via the shadow. Sibling sweep: curation/folder/tagging/link
+commands and every orgPanelWebview mutation handler flow through mutate (the
+chokepoint); the auto-archive engine's barrier-to-first-setArchived gap is
+closed because each setChatArchived roots through reconciledBase at stage
+time; importLibrary's plan (persisted wholesale via putProjectMeta, which
+replaces collections and so cannot be protected by its own root) now builds
+from store.getReconciledProjectMeta, the same reconciled read. The
+reconcile-poll path deliberately keeps reading the RAW getProjectMeta value:
+the poll must see the stored value to classify it, and its putProjectMeta
+writes are already shadow-based merges. Residual floor unchanged: a foreign
+change expressed only in document-level-arbitrated fields still loses to a
+concurrent local document stamp (the documented LWW floor), and a key that
+VANISHES from the Memento wholesale is adopted as absence (same blind spot as
+the poll; Settings Sync replaces whole keys, it does not delete them).
+
+(2) Webview 'open' id gated to the safe record-id shape at every layer it
+crosses (finding: the ONE webview-controlled id reaching a persistence sink
+unguarded). coerce()'s 'open' arm now requires isSafeRecordId (the
+drop/collapsedFolders arrival defense); the OPEN_CHAT_COMMAND handler in
+extension.ts re-checks before markChatSeen because the command is a
+cross-extension surface feeding the same sink; and ReadStateStore.markSeen
+enforces the shape AT THE SINK (replacing the bare non-empty-string check), so
+no future caller can persist an unbounded or garbage id into the
+workspaceState lastSeenAt map (each write re-serializes the whole map). Every
+real sessionId (a transcript-filename UUID) passes; ids that fail the shape
+already could not be curated (metadataStore.ensureChat gates the same shape),
+so no reachable read-state flow regresses. Sink sweep re-verified: the seed
+path (seedIfFirstRun) takes host-scanned records only; setState/drop/search
+remain bounded per rounds 1-2.
+
+(3) Third-party license files actually tracked (round-2 honest gap: the files
+existed on disk but were never committed, so the public repo tree and the
+packaged VSIX both shipped the OFL-licensed Newsreader woff2 with no license
+text). THIRD-PARTY-NOTICES.md and media/fonts/OFL.txt are now staged for
+commit; neither is matched by .vscodeignore, so the next vsce package carries
+them. Class rule restated: a bundled third-party asset's license lands in the
+SAME commit as the asset, and packaging verifies the notice files are present
+in the VSIX.
+
+(4) Verified still standing from rounds 1-2: questionHeuristic's linear trim +
+MAX_SCAN_WINDOW self-bound (the round-3 report's finding (1) described the
+pre-round-1 committed tree; the working tree already carries the fix and its
+pathological-shape regression tests).

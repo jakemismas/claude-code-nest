@@ -16,6 +16,8 @@
 // { [sessionId]: epochMs }. One key (not one per chat) keeps the write coalesced and
 // the read a single parse, mirroring the collapsed-folder set's storage shape.
 
+import { isSafeRecordId } from '../store/schema';
+
 // The single workspaceState key the lastSeenAt map is persisted under. Local and
 // never synced, exactly like claudeNest.orgPanel.sort / .collapsedFolders.
 export const READ_STATE_KEY = 'claudeNest.orgPanel.lastSeenAt';
@@ -51,8 +53,16 @@ export class ReadStateStore {
   // Stamp one chat as seen at `at` (default now). A later timestamp never regresses:
   // if the chat already has a >= value we keep it, so a stale focus event cannot
   // un-see a chat the user opened more recently. Persists the whole map back.
+  //
+  // The id is gated on the safe record-id shape AT THE SINK (not only at the
+  // webview coerce and command surfaces upstream): every write here re-serializes
+  // the whole persisted map, so an unbounded or garbage id reaching this method
+  // (a tampered 'open' message, a foreign extension invoking the open command)
+  // would grow the workspaceState memento without bound. Every real sessionId (a
+  // transcript-filename UUID) passes; the same shape already gates every synced
+  // record id at metadataStore.ensureChat.
   markSeen(sessionId: string, at: number = Date.now()): void {
-    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    if (!isSafeRecordId(sessionId)) {
       return;
     }
     const map = this.getMap();

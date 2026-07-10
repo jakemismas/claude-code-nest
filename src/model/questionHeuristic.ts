@@ -27,6 +27,40 @@
 // does not trigger. The whole text is used when it is shorter than this.
 const TAIL_WINDOW = 160;
 
+// The hard input bound THIS function enforces on itself before any scanning. The
+// production caller passes a snippet the jsonl reader truncates to 200 chars, but
+// that cap lives in a DIFFERENT module; a pure text heuristic must not depend on a
+// remote caller-side constant for its own safety (a future "run it on the full
+// body" caller is a one-line change away). Everything the heuristic decides from
+// lives in the tail, so slicing to a bounded window loses nothing for a
+// well-formed snippet; a pathological input (e.g. 100k quote characters) simply
+// trims to empty inside the window and returns false, which matches the
+// conservative bias. Sized with generous slack over TAIL_WINDOW so a long run of
+// trailing wrappers/whitespace before the real tail still leaves the tail intact.
+const MAX_SCAN_WINDOW = 2048;
+
+// The trailing characters the end-trim strips: whitespace plus the common trailing
+// wrappers (closing quote, paren, bracket, code-fence backtick, emphasis marks).
+// Checked per character by a LINEAR backward scan, NOT an end-anchored [class]+$
+// regex: that regex shape backtracks quadratically on a long run of class
+// characters (measured: 100k chars = 16s), so the trim must stay O(n).
+function isTrailingTrimChar(ch: string): boolean {
+  switch (ch) {
+    case '"':
+    case "'":
+    case '`':
+    case ')':
+    case ']':
+    case '*':
+    case '_':
+    case '>':
+      return true;
+    default:
+      // All Unicode whitespace (matches the old /\s/ class semantics).
+      return /\s/u.test(ch);
+  }
+}
+
 // Input-request phrases that signal the assistant is asking the user to supply
 // something or decide, even without a '?'. Matched case-insensitively as whole-ish
 // fragments anywhere in the TAIL window (not the whole text), so a request phrase in
@@ -90,10 +124,19 @@ export function asksSomething(text: string | null | undefined): boolean {
   if (typeof text !== 'string') {
     return false;
   }
+  // Enforce the function's OWN input bound before any scanning (never rely on a
+  // caller-side truncation constant in another module). Only the tail matters.
+  const bounded = text.length > MAX_SCAN_WINDOW ? text.slice(-MAX_SCAN_WINDOW) : text;
   // Normalize trailing whitespace and common trailing wrappers (a closing quote,
   // paren, bracket, or code-fence backticks) so a question that ends '...want?"' or
-  // '...want?)' or '...continue?`' still reads as ending in '?'.
-  const trimmedEnd = text.replace(/[\s"'`)\]*_>]+$/u, '');
+  // '...want?)' or '...continue?`' still reads as ending in '?'. Linear backward
+  // character scan (see isTrailingTrimChar): the previous end-anchored [class]+$
+  // regex backtracked quadratically on a run of class characters.
+  let end = bounded.length;
+  while (end > 0 && isTrailingTrimChar(bounded.charAt(end - 1))) {
+    end--;
+  }
+  const trimmedEnd = end === bounded.length ? bounded : bounded.slice(0, end);
   if (trimmedEnd.length === 0) {
     return false;
   }

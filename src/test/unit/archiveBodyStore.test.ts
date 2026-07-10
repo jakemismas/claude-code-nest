@@ -8,6 +8,7 @@ import * as path from 'path';
 import {
   writeArchivedBody,
   readArchivedBody,
+  hasArchivedBody,
   deleteArchivedBody,
   updateStarFlag,
   pruneArchivedBodies,
@@ -112,6 +113,75 @@ describe('archiveBodyStore.writeArchivedBody + readArchivedBody', () => {
     assert.strictEqual(ok, false, 'a failed write returns false, never throws');
     assert.strictEqual(vscodeHarness.writes.length, 0);
   });
+
+  it('REFUSES an empty-bodies envelope (returns false, writes nothing): a transiently unreadable transcript must not mint a permanent empty copy', async () => {
+    const ok = await writeArchivedBody(uri(STORAGE) as never, {
+      sessionId: 'sess-1',
+      title: 'A chat',
+      archivedAt: NOW,
+      starred: true,
+      bodies: [],
+    });
+    assert.strictEqual(ok, false, 'an empty-bodies write is refused like a storage failure');
+    assert.strictEqual(vscodeHarness.writes.length, 0, 'no poisoned envelope lands on disk');
+  });
+
+  it('never DOWNGRADES an existing good copy with an empty-bodies rewrite', async () => {
+    await writeArchivedBody(uri(STORAGE) as never, {
+      sessionId: 'sess-1',
+      title: 'A chat',
+      archivedAt: NOW,
+      starred: false,
+      bodies: bodies(),
+    });
+    const ok = await writeArchivedBody(uri(STORAGE) as never, {
+      sessionId: 'sess-1',
+      title: 'A chat',
+      archivedAt: NOW + 1,
+      starred: false,
+      bodies: [],
+    });
+    assert.strictEqual(ok, false);
+    const env = await readArchivedBody(uri(STORAGE) as never, 'sess-1');
+    assert.ok(env !== null);
+    assert.deepStrictEqual(env.bodies, bodies(), 'the good copy survives untouched');
+  });
+});
+
+describe('archiveBodyStore.hasArchivedBody (envelope-exists is not content-exists)', () => {
+  beforeEach(() => vscodeHarness.reset());
+
+  it('reports true for a copy with content and false when absent', async () => {
+    await writeArchivedBody(uri(STORAGE) as never, {
+      sessionId: 'sess-1',
+      title: 't',
+      archivedAt: NOW,
+      starred: true,
+      bodies: bodies(),
+    });
+    assert.strictEqual(await hasArchivedBody(uri(STORAGE) as never, 'sess-1'), true);
+    assert.strictEqual(await hasArchivedBody(uri(STORAGE) as never, 'absent'), false);
+  });
+
+  it('treats a LEGACY empty-bodies envelope as ABSENT so the protective-copy pass retries', async () => {
+    // Seed the poisoned shape directly (pre-guard installs could have written it).
+    vscodeHarness.files.set(
+      STORAGE + '/archive/sess-1.json',
+      JSON.stringify({
+        version: 1,
+        sessionId: 'sess-1',
+        title: 't',
+        archivedAt: NOW,
+        starred: true,
+        bodies: [],
+      }),
+    );
+    assert.strictEqual(
+      await hasArchivedBody(uri(STORAGE) as never, 'sess-1'),
+      false,
+      'an empty envelope must not satisfy the copy-exists check',
+    );
+  });
 });
 
 describe('archiveBodyStore.deleteArchivedBody + updateStarFlag', () => {
@@ -123,7 +193,7 @@ describe('archiveBodyStore.deleteArchivedBody + updateStarFlag', () => {
       title: 't',
       archivedAt: NOW,
       starred: false,
-      bodies: [],
+      bodies: bodies(),
     });
     await deleteArchivedBody(uri(STORAGE) as never, 'sess-1');
     assert.ok(
@@ -167,21 +237,21 @@ describe('archiveBodyStore.pruneArchivedBodies (pure retention over recorded cop
       title: 't',
       archivedAt: NOW - 30 * MS_PER_DAY,
       starred: false,
-      bodies: [],
+      bodies: bodies(),
     });
     await writeArchivedBody(uri(STORAGE) as never, {
       sessionId: 'old-starred',
       title: 't',
       archivedAt: NOW - 30 * MS_PER_DAY,
       starred: true,
-      bodies: [],
+      bodies: bodies(),
     });
     await writeArchivedBody(uri(STORAGE) as never, {
       sessionId: 'fresh',
       title: 't',
       archivedAt: NOW - 1 * MS_PER_DAY,
       starred: false,
-      bodies: [],
+      bodies: bodies(),
     });
     // Make the seeded files listable by the stub's readDirectory (FileType.File=1).
     vscodeHarness.dirEntries.set(STORAGE + '/archive', [

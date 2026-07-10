@@ -220,6 +220,25 @@ version stays 0.1.1 until the release run.
   panel; the retired trees' Refresh Smart Groups command and their view menus,
   welcome views, walkthrough step, and activation events were swept out.
 
+### Security
+
+- The Sprint 3 pre-release security council (#90) audited the whole sprint change set
+  across three find-fix rounds plus a narrow adversarial verify with an executed
+  two-device sync simulation. Landed: a reconcile barrier and reconciled-base rooting
+  so a foreign lossy Settings Sync write can never be laundered into a self-write and
+  silently drop local curation; a bounded linear scan replacing a measured-quadratic
+  trim regex in the question heuristic; a synced `restoredAt` marker so a deliberately
+  restored chat is not auto re-archived for a full window; automated archive flips no
+  longer refresh the per-record LWW stamp, plus a deterministic equal-stamp tie-break
+  in the merge so concurrent automated archives on two devices converge instead of
+  ping-ponging; `isSafeRecordId`/length caps on every webview-supplied string that
+  reaches a persisted sink (names 200, search query 512, `open` sessionId gated at
+  coerce, command handler, and read-state sink); the bundled Newsreader font now ships
+  with its SIL OFL 1.1 license text and a THIRD-PARTY-NOTICES.md. Pre-existing,
+  non-blocking residuals are tracked in #133 (cross-device reconcile write churn,
+  reproduced on the pre-sprint baseline) and #134 (normalize-boundary reference gates,
+  restoredAt escrow decision).
+
 ### Fixed
 
 - Pre-existing chats no longer all show the unread dot (#123): the first scan after

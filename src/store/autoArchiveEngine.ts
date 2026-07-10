@@ -34,6 +34,10 @@ export interface AutoArchiveChat {
   lastActivity: number | null;
   starred: boolean;
   archived: boolean;
+  // The chat's deliberate-restore stamp (ChatMeta.restoredAt), read from
+  // ProjectMeta at the call site. The policy treats it as activity for the
+  // archive decision so a restored chat is never re-archived by the next pass.
+  restoredAt?: number | null;
 }
 
 export interface AutoArchiveEngineDeps {
@@ -135,6 +139,7 @@ export async function runAutoArchivePass(
       archiveWindowDays,
       protectiveWindowDays,
       now,
+      restoredAt: chat.restoredAt ?? null,
     });
     if (decision === 'copy') {
       // Re-run with the real hasCopy so an existing protective copy resolves to
@@ -148,6 +153,7 @@ export async function runAutoArchivePass(
         archiveWindowDays,
         protectiveWindowDays,
         now,
+        restoredAt: chat.restoredAt ?? null,
       });
     }
     if (decision === 'archive') {

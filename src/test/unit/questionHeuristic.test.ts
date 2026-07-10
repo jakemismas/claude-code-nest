@@ -128,4 +128,30 @@ describe('questionHeuristic asksSomething: garbage tolerance', () => {
     assert.strictEqual(typeof out, 'boolean');
     assert.strictEqual(out, false);
   });
+
+  it('returns quickly on the pathological trim shape: a long run of trailing-trim class chars ending in a non-class char', () => {
+    // Regression for the quadratic-backtracking end-anchored trim regex: a run of
+    // characters from the trim class followed by ONE non-class character made every
+    // run position start a match attempt (measured 16s at 100k chars). The linear
+    // scan plus the function-owned input bound must keep this well under 50ms.
+    const pathological = '"'.repeat(100000) + 'a';
+    const start = Date.now();
+    const out = asksSomething(pathological);
+    const elapsed = Date.now() - start;
+    assert.strictEqual(typeof out, 'boolean');
+    assert.ok(elapsed < 50, 'pathological trim input took ' + elapsed + 'ms (must be < 50ms)');
+  });
+
+  it('returns quickly on a long all-trim-class input (whitespace/wrapper run with no anchor break)', () => {
+    const allTrim = ' `)"\''.repeat(20000);
+    const start = Date.now();
+    assert.strictEqual(asksSomething(allTrim), false);
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 50, 'all-trim input took ' + elapsed + 'ms (must be < 50ms)');
+  });
+
+  it('still detects a trailing question mark behind a wrapper run within the scan window', () => {
+    // The self-enforced bound must not break the legitimate wrapper-trim behavior.
+    assert.strictEqual(asksSomething('Shall I proceed?' + '`'.repeat(500)), true);
+  });
 });

@@ -62,7 +62,7 @@ import {
   unlinkChat,
   unlinkChatFromPalette,
 } from './commands/linkCommands';
-import { Link, isValidColor } from './store/schema';
+import { Link, isSafeRecordId, isValidColor } from './store/schema';
 import { mintTagId } from './model/idFactory';
 import {
   PROMOTE_GROUP_TO_FOLDER_COMMAND,
@@ -211,6 +211,19 @@ export function activate(context: vscode.ExtensionContext): void {
   // call before it is assigned (none occur during synchronous activation before the
   // provider is built) is a harmless no-op.
   let runAutoArchiveNow: () => Promise<void> = () => Promise.resolve();
+
+  // RECONCILE-BEFORE-WRITE BARRIER for automated store writers (security fix pass
+  // round 1, critical finding). A foreign Settings Sync write can land in
+  // globalState at any time with no event; if an AUTOMATED writer (the auto-archive
+  // engine) stages a mutation before reconcileAllProjects has classified that
+  // foreign value, the staged write re-stamps the project with THIS device's id and
+  // the reconcile then misclassifies the lossy foreign document as a self-write,
+  // adopting it into the shadow and permanently dropping local-only curation. Every
+  // automated writer therefore AWAITS this barrier (wired to reconcileAllProjects
+  // once the export/import deps exist) before reading ProjectMeta or staging any
+  // mutation. Before assignment it resolves immediately; the activation-time
+  // auto-archive kick is deliberately sequenced AFTER the barrier is assigned.
+  let reconcileBeforeAutomatedWrite: () => Promise<void> = () => Promise.resolve();
 
   // The shared progress + cancellation UI for the explicit Refresh commands
   // (Polish slice). vscode.window.withProgress shows a cancellable notification
@@ -1008,6 +1021,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const AUTO_ARCHIVE_FIRST_RUN_KEY = 'claudeNest.autoArchive.firstRunNotified';
   runAutoArchiveNow = async (): Promise<void> => {
     try {
+      // BARRIER FIRST: reconcile any foreign Settings Sync write BEFORE reading the
+      // meta or staging a single mutation, on EVERY trigger (activation, refresh,
+      // settings change). Staging an archive flip against an un-reconciled foreign
+      // value would launder it into a self-write and permanently drop the local-only
+      // curation the shadow mechanism exists to restore.
+      await reconcileBeforeAutomatedWrite();
       const projectKey = foldersProvider.resolveProjectKey();
       if (projectKey === undefined) {
         return;
@@ -1036,11 +1055,18 @@ export function activate(context: vscode.ExtensionContext): void {
           lastActivity: r.timestamp,
           starred: chatMeta?.starred === true,
           archived: chatMeta?.userArchived === true,
+          // The deliberate-restore stamp: the policy treats it as activity so a
+          // chat the user restored is not silently re-archived by this pass.
+          restoredAt: chatMeta?.restoredAt ?? null,
         };
       });
       const result = await runAutoArchivePass(
         {
-          setArchived: (sessionId) => store.setChatArchived(projectKey, sessionId, true),
+          // automated: an engine-staged flip must not refresh the per-record LWW
+          // stamp (see store.setChatArchived), so it can never beat an unsynced
+          // deliberate user edit in the cross-machine merge.
+          setArchived: (sessionId) =>
+            store.setChatArchived(projectKey, sessionId, true, { automated: true }),
           flush: () => store.flush(),
           readBody: (filePath) => readTranscriptBodies(filePath),
           writeBody: (envelope) => writeArchivedBody(context.globalStorageUri, envelope),
@@ -1085,16 +1111,23 @@ export function activate(context: vscode.ExtensionContext): void {
       // Best-effort: an auto-archive failure must never break activation or a refresh.
     }
   };
-  // Run one pass on activation (fire-and-forget).
-  void runAutoArchiveNow();
+  // The activation pass is NOT kicked here: at this point the reconcile barrier is
+  // still the pre-assignment no-op (exportImportDeps is built below), so a pass
+  // fired now could stage archive flips against an un-reconciled foreign sync
+  // value and launder it into a self-write. It is kicked after the activation
+  // reconcile below, once the barrier is wired.
 
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_CHAT_COMMAND, (sessionId: string) => {
       // Open-via-Nest is a read-state CLEAR TRIGGER (UI-SPEC.md "Read state"): opening
       // a chat through Nest marks it seen so its '?' badge / unread dot clears. Stamp
-      // before the launch and re-post the section model. Guard the id so a malformed
-      // programmatic call never throws here.
-      if (typeof sessionId === 'string' && sessionId.length > 0) {
+      // before the launch and re-post the section model. markChatSeen persists the id
+      // into the workspaceState lastSeenAt map, and this command is a CROSS-EXTENSION
+      // surface (any extension can execute it), so the id is gated on the safe
+      // record-id shape (the shape every real sessionId has) exactly like the
+      // webview's own 'open' arrival check; an unbounded or garbage id must never
+      // reach the persistence sink. ReadStateStore.markSeen re-checks at the sink.
+      if (isSafeRecordId(sessionId)) {
         orgPanelProvider.markChatSeen(sessionId);
       }
       // Compose vscode.Uri.from with vscode.env.openExternal as the injected
@@ -1340,12 +1373,20 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // Wire the automated-writer barrier now that the deps exist: every auto-archive
+  // trigger awaits a full reconcile before staging any store mutation.
+  reconcileBeforeAutomatedWrite = () => reconcileAllProjects(exportImportDeps);
+
   // Reconcile on ACTIVATION: a foreign-device sync write may have landed while
   // this window was closed. The extension activates on its first view open (the
   // onView:* events), which is early enough to reconcile before the user touches
   // organization. Best-effort and fire-and-forget; a failure must never block
-  // activation.
-  void reconcileAllProjects(exportImportDeps);
+  // activation. The activation auto-archive pass is CHAINED strictly after this
+  // reconcile (and runs its own barrier again, which is then a cheap no-op diff),
+  // so an automated archive can never precede the foreign-write classification.
+  void reconcileAllProjects(exportImportDeps)
+    .catch(() => undefined)
+    .then(() => runAutoArchiveNow());
 
   // Reconcile on window FOCUS: the only signal available for a Settings Sync
   // remote write (no Memento change event). Poll on focus-gain (state.focused) so

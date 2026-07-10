@@ -85,6 +85,14 @@ export interface Link {
 // the LOCAL user's archive decision and is distinct from the local-only
 // orphan-reconcile archive in LocalChatState (that one is missing-on-disk driven,
 // non-synced); userArchived is a deliberate, synced curation choice.
+// restoredAt is the third member of the archive group: the epoch ms of the user's
+// last DELIBERATE restore (unarchive). It exists so automation can tell a restored
+// chat apart from one that merely aged past the auto-archive window: the policy
+// treats restoredAt as activity for the archive decision, so a restore is not
+// silently re-archived on the next pass. It travels COUPLED to the archive pair
+// (the side that supplies userArchived supplies both timestamps): archiving sets
+// archivedAt and clears restoredAt; unarchiving clears archivedAt and stamps
+// restoredAt.
 export interface ChatMeta {
   folderId: string | null;
   tags: string[];
@@ -94,6 +102,7 @@ export interface ChatMeta {
   starred?: boolean;
   userArchived?: boolean;
   archivedAt?: number;
+  restoredAt?: number;
 }
 
 // The SYNCED, self-contained per-project document stored under the meta key.
@@ -151,6 +160,24 @@ export const COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 // normalize boundary (and the webview host) to drop any other color verbatim.
 export function isValidColor(value: unknown): value is string {
   return typeof value === 'string' && COLOR_PATTERN.test(value);
+}
+
+// The single shared length cap for user-supplied FREE-TEXT persisted to the
+// SYNCED store (folder names, tag labels). The synced document lives under one
+// Settings Sync item per project, and Settings Sync enforces per-item size
+// limits, so one unbounded string (a giant paste into a rename box, or a
+// tampered webview message) could silently break sync of the entire curation
+// store across devices. The cap closes the class at BOTH boundaries: the
+// normalize ingest path (import / sync-merge) truncates here, and the store's
+// upsertFolder/upsertTag write sinks truncate with the same constant, covering
+// the webview handlers and the native input-box command paths alike. 200 chars
+// is far beyond any legible name and keeps the worst-case document small.
+export const MAX_NAME_LENGTH = 200;
+
+// Truncate a free-text field to the shared cap. Exported so every boundary
+// (normalize, store sinks, webview coerce) applies the identical rule.
+export function clampName(value: string): string {
+  return value.length > MAX_NAME_LENGTH ? value.slice(0, MAX_NAME_LENGTH) : value;
 }
 
 // The allowed shape of a record id (folder id, tag id, chat id): one to 64
@@ -393,7 +420,10 @@ function normalizeFolder(id: string, value: unknown): Folder | null {
   if (!isObject(value)) {
     return null;
   }
-  const name = typeof value.name === 'string' ? value.name : null;
+  // Truncate to the shared free-text cap (MAX_NAME_LENGTH) rather than dropping
+  // the record: a foreign/imported document with an over-long name keeps its
+  // folder, but the oversized payload never re-enters the synced store.
+  const name = typeof value.name === 'string' ? clampName(value.name) : null;
   if (name === null) {
     return null;
   }
@@ -418,7 +448,8 @@ function normalizeTag(id: string, value: unknown): Tag | null {
   if (!isObject(value)) {
     return null;
   }
-  const label = typeof value.label === 'string' ? value.label : null;
+  // Truncated to the shared free-text cap, mirroring normalizeFolder (see there).
+  const label = typeof value.label === 'string' ? clampName(value.label) : null;
   if (label === null) {
     return null;
   }
@@ -476,6 +507,12 @@ function normalizeChat(
   }
   if (typeof value.archivedAt === 'number') {
     chat.archivedAt = value.archivedAt;
+  }
+  // restoredAt: the deliberate-restore stamp the auto-archive policy treats as
+  // activity. Carried like the other optional curation scalars so a defensive
+  // normalize never strips a stored restore intent.
+  if (typeof value.restoredAt === 'number') {
+    chat.restoredAt = value.restoredAt;
   }
   return chat;
 }
