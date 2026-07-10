@@ -13,7 +13,10 @@ find and revisit any chat without it ever touching Claude's transcripts.
   heuristic labeled as such), a single-home folder hierarchy with per-folder color
   and counts, and an always-present Unsorted bucket. Folders are collapsible (with a
   collapse-one-level control and full keyboard navigation). Tag filter chips, sort,
-  folder rename, drag-to-unfile, and in-panel drag-and-drop.
+  folder rename, drag-to-unfile, and in-panel drag-and-drop. Each chat row carries a
+  hover-revealed add-tag `+` control, and a row whose tag pills overflow drifts them
+  slowly so every tag is readable (static under reduced motion). The panel follows
+  your VS Code theme.
 - **Unread and question markers.** Each chat row shows where it stands: a blinking
   `?` badge when Claude's last message asks you something, and a solid unread dot
   when Claude replied and you have not looked yet. Both clear as soon as you open the
@@ -56,14 +59,15 @@ best-effort, last-writer-wins basis, with a JSON export as the authoritative bac
 
 ## Install
 
-Install the packaged VSIX (the current repo-root handoff artifact is
-`nest-build-check.vsix`, the feature-complete Sprint 3 one-panel build on top of the
-released 0.1.1; `npm run package` or `npx vsce package` regenerates it. See
-[TESTING.md](./TESTING.md) for the install steps and the full smoke checklist):
+Install the packaged VSIX (the current release artifact is
+`claude-code-nest-0.2.0.vsix`, the v0.2.0 "One Panel" release, packaged in the
+repo root and distributed through the repository's GitHub Releases page;
+`npx vsce package --no-dependencies -o claude-code-nest-0.2.0.vsix` regenerates it.
+See [TESTING.md](./TESTING.md) for the install steps and the full smoke checklist):
 
-- From a terminal: `code --install-extension nest-build-check.vsix`
+- From a terminal: `code --install-extension claude-code-nest-0.2.0.vsix`
 - Or in VS Code: open the Extensions view, use the `...` menu, choose **Install
-  from VSIX...**, and select `nest-build-check.vsix`
+  from VSIX...**, and select `claude-code-nest-0.2.0.vsix`
 
 Reload the window when prompted, then open a folder that has Claude Code sessions
 so the extension has chats to list.

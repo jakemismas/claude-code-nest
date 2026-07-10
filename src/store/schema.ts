@@ -180,6 +180,49 @@ export function clampName(value: string): string {
   return value.length > MAX_NAME_LENGTH ? value.slice(0, MAX_NAME_LENGTH) : value;
 }
 
+// The maximum accepted length of a deviceId carried on a stored or imported
+// document. A legitimate id is a UUID (36 chars), the dev-<hex> fallback
+// (~40 chars), or vscode.env.machineId (64 hex chars); 128 covers them all with
+// headroom. The stamp travels in the SYNCED document and an imported library
+// file supplies it verbatim, so an unbounded value is the same
+// break-Settings-Sync payload the MAX_NAME_LENGTH rationale describes.
+// TRUNCATED (not dropped) so LWW self/foreign classification still sees a
+// stable, non-empty foreign id; a clamped foreign id can never collide with
+// this install's own (always-legal-length) id.
+export const MAX_DEVICE_ID_LENGTH = 128;
+
+// Truncate a deviceId stamp to the shared cap. Applied at the normalize
+// boundary for both the project-level and per-chat stamps.
+export function clampDeviceId(value: string): string {
+  return value.length > MAX_DEVICE_ID_LENGTH
+    ? value.slice(0, MAX_DEVICE_ID_LENGTH)
+    : value;
+}
+
+// The maximum number of records accepted in EACH of the three id-keyed
+// collections (folders, tags, chats) of one project document. Every record key
+// is a valid 1-64-char id, so the free-text/deviceId/escrow caps above do not
+// bound the RECORD COUNT dimension: a hostile imported library file (or a
+// crafted foreign synced value) could otherwise carry millions of
+// charset-valid entries in one project and persist a multi-megabyte document
+// under the project's single synced globalState key, the exact
+// break-Settings-Sync payload the other caps exist to prevent. Enforced at the
+// normalize boundary so BOTH ingest paths (import migration and stored/synced
+// read-back) are covered. A decade of heavy daily use tops out at a few
+// thousand chats per project; 10000 admits every organic library with a wide
+// margin, so truncation only ever drops crafted junk.
+export const MAX_COLLECTION_RECORDS = 10000;
+
+// The maximum number of tag references on ONE chat. Tag ids are 1-64 chars
+// each, so an unbounded per-chat array is the same uncapped-size sink as the
+// record-count dimension above, just one level down. No legible curation has
+// more than a few dozen tags on a chat; 100 is far beyond organic use.
+export const MAX_CHAT_TAGS = 100;
+
+// The maximum number of links on ONE chat, same rationale as MAX_CHAT_TAGS
+// (each link carries a 1-64-char target id plus a kind).
+export const MAX_CHAT_LINKS = 200;
+
 // The allowed shape of a record id (folder id, tag id, chat id): one to 64
 // characters from the URL-safe alphabet. Note this pattern ALONE still admits the
 // bare Object.prototype member names (constructor, prototype, toString, valueOf,
@@ -220,6 +263,40 @@ export function isSafeRecordId(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     ID_PATTERN.test(value) &&
+    !PROTOTYPE_RECORD_IDS.has(value)
+  );
+}
+
+// The maximum accepted length of a PROJECT key. A legitimate key is a
+// ~/.claude/projects directory name produced by encodeProjectKey, and a
+// filesystem name component caps at 255 bytes on every platform Claude Code
+// runs on, so 256 admits every real key with headroom.
+export const MAX_PROJECT_KEY_LENGTH = 256;
+
+// The allowed shape of a project key: the exact output alphabet of
+// encodeProjectKey (projectKeyResolver.ts replaces every character outside
+// [A-Za-z0-9-] with a hyphen), bounded to MAX_PROJECT_KEY_LENGTH. Underscore is
+// deliberately NOT admitted (the encoder never emits it), which also excludes
+// '__proto__' structurally.
+const PROJECT_KEY_PATTERN = /^[A-Za-z0-9-]{1,256}$/;
+
+// True when a value is a string in the allowed PROJECT-key shape and is not an
+// Object.prototype member name. A project key from an untrusted import
+// envelope is minted VERBATIM into a synced globalState key
+// (metaKeyFor -> 'nest.meta.v1::<key>') and registered with setKeysForSync,
+// and the store has no key-removal path, so an unbounded or junk key would
+// durably pollute the SYNCED surface across every machine on the profile.
+// This is the record-id discipline (isSafeRecordId) applied at the envelope
+// level: the same rule gates the import boundary (schemaMigrate.
+// validateEnvelope) and the store's write sink (metadataStore.mutate), so a
+// hostile key is rejected before it can mint a synced key at EITHER boundary.
+// The prototype-name exclusion is defense in depth for any bare-object map
+// keyed by projectKey ('constructor' passes the charset); no real path ever
+// encodes to one of those names.
+export function isSafeProjectKey(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    PROJECT_KEY_PATTERN.test(value) &&
     !PROTOTYPE_RECORD_IDS.has(value)
   );
 }
@@ -326,19 +403,77 @@ const KNOWN_TOP_LEVEL = new Set<string>([
   '__unknown',
 ]);
 
+// The maximum TOTAL serialized size (in JSON characters, keys included) of the
+// __unknown escrow. The escrow exists to protect a NEWER build's few extra
+// top-level fields across a round-trip through this build; it is replayed on
+// EVERY write of the synced document, so an unbounded escrow is the exact
+// break-Settings-Sync payload the MAX_NAME_LENGTH rationale describes, and an
+// attacker-authored import claiming schemaVersion 999 could otherwise carry an
+// arbitrarily large blob straight onto the synced surface. 64K is orders of
+// magnitude beyond any plausible legitimate forward-schema delta while staying
+// far under the per-item sync limits.
+export const MAX_UNKNOWN_ESCROW_LENGTH = 64 * 1024;
+
 // Gather every top-level field NOT in the known set, preserving its value
-// verbatim (deep-copied so the escrow never aliases the stored value). Returns
-// null when there is nothing unknown to preserve.
+// verbatim (deep-copied so the escrow never aliases the stored value) UP TO the
+// shared escrow size budget: a field whose serialized size (key + value) would
+// push the total past MAX_UNKNOWN_ESCROW_LENGTH is dropped, and the smaller
+// fields around it are kept, so a single oversized (hostile or pathological)
+// field cannot ride the escrow onto the synced surface or take the legitimate
+// small fields down with it. Returns null when there is nothing to preserve.
+// Entries are added with Object.defineProperty (not assignment) so an unknown
+// field literally named '__proto__' (JSON.parse creates it as an OWN key on the
+// source) becomes an own entry here too instead of silently rebinding the
+// result map's prototype; the map keeps a normal prototype so it compares and
+// serializes as a plain JSON object.
 function collectUnknownTopLevel(
   raw: { [k: string]: unknown },
 ): { [k: string]: unknown } | null {
   let result: { [k: string]: unknown } | null = null;
+  let budget = MAX_UNKNOWN_ESCROW_LENGTH;
+  const add = (key: string, value: unknown): void => {
+    const json = JSON.stringify(value);
+    if (json === undefined) {
+      // Not JSON-serializable (undefined/function/symbol): it could never
+      // survive the synced write anyway; skip rather than throw in the parse.
+      return;
+    }
+    const cost = key.length + json.length;
+    if (cost > budget) {
+      return;
+    }
+    budget -= cost;
+    if (result === null) {
+      result = {};
+    }
+    Object.defineProperty(result, key, {
+      value: JSON.parse(json),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  };
   for (const [key, value] of Object.entries(raw)) {
     if (!KNOWN_TOP_LEVEL.has(key)) {
-      if (result === null) {
-        result = {};
+      add(key, value);
+    }
+  }
+  // A document that already round-tripped through this build carries its escrow
+  // NESTED under __unknown (the write path persists the ProjectMeta as-is; it
+  // does not expand the escrow back to top level). '__unknown' is in the known
+  // set, so without folding its entries back in here the escrow would survive
+  // exactly ONE write and the newer machine's fields would be silently lost on
+  // the second read, defeating the escrow's whole purpose. Direct top-level
+  // fields win over a previously-escrowed entry of the same name (they are the
+  // newer build's live values); both share the one size budget.
+  if (isObject(raw.__unknown)) {
+    for (const [key, value] of Object.entries(raw.__unknown)) {
+      if (
+        !KNOWN_TOP_LEVEL.has(key) &&
+        (result === null || !Object.prototype.hasOwnProperty.call(result, key))
+      ) {
+        add(key, value);
       }
-      result[key] = JSON.parse(JSON.stringify(value));
     }
   }
   return result;
@@ -367,41 +502,62 @@ function normalizeProjectMeta(
   // entry), so it can never reach that sink or produce a phantom record. A
   // legitimate id (a UUID session id, a minted folder/tag id) passes unchanged, so
   // no real record is lost.
+  //
+  // EVERY map is also COUNT-capped at MAX_COLLECTION_RECORDS (see its comment):
+  // key-charset validity alone does not bound the record-count dimension, and an
+  // uncapped collection is the same break-Settings-Sync payload as an uncapped
+  // string. Entries past the cap are dropped in iteration order; an organic
+  // library never comes near the cap, so only crafted junk is truncated.
   const folders: { [id: string]: Folder } = Object.create(null) as { [id: string]: Folder };
+  let folderCount = 0;
   if (isObject(raw.folders)) {
     for (const [id, value] of Object.entries(raw.folders)) {
+      if (folderCount >= MAX_COLLECTION_RECORDS) {
+        break;
+      }
       if (!isSafeRecordId(id)) {
         continue;
       }
       const folder = normalizeFolder(id, value);
       if (folder !== null) {
         folders[id] = folder;
+        folderCount++;
       }
     }
   }
 
   const tags: { [id: string]: Tag } = Object.create(null) as { [id: string]: Tag };
+  let tagCount = 0;
   if (isObject(raw.tags)) {
     for (const [id, value] of Object.entries(raw.tags)) {
+      if (tagCount >= MAX_COLLECTION_RECORDS) {
+        break;
+      }
       if (!isSafeRecordId(id)) {
         continue;
       }
       const tag = normalizeTag(id, value);
       if (tag !== null) {
         tags[id] = tag;
+        tagCount++;
       }
     }
   }
 
   const chats: { [id: string]: ChatMeta } = Object.create(null) as { [id: string]: ChatMeta };
+  let chatCount = 0;
   if (isObject(raw.chats)) {
     for (const [id, value] of Object.entries(raw.chats)) {
+      if (chatCount >= MAX_COLLECTION_RECORDS) {
+        break;
+      }
       if (!isSafeRecordId(id)) {
         continue;
       }
       const chat = normalizeChat(value, deviceId, now);
       if (chat !== null) {
         chats[id] = chat;
+        chatCount++;
       }
     }
   }
@@ -412,7 +568,10 @@ function normalizeProjectMeta(
     tags,
     chats,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : now,
-    deviceId: typeof raw.deviceId === 'string' ? raw.deviceId : deviceId,
+    // Clamp the stamp (see MAX_DEVICE_ID_LENGTH): an imported document supplies
+    // it verbatim and it persists on the synced surface.
+    deviceId:
+      typeof raw.deviceId === 'string' ? clampDeviceId(raw.deviceId) : deviceId,
   };
 }
 
@@ -430,7 +589,12 @@ function normalizeFolder(id: string, value: unknown): Folder | null {
   const folder: Folder = {
     id,
     name,
-    parentId: typeof value.parentId === 'string' ? value.parentId : null,
+    // parentId is a REFERENCE into the folders map, exactly like a chat's
+    // folderId: gate it with the same record-id rule so a malformed,
+    // prototype-name, or unbounded parent reference from an untrusted imported
+    // document is dropped to null (top-level) instead of persisting on the
+    // synced surface and reaching a downstream bare-object folder lookup.
+    parentId: isSafeRecordId(value.parentId) ? value.parentId : null,
     order: typeof value.order === 'number' ? value.order : 0,
   };
   // color is an optional curation scalar: carry it through when present so it is
@@ -479,11 +643,20 @@ function normalizeChat(
   // Tag ids are references into the tags map; keep only the ones in the safe
   // record-id shape so a malformed or prototype-name entry from an untrusted
   // imported document cannot ride through and confuse a downstream lookup.
+  // Both per-chat arrays are LENGTH-capped (MAX_CHAT_TAGS / MAX_CHAT_LINKS):
+  // each surviving entry is a valid id, so without the cap an untrusted
+  // document could still carry an unbounded array per chat onto the synced
+  // surface (the uncapped-size class, one level below the record-count cap).
   const tags = Array.isArray(value.tags)
-    ? value.tags.filter((t): t is string => isSafeRecordId(t))
+    ? value.tags
+        .filter((t): t is string => isSafeRecordId(t))
+        .slice(0, MAX_CHAT_TAGS)
     : [];
   const links = Array.isArray(value.links)
-    ? value.links.map(normalizeLink).filter((l): l is Link => l !== null)
+    ? value.links
+        .map(normalizeLink)
+        .filter((l): l is Link => l !== null)
+        .slice(0, MAX_CHAT_LINKS)
     : [];
   const chat: ChatMeta = {
     // folderId is a reference into the folders map; an unfiled chat is null.
@@ -493,7 +666,10 @@ function normalizeChat(
     tags,
     links,
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : now,
-    deviceId: typeof value.deviceId === 'string' ? value.deviceId : deviceId,
+    // Clamped for the same reason as the project-level stamp (see
+    // MAX_DEVICE_ID_LENGTH): the per-record stamp is synced and import-supplied.
+    deviceId:
+      typeof value.deviceId === 'string' ? clampDeviceId(value.deviceId) : deviceId,
   };
   // Optional curation scalars (Slice 3): carry them through when present so they
   // are not stripped on every read/migrate. archivedAt is carried independently
@@ -521,13 +697,15 @@ function normalizeLink(value: unknown): Link | null {
   if (!isObject(value)) {
     return null;
   }
-  const targetChatId =
-    typeof value.targetChatId === 'string' ? value.targetChatId : null;
-  if (targetChatId === null) {
+  // targetChatId is a REFERENCE into the chats map; the store's addLink sink
+  // already gates it with isSafeRecordId, so the normalize boundary must apply
+  // the identical rule (one rule at both boundaries, like names and colors). A
+  // malformed, prototype-name, or unbounded target drops the link.
+  if (!isSafeRecordId(value.targetChatId)) {
     return null;
   }
   const kind = value.kind === 'parent' ? 'parent' : 'related';
-  return { targetChatId, kind };
+  return { targetChatId: value.targetChatId, kind };
 }
 
 function isObject(value: unknown): value is { [k: string]: unknown } {

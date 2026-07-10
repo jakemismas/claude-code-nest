@@ -32,6 +32,7 @@ import {
   clampName,
   emptyProjectMeta,
   isMetaKey,
+  isSafeProjectKey,
   isSafeRecordId,
   metaKeyFor,
   migrateProjectMeta,
@@ -180,11 +181,23 @@ export class MetadataStore {
   // On construction, register every project key already persisted in the Memento.
   // This re-establishes the full setKeysForSync union after a window reload so a
   // project that was synced last session stays synced this session.
+  //
+  // A persisted key that fails isSafeProjectKey is a LEGACY key: v0.1.x accepted
+  // any non-empty project key on import, so a pre-0.2.0 hand-edited or
+  // tool-generated library file could persist one. Such a key is QUARANTINED,
+  // consistently with the write gate in mutate(): it is never re-registered for
+  // sync (re-registering would keep propagating the junk key across the
+  // profile), never enumerated (allProjectKeys), and never writable. The
+  // persisted value itself is left untouched in the Memento, so nothing is
+  // deleted and a future migration can still recover it.
   private primeSyncKeysFromMemento(): void {
     let changed = false;
     for (const key of this.memento.keys()) {
       if (isMetaKey(key)) {
         const projectKey = key.slice(metaKeyFor('').length);
+        if (!isSafeProjectKey(projectKey)) {
+          continue;
+        }
         if (!this.syncedProjectKeys.has(projectKey)) {
           this.syncedProjectKeys.add(projectKey);
           changed = true;
@@ -340,18 +353,29 @@ export class MetadataStore {
 
   // ---- Synced mutations. Each stamps the touched record and the project, then
   // ---- schedules a debounced serialized flush.
+  // ----
+  // ---- Every synced mutator RETURNS whether the write was ACCEPTED (staged for
+  // ---- persistence) or REJECTED by a sink gate (an unsafe project key or record
+  // ---- id). A rejected write must never be a silent no-op: a caller that
+  // ---- persists derived state keyed to the write having landed (the reconcile
+  // ---- loop and the import apply loop both finalize the sync SHADOW after
+  // ---- putProjectMeta) would otherwise launder a lossy live value into its
+  // ---- last-known-good baseline. true means "staged", not "changed": a
+  // ---- mutation whose callback found nothing to do still stages a stamped
+  // ---- document and returns true.
 
-  upsertFolder(projectKey: string, folder: Folder): void {
+  upsertFolder(projectKey: string, folder: Folder): boolean {
     // Gate the caller-supplied record id at the sink: an id failing isSafeRecordId
     // (a prototype name like '__proto__'/'constructor', a path-traversal token, or
-    // an over-long/illegal value) is a safe no-op before it can index or re-key the
-    // folders map. The normalize/merge boundaries already drop such ids; this is the
-    // store-level chokepoint so a clone that reattached Object.prototype to the map
-    // cannot turn a bad id into a global prototype write.
+    // an over-long/illegal value) is a safe, REPORTED no-op before it can index or
+    // re-key the folders map. The normalize/merge boundaries already drop such ids;
+    // this is the store-level chokepoint so a clone that reattached
+    // Object.prototype to the map cannot turn a bad id into a global prototype
+    // write.
     if (!isSafeRecordId(folder.id)) {
-      return;
+      return false;
     }
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       // Clamp the free-text name to the shared cap (schema.MAX_NAME_LENGTH) at
       // the write sink, so EVERY caller (webview handler, native input box,
       // promote) is covered and an unbounded string can never enter the synced
@@ -360,11 +384,11 @@ export class MetadataStore {
     });
   }
 
-  deleteFolder(projectKey: string, folderId: string): void {
+  deleteFolder(projectKey: string, folderId: string): boolean {
     if (!isSafeRecordId(folderId)) {
-      return;
+      return false;
     }
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       delete meta.folders[folderId];
       // Detach any chat whose home was this folder. Each detached chat is
       // re-stamped so the change wins on reconcile.
@@ -377,21 +401,21 @@ export class MetadataStore {
     });
   }
 
-  upsertTag(projectKey: string, tag: Tag): void {
+  upsertTag(projectKey: string, tag: Tag): boolean {
     if (!isSafeRecordId(tag.id)) {
-      return;
+      return false;
     }
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       // Clamp the free-text label at the write sink (see upsertFolder).
       meta.tags[tag.id] = { ...tag, label: clampName(tag.label) };
     });
   }
 
-  deleteTag(projectKey: string, tagId: string): void {
+  deleteTag(projectKey: string, tagId: string): boolean {
     if (!isSafeRecordId(tagId)) {
-      return;
+      return false;
     }
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       delete meta.tags[tagId];
       for (const chat of Object.values(meta.chats)) {
         const next = chat.tags.filter((t) => t !== tagId);
@@ -409,11 +433,11 @@ export class MetadataStore {
   // folders map that downstream resolve sites index, so storing a prototype name
   // here would re-create the exact phantom-record/prototype hazard the normalize
   // boundary drops; null (unfile) is always allowed.
-  setChatFolder(projectKey: string, chatId: string, folderId: string | null): void {
+  setChatFolder(projectKey: string, chatId: string, folderId: string | null): boolean {
     if (folderId !== null && !isSafeRecordId(folderId)) {
-      return;
+      return false;
     }
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
@@ -423,11 +447,11 @@ export class MetadataStore {
     });
   }
 
-  addChatTag(projectKey: string, chatId: string, tagId: string): void {
+  addChatTag(projectKey: string, chatId: string, tagId: string): boolean {
     if (!isSafeRecordId(tagId)) {
-      return;
+      return false;
     }
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
@@ -439,8 +463,8 @@ export class MetadataStore {
     });
   }
 
-  removeChatTag(projectKey: string, chatId: string, tagId: string): void {
-    this.mutate(projectKey, (meta) => {
+  removeChatTag(projectKey: string, chatId: string, tagId: string): boolean {
+    return this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
@@ -453,13 +477,13 @@ export class MetadataStore {
     });
   }
 
-  addLink(projectKey: string, chatId: string, link: Link): void {
+  addLink(projectKey: string, chatId: string, link: Link): boolean {
     // targetChatId is a reference into the chats map (a downstream resolve site
     // indexes it); reject an unsafe target the same way the chatId index is gated.
     if (!isSafeRecordId(link.targetChatId)) {
-      return;
+      return false;
     }
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
@@ -474,8 +498,8 @@ export class MetadataStore {
     });
   }
 
-  removeLink(projectKey: string, chatId: string, targetChatId: string, kind: Link['kind']): void {
-    this.mutate(projectKey, (meta) => {
+  removeLink(projectKey: string, chatId: string, targetChatId: string, kind: Link['kind']): boolean {
+    return this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
@@ -493,8 +517,8 @@ export class MetadataStore {
   // Set a chat's starred flag. Creates the chat record if absent. Stamps the
   // record so the change wins on reconcile, and coalesces into the pending write
   // like every other granular mutation.
-  setChatStarred(projectKey: string, chatId: string, starred: boolean): void {
-    this.mutate(projectKey, (meta) => {
+  setChatStarred(projectKey: string, chatId: string, starred: boolean): boolean {
+    return this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
@@ -528,9 +552,9 @@ export class MetadataStore {
     chatId: string,
     archived: boolean,
     options?: { automated?: boolean },
-  ): void {
+  ): boolean {
     const automated = options?.automated === true;
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       const existed = meta.chats[chatId] !== undefined;
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
@@ -557,11 +581,11 @@ export class MetadataStore {
   // Set (or clear) a folder's color. Pass null/undefined to clear. The folder
   // must exist; a call for an unknown folder is a no-op (folders are created via
   // upsertFolder). Coalesces into the pending write.
-  setFolderColor(projectKey: string, folderId: string, color: string | null): void {
+  setFolderColor(projectKey: string, folderId: string, color: string | null): boolean {
     if (!isSafeRecordId(folderId)) {
-      return;
+      return false;
     }
-    this.mutate(projectKey, (meta) => {
+    return this.mutate(projectKey, (meta) => {
       const folder = meta.folders[folderId];
       if (!folder) {
         return;
@@ -578,12 +602,19 @@ export class MetadataStore {
   // the sync-reconcile slice; here it is the primitive the granular mutations and
   // the reconcile scaffolding build on. The supplied document is re-stamped at
   // the project level.
-  putProjectMeta(projectKey: string, meta: ProjectMeta): void {
+  //
+  // Returns false when the write was REJECTED (unsafe project key). Callers
+  // that finalize the sync shadow after this write (reconcileAllProjects,
+  // importLibrary) MUST check the return: finalizing the shadow for a write
+  // that never landed would adopt the live (possibly lossy foreign) value as
+  // last-known-good and permanently disable the additive-restore protection
+  // for that project.
+  putProjectMeta(projectKey: string, meta: ProjectMeta): boolean {
     // Deep-copy the supplied collections so the staged pending document never
     // aliases the caller's live objects (a later caller mutation must not leak
     // into the store before the next flush). mutate then re-stamps the project.
     const copy = nullProtoMaps(JSON.parse(JSON.stringify(meta)) as ProjectMeta);
-    this.mutate(projectKey, (current) => {
+    return this.mutate(projectKey, (current) => {
       current.schemaVersion = copy.schemaVersion;
       current.folders = copy.folders;
       current.tags = copy.tags;
@@ -695,8 +726,24 @@ export class MetadataStore {
   // Apply a mutation against the current (pending-or-stored) document, stamp the
   // project, register the key for sync if new, stage the result in the pending
   // map, and schedule a debounced flush. Read-your-writes is immediate; the
-  // persisted write is coalesced.
-  private mutate(projectKey: string, fn: (meta: ProjectMeta) => void): void {
+  // persisted write is coalesced. Returns true when the mutation was STAGED and
+  // false when the project key was rejected, so a caller that persists derived
+  // state keyed to the write having landed (the reconcile loop and the import
+  // apply loop both finalize the sync SHADOW after putProjectMeta) can skip that
+  // step instead of laundering a lossy live value into its baseline.
+  private mutate(projectKey: string, fn: (meta: ProjectMeta) => void): boolean {
+    // Gate the project key at the write sink, mirroring the isSafeRecordId
+    // chokepoints on the record mutations: every synced write mints
+    // 'nest.meta.v1::<projectKey>' verbatim into globalState AND registers it
+    // with setKeysForSync (below), and there is no key-removal path, so an
+    // unbounded or illegal key must be a safe, REPORTED no-op before it can
+    // durably pollute the synced surface. The import boundary
+    // (schemaMigrate.validateEnvelope) already skips such a key; this is the
+    // store-level backstop covering EVERY caller (putProjectMeta included). A
+    // legitimate key is always an encodeProjectKey output and passes unchanged.
+    if (!isSafeProjectKey(projectKey)) {
+      return false;
+    }
     this.ensureSyncRegistered(projectKey);
     // Root the new pending chain on the RECONCILED base (round 3): if a foreign
     // Settings Sync value landed since this device last wrote or classified the
@@ -710,6 +757,7 @@ export class MetadataStore {
     current.deviceId = this.deviceId;
     this.pending.set(projectKey, current);
     this.scheduleFlush();
+    return true;
   }
 
   private cloneForMutation(meta: ProjectMeta): ProjectMeta {
@@ -893,6 +941,18 @@ export class MetadataStore {
     const seen = new Set<string>();
     const out: string[] = [];
     const add = (projectKey: string): void => {
+      // Quarantine gate, consistent with mutate() and primeSyncKeysFromMemento:
+      // a legacy-invalid key (persisted by a pre-0.2.0 import, which accepted
+      // any non-empty key) is unwritable, so enumerating it would hand callers
+      // a key they cannot act on. Concretely: the reconcile poll would merge a
+      // foreign value, no-op the write-back, then finalize the sync shadow to
+      // the LIVE lossy value, permanently disabling the additive-restore
+      // protection for that project; and export-all would embed the key in
+      // every backup, where the import gate skips it anyway. The persisted
+      // value stays untouched in the Memento for a future migration.
+      if (!isSafeProjectKey(projectKey)) {
+        return;
+      }
       if (!seen.has(projectKey)) {
         seen.add(projectKey);
         out.push(projectKey);

@@ -179,9 +179,14 @@ export async function importLibrary(deps: ExportImportDeps): Promise<void> {
   const changedKeys: string[] = [];
   for (const result of plan.plan.results) {
     if (result.changed) {
-      deps.store.putProjectMeta(result.projectKey, result.merged);
-      changedKeys.push(result.projectKey);
-      mergedProjects++;
+      // Only a STAGED write (putProjectMeta true) may finalize the shadow
+      // below; finalizing after a rejected write would launder the live value
+      // into the last-known-good baseline. validateEnvelope already skips
+      // unsafe keys, so this backstop should never fire.
+      if (deps.store.putProjectMeta(result.projectKey, result.merged)) {
+        changedKeys.push(result.projectKey);
+        mergedProjects++;
+      }
     }
   }
   await deps.store.flush();
@@ -208,14 +213,24 @@ export async function importLibrary(deps: ExportImportDeps): Promise<void> {
       String(plan.plan.results.length) +
       ' project(s) from the file (' +
       String(mergedProjects) +
-      ' changed). No projects were deleted.',
+      ' changed). No projects were deleted.' +
+      (plan.skippedProjects > 0
+        ? ' Skipped ' +
+          String(plan.skippedProjects) +
+          ' project entry(ies) with an invalid key or oversized document.'
+        : ''),
   );
 }
 
 // Parse the import text and build the plan against the live store. Returns a
 // structured result so the validation failure can be surfaced without throwing.
 // The migration runs on the SCRATCH (parsed) copy; readLive only READS the store.
-type PlanResult = { ok: true; plan: ImportPlan } | { ok: false; error: string };
+// skippedProjects carries validateEnvelope's dropped-entry count (invalid key,
+// non-object value, oversized document) up to the completion message, so a
+// partial import is reported honestly instead of silently importing a subset.
+type PlanResult =
+  | { ok: true; plan: ImportPlan; skippedProjects: number }
+  | { ok: false; error: string };
 
 function buildPlanFromText(text: string, deps: ExportImportDeps): PlanResult {
   let parsed: unknown;
@@ -240,7 +255,7 @@ function buildPlanFromText(text: string, deps: ExportImportDeps): PlanResult {
   const plan = buildImportPlan(normalized, (projectKey) =>
     deps.store.getReconciledProjectMeta(projectKey),
   );
-  return { ok: true, plan };
+  return { ok: true, plan, skippedProjects: validation.envelope.skippedProjects };
 }
 
 // ---- Cross-machine reconcile, run on activation and on window focus.
@@ -290,8 +305,15 @@ export async function reconcileAllProjects(deps: ExportImportDeps): Promise<void
     // gives merged == shadow (changed:false) yet merged != live, and gating on
     // changed would skip restoring the dropped record and lose it permanently.
     if (outcome.storeChanged) {
-      deps.store.putProjectMeta(projectKey, outcome.result.merged);
-      mergedKeys.push(projectKey);
+      // putProjectMeta reports whether the write was STAGED (false = the key
+      // failed the store's isSafeProjectKey gate). Finalizing the shadow after
+      // a rejected write would launder the lossy live value into the
+      // last-known-good baseline and permanently disable the additive-restore
+      // protection, so a rejected key is skipped. allProjectKeys no longer
+      // enumerates such keys; this gate is the backstop for any other path.
+      if (deps.store.putProjectMeta(projectKey, outcome.result.merged)) {
+        mergedKeys.push(projectKey);
+      }
     } else {
       // merged already equals the live store value (a pure-superset foreign write
       // that dropped nothing). No store write needed; just advance the shadow to

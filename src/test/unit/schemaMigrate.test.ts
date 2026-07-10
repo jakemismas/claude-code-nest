@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import {
   EXPORT_FORMAT_VERSION,
+  MAX_ENVELOPE_PROJECTS,
   buildEnvelope,
   migrateEnvelope,
   validateEnvelope,
@@ -77,12 +78,88 @@ describe('schemaMigrate validateEnvelope (shape gate)', () => {
     );
   });
 
-  it('rejects a non-object project value', () => {
+  // Security fix pass (import-envelope hardening, revised in review round 2): a
+  // project KEY from the file is minted verbatim into a synced globalState key
+  // and registered with setKeysForSync (no removal path), so the wrapper gate
+  // bounds its length, charset, and count before any migration runs. A failing
+  // ENTRY is SKIPPED AND COUNTED rather than rejecting the whole file: v0.1.x
+  // accepted any non-empty key, so a user's own pre-0.2.0 backup can carry one
+  // legacy-invalid key among legitimate projects, and wholesale rejection would
+  // make every project in that backup unrestorable.
+  it('skips a non-object project value and keeps the valid remainder', () => {
     const v = validateEnvelope({
       version: 1,
-      projects: { 'c--proj': 'not-an-object' },
+      exportedAt: NOW,
+      projects: { 'c--bad': 'not-an-object', 'c--good': projectWith() },
     });
+    assert.strictEqual(v.ok, true);
+    if (v.ok) {
+      assert.deepStrictEqual(Object.keys(v.envelope.projects), ['c--good']);
+      assert.strictEqual(v.envelope.skippedProjects, 1);
+    }
+  });
+
+  it('skips an over-long project key and keeps the valid remainder', () => {
+    const v = validateEnvelope({
+      version: 1,
+      exportedAt: NOW,
+      projects: { ['a'.repeat(100000)]: projectWith(), 'c--good': projectWith() },
+    });
+    assert.strictEqual(v.ok, true);
+    if (v.ok) {
+      assert.deepStrictEqual(Object.keys(v.envelope.projects), ['c--good']);
+      assert.strictEqual(v.envelope.skippedProjects, 1);
+    }
+  });
+
+  it('skips every project key with characters outside the encoder alphabet', () => {
+    for (const key of ['../../evil', 'nest.meta.v1::x', 'has space', 'under_score', '__proto__']) {
+      const v = validateEnvelope({
+        version: 1,
+        exportedAt: NOW,
+        projects: { [key]: projectWith() },
+      });
+      assert.strictEqual(v.ok, true, 'wrapper stays valid for key: ' + key);
+      if (v.ok) {
+        assert.strictEqual(
+          Object.keys(v.envelope.projects).length,
+          0,
+          'must skip key: ' + key,
+        );
+        assert.strictEqual(v.envelope.skippedProjects, 1);
+      }
+    }
+  });
+
+  it('skips a bare prototype-member project key', () => {
+    const v = validateEnvelope({
+      version: 1,
+      exportedAt: NOW,
+      projects: { constructor: projectWith() },
+    });
+    assert.strictEqual(v.ok, true);
+    if (v.ok) {
+      assert.strictEqual(Object.keys(v.envelope.projects).length, 0);
+      assert.strictEqual(v.envelope.skippedProjects, 1);
+    }
+  });
+
+  it('rejects an envelope with more than MAX_ENVELOPE_PROJECTS projects', () => {
+    const projects: { [k: string]: unknown } = {};
+    for (let i = 0; i <= MAX_ENVELOPE_PROJECTS; i++) {
+      projects['c--proj-' + String(i)] = projectWith();
+    }
+    const v = validateEnvelope({ version: 1, exportedAt: NOW, projects });
     assert.strictEqual(v.ok, false);
+  });
+
+  it('accepts an envelope at exactly MAX_ENVELOPE_PROJECTS projects', () => {
+    const projects: { [k: string]: unknown } = {};
+    for (let i = 0; i < MAX_ENVELOPE_PROJECTS; i++) {
+      projects['c--proj-' + String(i)] = projectWith();
+    }
+    const v = validateEnvelope({ version: 1, exportedAt: NOW, projects });
+    assert.strictEqual(v.ok, true);
   });
 });
 
@@ -143,6 +220,26 @@ describe('schemaMigrate migrateEnvelope (version migration, reuse migrateProject
     // round-trip through this older build does not strip the newer machine's data.
     assert.strictEqual(proj.schemaVersion, SCHEMA_VERSION + 3);
     assert.deepStrictEqual(proj.__unknown, { pinnedChats: ['c1'] });
+  });
+
+  it('builds the migrated projects map with a null prototype (defense in depth)', () => {
+    const env = validateEnvelope({
+      version: 1,
+      exportedAt: NOW,
+      projects: { 'c--proj': projectWith() },
+    });
+    assert.strictEqual(env.ok, true);
+    if (!env.ok) {
+      return;
+    }
+    const norm = migrateEnvelope(env.envelope, DEVICE, NOW);
+    // The keys come from an untrusted file: a non-own index must resolve to
+    // undefined, never to an inherited Object member.
+    assert.strictEqual(Object.getPrototypeOf(norm.projects), null);
+    assert.strictEqual(
+      (norm.projects as Record<string, unknown>).constructor,
+      undefined,
+    );
   });
 });
 

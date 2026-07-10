@@ -1421,3 +1421,86 @@ describe('MetadataStore root-of-chain foreign reconcile (round-3 laundering fix)
     assert.deepStrictEqual(reconciled.chats['chat-keep'].tags, ['tag-x']);
   });
 });
+
+// Security fix pass (import-envelope hardening): the store-level project-key
+// gate. Every synced mutation mints 'nest.meta.v1::<projectKey>' verbatim and
+// registers it with setKeysForSync with no removal path, so an unsafe key must
+// be a no-op at the sink, covering every caller (putProjectMeta included).
+describe('MetadataStore project-key gate (synced-surface pollution)', () => {
+  const HOSTILE_KEYS = [
+    'x'.repeat(100000),
+    '../../evil',
+    'nest.meta.v1::inner',
+    'constructor',
+    '__proto__',
+    '',
+  ];
+
+  it('ignores a mutation under an unsafe project key and never registers it for sync', async () => {
+    const mem = new FakeMemento();
+    const store = makeStore(mem);
+    for (const key of HOSTILE_KEYS) {
+      store.upsertTag(key, { id: 't', label: 'x' });
+      store.putProjectMeta(key, store.getProjectMeta(PK));
+    }
+    await store.flush();
+    for (const key of HOSTILE_KEYS) {
+      assert.strictEqual(
+        mem.get(metaKeyFor(key)),
+        undefined,
+        'no synced key minted for: ' + key.slice(0, 40),
+      );
+    }
+    assert.deepStrictEqual(store.registeredSyncProjectKeys(), []);
+  });
+
+  it('still accepts a legitimate encodeProjectKey-shaped key unchanged', async () => {
+    const mem = new FakeMemento();
+    const store = makeStore(mem);
+    store.upsertTag('c--Users-JakeMismas-Documents-Claude-Code---Nest', {
+      id: 't',
+      label: 'x',
+    });
+    await store.flush();
+    assert.ok(
+      mem.get(metaKeyFor('c--Users-JakeMismas-Documents-Claude-Code---Nest')) !==
+        undefined,
+    );
+  });
+
+  it('reports a rejected write as false and a staged write as true', () => {
+    const store = makeStore(new FakeMemento());
+    assert.strictEqual(
+      store.upsertFolder('under_score', { id: 'f', name: 'n', parentId: null, order: 0 }),
+      false,
+      'an unsafe project key must be a REPORTED no-op, so the reconcile and ' +
+        'import apply loops can skip the shadow finalize for it',
+    );
+    assert.strictEqual(
+      store.upsertFolder(PK, { id: 'f', name: 'n', parentId: null, order: 0 }),
+      true,
+    );
+  });
+
+  it('quarantines a legacy-invalid persisted key from enumeration, keeping its value intact', async () => {
+    const mem = new FakeMemento();
+    // Simulate a pre-0.2.0 store: v0.1.x validateEnvelope accepted any
+    // non-empty project key, so an old import could persist one. The value must
+    // stay untouched in the Memento (recoverable by a future migration) while
+    // allProjectKeys never hands the unwritable key to the reconcile poll
+    // (which would otherwise finalize the sync shadow to the lossy live value)
+    // or to export-all (which would embed it in every backup snapshot).
+    const legacy = { schemaVersion: 1, folders: {}, tags: {}, chats: {} };
+    await mem.update(metaKeyFor('legacy_key'), legacy);
+    const store = makeStore(mem);
+    store.upsertTag(PK, { id: 't', label: 'x' });
+    const keys = store.allProjectKeys();
+    assert.ok(keys.includes(PK), 'safe keys still enumerate');
+    assert.ok(!keys.includes('legacy_key'), 'legacy-invalid key must not enumerate');
+    assert.deepStrictEqual(
+      mem.get(metaKeyFor('legacy_key')),
+      legacy,
+      'the persisted legacy value is left untouched, not deleted',
+    );
+  });
+});
