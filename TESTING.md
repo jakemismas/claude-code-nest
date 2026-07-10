@@ -36,23 +36,25 @@ Rollup, Settings), which reveal or drive the one panel.
 
 ## Install the packaged VSIX
 
-The handoff artifact produced by the engine is `nest-build-check.vsix` in the repo
-root (`npm run package`, or `npx vsce package --no-dependencies -o nest-build-check.vsix`,
-regenerates it). It is the FEATURE-COMPLETE Sprint 3 one-panel build, carrying all of
-Parts 1 through 3 on top of the released 0.1.1 surface. It is the build the human verify
-gate installs. It is NOT yet the TAGGED v0.2.0 "One Panel" release: the human verify gate
-(#76) and the pre-release security council (#90) gate the release run (#91) that bumps the
-version and tags, so this handoff still reports version 0.1.1 and carries no tag.
+The release artifact is `claude-code-nest-0.2.0.vsix` in the repo root, the v0.2.0
+"One Panel" release (regenerate it with
+`npx vsce package --no-dependencies -o claude-code-nest-0.2.0.vsix`). It carries the
+whole Sprint 3 rework on top of the released 0.1.1 surface: the eight feature slices
+(#78 to #89), the human verify gate fixes (#117 to #123 and #125), and the pre-release
+security audit fixes (#90). The verify gate (#76) and the security council (#90) both
+passed before this artifact was packaged. (`npm run package` still produces the engine's
+per-slice check artifact, `nest-build-check.vsix`; install the versioned release
+artifact instead.)
 
 1. From a terminal, install it directly by path:
-   `code --install-extension nest-build-check.vsix` (use the full path to the `.vsix`
-   if you are not in the repo root, e.g.
-   `code --install-extension /path/to/nest-build-check.vsix`).
+   `code --install-extension claude-code-nest-0.2.0.vsix` (use the full path to the
+   `.vsix` if you are not in the repo root, e.g.
+   `code --install-extension /path/to/claude-code-nest-0.2.0.vsix`).
 2. Or from inside VSCode: open the Command Palette and run
    "Extensions: Install from VSIX...", then select the `.vsix`. (Equivalently, open the
    Extensions view, use the `...` menu at the top, and choose "Install from VSIX...".)
-3. To rebuild the artifact from source, run `npm run package` (produces
-   `nest-build-check.vsix`).
+3. To rebuild the artifact from source, run
+   `npx vsce package --no-dependencies -o claude-code-nest-0.2.0.vsix`.
 4. Reload the window when prompted.
 5. Open a folder that has Claude Code sessions under `~/.claude/projects/` (for
    example this repo's own workspace), so the extension has chats to list.
@@ -418,11 +420,13 @@ Windows, VoiceOver on macOS).
 
 ## The human verify gate (#76)
 
-Part 3 is now complete on main, so this whole checklist is the HUMAN VERIFY GATE. Install
-the current `nest-build-check.vsix` (or a fresh package), run every section above next to
-the open prototype `media/design/ChatSidebar.html`, and comment the pass (or any findings)
-on issue #76. Findings become ordinary fix issues/PRs and the gate repeats. THE v0.2.0
-RELEASE RUN (#91) MUST NOT BE INVOKED WITHOUT THE RECORDED PASS.
+This whole checklist is the HUMAN VERIFY GATE: install the current build, run every
+section above next to the open prototype `media/design/ChatSidebar.html`, and comment
+the pass (or any findings) on the sprint parent issue. Findings become ordinary fix
+issues/PRs and the gate repeats; a release run must not be invoked without the recorded
+pass. For v0.2.0 the gate PASSED (recorded on #76, 2026-07-09): the gate findings were
+fixed first as issues #117 to #123 and #125, and the sections above already cover the
+changed behavior.
 
 ## Integration tests (deferred)
 

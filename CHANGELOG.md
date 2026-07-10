@@ -3,21 +3,23 @@
 All notable changes to Claude Code Nest are recorded here. The format follows
 Keep a Changelog, and the project adheres to semantic versioning.
 
-## [Unreleased]
+## [0.2.0] - 2026-07-10
 
-Sprint 3 is feature-complete and this is its handoff build. Part 1 (issues #78 to #83),
+The "One Panel" release. Sprint 3 rebuilt Nest into a SINGLE sidebar panel, reworked
+verbatim to the design handoff at `media/design/`: the flat Chats, Smart Groups, and
+Archive trees and the standalone Settings tab are retired, and every surface (the
+sections, full-text search with tag chips, the chat-row context menu, Settings, and
+Archive) now lives inside the one Organize panel, titled "Claude Code Nest". The
+release comprises the eight Sprint 3 feature slices, Part 1 (issues #78 to #83),
 Part 2 (the hover card #84, the chat-row context menu #85, the Settings overlay plus
 auto-archive engine #86, and the in-panel Archive overlay #87), and Part 3 (the
-full-state fidelity sweep #88 and the docs and accessibility closeout #89) are all merged
-to main. The whole "One Panel" surface is built; what remains before the tagged v0.2.0
-release is process, not code: the human verify gate (#76) and the pre-release security
-council (#90) gate the release run (#91), which is the step that bumps the version and
-tags. A handoff artifact, `nest-build-check.vsix`, is packaged in the repo root
-(regenerate it with `npm run package` or `npx vsce package`) so the human verify gate can
-install and smoke-test the finished one-panel surface end to end next to the design
-prototype. TESTING.md is that consolidated smoke checklist, drawn from every Sprint 3
-slice's steps in SPRINT-3-PLAN.md. This handoff carries no version bump and no tag; the
-version stays 0.1.1 until the release run.
+full-state fidelity sweep #88 and the docs and accessibility closeout #89); the fixes
+from the human verify gate, whose pass is recorded on the sprint parent issue #76
+(issues #117 to #123 and #125, landed as PRs #124 and #126 to #132, including the
+hover-card retirement #117 and the theme-matched surfaces #118); and the pre-release
+security council audit and its fixes (#90, landed as PR #135). Packaged as
+claude-code-nest-0.2.0.vsix; see TESTING.md for install and the consolidated
+one-panel smoke checklist.
 
 ### Added
 
@@ -190,9 +192,25 @@ version stays 0.1.1 until the release run.
   are intentionally not Tab-trapped. `prefers-reduced-motion` is now honored across the whole panel,
   not just the question badge: the Settings switch thumb slide and track fade and the
   search-box focus-glow transitions are neutralized alongside the already-static `?` badge.
+- A row-level add-tag control (#121, from the human verify gate): a hover- and
+  focus-revealed `+` button after the last tag pill on every chat row opens the existing
+  chat menu (tag toggles plus Create new tag) anchored under the control, so adding a tag
+  no longer requires the right-click menu. The control is keyboard-operable and reuses
+  the validated host message paths. The row tag pills are restructured into a bounded
+  overflow-hidden clip box with an inner strip, so a long tag set clips on a single line
+  instead of breaking the row anatomy.
+- A slow marquee drift on overflowed tag-pill strips (#122, from the human verify gate):
+  a chat-row tag strip that overflows its clip box drifts slowly end to end and back in
+  a loop, dwelling at each end, so every tag is readable without interaction. The drift
+  pauses while the pointer is over the strip, rows without overflow never move, and the
+  strip stays static under `prefers-reduced-motion`.
 
 ### Changed
 
+- The sidebar view is renamed from "Organize" to "Claude Code Nest" (#125), so the
+  panel's title bar shows the product name once instead of "Claude Code Nest: Organize"
+  (VS Code shows the container title alone when its only view shares the name). The
+  view id, activation events, and commands are unchanged.
 - The panel's surfaces now follow the active VS Code theme (#118, superseding the
   hardcoded handoff palette): backgrounds, text, borders, hovers, and quiet control
   chrome read the theme's sideBar/list/input/editorWidget/descriptionForeground
@@ -238,9 +256,29 @@ version stays 0.1.1 until the release run.
   non-blocking residuals are tracked in #133 (cross-device reconcile write churn,
   reproduced on the pre-sprint baseline) and #134 (normalize-boundary reference gates,
   restoredAt escrow decision).
+- The release-slice adversarial review hardened the import-envelope boundary (#91):
+  `validateEnvelope` now bounds every project key (the `encodeProjectKey` alphabet,
+  256 chars max, prototype names rejected) and caps an envelope at 1000 projects, and
+  the store's `mutate` sink applies the same `isSafeProjectKey` gate, so a hostile
+  library file can no longer mint unbounded or junk keys onto the synced
+  `setKeysForSync` surface (which has no key-removal path). The `__unknown`
+  forward-compatibility escrow is capped at 64 KB serialized (per-field budget), so a
+  forged high `schemaVersion` cannot carry an arbitrarily large blob into the synced
+  document, and the escrow now survives repeated migrations (previously it was lost
+  on the second read of a persisted forward-version document). The normalize
+  boundary also gates folder `parentId` and link `targetChatId` references with
+  `isSafeRecordId` and clamps `deviceId` stamps to 128 chars, closing the
+  normalize-boundary reference-gate residual from #134.
 
 ### Fixed
 
+- The search magnifier glyphs are optically centered against their inputs (#119): both
+  the main search box and the Archive overlay's search box moved the 13px icon down so
+  it no longer sits high relative to the placeholder text. No other search-field
+  geometry changed.
+- The UNSORTED section header no longer crowds the FOLDERS section (#120): added
+  vertical breathing room above it that holds with the folder list expanded, collapsed,
+  or empty, while the drop-target highlight stays tight.
 - Pre-existing chats no longer all show the unread dot (#123): the first scan after
   install seeds the local read-state store, marking every chat that already exists
   as read at its own last-activity time. Assistant messages arriving after the seed

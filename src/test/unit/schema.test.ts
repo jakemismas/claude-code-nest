@@ -1,9 +1,12 @@
 import * as assert from 'assert';
 import {
+  MAX_DEVICE_ID_LENGTH,
+  MAX_UNKNOWN_ESCROW_LENGTH,
   ProjectMeta,
   SCHEMA_VERSION,
   emptyProjectMeta,
   isMetaKey,
+  isSafeProjectKey,
   metaKeyFor,
   migrateProjectMeta,
   nullProtoMaps,
@@ -690,6 +693,27 @@ describe('schema normalize: free-text caps and restoredAt carry-through', () => 
     assert.strictEqual(meta.tags.t1.label, 'auth');
   });
 
+  it('clamps an unbounded deviceId at both the project and per-chat stamps', () => {
+    const huge = 'd'.repeat(5000);
+    const raw = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {},
+      tags: {},
+      chats: {
+        c: { folderId: null, tags: [], links: [], updatedAt: 1, deviceId: huge },
+      },
+      updatedAt: NOW,
+      deviceId: huge,
+    };
+    const meta = migrateProjectMeta(raw, DEVICE, NOW);
+    assert.strictEqual(meta.deviceId.length, MAX_DEVICE_ID_LENGTH);
+    assert.strictEqual(meta.chats.c.deviceId.length, MAX_DEVICE_ID_LENGTH);
+    // A normal UUID-length stamp is untouched.
+    const uuid = '0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+    const normal = migrateProjectMeta({ ...raw, deviceId: uuid }, DEVICE, NOW);
+    assert.strictEqual(normal.deviceId, uuid);
+  });
+
   it('carries restoredAt through normalize and drops a non-number restoredAt', () => {
     const raw = {
       schemaVersion: SCHEMA_VERSION,
@@ -705,5 +729,203 @@ describe('schema normalize: free-text caps and restoredAt carry-through', () => 
     const meta = migrateProjectMeta(raw, DEVICE, NOW);
     assert.strictEqual(meta.chats.a.restoredAt, 4242);
     assert.strictEqual('restoredAt' in meta.chats.b, false);
+  });
+});
+
+// Security fix pass (import-envelope hardening): reference-id gates that mirror
+// the store sinks, exactly one rule at both boundaries.
+describe('schema normalize: reference-id gates (parentId, link targetChatId)', () => {
+  function docWithFolder(folder: Record<string, unknown>) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      folders: { f1: folder },
+      tags: {},
+      chats: {},
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+  }
+  function docWithLinks(links: unknown[]) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {},
+      tags: {},
+      chats: { c: { folderId: null, tags: [], links, updatedAt: 1, deviceId: 'd' } },
+      updatedAt: 1,
+      deviceId: 'd',
+    };
+  }
+
+  it('drops a prototype-name or unbounded folder parentId to null and keeps a valid one', () => {
+    const proto = migrateProjectMeta(
+      docWithFolder({ name: 'F', parentId: 'constructor', order: 0 }),
+      DEVICE,
+      NOW,
+    );
+    assert.strictEqual(proto.folders.f1.parentId, null);
+    const huge = migrateProjectMeta(
+      docWithFolder({ name: 'F', parentId: 'x'.repeat(100000), order: 0 }),
+      DEVICE,
+      NOW,
+    );
+    assert.strictEqual(huge.folders.f1.parentId, null);
+    const traversal = migrateProjectMeta(
+      docWithFolder({ name: 'F', parentId: '../../evil', order: 0 }),
+      DEVICE,
+      NOW,
+    );
+    assert.strictEqual(traversal.folders.f1.parentId, null);
+    const valid = migrateProjectMeta(
+      docWithFolder({ name: 'F', parentId: 'top', order: 0 }),
+      DEVICE,
+      NOW,
+    );
+    assert.strictEqual(valid.folders.f1.parentId, 'top');
+  });
+
+  it('drops a link whose targetChatId is prototype-named, unbounded, or malformed', () => {
+    const meta = migrateProjectMeta(
+      docWithLinks([
+        { targetChatId: 'valueOf', kind: 'parent' },
+        { targetChatId: 'x'.repeat(100000), kind: 'related' },
+        { targetChatId: 'has space', kind: 'related' },
+        { targetChatId: 'good-1', kind: 'parent' },
+      ]),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(meta.chats.c.links, [
+      { targetChatId: 'good-1', kind: 'parent' },
+    ]);
+  });
+});
+
+// Security fix pass (import-envelope hardening): the __unknown escrow size cap.
+// The escrow replays on every synced write; a forward-schemaVersion claim from
+// an attacker-authored import must not carry an unbounded blob onto the synced
+// surface.
+describe('schema migrateProjectMeta __unknown escrow size cap', () => {
+  function forwardDoc(extra: Record<string, unknown>) {
+    return {
+      schemaVersion: SCHEMA_VERSION + 5,
+      folders: {},
+      tags: {},
+      chats: {},
+      updatedAt: 1,
+      deviceId: 'd',
+      ...extra,
+    };
+  }
+
+  it('drops an unknown field whose serialized size exceeds the escrow budget', () => {
+    const blob = 'x'.repeat(MAX_UNKNOWN_ESCROW_LENGTH + 1);
+    const meta = migrateProjectMeta(forwardDoc({ hugeBlob: blob }), DEVICE, NOW);
+    assert.strictEqual(meta.__unknown, undefined);
+  });
+
+  it('keeps the small legitimate fields when one oversized field is dropped', () => {
+    const blob = 'x'.repeat(MAX_UNKNOWN_ESCROW_LENGTH + 1);
+    const meta = migrateProjectMeta(
+      forwardDoc({ pinnedChats: ['c1'], hugeBlob: blob, smartRules: { a: 1 } }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(meta.__unknown, {
+      pinnedChats: ['c1'],
+      smartRules: { a: 1 },
+    });
+  });
+
+  it('keeps an escrow comfortably under the budget verbatim', () => {
+    const meta = migrateProjectMeta(
+      forwardDoc({ note: 'n'.repeat(1000) }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(meta.__unknown, { note: 'n'.repeat(1000) });
+  });
+
+  it('preserves the escrow across a SECOND migration (persisted docs nest it under __unknown)', () => {
+    // The write path persists the ProjectMeta as-is, so a round-tripped stored
+    // document carries the escrowed fields NESTED under __unknown rather than
+    // at top level. A re-read must fold them back into the escrow, or the
+    // foreign machine's fields survive exactly one write and are then lost.
+    const first = migrateProjectMeta(forwardDoc({ pinnedChats: ['c1'] }), DEVICE, NOW);
+    assert.deepStrictEqual(first.__unknown, { pinnedChats: ['c1'] });
+    const second = migrateProjectMeta(
+      JSON.parse(JSON.stringify(first)),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(second.__unknown, { pinnedChats: ['c1'] });
+  });
+
+  it('prefers a live top-level field over a stale nested-escrow entry of the same name', () => {
+    const meta = migrateProjectMeta(
+      forwardDoc({ pinnedChats: ['fresh'], __unknown: { pinnedChats: ['stale'], legacy: 1 } }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(meta.__unknown, { pinnedChats: ['fresh'], legacy: 1 });
+  });
+
+  it('applies the size budget to nested-escrow entries too', () => {
+    const blob = 'x'.repeat(MAX_UNKNOWN_ESCROW_LENGTH + 1);
+    const meta = migrateProjectMeta(
+      forwardDoc({ __unknown: { hugeBlob: blob, small: 1 } }),
+      DEVICE,
+      NOW,
+    );
+    assert.deepStrictEqual(meta.__unknown, { small: 1 });
+  });
+
+  it('escrows an own "__proto__" field as an own key without rebinding the map prototype', () => {
+    // JSON.parse creates '__proto__' as an OWN key; model that exact input.
+    const raw = JSON.parse(
+      '{"schemaVersion":' +
+        String(SCHEMA_VERSION + 5) +
+        ',"folders":{},"tags":{},"chats":{},"updatedAt":1,"deviceId":"d",' +
+        '"__proto__":{"polluted":true},"other":1}',
+    ) as Record<string, unknown>;
+    const meta = migrateProjectMeta(raw, DEVICE, NOW);
+    const escrow = meta.__unknown as Record<string, unknown>;
+    assert.ok(escrow !== undefined);
+    assert.strictEqual(escrow.other, 1);
+    // The field survives as an OWN key (not a prototype rebind) so it replays
+    // on write, and the global prototype is untouched.
+    assert.ok(Object.prototype.hasOwnProperty.call(escrow, '__proto__'));
+    assert.strictEqual(Object.getPrototypeOf(escrow), Object.prototype);
+    assert.strictEqual(({} as Record<string, unknown>).polluted, undefined);
+  });
+});
+
+// Security fix pass (import-envelope hardening): the project-key predicate that
+// gates the import envelope and the store's write sink.
+describe('schema isSafeProjectKey', () => {
+  it('accepts real encodeProjectKey outputs', () => {
+    assert.strictEqual(
+      isSafeProjectKey('c--Users-JakeMismas-Documents-Claude-Code---Nest'),
+      true,
+    );
+    assert.strictEqual(isSafeProjectKey('c--proj'), true);
+    assert.strictEqual(isSafeProjectKey('integration-test-project'), true);
+  });
+
+  it('rejects an empty, over-long, or illegal-charset key', () => {
+    assert.strictEqual(isSafeProjectKey(''), false);
+    assert.strictEqual(isSafeProjectKey('a'.repeat(257)), false);
+    assert.strictEqual(isSafeProjectKey('a'.repeat(256)), true);
+    assert.strictEqual(isSafeProjectKey('../../evil'), false);
+    assert.strictEqual(isSafeProjectKey('nest.meta.v1::x'), false);
+    assert.strictEqual(isSafeProjectKey('__proto__'), false);
+    assert.strictEqual(isSafeProjectKey('has space'), false);
+    assert.strictEqual(isSafeProjectKey('under_score'), false);
+    assert.strictEqual(isSafeProjectKey(42), false);
+  });
+
+  it('rejects the bare prototype member names that pass the charset', () => {
+    assert.strictEqual(isSafeProjectKey('constructor'), false);
+    assert.strictEqual(isSafeProjectKey('toString'), false);
+    assert.strictEqual(isSafeProjectKey('hasOwnProperty'), false);
   });
 });

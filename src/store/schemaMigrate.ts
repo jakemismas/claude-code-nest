@@ -22,6 +22,7 @@
 
 import {
   ProjectMeta,
+  isSafeProjectKey,
   migrateProjectMeta,
 } from './schema';
 
@@ -30,6 +31,29 @@ import {
 // the document schema, and vice versa. Bump this when the WRAPPER shape changes
 // and add a step to migrateEnvelope.
 export const EXPORT_FORMAT_VERSION = 1;
+
+// The maximum number of projects one import envelope may carry. Every accepted
+// project key is minted into a synced globalState key and registered with
+// setKeysForSync, and the store has no key-removal path, so an envelope with
+// thousands of junk keys would durably pollute the synced surface across every
+// machine on the profile. A real library tops out at a few hundred projects;
+// 1000 admits every legitimate export with headroom.
+export const MAX_ENVELOPE_PROJECTS = 1000;
+
+// The maximum serialized size (JSON characters) of ONE project document inside
+// an import envelope. The per-field caps (MAX_NAME_LENGTH, MAX_DEVICE_ID_LENGTH,
+// MAX_UNKNOWN_ESCROW_LENGTH) and the record-count caps (schema.
+// MAX_COLLECTION_RECORDS, MAX_CHAT_TAGS, MAX_CHAT_LINKS) each close one
+// dimension, but the TOTAL-document dimension needs its own gate at the import
+// boundary: a document that squeaks under every count cap can still be tens of
+// megabytes of valid-shaped entries, and putProjectMeta persists the merged
+// document verbatim under the project's single synced globalState key, where an
+// oversized value durably breaks that project's Settings Sync item with no
+// removal path. A real library document tops out around a few hundred KB
+// (thousands of chats at ~150 bytes each); 2 MB admits every organic export
+// with a wide margin. An oversized entry is SKIPPED (and reported), not a
+// whole-file rejection, matching the invalid-key handling below.
+export const MAX_PROJECT_DOCUMENT_LENGTH = 2 * 1024 * 1024;
 
 // The on-disk export envelope: a wrapper around multiple ProjectMeta documents
 // keyed by projectKey, with a format version and an export timestamp. The
@@ -62,10 +86,14 @@ export type EnvelopeValidation =
 // The envelope as it comes off disk BEFORE per-project migration: validated to
 // the wrapper shape (version is a number, exportedAt is a number, projects is an
 // object map) but the per-project values are still unknown until migrated.
+// skippedProjects counts the entries validateEnvelope DROPPED (invalid key,
+// non-object value, or oversized document) so the import command can report
+// them honestly instead of silently importing a subset.
 export interface RawEnvelope {
   version: number;
   exportedAt: number;
   projects: { [projectKey: string]: unknown };
+  skippedProjects: number;
 }
 
 // Validate that a parsed value is the export-envelope WRAPPER shape, before any
@@ -102,26 +130,56 @@ export function validateEnvelope(raw: unknown): EnvelopeValidation {
       error: 'Not a Claude Code Nest export: "projects" must be an object map keyed by project.',
     };
   }
-  // The keys must be strings (always true for an object) and the values must be
-  // objects; a non-object project value is rejected here so the envelope is
-  // wholesale-trustworthy before migration. An empty projects map is valid.
-  for (const [projectKey, value] of Object.entries(raw.projects)) {
-    if (projectKey.length === 0) {
-      return { ok: false, error: 'Export contains an empty project key.' };
+  // Per-entry gate: every project KEY must pass isSafeProjectKey (an accepted
+  // key is minted VERBATIM into a synced globalState key 'nest.meta.v1::<key>'
+  // and registered with setKeysForSync by the apply loop, with no removal
+  // path), every VALUE must be an object, and every value must fit
+  // MAX_PROJECT_DOCUMENT_LENGTH (the total-document size gate).
+  //
+  // A failing entry is SKIPPED AND COUNTED, not a whole-file rejection.
+  // Wholesale rejection was the original design ("a legitimate export can never
+  // contain such a key"), but that premise is false for a real backup corpus:
+  // v0.1.x accepted any non-empty project key, so a pre-0.2.0 export (or a
+  // v0.2.0 store still carrying a legacy-keyed document) can hold ONE
+  // legacy-invalid key among otherwise-legitimate projects, and rejecting the
+  // whole file would make every project in the user's own backup unrestorable.
+  // Skipping is safe: a dropped entry never reaches migration or the store, so
+  // the accepted remainder gets exactly the same validation either way. The
+  // skip count is surfaced to the user by the import command. The key is
+  // deliberately never echoed anywhere (it can be arbitrarily large).
+  const entries = Object.entries(raw.projects);
+  if (entries.length > MAX_ENVELOPE_PROJECTS) {
+    return {
+      ok: false,
+      error:
+        'Export contains too many projects (more than ' +
+        String(MAX_ENVELOPE_PROJECTS) +
+        ').',
+    };
+  }
+  // Null-prototype map for the filtered copy (same defense in depth as
+  // migrateEnvelope): the keys come from an untrusted file.
+  const projects: { [projectKey: string]: unknown } =
+    Object.create(null) as { [projectKey: string]: unknown };
+  let skippedProjects = 0;
+  for (const [projectKey, value] of entries) {
+    if (!isSafeProjectKey(projectKey) || !isObject(value)) {
+      skippedProjects++;
+      continue;
     }
-    if (!isObject(value)) {
-      return {
-        ok: false,
-        error: 'Export project "' + projectKey + '" is not an object.',
-      };
+    if (JSON.stringify(value).length > MAX_PROJECT_DOCUMENT_LENGTH) {
+      skippedProjects++;
+      continue;
     }
+    projects[projectKey] = value;
   }
   return {
     ok: true,
     envelope: {
       version: raw.version,
       exportedAt,
-      projects: raw.projects as { [k: string]: unknown },
+      projects,
+      skippedProjects,
     },
   };
 }
@@ -150,7 +208,13 @@ export function migrateEnvelope(
   // strip.
   const lifted = envelope;
 
-  const projects: { [projectKey: string]: ProjectMeta } = {};
+  // Null-prototype map (defense in depth, mirroring normalizeProjectMeta): the
+  // keys come from an untrusted file. validateEnvelope's isSafeProjectKey gate
+  // is the primary fix; with a null prototype even a prototype-shaped key that
+  // somehow bypassed it becomes an inert own entry instead of rebinding this
+  // map's prototype or resolving to an inherited member downstream.
+  const projects: { [projectKey: string]: ProjectMeta } =
+    Object.create(null) as { [projectKey: string]: ProjectMeta };
   for (const [projectKey, value] of Object.entries(lifted.projects)) {
     // REUSE the stored-document migration; do NOT duplicate its logic. It is
     // total and defensive: it returns a well-formed ProjectMeta for any input and
