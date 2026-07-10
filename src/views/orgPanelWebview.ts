@@ -3,7 +3,7 @@ import { ChatRecord } from '../model/types';
 import { scanChats } from '../claude/chatScanner';
 import { readTranscriptBodies } from '../claude/bodyReader';
 import { MetadataStore } from '../store/metadataStore';
-import { ProjectMeta, isValidColor } from '../store/schema';
+import { ProjectMeta, clampName, isSafeRecordId, isValidColor } from '../store/schema';
 import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 import { tokenBadge } from './chatTooltip';
@@ -1149,6 +1149,33 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   }
 }
 
+// The transient search query cap. The query only feeds the host-side in-memory
+// index (never persisted, never a store or CSS sink), so the cap is generous; it
+// exists so a tampered message cannot make the tokenizer chew a multi-megabyte
+// string per keystroke.
+const MAX_SEARCH_QUERY_LENGTH = 512;
+
+// The collapsed-folders persistence cap: entries must be safe record ids (<= 64
+// chars, the shape every minted folder id has) and the array is bounded so a
+// tampered message cannot persist an unbounded blob to workspaceState.
+const MAX_COLLAPSED_FOLDERS = 5000;
+
+// The closed sort vocabulary (matches the sort popover's data-sort values). A
+// tampered setState message must not persist an arbitrary string to the
+// workspaceState sort key.
+const SORT_VALUES = new Set(['newest', 'oldest', 'name']);
+
+// The drop-payload id cap. Each dropped id flows through reduceDrop into
+// store.setChatFolder/addChatTag, whose ensureChat CREATES a ChatMeta record for
+// any safe-shaped id it does not know, and every minted record lands in the
+// SYNCED globalState document. A tampered webview message carrying an unbounded
+// sourceChatIds array could therefore mint an unbounded number of phantom
+// records into Settings Sync in one coalesced write. A legitimate drag selects
+// visible rows, so the bound is generous; entries are also filtered to the safe
+// record-id shape (<= 64 chars, the shape every real sessionId has), the same
+// arrival-time defense collapsedFolders uses.
+const MAX_DROP_IDS = 512;
+
 function coerce(raw: unknown): Inbound | null {
   if (typeof raw !== 'object' || raw === null) {
     return null;
@@ -1181,20 +1208,39 @@ function coerce(raw: unknown): Inbound | null {
   if (obj.type === 'refresh') {
     return { type: 'refresh' };
   }
-  if (obj.type === 'open' && typeof obj.sessionId === 'string') {
+  if (obj.type === 'open' && isSafeRecordId(obj.sessionId)) {
+    // The open id is the ONE webview-controlled id that reaches a PERSISTENCE
+    // sink (OPEN_CHAT_COMMAND marks the chat seen, and ReadStateStore.markSeen
+    // persists the id into the workspaceState lastSeenAt map), so it gets the
+    // same arrival-time defense as drop ids and collapsedFolders: only the safe
+    // record-id shape (<= 64 chars, the shape every real sessionId has) passes.
+    // A tampered message carrying a multi-megabyte or garbage id is dropped
+    // here, before it can grow the memento without bound.
     return { type: 'open', sessionId: obj.sessionId };
   }
   if (obj.type === 'search' && typeof obj.query === 'string') {
-    return { type: 'search', query: obj.query };
+    // Cap the transient query so a tampered message cannot feed the tokenizer a
+    // multi-megabyte string per keystroke (never persisted; host index only).
+    return { type: 'search', query: obj.query.slice(0, MAX_SEARCH_QUERY_LENGTH) };
   }
   if (obj.type === 'drop' && Array.isArray(obj.sourceChatIds)) {
     const kind = obj.targetKind === 'tag' ? 'tag' : 'folder';
-    const ids = obj.sourceChatIds.filter((v): v is string => typeof v === 'string');
+    // Accept only safe-record-id-shaped entries and bound the array (MAX_DROP_IDS):
+    // every id reaching reduceDrop can mint a synced ChatMeta record via ensureChat,
+    // so an unbounded/garbage array must be stopped at arrival, exactly the
+    // collapsedFolders pattern.
+    const ids = obj.sourceChatIds
+      .filter((v): v is string => isSafeRecordId(v))
+      .slice(0, MAX_DROP_IDS);
     const targetId = typeof obj.targetId === 'string' ? obj.targetId : undefined;
     return { type: 'drop', sourceChatIds: ids, targetKind: kind, targetId };
   }
   if (obj.type === 'renameFolder' && typeof obj.folderId === 'string' && typeof obj.name === 'string') {
-    return { type: 'renameFolder', folderId: obj.folderId, name: obj.name };
+    // The name is free text persisted to the SYNCED store; truncate to the shared
+    // cap (schema.MAX_NAME_LENGTH) at arrival so an unbounded string (giant paste
+    // or tampered message) never rides further. The store sink clamps again
+    // (defense in depth) with the same constant.
+    return { type: 'renameFolder', folderId: obj.folderId, name: clampName(obj.name) };
   }
   if (obj.type === 'setFolderColor' && typeof obj.folderId === 'string') {
     // Accept only a strict #rrggbb color (isValidColor); anything else (including
@@ -1213,8 +1259,11 @@ function coerce(raw: unknown): Inbound | null {
     // the store/expansion still validate it downstream). The name is never used as a
     // CSS/HTML sink; it becomes a Folder.name through the same store path the native
     // command uses.
+    // Truncated to the shared synced-store free-text cap like renameFolder.
     const name =
-      typeof obj.name === 'string' && obj.name.trim().length > 0 ? obj.name.trim() : undefined;
+      typeof obj.name === 'string' && obj.name.trim().length > 0
+        ? clampName(obj.name.trim())
+        : undefined;
     return { type: 'createFolder', name };
   }
   if (obj.type === 'newSession') {
@@ -1261,7 +1310,14 @@ function coerce(raw: unknown): Inbound | null {
     // length-checked at the handler; it becomes a Tag.label through the store path and is
     // rendered only as textContent.
     const color = isValidColor(obj.color) ? obj.color : null;
-    return { type: 'createTagWithColor', sessionId: obj.sessionId, label: obj.label, color };
+    // The label is free text persisted to the SYNCED store; truncate to the shared
+    // cap at arrival (the store's upsertTag clamps again with the same constant).
+    return {
+      type: 'createTagWithColor',
+      sessionId: obj.sessionId,
+      label: clampName(obj.label),
+      color,
+    };
   }
   if (obj.type === 'exportChat' && typeof obj.sessionId === 'string') {
     // format is a closed union; anything but 'json' defaults to 'markdown' so a tampered
@@ -1299,15 +1355,22 @@ function coerce(raw: unknown): Inbound | null {
     };
   }
   if (obj.type === 'setState') {
-    // collapsedFolders is accepted only as an array of strings; anything else
-    // (including a tampered webview message carrying non-strings) is dropped to
-    // undefined so the persisted value is always a clean string-id array.
+    // collapsedFolders entries are FOLDER IDS persisted to workspaceState: accept
+    // only values in the safe record-id shape (<= 64 chars, the shape every minted
+    // folder id has; a non-id or oversized string is untrusted garbage) and bound
+    // the array, so a tampered message cannot persist an unbounded blob.
     const collapsedFolders = Array.isArray(obj.collapsedFolders)
-      ? obj.collapsedFolders.filter((v): v is string => typeof v === 'string')
+      ? obj.collapsedFolders
+          .filter((v): v is string => isSafeRecordId(v))
+          .slice(0, MAX_COLLAPSED_FOLDERS)
       : undefined;
+    // sort is a CLOSED vocabulary (the popover's three values); an arbitrary
+    // string must not be persisted to the workspaceState sort key.
+    const sort =
+      typeof obj.sort === 'string' && SORT_VALUES.has(obj.sort) ? obj.sort : undefined;
     return {
       type: 'setState',
-      sort: typeof obj.sort === 'string' ? obj.sort : undefined,
+      sort,
       collapsedFolders,
     };
   }

@@ -132,6 +132,89 @@ describe('autoArchivePolicy.decideAutoArchive', () => {
   });
 });
 
+// Security fix pass round 1: a chat the user DELIBERATELY restored must not be
+// silently re-archived by the very next pass. restoredAt (stamped by the store on
+// unarchive) counts as activity for the ARCHIVE decision only.
+describe('autoArchivePolicy.decideAutoArchive: restoredAt (deliberate restore intent)', () => {
+  it('does NOT re-archive a restored chat whose transcript is past the window but whose restore is recent', () => {
+    assert.strictEqual(
+      decideAutoArchive(
+        input({
+          lastActivity: NOW - 100 * MS_PER_DAY,
+          restoredAt: NOW - 1 * MS_PER_DAY,
+          archiveWindowDays: 30,
+        }),
+      ),
+      'none',
+    );
+  });
+
+  it('re-archives only a full window AFTER the restore', () => {
+    assert.strictEqual(
+      decideAutoArchive(
+        input({
+          lastActivity: NOW - 200 * MS_PER_DAY,
+          restoredAt: NOW - 31 * MS_PER_DAY,
+          archiveWindowDays: 30,
+        }),
+      ),
+      'archive',
+    );
+    // Inclusive boundary: restore exactly one window old is still within it.
+    assert.strictEqual(
+      decideAutoArchive(
+        input({
+          lastActivity: NOW - 200 * MS_PER_DAY,
+          restoredAt: NOW - 30 * MS_PER_DAY,
+          archiveWindowDays: 30,
+        }),
+      ),
+      'none',
+    );
+  });
+
+  it('restoredAt older than lastActivity does not shorten the window (max of the two governs)', () => {
+    assert.strictEqual(
+      decideAutoArchive(
+        input({
+          lastActivity: NOW - 5 * MS_PER_DAY,
+          restoredAt: NOW - 300 * MS_PER_DAY,
+          archiveWindowDays: 30,
+        }),
+      ),
+      'none',
+    );
+  });
+
+  it('restoredAt does NOT substitute for a missing lastActivity (unprovable stays live)', () => {
+    assert.strictEqual(
+      decideAutoArchive(
+        input({
+          lastActivity: null,
+          restoredAt: NOW - 300 * MS_PER_DAY,
+          archiveWindowDays: 30,
+        }),
+      ),
+      'none',
+    );
+  });
+
+  it('the STARRED protective copy ignores restoredAt (the copy tracks transcript age)', () => {
+    assert.strictEqual(
+      decideAutoArchive(
+        input({
+          starred: true,
+          hasCopy: false,
+          lastActivity: NOW - 90 * MS_PER_DAY,
+          restoredAt: NOW - 1 * MS_PER_DAY,
+          protectiveWindowDays: 30,
+        }),
+      ),
+      'copy',
+    );
+  });
+});
+
 describe('autoArchivePolicy.coerceAutoArchiveWindowDays', () => {
   it('accepts every allowed enum value (including the 0 Never sentinel)', () => {
     for (const days of AUTO_ARCHIVE_WINDOW_DAYS) {

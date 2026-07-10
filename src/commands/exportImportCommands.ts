@@ -230,8 +230,15 @@ function buildPlanFromText(text: string, deps: ExportImportDeps): PlanResult {
   }
   const now = (deps.now ?? Date.now)();
   const normalized = migrateEnvelope(validation.envelope, deps.deviceId, now);
+  // Build the plan from the RECONCILED live read (security fix pass round 3):
+  // the plan's per-project merge result is persisted wholesale via
+  // putProjectMeta, so a plan rooted on an unreconciled, just-landed lossy
+  // foreign sync value would carry that loss straight through the apply loop
+  // and the re-stamp would launder it into a self-write. The reconciled read
+  // restores anything a foreign wholesale-replace dropped before the file is
+  // merged on top.
   const plan = buildImportPlan(normalized, (projectKey) =>
-    deps.store.getProjectMeta(projectKey),
+    deps.store.getReconciledProjectMeta(projectKey),
   );
   return { ok: true, plan };
 }

@@ -429,3 +429,169 @@ describe('exportImport mergeProjectMeta: drops unsafe file-side MAP KEYS (path-t
     assert.deepStrictEqual(Object.keys(merged.chats), [uuid]);
   });
 });
+
+// Security fix pass round 1: restoredAt (the deliberate-restore intent marker)
+// travels COUPLED to the archive group through the merge, exactly like archivedAt:
+// the side that supplies userArchived supplies its timestamps. Cross-machine, this
+// is what lets a restore made on device B suppress device A's next auto-archive
+// pass once it syncs.
+describe('exportImport mergeProjectMeta: restoredAt travels with the archive group', () => {
+  it('carries the winning side restoredAt with its userArchived=false (a synced restore)', () => {
+    const live = proj({
+      chats: {
+        c: {
+          folderId: null,
+          tags: [],
+          links: [],
+          updatedAt: 10,
+          deviceId: 'd',
+          userArchived: true,
+          archivedAt: 100,
+        },
+      },
+    });
+    const file = proj({
+      chats: {
+        c: {
+          folderId: null,
+          tags: [],
+          links: [],
+          updatedAt: 20,
+          deviceId: 'd2',
+          userArchived: false,
+          restoredAt: 999,
+        },
+      },
+    });
+    const c = mergeProjectMeta('pk', live, file).merged.chats.c;
+    assert.strictEqual(c.userArchived, false);
+    assert.strictEqual(c.restoredAt, 999, 'restore intent must survive the merge');
+    assert.strictEqual('archivedAt' in c, false, 'the losing side archivedAt must not linger');
+  });
+
+  it('carries the loser side archive group (including restoredAt) when the winner never set it', () => {
+    const live = proj({
+      chats: {
+        c: {
+          folderId: null,
+          tags: [],
+          links: [],
+          updatedAt: 5,
+          deviceId: 'd',
+          userArchived: false,
+          restoredAt: 777,
+        },
+      },
+    });
+    const file = proj({
+      chats: {
+        // Newer stamp but no archive group set (e.g. a folder move elsewhere).
+        c: { folderId: null, tags: [], links: [], updatedAt: 50, deviceId: 'd2', starred: true },
+      },
+    });
+    const c = mergeProjectMeta('pk', live, file).merged.chats.c;
+    assert.strictEqual(c.userArchived, false);
+    assert.strictEqual(c.restoredAt, 777);
+  });
+
+  it('a file-only chat clone carries restoredAt', () => {
+    const live = proj();
+    const file = proj({
+      chats: {
+        c: {
+          folderId: null,
+          tags: [],
+          links: [],
+          updatedAt: 20,
+          deviceId: 'd2',
+          userArchived: false,
+          restoredAt: 4242,
+        },
+      },
+    });
+    const c = mergeProjectMeta('pk', live, file).merged.chats.c;
+    assert.strictEqual(c.restoredAt, 4242);
+  });
+});
+
+// Equal-stamp tie-breaks (security audit narrow verify): automated archive flips
+// do not refresh updatedAt, so two devices auto-archiving the same chat hold
+// records with IDENTICAL stamps but DIVERGENT archive groups. The merge must
+// resolve the conflict to ONE value that both machines compute identically
+// (content-based, never live/file-position-based), or the synced content
+// ping-pongs forever. Symmetry is the load-bearing property, so every case here
+// asserts BOTH merge directions produce the same group.
+describe('exportImport mergeProjectMeta: equal-stamp deterministic tie-breaks', () => {
+  function archChat(archivedAt: number, restoredAt?: number): ChatMeta {
+    const c: ChatMeta = {
+      folderId: null,
+      tags: [],
+      links: [],
+      updatedAt: 1000,
+      deviceId: 'd',
+      userArchived: restoredAt === undefined,
+      archivedAt,
+    };
+    if (restoredAt !== undefined) {
+      delete (c as { archivedAt?: number }).archivedAt;
+      c.restoredAt = restoredAt;
+    }
+    return c;
+  }
+
+  it('divergent equal-stamp archive groups converge to the LATER activity on both machines', () => {
+    const a = proj({ chats: { c: archChat(5000) } });
+    const b = proj({ chats: { c: archChat(6000) } });
+    const onA = mergeProjectMeta('pk', a, b).merged.chats.c; // device A: live=A, file=B
+    const onB = mergeProjectMeta('pk', b, a).merged.chats.c; // device B: live=B, file=A
+    assert.strictEqual(onA.archivedAt, 6000);
+    assert.strictEqual(onB.archivedAt, 6000);
+    assert.deepStrictEqual(
+      [onA.userArchived, onA.archivedAt, onA.restoredAt],
+      [onB.userArchived, onB.archivedAt, onB.restoredAt],
+      'both machines must compute the identical archive group',
+    );
+  });
+
+  it('a later restore beats an earlier equal-stamp archive on both machines', () => {
+    const archived = proj({ chats: { c: archChat(5000) } });
+    const restored = proj({ chats: { c: archChat(0, 7000) } });
+    const onA = mergeProjectMeta('pk', archived, restored).merged.chats.c;
+    const onB = mergeProjectMeta('pk', restored, archived).merged.chats.c;
+    for (const c of [onA, onB]) {
+      assert.strictEqual(c.userArchived, false, 'the restore (later activity) wins');
+      assert.strictEqual(c.restoredAt, 7000);
+    }
+  });
+
+  it('same-activity equal-stamp groups settle lexicographically, identically on both machines', () => {
+    const arch = proj({ chats: { c: archChat(5000) } });
+    const rest = proj({ chats: { c: archChat(0, 5000) } });
+    const onA = mergeProjectMeta('pk', arch, rest).merged.chats.c;
+    const onB = mergeProjectMeta('pk', rest, arch).merged.chats.c;
+    assert.deepStrictEqual(
+      [onA.userArchived, onA.archivedAt, onA.restoredAt],
+      [onB.userArchived, onB.archivedAt, onB.restoredAt],
+      'the lexicographic final tie-break must be device-independent',
+    );
+  });
+
+  it('an equal-stamp starred conflict resolves to true on both machines', () => {
+    const starredSide = proj({
+      chats: { c: { folderId: null, tags: [], links: [], updatedAt: 1000, deviceId: 'd', starred: true } },
+    });
+    const unstarredSide = proj({
+      chats: { c: { folderId: null, tags: [], links: [], updatedAt: 1000, deviceId: 'e', starred: false } },
+    });
+    assert.strictEqual(mergeProjectMeta('pk', starredSide, unstarredSide).merged.chats.c.starred, true);
+    assert.strictEqual(mergeProjectMeta('pk', unstarredSide, starredSide).merged.chats.c.starred, true);
+  });
+
+  it('UNEQUAL stamps still resolve by the record stamp, not by content', () => {
+    const older = proj({ chats: { c: { ...archChat(9999), updatedAt: 500 } } });
+    const newer = proj({ chats: { c: { ...archChat(1111), updatedAt: 1000 } } });
+    // The newer stamp wins the group even though its archivedAt is smaller.
+    assert.strictEqual(mergeProjectMeta('pk', older, newer).merged.chats.c.archivedAt, 1111);
+    assert.strictEqual(mergeProjectMeta('pk', newer, older).merged.chats.c.archivedAt, 1111);
+  });
+});

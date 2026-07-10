@@ -29,6 +29,7 @@ import {
   ProjectMeta,
   Tag,
   emptyLocalProjectMeta,
+  clampName,
   emptyProjectMeta,
   isMetaKey,
   isSafeRecordId,
@@ -36,7 +37,13 @@ import {
   migrateProjectMeta,
   nullProtoMaps,
 } from './schema';
-import { shadowKeyFor } from './reconcileSync';
+import {
+  SyncShadow,
+  coerceShadow,
+  reconcileProjectSync,
+  shadowKeyFor,
+} from './reconcileSync';
+import { mergeProjectMeta } from './exportImport';
 
 // The structural store seam. A real context.globalState satisfies this: get and
 // update are the Memento contract, and setKeysForSync is the extra method VSCode
@@ -69,6 +76,12 @@ export interface MetadataStoreOptions {
 const LOCAL_KEY_PREFIX = 'nest.local.v1';
 const LOCAL_KEY_SEPARATOR = '::';
 
+// Sentinel recorded in mementoBelief for "the Memento holds no value for this
+// key". Distinct from every JSON.stringify result (a JSON encoding never starts
+// with a space character), so an absent value can never be confused with a
+// stored one.
+const NO_STORED_VALUE = ' absent';
+
 function localKeyFor(projectKey: string): string {
   return LOCAL_KEY_PREFIX + LOCAL_KEY_SEPARATOR + projectKey;
 }
@@ -95,6 +108,49 @@ export class MetadataStore {
   // in flight builds on the drained-but-not-yet-persisted value instead of the
   // stale Memento. An entry is removed only once its memento.update resolves.
   private readonly inFlight = new Map<string, ProjectMeta>();
+
+  // FOREIGN-WRITE DETECTION AT THE DRAIN (security fix pass round 2): the JSON
+  // encoding of the raw Memento value this store last READ (readBase) or WROTE
+  // (drainPending) per project key, i.e. the value the staged pending chain is
+  // rooted on. A Settings Sync write can land in the Memento at ANY time with no
+  // change event; the reconcile barrier (extension.ts) closes the window for
+  // automated writers BEFORE they stage, but the classification and the drain
+  // are separated by awaits (the mutate debounce, per-chat fs reads), so a
+  // foreign value can still land BETWEEN staging and the drain's
+  // memento.update. Without this map the drain would overwrite that foreign
+  // value wholesale before any reconcile ever read it, and the next poll would
+  // launder the clobber into a self-write (the drained doc carries this
+  // device's stamps). drainPending diffs the live Memento value against this
+  // belief just before writing; on a mismatch it diverts to an additive merge
+  // (mergeProjectMeta, ours as base so ties keep the local edit) instead of a
+  // blind write, so the foreign document's records survive to be classified by
+  // the NEXT reconcile poll (their foreign per-record stamps mark the merged
+  // value as a foreign write, so the LWW warning still surfaces).
+  private readonly mementoBelief = new Map<string, string>();
+
+  // FOREIGN-WRITE DETECTION AT THE CHAIN ROOT (security fix pass round 3): the
+  // JSON encoding of the last Memento value this device WROTE (drainPending) or
+  // POSITIVELY CLASSIFIED as its own / already reconciled (reconciledBase), per
+  // project key. Distinct from mementoBelief, which records what the current
+  // pending chain was ROOTED ON regardless of provenance: a plain read of a
+  // just-landed foreign value updates mementoBelief (so the drain's
+  // check-then-act diff stays quiet about it), which is exactly how the round-2
+  // guard could still launder a foreign value that landed BEFORE the root read.
+  // In that gap a user curation action roots its chain on the foreign value F,
+  // mutate() re-stamps the project with THIS device's id, the drain sees
+  // belief==current and blind-writes F+edit, and the next reconcile poll has no
+  // project-level foreign signal left; when F was produced solely by another
+  // device's no-stamp automated archive flips it has no chat-level signal
+  // either, so the poll adopts the lossy value as a self-write and local-only
+  // records are gone for good. lastAdopted closes that root gap: every new
+  // pending chain roots through reconciledBase, which diffs the raw Memento
+  // value against lastAdopted (falling back to the persistent sync shadow on
+  // first touch) and classifies a mismatch with the SAME reconcile the poll
+  // uses, so a foreign root is additively merged (records the foreign value
+  // dropped are restored, LWW arbitrates scalars) BEFORE the local edit is
+  // applied on top. Plain reads never update this map, so they can never bless
+  // a foreign value as adopted.
+  private readonly lastAdopted = new Map<string, string>();
 
   // The single serialized write chain. Every drain awaits the previous one, so
   // persisted writes never interleave and the last queued state wins. quiescent
@@ -190,7 +246,85 @@ export class MetadataStore {
       return inFlight;
     }
     const raw = this.memento.get<unknown>(metaKeyFor(projectKey));
+    // Record what the Memento held at the moment this read rooted a new pending
+    // chain (or served a plain read): the drain's foreign-write diff compares the
+    // live Memento against THIS belief, so a Settings Sync value that lands after
+    // this read and before the drain is detected and merged, never clobbered.
+    this.mementoBelief.set(
+      projectKey,
+      raw === undefined ? NO_STORED_VALUE : JSON.stringify(raw),
+    );
     return migrateProjectMeta(raw, this.deviceId, this.now());
+  }
+
+  // The current document RECONCILED AGAINST THE FOREIGN-WRITE SIGNAL, without a
+  // defensive copy. This is the ROOT every new pending chain builds on (mutate),
+  // and the read the import plan builds from (getReconciledProjectMeta). When
+  // the key is already staged (pending/in-flight) the chain was reconciled when
+  // it rooted, so the staged value is served as-is. Otherwise the raw Memento
+  // value is diffed against lastAdopted (the last value this device wrote or
+  // classified; the persistent sync shadow backs the first touch of a session),
+  // and a mismatch is classified with reconcileProjectSync, the SAME
+  // classification the focus/activation poll uses:
+  //   - self-write / adopt / unchanged: the value is ours or there is nothing
+  //     local to protect; adopt it (record lastAdopted) and serve it verbatim.
+  //     A same-device write from ANOTHER WINDOW of this profile lands here, so
+  //     a deletion made in that window is honored, never resurrected by merge.
+  //   - foreign-merge: another install produced the value; serve the ADDITIVE
+  //     merge (base = last-known-good, incoming = foreign live) so records the
+  //     foreign wholesale-replace dropped are restored and per-record LWW
+  //     arbitrates scalars, exactly as the poll would have reconciled had it
+  //     run first. lastAdopted is deliberately NOT advanced: the merged result
+  //     only becomes adopted when the drain persists it, so a crash before the
+  //     drain leaves detection intact for the next session (via the shadow).
+  // The sync shadow itself is never touched here; the next poll still
+  // classifies the persisted merge (the foreign records keep their stamps) and
+  // surfaces the LWW warning where one applies.
+  private reconciledBase(projectKey: string): ProjectMeta {
+    if (this.pending.has(projectKey) || this.inFlight.has(projectKey)) {
+      return this.readBase(projectKey);
+    }
+    const raw = this.memento.get<unknown>(metaKeyFor(projectKey));
+    const rawJson = raw === undefined ? NO_STORED_VALUE : JSON.stringify(raw);
+    // Root marker for the drain's round-2 check-then-act diff (same bookkeeping
+    // readBase performs when it serves the Memento).
+    this.mementoBelief.set(projectKey, rawJson);
+    const live = migrateProjectMeta(raw, this.deviceId, this.now());
+    const adopted = this.lastAdopted.get(projectKey);
+    if (adopted === rawJson) {
+      return live;
+    }
+    let shadow: SyncShadow | null;
+    if (adopted !== undefined && adopted !== NO_STORED_VALUE) {
+      // In-session last-known-good: fresher than the persistent shadow (which
+      // only advances on a poll), so windows between polls are covered.
+      shadow = {
+        meta: migrateProjectMeta(JSON.parse(adopted), this.deviceId, this.now()),
+        deviceId: this.deviceId,
+      };
+    } else {
+      // First touch this session (or the key was absent when last seen): fall
+      // back to the persistent shadow the reconcile poll maintains.
+      shadow = coerceShadow(this.memento.get<unknown>(shadowKeyFor(projectKey)));
+    }
+    const outcome = reconcileProjectSync(projectKey, live, shadow, this.deviceId);
+    if (outcome.kind !== 'foreign-merge') {
+      this.lastAdopted.set(projectKey, rawJson);
+      return live;
+    }
+    return outcome.result.merged;
+  }
+
+  // The reconciled document as a defensive structural clone, for callers that
+  // build a DERIVED document they will write back wholesale (the import plan:
+  // its per-project merge result is persisted via putProjectMeta, which replaces
+  // the collections outright, so a plan built from an UNRECONCILED read of a
+  // just-landed lossy foreign value would launder the loss straight through the
+  // apply loop). Plain consumers keep using getProjectMeta: the poll in
+  // particular must see the RAW live value, or it could never classify a
+  // foreign write itself.
+  getReconciledProjectMeta(projectKey: string): ProjectMeta {
+    return JSON.parse(JSON.stringify(this.reconciledBase(projectKey))) as ProjectMeta;
   }
 
   // Read the LOCAL companion document (orphan state). Never synced.
@@ -218,7 +352,11 @@ export class MetadataStore {
       return;
     }
     this.mutate(projectKey, (meta) => {
-      meta.folders[folder.id] = { ...folder };
+      // Clamp the free-text name to the shared cap (schema.MAX_NAME_LENGTH) at
+      // the write sink, so EVERY caller (webview handler, native input box,
+      // promote) is covered and an unbounded string can never enter the synced
+      // document and break the project's Settings Sync item.
+      meta.folders[folder.id] = { ...folder, name: clampName(folder.name) };
     });
   }
 
@@ -244,7 +382,8 @@ export class MetadataStore {
       return;
     }
     this.mutate(projectKey, (meta) => {
-      meta.tags[tag.id] = { ...tag };
+      // Clamp the free-text label at the write sink (see upsertFolder).
+      meta.tags[tag.id] = { ...tag, label: clampName(tag.label) };
     });
   }
 
@@ -365,12 +504,34 @@ export class MetadataStore {
     });
   }
 
-  // Set a chat's user-archive flag. archivedAt travels COUPLED to the flag: it is
-  // set to the current clock when archiving and cleared when unarchiving, so the
-  // timestamp never lingers on an unarchived chat or desyncs from the flag. The
-  // record is stamped and the write coalesces into the pending batch.
-  setChatArchived(projectKey: string, chatId: string, archived: boolean): void {
+  // Set a chat's user-archive flag. archivedAt and restoredAt travel COUPLED to
+  // the flag as one archive group: archiving sets archivedAt and clears
+  // restoredAt; unarchiving clears archivedAt and stamps restoredAt (the
+  // deliberate-restore intent marker the auto-archive policy treats as activity,
+  // so a restored chat is not silently re-archived on the next automated pass).
+  //
+  // options.automated marks a write staged by AUTOMATION (the auto-archive
+  // engine), not by a user action. An automated flip must NOT refresh the
+  // per-record updatedAt/deviceId stamp: that single stamp arbitrates folderId,
+  // starred, and the merge's winner side, so letting a background pass mint a
+  // fresh stamp would let an automated archive silently beat an unsynced
+  // DELIBERATE user edit (e.g. revert a folder move made on another device) in
+  // the per-record LWW. The archive group itself still propagates without the
+  // stamp: when the automated side loses the record arbitration, the winner did
+  // not set the group and the merge's loser-fallback carries it. A record the
+  // automated pass has to CREATE (a previously untracked chat) is stamped
+  // updatedAt=0 so a user-created record for the same chat on another device
+  // always wins the record arbitration. User-initiated calls (the default) keep
+  // the full stamp, unchanged.
+  setChatArchived(
+    projectKey: string,
+    chatId: string,
+    archived: boolean,
+    options?: { automated?: boolean },
+  ): void {
+    const automated = options?.automated === true;
     this.mutate(projectKey, (meta) => {
+      const existed = meta.chats[chatId] !== undefined;
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
@@ -378,10 +539,18 @@ export class MetadataStore {
       chat.userArchived = archived;
       if (archived) {
         chat.archivedAt = this.now();
+        delete chat.restoredAt;
       } else {
         delete chat.archivedAt;
+        chat.restoredAt = this.now();
       }
-      this.stampRecord(chat);
+      if (!automated) {
+        this.stampRecord(chat);
+      } else if (!existed) {
+        // A brand-new automation-minted record must never carry a fresh stamp
+        // that could win LWW over a user's record minted in the sync gap.
+        chat.updatedAt = 0;
+      }
     });
   }
 
@@ -529,7 +698,13 @@ export class MetadataStore {
   // persisted write is coalesced.
   private mutate(projectKey: string, fn: (meta: ProjectMeta) => void): void {
     this.ensureSyncRegistered(projectKey);
-    const current = this.cloneForMutation(this.readBase(projectKey));
+    // Root the new pending chain on the RECONCILED base (round 3): if a foreign
+    // Settings Sync value landed since this device last wrote or classified the
+    // key, the root is the additive merge of last-known-good and the foreign
+    // value, so the local edit below is applied ON TOP of the restoration
+    // instead of on the lossy foreign document (which this stamp rewrite would
+    // otherwise launder into a self-write).
+    const current = this.cloneForMutation(this.reconciledBase(projectKey));
     fn(current);
     current.updatedAt = this.now();
     current.deviceId = this.deviceId;
@@ -601,23 +776,61 @@ export class MetadataStore {
     this.writeChain = this.writeChain.catch(() => undefined).then(async () => {
       let anyRequeued = false;
       for (const [projectKey, meta] of batch) {
+        // CHECK-THEN-ACT GUARD (foreign Settings Sync write landing between the
+        // read this document was staged from and this drain): diff the live
+        // Memento value against the recorded belief. On a mismatch a foreign
+        // value landed unseen; a blind update would destroy it before any
+        // reconcile classified it, and the next poll would launder the clobber
+        // into a self-write (this drained doc carries our stamps). Divert to the
+        // ADDITIVE merge instead (ours as base, so a tie keeps the local edit;
+        // foreign-only records are restored; newer foreign per-record stamps win
+        // LWW exactly as a reconcile would arbitrate). The merged value keeps
+        // the foreign records' stamps, so the NEXT reconcile poll still
+        // classifies the result as a foreign write and surfaces the LWW warning.
+        // No await sits between this read and the update call, so no further
+        // foreign write can interleave on the extension-host thread.
+        let toWrite = meta;
+        const believed = this.mementoBelief.get(projectKey);
+        if (believed !== undefined) {
+          const currentRaw = this.memento.get<unknown>(metaKeyFor(projectKey));
+          const currentJson =
+            currentRaw === undefined ? NO_STORED_VALUE : JSON.stringify(currentRaw);
+          if (currentJson !== believed) {
+            const foreign = migrateProjectMeta(currentRaw, this.deviceId, this.now());
+            toWrite = mergeProjectMeta(projectKey, meta, foreign).merged;
+            // Keep the read path serving the merged value while the write is in
+            // flight (identity-swap the in-flight entry we own).
+            if (this.inFlight.get(projectKey) === meta) {
+              this.inFlight.set(projectKey, toWrite);
+            }
+          }
+        }
         try {
-          await this.memento.update(metaKeyFor(projectKey), meta);
+          await this.memento.update(metaKeyFor(projectKey), toWrite);
+          const writtenJson = JSON.stringify(toWrite);
+          this.mementoBelief.set(projectKey, writtenJson);
+          // The persisted value is now OURS: record it as adopted so the next
+          // chain root (reconciledBase) treats it as last-known-good rather
+          // than re-classifying our own write.
+          this.lastAdopted.set(projectKey, writtenJson);
         } catch {
           // The persisted write failed. If no later mutation has superseded this
           // key in pending, re-stage this drained value so the next flush retries
           // it; if pending already holds a newer value, that newer value wins and
           // we drop this stale one. Either way the write is not silently lost.
           if (!this.pending.has(projectKey)) {
-            this.pending.set(projectKey, meta);
+            this.pending.set(projectKey, toWrite);
           }
           anyRequeued = true;
         }
         // Clear the in-flight entry only if a LATER drain has not already
-        // replaced it with a newer value for this key (identity guard); the
-        // newer entry must stay readable until its own update resolves. On a
-        // failure the re-staged pending entry now backstops the read path.
-        if (this.inFlight.get(projectKey) === meta) {
+        // replaced it with a newer value for this key (identity guard; the entry
+        // may be `meta` or the diverted merge `toWrite`, both owned by this
+        // drain); the newer entry must stay readable until its own update
+        // resolves. On a failure the re-staged pending entry now backstops the
+        // read path.
+        const inFlightNow = this.inFlight.get(projectKey);
+        if (inFlightNow === meta || inFlightNow === toWrite) {
           this.inFlight.delete(projectKey);
         }
       }

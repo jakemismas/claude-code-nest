@@ -56,6 +56,16 @@ export const MS_PER_DAY = 24 * 60 * 60 * 1000;
 //   <= 0 disables the protective copy (defensive; the caller supplies the effective
 //   cleanup age, which is positive).
 // - now: the caller-supplied current epoch ms (injected, never read from a clock).
+// - restoredAt: the epoch ms of the user's last DELIBERATE restore (unarchive) of
+//   this chat (ChatMeta.restoredAt), or null/absent when never restored. The
+//   ARCHIVE decision treats it as activity (effective age = min age over
+//   lastActivity and restoredAt), so a chat the user just restored is not
+//   silently re-archived by the very next pass: it stays live for a full window
+//   after the restore, exactly as if the user had touched the transcript. The
+//   STARRED protective-copy decision deliberately IGNORES restoredAt: the copy
+//   guards against Claude's cleanup, which is keyed to transcript age, not to
+//   curation actions, so delaying the copy on a restore would risk losing the
+//   chat's only durable form.
 export interface AutoArchiveInput {
   lastActivity: number | null;
   starred: boolean;
@@ -64,6 +74,7 @@ export interface AutoArchiveInput {
   archiveWindowDays: number;
   protectiveWindowDays: number;
   now: number;
+  restoredAt?: number | null;
 }
 
 // The decision for one chat:
@@ -96,14 +107,17 @@ function isPastWindow(lastActivity: number | null, windowDays: number, now: numb
 //      archive window) AND has no copy yet; else 'none'. This is why choosing "Never"
 //      for auto-archiving does not strip a starred chat of its durable copy (AC #5).
 //   3. UNSTARRED: 'archive' when past the ARCHIVE window (the user's chosen window,
-//      <= 0 = Never = disabled), else 'none'.
+//      <= 0 = Never = disabled), else 'none'. A deliberate restore (restoredAt)
+//      counts as activity here, so a chat the user restored is only re-archived a
+//      full window AFTER the restore, never on the next pass.
 export function decideAutoArchive(input: AutoArchiveInput): AutoArchiveDecision {
   if (input.archived) {
     return 'none';
   }
   if (input.starred) {
     // Never auto-archive a starred chat; give it a protective copy once, keyed off the
-    // effective Claude cleanup age (protectiveWindowDays), NOT the archive window.
+    // effective Claude cleanup age (protectiveWindowDays), NOT the archive window, and
+    // NOT delayed by restoredAt (the copy tracks transcript age; see AutoArchiveInput).
     if (input.hasCopy) {
       return 'none';
     }
@@ -111,7 +125,20 @@ export function decideAutoArchive(input: AutoArchiveInput): AutoArchiveDecision 
       ? 'copy'
       : 'none';
   }
-  return isPastWindow(input.lastActivity, input.archiveWindowDays, input.now)
+  // The ARCHIVE decision's effective activity is the LATEST of transcript activity
+  // and the deliberate-restore stamp, so a restore holds the chat live for a full
+  // window even though its transcript timestamp is (by definition) past it.
+  // restoredAt only EXTENDS activity, never substitutes for a missing transcript
+  // timestamp: a chat with no lastActivity stays unprovable-past-window (left
+  // live), exactly as before.
+  const restoredAt = typeof input.restoredAt === 'number' ? input.restoredAt : null;
+  const archiveActivity =
+    input.lastActivity === null
+      ? null
+      : restoredAt === null
+        ? input.lastActivity
+        : Math.max(input.lastActivity, restoredAt);
+  return isPastWindow(archiveActivity, input.archiveWindowDays, input.now)
     ? 'archive'
     : 'none';
 }

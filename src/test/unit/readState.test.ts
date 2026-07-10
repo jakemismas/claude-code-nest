@@ -110,6 +110,46 @@ describe('ReadStateStore tolerance', () => {
   });
 });
 
+// The persistence-sink id gate (security fix pass round 3): markSeen writes the
+// whole lastSeenAt map back to the memento, so an id that is not in the safe
+// record-id shape (the shape every real transcript-filename sessionId has) must
+// be rejected AT THE SINK. A tampered webview 'open' message or a foreign
+// extension invoking the open command with a multi-megabyte or garbage id would
+// otherwise grow workspaceState without bound.
+describe('ReadStateStore markSeen id gate (safe record-id shape at the sink)', () => {
+  it('rejects an oversized id (no write, no map growth)', () => {
+    const mem = new FakeMemento();
+    const store = new ReadStateStore(mem);
+    store.markSeen('a'.repeat(65), 1000);
+    assert.strictEqual(store.getMap().size, 0);
+    assert.strictEqual(mem.raw(READ_STATE_KEY), undefined, 'no write for an oversized id');
+  });
+
+  it('rejects a multi-megabyte id without persisting it', () => {
+    const mem = new FakeMemento();
+    const store = new ReadStateStore(mem);
+    store.markSeen('x'.repeat(2 * 1024 * 1024), 1000);
+    assert.strictEqual(mem.raw(READ_STATE_KEY), undefined);
+  });
+
+  it('rejects prototype-name and traversal-shaped ids', () => {
+    const mem = new FakeMemento();
+    const store = new ReadStateStore(mem);
+    for (const bad of ['constructor', '__proto__', '../../../evil', 'a b', 'a.b']) {
+      store.markSeen(bad, 1000);
+    }
+    assert.strictEqual(store.getMap().size, 0);
+    assert.strictEqual(mem.raw(READ_STATE_KEY), undefined);
+  });
+
+  it('accepts a real UUID-shaped sessionId unchanged', () => {
+    const mem = new FakeMemento();
+    const store = new ReadStateStore(mem);
+    store.markSeen('01890c1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e', 1000);
+    assert.strictEqual(store.getMap().get('01890c1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e'), 1000);
+  });
+});
+
 // The one-time first-run seed (issue #123): every chat present at the first scan is
 // marked read at its own last-activity timestamp, exactly once, so pre-existing
 // chats never light the unread dot while later assistant activity still does.

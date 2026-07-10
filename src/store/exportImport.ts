@@ -243,6 +243,17 @@ export function mergeProjectMeta(
     const useFile = fileChat.updatedAt > liveChat.updatedAt;
     const winner = useFile ? fileChat : liveChat;
     const loser = useFile ? liveChat : fileChat;
+    // EQUAL record stamps need a DEVICE-INDEPENDENT tie-break for the two
+    // independent scalar groups below. Automated archive flips deliberately do
+    // not refresh updatedAt (security audit round 1), so two devices that
+    // auto-archive the same chat before sync delivers either flip hold records
+    // with IDENTICAL stamps but DIVERGENT groups; the plain local-wins tie
+    // (useFile === false on both machines) then keeps each device's OWN value
+    // forever and the synced content never converges (equal-stamp archive
+    // ping-pong, security audit narrow verify). The content-based tie-breaks
+    // below resolve identically on both machines because they compare only
+    // VALUES, never which side is live or file.
+    const stampsEqual = fileChat.updatedAt === liveChat.updatedAt;
     const mergedChat: ChatMeta = {
       folderId: mergedFolderId,
       tags: mergedTags,
@@ -251,25 +262,64 @@ export function mergeProjectMeta(
       deviceId: useFile ? fileChat.deviceId : liveChat.deviceId,
     };
     // starred: stamp-winner wins when it set the flag; otherwise carry the
-    // loser's independently-set flag rather than dropping it.
-    const starred =
-      winner.starred !== undefined ? winner.starred : loser.starred;
+    // loser's independently-set flag rather than dropping it. On an equal-stamp
+    // conflict (both sides set it, values differ) starred=true wins on BOTH
+    // machines: deterministic, and the protective intent (starring exempts a
+    // chat from auto-archive) is the safer side to keep.
+    let starred = winner.starred !== undefined ? winner.starred : loser.starred;
+    if (
+      stampsEqual &&
+      fileChat.starred !== undefined &&
+      liveChat.starred !== undefined &&
+      fileChat.starred !== liveChat.starred
+    ) {
+      starred = true;
+    }
     if (starred !== undefined) {
       mergedChat.starred = starred;
     }
-    // archive pair (userArchived + its coupled archivedAt): the stamp-winner wins
-    // the WHOLE pair when it set userArchived; otherwise carry the loser's whole
-    // pair. archivedAt always travels with the side that supplied userArchived.
-    const archiveSide =
+    // archive group (userArchived + its coupled archivedAt/restoredAt): the
+    // stamp-winner wins the WHOLE group when it set userArchived; otherwise carry
+    // the loser's whole group. archivedAt AND restoredAt always travel with the
+    // side that supplied userArchived (archiving stamps archivedAt and clears
+    // restoredAt; restoring stamps restoredAt and clears archivedAt), so the
+    // deliberate-restore intent marker crosses machines with the flag it explains
+    // and the auto-archive policy on the other machine sees it.
+    let archiveSide =
       winner.userArchived !== undefined
         ? winner
         : loser.userArchived !== undefined
           ? loser
           : undefined;
+    // Equal-stamp conflict on the archive group: pick the side with the LATER
+    // archive activity (max of archivedAt/restoredAt, i.e. the more recent
+    // archive or restore event), falling back to a stable lexicographic compare
+    // of the serialized group so even same-millisecond events resolve to ONE
+    // value on both machines.
+    if (
+      stampsEqual &&
+      fileChat.userArchived !== undefined &&
+      liveChat.userArchived !== undefined
+    ) {
+      const groupOf = (c: ChatMeta): string =>
+        JSON.stringify([c.userArchived, c.archivedAt ?? 0, c.restoredAt ?? 0]);
+      if (groupOf(fileChat) !== groupOf(liveChat)) {
+        const activityOf = (c: ChatMeta): number =>
+          Math.max(c.archivedAt ?? 0, c.restoredAt ?? 0);
+        if (activityOf(fileChat) !== activityOf(liveChat)) {
+          archiveSide = activityOf(fileChat) > activityOf(liveChat) ? fileChat : liveChat;
+        } else {
+          archiveSide = groupOf(fileChat) > groupOf(liveChat) ? fileChat : liveChat;
+        }
+      }
+    }
     if (archiveSide !== undefined) {
       mergedChat.userArchived = archiveSide.userArchived;
       if (archiveSide.archivedAt !== undefined) {
         mergedChat.archivedAt = archiveSide.archivedAt;
+      }
+      if (archiveSide.restoredAt !== undefined) {
+        mergedChat.restoredAt = archiveSide.restoredAt;
       }
     }
     merged.chats[chatId] = mergedChat;
@@ -372,6 +422,9 @@ function cloneChat(c: ChatMeta): ChatMeta {
   }
   if (c.archivedAt !== undefined) {
     out.archivedAt = c.archivedAt;
+  }
+  if (c.restoredAt !== undefined) {
+    out.restoredAt = c.restoredAt;
   }
   return out;
 }

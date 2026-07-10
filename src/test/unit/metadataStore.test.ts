@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { MetadataStore } from '../../store/metadataStore';
 import { metaKeyFor } from '../../store/schema';
+import { shadowKeyFor } from '../../store/reconcileSync';
 import { FakeMemento } from './fakeMemento';
 
 // Pure-logic unit tests for the MetadataStore against the FakeMemento double. The
@@ -773,6 +774,114 @@ describe('MetadataStore curation scalar setters (Slice 3: star, archive, folder 
     assert.strictEqual(chat.userArchived, true);
     assert.strictEqual(typeof chat.archivedAt, 'number');
   });
+
+  it('unarchive stamps restoredAt (the deliberate-restore intent marker) and archive clears it', async () => {
+    const clock = clockFrom(5000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+    store.setChatArchived(PK, 'c', true);
+    await store.flush();
+    let chat = store.getProjectMeta(PK).chats.c;
+    assert.strictEqual('restoredAt' in chat, false);
+
+    clock.advance(100);
+    store.setChatArchived(PK, 'c', false);
+    await store.flush();
+    chat = store.getProjectMeta(PK).chats.c;
+    assert.strictEqual(chat.userArchived, false);
+    assert.strictEqual(chat.restoredAt, 5100);
+    assert.strictEqual('archivedAt' in chat, false);
+
+    // Re-archiving clears the restore marker (it served its purpose).
+    clock.advance(100);
+    store.setChatArchived(PK, 'c', true);
+    await store.flush();
+    chat = store.getProjectMeta(PK).chats.c;
+    assert.strictEqual('restoredAt' in chat, false);
+    assert.strictEqual(chat.archivedAt, 5200);
+  });
+
+  it('restoredAt survives the flush + re-read round trip (normalize carries it)', async () => {
+    const clock = clockFrom(7000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+    store.setChatArchived(PK, 'c', false);
+    await store.flush();
+    // Fresh store over the same memento: the persisted value must round-trip.
+    const store2 = makeStore(mem, { now: clock.now });
+    assert.strictEqual(store2.getProjectMeta(PK).chats.c.restoredAt, 7000);
+  });
+});
+
+// Security fix pass round 1: an AUTOMATED archive flip (the auto-archive engine)
+// must not refresh the per-record updatedAt/deviceId stamp. That single stamp
+// arbitrates folderId/starred and the merge's winner side, so a background pass
+// minting a fresh stamp would let automation beat an unsynced DELIBERATE user
+// edit (e.g. revert a folder move made on another device) in the per-record LWW.
+describe('MetadataStore automated archive does not steal the per-record LWW stamp', () => {
+  it('automated archive on an EXISTING record keeps the last user stamp', async () => {
+    const clock = clockFrom(1000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+    // A user edit stamps the record at t=1000.
+    store.setChatFolder(PK, 'c', null);
+    await store.flush();
+    assert.strictEqual(store.getProjectMeta(PK).chats.c.updatedAt, 1000);
+
+    // Automation archives much later: the archive pair updates, the stamp does not.
+    clock.advance(9000);
+    store.setChatArchived(PK, 'c', true, { automated: true });
+    await store.flush();
+    const chat = store.getProjectMeta(PK).chats.c;
+    assert.strictEqual(chat.userArchived, true);
+    assert.strictEqual(chat.archivedAt, 10000, 'archivedAt still carries the real archive time');
+    assert.strictEqual(chat.updatedAt, 1000, 'record stamp must stay at the last USER edit');
+    assert.strictEqual(chat.deviceId, DEVICE);
+  });
+
+  it('automated archive that CREATES a record stamps it updatedAt=0 so any user record wins LWW', async () => {
+    const clock = clockFrom(2000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+    store.setChatArchived(PK, 'fresh', true, { automated: true });
+    await store.flush();
+    const chat = store.getProjectMeta(PK).chats.fresh;
+    assert.strictEqual(chat.userArchived, true);
+    assert.strictEqual(chat.updatedAt, 0, 'automation-minted record must never win a stamp race');
+  });
+
+  it('a MANUAL archive still stamps the record (deliberate edits keep LWW weight)', async () => {
+    const clock = clockFrom(3000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+    store.setChatFolder(PK, 'c', null);
+    await store.flush();
+    clock.advance(500);
+    store.setChatArchived(PK, 'c', true);
+    await store.flush();
+    assert.strictEqual(store.getProjectMeta(PK).chats.c.updatedAt, 3500);
+  });
+});
+
+// Security fix pass round 1: the shared free-text cap (schema.MAX_NAME_LENGTH) at
+// the store write sinks, so no caller can persist an unbounded string into the
+// synced document (one oversized value can break the project's Settings Sync item).
+describe('MetadataStore free-text length caps at the write sinks', () => {
+  it('upsertFolder truncates an over-long name to MAX_NAME_LENGTH', async () => {
+    const mem = new FakeMemento();
+    const store = makeStore(mem);
+    store.upsertFolder(PK, { id: 'f1', name: 'x'.repeat(100000), parentId: null, order: 0 });
+    await store.flush();
+    assert.strictEqual(store.getProjectMeta(PK).folders.f1.name.length, 200);
+  });
+
+  it('upsertTag truncates an over-long label to MAX_NAME_LENGTH', async () => {
+    const mem = new FakeMemento();
+    const store = makeStore(mem);
+    store.upsertTag(PK, { id: 't1', label: 'y'.repeat(100000) });
+    await store.flush();
+    assert.strictEqual(store.getProjectMeta(PK).tags.t1.label.length, 200);
+  });
 });
 
 // Defense-in-depth: the store mutation methods take a caller-supplied record id
@@ -948,5 +1057,367 @@ describe('MetadataStore record-id sink gating (prototype-pollution backstop)', (
     const meta = store.getProjectMeta(PK);
     assert.strictEqual(Object.getPrototypeOf(meta.folders), Object.prototype);
     assert.deepStrictEqual(Object.keys(meta.folders), ['f1']);
+  });
+});
+
+describe('MetadataStore drain-path foreign-write guard (round-2 check-then-act fix)', () => {
+  // A foreign Settings Sync value can land in the Memento BETWEEN a mutation
+  // being staged and the drain's memento.update, with no change event. A blind
+  // overwrite would destroy the foreign document before any reconcile read it,
+  // and the next poll would classify the result as a self-write (laundering).
+  // The drain must detect the mismatch against its recorded belief and divert
+  // to the additive merge.
+
+  it('merges (never clobbers) a foreign value that lands between staging and the drain', async () => {
+    const clock = clockFrom(10_000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+
+    // Root a belief: one local write lands normally.
+    store.setChatStarred(PK, 'chat-local', true);
+    await store.flush();
+
+    // Stage a NEW local mutation (pending, not yet drained)...
+    clock.advance(10);
+    store.setChatFolder(PK, 'chat-local', null);
+
+    // ...and let a FOREIGN device's document land in the Memento underneath it,
+    // carrying a record this device has never seen (local-only curation of the
+    // other machine) with a foreign stamp.
+    const foreign = JSON.parse(JSON.stringify(mem.get(metaKeyFor(PK)))) as {
+      updatedAt: number;
+      deviceId: string;
+      chats: Record<string, unknown>;
+    };
+    foreign.deviceId = 'dev-B';
+    foreign.updatedAt = clock.now() + 5;
+    foreign.chats['chat-foreign'] = {
+      folderId: null,
+      tags: [],
+      links: [],
+      updatedAt: clock.now() + 5,
+      deviceId: 'dev-B',
+      starred: true,
+    };
+    mem.seed(metaKeyFor(PK), foreign);
+
+    // Drain. Without the guard the foreign record would be wholesale-destroyed.
+    await store.flush();
+
+    const persisted = mem.get(metaKeyFor(PK)) as {
+      chats: Record<string, { starred?: boolean; deviceId: string }>;
+    };
+    assert.ok(
+      persisted.chats['chat-foreign'] !== undefined,
+      'the foreign record survives the drain (merged, not clobbered)',
+    );
+    assert.strictEqual(persisted.chats['chat-foreign'].starred, true);
+    assert.strictEqual(
+      persisted.chats['chat-foreign'].deviceId,
+      'dev-B',
+      'the foreign record keeps its foreign stamp so the next reconcile classifies it',
+    );
+    assert.ok(
+      persisted.chats['chat-local'] !== undefined,
+      'the staged local mutation also persists',
+    );
+  });
+
+  it('an unchanged Memento drains as a plain write (no merge detour)', async () => {
+    const mem = new FakeMemento();
+    const store = makeStore(mem);
+    store.setChatStarred(PK, 'c1', true);
+    await store.flush();
+    store.setChatStarred(PK, 'c1', false);
+    await store.flush();
+    const persisted = mem.get(metaKeyFor(PK)) as {
+      chats: Record<string, { starred?: boolean }>;
+    };
+    assert.strictEqual(persisted.chats.c1.starred, false);
+  });
+
+  it('a failed update re-stages and the retry still carries the merged foreign record', async () => {
+    const clock = clockFrom(20_000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+    store.setChatStarred(PK, 'chat-local', true);
+    await store.flush();
+
+    clock.advance(10);
+    store.setChatStarred(PK, 'chat-local', false);
+    const foreign = JSON.parse(JSON.stringify(mem.get(metaKeyFor(PK)))) as {
+      updatedAt: number;
+      deviceId: string;
+      chats: Record<string, unknown>;
+    };
+    foreign.deviceId = 'dev-B';
+    foreign.updatedAt = clock.now() + 5;
+    foreign.chats['chat-foreign'] = {
+      folderId: null,
+      tags: [],
+      links: [],
+      updatedAt: clock.now() + 5,
+      deviceId: 'dev-B',
+    };
+    mem.seed(metaKeyFor(PK), foreign);
+
+    // First update rejects; the drained (merged) value is re-staged and retried.
+    let failures = 1;
+    mem.onUpdate = async () => {
+      if (failures > 0) {
+        failures--;
+        throw new Error('transient storage failure');
+      }
+    };
+    await store.flush();
+    mem.onUpdate = null;
+    await store.flush();
+
+    const persisted = mem.get(metaKeyFor(PK)) as {
+      chats: Record<string, { starred?: boolean }>;
+    };
+    assert.ok(persisted.chats['chat-foreign'] !== undefined, 'foreign record survives the retry');
+    assert.strictEqual(persisted.chats['chat-local'].starred, false, 'local edit survives too');
+  });
+});
+
+describe('MetadataStore root-of-chain foreign reconcile (round-3 laundering fix)', () => {
+  // The round-2 guard only covers a foreign value landing AFTER a chain roots.
+  // If the foreign value lands BEFORE the root read, the chain roots ON it,
+  // mutate re-stamps the project with this device's id, and the drain's belief
+  // diff stays quiet: the lossy foreign document is laundered into a self-write
+  // and local-only records are dropped for good. Every new chain must therefore
+  // root on the RECONCILED base (diffed against lastAdopted / the sync shadow).
+
+  type PersistedDoc = {
+    folders: Record<string, { name?: string }>;
+    chats: Record<
+      string,
+      {
+        folderId?: string | null;
+        tags?: string[];
+        starred?: boolean;
+        userArchived?: boolean;
+        archivedAt?: number;
+        deviceId?: string;
+      }
+    >;
+  };
+
+  function cloneStored(mem: FakeMemento, key: string): Record<string, unknown> {
+    return JSON.parse(JSON.stringify(mem.get(key))) as Record<string, unknown>;
+  }
+
+  it('a user edit rooted on a just-landed lossy foreign value restores the dropped local-only records', async () => {
+    const clock = clockFrom(50_000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+
+    // Last-known-good G: a local-only curated chat (folder + tag) this device
+    // never saw synced back.
+    store.upsertFolder(PK, { id: 'f1', name: 'Keep', parentId: null, order: 0 });
+    store.setChatFolder(PK, 'chat-keep', 'f1');
+    store.addChatTag(PK, 'chat-keep', 'tag-x');
+    await store.flush();
+
+    // Foreign wholesale-replace F lands with NO event BEFORE any poll: it
+    // dropped chat-keep and folder f1 entirely and carries its own record.
+    clock.advance(10);
+    const foreign = cloneStored(mem, metaKeyFor(PK)) as unknown as PersistedDoc & {
+      updatedAt: number;
+      deviceId: string;
+    };
+    delete foreign.chats['chat-keep'];
+    delete foreign.folders['f1'];
+    foreign.chats['chat-b'] = {
+      folderId: null,
+      tags: [],
+      links: [],
+      starred: true,
+      updatedAt: clock.now(),
+      deviceId: 'dev-B',
+    } as PersistedDoc['chats'][string];
+    foreign.deviceId = 'dev-B';
+    foreign.updatedAt = clock.now();
+    mem.seed(metaKeyFor(PK), foreign);
+
+    // A USER curation action roots a new chain on the foreign value.
+    clock.advance(10);
+    store.setChatStarred(PK, 'chat-new', true);
+    await store.flush();
+
+    const persisted = mem.get(metaKeyFor(PK)) as PersistedDoc;
+    assert.ok(persisted.chats['chat-keep'] !== undefined, 'dropped local-only chat restored');
+    assert.strictEqual(persisted.chats['chat-keep'].folderId, 'f1', 'folder assignment restored');
+    assert.deepStrictEqual(persisted.chats['chat-keep'].tags, ['tag-x'], 'tag restored');
+    assert.ok('f1' in persisted.folders, 'dropped folder record restored');
+    assert.ok(persisted.chats['chat-b'] !== undefined, 'the foreign record is kept (additive)');
+    assert.strictEqual(persisted.chats['chat-b'].deviceId, 'dev-B', 'foreign stamp preserved');
+    assert.strictEqual(persisted.chats['chat-new'].starred, true, 'the user edit applied on top');
+  });
+
+  it('a foreign doc made ONLY of no-stamp automated archive flips is still detected (project-level signal at the root)', async () => {
+    // The exact finding scenario: another device auto-archive pass flips
+    // EXISTING records without refreshing their stamps (the round-1 fix), so the
+    // foreign doc carries ZERO fresh chat-level foreign stamps; only the
+    // project-level deviceId marks it. It also lacks a local-only record. The
+    // root reconcile must catch it by the project stamp BEFORE mutate erases it.
+    const clock = clockFrom(60_000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+
+    store.setChatStarred(PK, 'chat-old', true);
+    store.addChatTag(PK, 'chat-keep', 'tag-x'); // local-only, never synced out
+    await store.flush();
+
+    clock.advance(10);
+    const foreign = cloneStored(mem, metaKeyFor(PK)) as unknown as PersistedDoc & {
+      updatedAt: number;
+      deviceId: string;
+    };
+    // Stale device never received chat-keep.
+    delete foreign.chats['chat-keep'];
+    // Its automated pass flipped chat-old WITHOUT re-stamping the record.
+    foreign.chats['chat-old'].userArchived = true;
+    foreign.chats['chat-old'].archivedAt = clock.now();
+    foreign.deviceId = 'dev-B';
+    foreign.updatedAt = clock.now();
+    mem.seed(metaKeyFor(PK), foreign);
+
+    clock.advance(10);
+    store.setChatStarred(PK, 'chat-new', true);
+    await store.flush();
+
+    const persisted = mem.get(metaKeyFor(PK)) as PersistedDoc;
+    assert.ok(persisted.chats['chat-keep'] !== undefined, 'local-only record survives');
+    assert.deepStrictEqual(persisted.chats['chat-keep'].tags, ['tag-x']);
+    assert.strictEqual(
+      persisted.chats['chat-old'].userArchived,
+      true,
+      'the foreign automated archive flip is carried (archive-group loser fallback)',
+    );
+    assert.strictEqual(persisted.chats['chat-new'].starred, true);
+  });
+
+  it('a SAME-DEVICE external write (another window) is adopted verbatim: a deletion is not resurrected', async () => {
+    const clock = clockFrom(70_000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+
+    store.upsertFolder(PK, { id: 'f1', name: 'Doomed', parentId: null, order: 0 });
+    store.setChatFolder(PK, 'chat-a', 'f1');
+    await store.flush();
+
+    // Another window of the SAME install deletes the folder and unfiles the
+    // chat: same project deviceId, our record stamps. The additive merge must
+    // NOT fire here, or the deletion would be silently undone.
+    clock.advance(10);
+    const other = cloneStored(mem, metaKeyFor(PK)) as unknown as PersistedDoc & {
+      updatedAt: number;
+      deviceId: string;
+    };
+    delete other.folders['f1'];
+    other.chats['chat-a'].folderId = null;
+    (other.chats['chat-a'] as { updatedAt: number }).updatedAt = clock.now();
+    other.updatedAt = clock.now();
+    mem.seed(metaKeyFor(PK), other);
+
+    clock.advance(10);
+    store.setChatStarred(PK, 'chat-z', true);
+    await store.flush();
+
+    const persisted = mem.get(metaKeyFor(PK)) as PersistedDoc;
+    assert.ok(!('f1' in persisted.folders), 'the other window\'s deletion is honored');
+    assert.strictEqual(persisted.chats['chat-a'].folderId, null, 'the unfile is honored');
+    assert.strictEqual(persisted.chats['chat-z'].starred, true);
+  });
+
+  it('the FIRST chain root of a session falls back to the persistent sync shadow', async () => {
+    // A fresh extension host (empty lastAdopted): the foreign value already sits
+    // in the Memento at the first user action, before the activation poll wins
+    // the race. The persistent shadow is the only last-known-good; the root
+    // reconcile must use it.
+    const clock = clockFrom(80_000);
+    const mem = new FakeMemento();
+    const shadowMeta = {
+      schemaVersion: 1,
+      folders: {},
+      tags: {},
+      chats: {
+        'chat-keep': {
+          folderId: null,
+          tags: ['tag-x'],
+          links: [],
+          updatedAt: 79_000,
+          deviceId: DEVICE,
+        },
+      },
+      updatedAt: 79_000,
+      deviceId: DEVICE,
+    };
+    const foreignLive = {
+      schemaVersion: 1,
+      folders: {},
+      tags: {},
+      chats: {
+        'chat-b': {
+          folderId: null,
+          tags: [],
+          links: [],
+          updatedAt: 79_500,
+          deviceId: 'dev-B',
+        },
+      },
+      updatedAt: 79_500,
+      deviceId: 'dev-B',
+    };
+    mem.seed(metaKeyFor(PK), foreignLive);
+    mem.seed(shadowKeyFor(PK), { meta: shadowMeta, deviceId: DEVICE });
+    const store = makeStore(mem, { now: clock.now });
+
+    store.setChatStarred(PK, 'chat-new', true);
+    await store.flush();
+
+    const persisted = mem.get(metaKeyFor(PK)) as PersistedDoc;
+    assert.ok(
+      persisted.chats['chat-keep'] !== undefined,
+      'the record only the shadow still had is restored',
+    );
+    assert.ok(persisted.chats['chat-b'] !== undefined, 'the foreign record is kept');
+    assert.strictEqual(persisted.chats['chat-new'].starred, true);
+  });
+
+  it('getReconciledProjectMeta serves the restored view while getProjectMeta stays the raw poll view', async () => {
+    const clock = clockFrom(90_000);
+    const mem = new FakeMemento();
+    const store = makeStore(mem, { now: clock.now });
+
+    store.addChatTag(PK, 'chat-keep', 'tag-x');
+    await store.flush();
+
+    clock.advance(10);
+    const foreign = cloneStored(mem, metaKeyFor(PK)) as unknown as PersistedDoc & {
+      updatedAt: number;
+      deviceId: string;
+    };
+    delete foreign.chats['chat-keep'];
+    foreign.deviceId = 'dev-B';
+    foreign.updatedAt = clock.now();
+    mem.seed(metaKeyFor(PK), foreign);
+
+    // The raw read (what the reconcile poll must see to classify) serves the
+    // lossy foreign value as stored...
+    assert.ok(
+      store.getProjectMeta(PK).chats['chat-keep'] === undefined,
+      'raw read serves the stored value',
+    );
+    // ...while the reconciled read (what the import plan builds from) restores
+    // the dropped record.
+    const reconciled = store.getReconciledProjectMeta(PK);
+    assert.ok(
+      reconciled.chats['chat-keep'] !== undefined,
+      'reconciled read restores the dropped local-only record',
+    );
+    assert.deepStrictEqual(reconciled.chats['chat-keep'].tags, ['tag-x']);
   });
 });

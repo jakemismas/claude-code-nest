@@ -638,3 +638,72 @@ describe('schema nullProtoMaps (write-path defense-in-depth backstop)', () => {
     );
   });
 });
+
+// Security fix pass round 1: the shared free-text cap at the normalize ingest
+// boundary (import / sync-merge). Over-long names are TRUNCATED, not dropped, so
+// a foreign document keeps its records while the oversized payload (which could
+// break the project's Settings Sync item) never re-enters the synced store. The
+// restoredAt scalar (deliberate-restore intent) must also round-trip.
+describe('schema normalize: free-text caps and restoredAt carry-through', () => {
+  const DEVICE = 'dev-T';
+  const NOW = 1_700_000_000_000;
+
+  it('truncates an over-long folder name to MAX_NAME_LENGTH instead of dropping the folder', () => {
+    const raw = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: { f1: { name: 'n'.repeat(50000), parentId: null, order: 0 } },
+      tags: {},
+      chats: {},
+      updatedAt: NOW,
+      deviceId: DEVICE,
+    };
+    const meta = migrateProjectMeta(raw, DEVICE, NOW);
+    assert.ok('f1' in meta.folders, 'the record survives');
+    assert.strictEqual(meta.folders.f1.name.length, 200);
+  });
+
+  it('truncates an over-long tag label to MAX_NAME_LENGTH instead of dropping the tag', () => {
+    const raw = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {},
+      tags: { t1: { label: 'l'.repeat(50000) } },
+      chats: {},
+      updatedAt: NOW,
+      deviceId: DEVICE,
+    };
+    const meta = migrateProjectMeta(raw, DEVICE, NOW);
+    assert.ok('t1' in meta.tags);
+    assert.strictEqual(meta.tags.t1.label.length, 200);
+  });
+
+  it('leaves a normal-length name/label untouched', () => {
+    const raw = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: { f1: { name: 'Inbox', parentId: null, order: 0 } },
+      tags: { t1: { label: 'auth' } },
+      chats: {},
+      updatedAt: NOW,
+      deviceId: DEVICE,
+    };
+    const meta = migrateProjectMeta(raw, DEVICE, NOW);
+    assert.strictEqual(meta.folders.f1.name, 'Inbox');
+    assert.strictEqual(meta.tags.t1.label, 'auth');
+  });
+
+  it('carries restoredAt through normalize and drops a non-number restoredAt', () => {
+    const raw = {
+      schemaVersion: SCHEMA_VERSION,
+      folders: {},
+      tags: {},
+      chats: {
+        a: { folderId: null, tags: [], links: [], updatedAt: 1, deviceId: 'd', userArchived: false, restoredAt: 4242 },
+        b: { folderId: null, tags: [], links: [], updatedAt: 1, deviceId: 'd', restoredAt: 'evil' },
+      },
+      updatedAt: NOW,
+      deviceId: DEVICE,
+    };
+    const meta = migrateProjectMeta(raw, DEVICE, NOW);
+    assert.strictEqual(meta.chats.a.restoredAt, 4242);
+    assert.strictEqual('restoredAt' in meta.chats.b, false);
+  });
+});

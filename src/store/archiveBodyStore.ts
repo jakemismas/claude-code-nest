@@ -127,6 +127,20 @@ export async function writeArchivedBody(
   globalStorageUri: vscode.Uri,
   envelope: { sessionId: string; title: string; archivedAt: number; starred: boolean; bodies: ChatMessageBody[] },
 ): Promise<boolean> {
+  // EMPTY-BODIES GUARD (data-loss): bodyReader.readTranscriptBodies returns [] on
+  // ANY read failure (a locked/AV-held/just-deleted transcript), and an envelope
+  // persisted with bodies:[] would be a PERMANENT poison marker: hasArchivedBody
+  // would report a copy exists, the auto-archive pass would never retry the
+  // protective copy for a starred chat, and when Claude's cleanup later deletes
+  // the source transcript the chat's only durable form is an empty shell. Refuse
+  // the write instead (return false, the same signal as a storage failure), so an
+  // existing good copy is never downgraded, no poisoned marker is minted, the
+  // interactive archive command surfaces its honest "copy failed, re-archive to
+  // retry" toast, and the engine's next pass retries. A transcript with genuinely
+  // zero extractable bodies loses nothing by having no copy.
+  if (envelope.bodies.length === 0) {
+    return false;
+  }
   try {
     const payload: ArchivedBodyEnvelope = {
       version: ENVELOPE_VERSION,
@@ -175,16 +189,22 @@ export async function readArchivedBody(
   }
 }
 
-// Whether a Nest-owned body copy already exists for one chat. Used by the
-// auto-archive engine (slice s3b-settings-overlay) to skip writing a starred
-// protective copy that already landed, so the pass is idempotent and never
-// re-copies. A read that returns an envelope means the copy exists; any failure
-// (absent, unreadable, malformed) reads as absent. Best-effort, never throws.
+// Whether a Nest-owned body copy WITH CONTENT already exists for one chat. Used
+// by the auto-archive engine (slice s3b-settings-overlay) to skip writing a
+// starred protective copy that already landed, so the pass is idempotent and
+// never re-copies. Any failure (absent, unreadable, malformed) reads as absent.
+// An envelope with EMPTY bodies also reads as absent: envelope-exists is not
+// content-exists. A legacy empty envelope (written before writeArchivedBody's
+// empty-bodies guard, from a transiently unreadable transcript) must not satisfy
+// the protective-copy check, or the starred chat's only durable form would stay
+// an empty shell forever; treating it as absent makes the next pass retry and
+// overwrite it with the real content. Best-effort, never throws.
 export async function hasArchivedBody(
   globalStorageUri: vscode.Uri,
   sessionId: string,
 ): Promise<boolean> {
-  return (await readArchivedBody(globalStorageUri, sessionId)) !== null;
+  const envelope = await readArchivedBody(globalStorageUri, sessionId);
+  return envelope !== null && envelope.bodies.length > 0;
 }
 
 // Delete one archived chat's body copy (used by Restore: clearing the
