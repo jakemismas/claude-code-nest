@@ -5,6 +5,9 @@ import { buildOpenUri, openChat, OpenUri } from '../../launch/uriLauncher';
 // no vscode import. Asserts the verified target
 // vscode://Anthropic.claude-code/open?session=<sessionId>.
 
+const UUID = '3ffbf9b4-9d3a-4c98-8616-10b0bec221e4';
+const BAD_IDS = ['abc_xyz', 'a', 'x', '', 'abcdef12 ', '../abcdef12', 'abcdef12&x=1', 'g'.repeat(16), 'a'.repeat(65)];
+
 describe('uriLauncher.buildOpenUri', () => {
   it('builds the verified scheme, cased authority, path, and session query', () => {
     const uri = buildOpenUri('3ffbf9b4-9d3a-4c98-8616-10b0bec221e4');
@@ -15,8 +18,8 @@ describe('uriLauncher.buildOpenUri', () => {
   });
 
   it('does not lowercase the authority', () => {
-    assert.strictEqual(buildOpenUri('x').authority, 'Anthropic.claude-code');
-    assert.notStrictEqual(buildOpenUri('x').authority, 'anthropic.claude-code');
+    assert.strictEqual(buildOpenUri(UUID).authority, 'Anthropic.claude-code');
+    assert.notStrictEqual(buildOpenUri(UUID).authority, 'anthropic.claude-code');
   });
 
   it('leaves a bare UUID unchanged under standard query encoding', () => {
@@ -48,7 +51,26 @@ describe('uriLauncher.openChat', () => {
 
   it('passes through the opener return value (supports a thenable opener)', async () => {
     const spy = (_uri: OpenUri): Promise<boolean> => Promise.resolve(true);
-    const result = await (openChat('x', spy) as Promise<boolean>);
+    const result = await (openChat(UUID, spy) as Promise<boolean>);
     assert.strictEqual(result, true);
+  });
+});
+
+describe('uriLauncher session id grammar', () => {
+  it('buildOpenUri throws on an id that fails the session id grammar', () => {
+    for (const id of BAD_IDS) {
+      assert.throws(() => buildOpenUri(id), id);
+    }
+  });
+
+  it('openChat never fires the opener for an id that fails the grammar', () => {
+    let calls = 0;
+    const spy = (_uri: OpenUri): void => {
+      calls++;
+    };
+    for (const id of BAD_IDS) {
+      assert.strictEqual(openChat(id, spy), undefined);
+    }
+    assert.strictEqual(calls, 0);
   });
 });

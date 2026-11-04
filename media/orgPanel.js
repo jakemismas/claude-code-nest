@@ -728,8 +728,15 @@
       sections.starred.length +
       sections.questions.length +
       sections.folders.reduce((n, f) => n + f.rows.length, 0);
-    if (total === 0 && (!sections.archivedCount || sections.archivedCount <= 0)) {
+    if (total === 0 && (!sections.archivedCount || sections.archivedCount <= 0) && !fleetHasContent()) {
       renderEmpty('No Claude Code chats found for this workspace yet.');
+      return;
+    }
+
+    // The Active projection shows only the fleet groups with live work.
+    if (fleet && fleet.active) {
+      renderFleetLayout();
+      restoreFocus();
       return;
     }
 
@@ -747,6 +754,9 @@
       renderCrossCuttingSection('Questions', sections.questions, { showBreadcrumb: true });
     }
 
+    if (fleet) {
+      renderFleetLayout();
+    }
     renderFolderTree();
 
     renderArchivedRow();
@@ -825,6 +835,10 @@
       // folders by the Folders toggle. A folder skipped by its toggle contributes
       // nothing to the collapse bookkeeping (it and its subtree are simply not drawn).
       if (folder.synthetic) {
+        // The fleet layout draws computed groups and Unsorted itself.
+        if (fleet) {
+          continue;
+        }
         // Computed groups (auto) are not the Unsorted bucket and stay visible.
         if (folder.auto || showUnsorted) {
           renderFolderSection(folder);
@@ -2738,7 +2752,9 @@
   // ---- keyboard navigation (roving tabindex over treeitems) ----
 
   function focusableRows() {
-    return Array.prototype.slice.call(listEl.querySelectorAll('[role="treeitem"]'));
+    return Array.prototype
+      .slice.call(listEl.querySelectorAll('[role="treeitem"]'))
+      .filter((el) => !el.closest('.nest-fleet-group:not(.is-open) > .nest-fleet-body'));
   }
 
   function activateRow(sessionId) {
@@ -2812,6 +2828,27 @@
       if (rows.length) {
         setFocus(rows[rows.length - 1]);
       }
+    } else if (e.key === 'ArrowRight' && isRow && active.dataset.kind === 'fleet-group') {
+      e.preventDefault();
+      if (active.getAttribute('aria-expanded') === 'false') {
+        toggleFleetGroup(active.dataset.groupId);
+      } else {
+        moveToFirstChild(active);
+      }
+    } else if (e.key === 'ArrowLeft' && isRow && active.dataset.kind === 'fleet-group') {
+      e.preventDefault();
+      if (active.getAttribute('aria-expanded') === 'true') {
+        toggleFleetGroup(active.dataset.groupId);
+      }
+    } else if (e.key === 'ArrowLeft' && isRow && active.dataset.parentFleetGroup) {
+      e.preventDefault();
+      const entry = fleetGroupEls.get(active.dataset.parentFleetGroup);
+      if (entry) {
+        setFocus(entry.header);
+      }
+    } else if ((e.key === 'Enter' || e.key === ' ') && isRow && active.dataset.kind === 'fleet-group') {
+      e.preventDefault();
+      toggleFleetGroup(active.dataset.groupId);
     } else if (e.key === 'ArrowRight' && isRow) {
       e.preventDefault();
       const folderId = folderIdOf(active);
@@ -3015,6 +3052,577 @@
     });
   }
 
+  // ---- fleet layout ----
+
+  // The latest host-posted fleet message (display-ready groups, rows and ARIA fields), or
+  // null until the host posts one. While null, the panel draws only the original sections.
+  let fleet = null;
+  // Open state per group id: an explicit user choice. The Active projection forces live
+  // groups open without touching this map, so turning Active off restores it.
+  const groupOpen = new Map();
+  // Open overrides while Active is on. Cleared whenever Active turns on or off.
+  const activeOpen = new Map();
+  let queueOpen = false;
+  // What changed between the previous fleet message and the one being drawn. Set by the
+  // message handler for exactly one render so only real changes animate.
+  let fleetDiff = null;
+  // The elements of the last fleet render, by group id, for in-place open and close.
+  const fleetGroupEls = new Map();
+  const MAX_SAVED_GROUPS = 500;
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const activeBtnEl = document.getElementById('activeBtn');
+  const activeLabelEl = document.getElementById('activeLabel');
+  const queueBtnEl = document.getElementById('queueBtn');
+  const queueLabelEl = document.getElementById('queueLabel');
+  const queueListEl = document.getElementById('queueList');
+
+  function svgEl(width, height, className, paths, circles) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', className);
+    for (const c of circles || []) {
+      const circle = document.createElementNS(SVG_NS, 'circle');
+      circle.setAttribute('cx', String(c[0]));
+      circle.setAttribute('cy', String(c[1]));
+      circle.setAttribute('r', String(c[2]));
+      svg.appendChild(circle);
+    }
+    for (const d of paths) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      svg.appendChild(path);
+    }
+    return svg;
+  }
+
+  function saveFleetState() {
+    const entries = Array.from(groupOpen.entries()).slice(-MAX_SAVED_GROUPS);
+    try {
+      vscode.setState({ fleetGroupOpen: entries, queueOpen: queueOpen });
+    } catch (err) {
+      // The saved copy is a convenience; the in-memory state is authoritative.
+    }
+  }
+
+  function restoreFleetState() {
+    let saved;
+    try {
+      saved = vscode.getState();
+    } catch (err) {
+      return;
+    }
+    if (!saved || typeof saved !== 'object') {
+      return;
+    }
+    if (Array.isArray(saved.fleetGroupOpen)) {
+      for (const entry of saved.fleetGroupOpen.slice(-MAX_SAVED_GROUPS)) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean') {
+          groupOpen.set(entry[0], entry[1]);
+        }
+      }
+    }
+    queueOpen = saved.queueOpen === true;
+  }
+
+  // The groups the fleet layout draws, in order. User folders appear here only in the
+  // Active projection; otherwise the folder tree below draws them.
+  function fleetGroupsOf(f) {
+    const out = [];
+    if (!f) {
+      return out;
+    }
+    if (f.pastOrchestrators) {
+      out.push(f.pastOrchestrators);
+    }
+    for (const g of f.groups || []) {
+      out.push(g);
+    }
+    if (f.active) {
+      for (const g of f.userFolders || []) {
+        out.push(g);
+      }
+    }
+    if (f.unsorted) {
+      out.push(f.unsorted);
+    }
+    return out;
+  }
+
+  // Whether a group is open under a given message. With nothing explicit, a group with a
+  // live chat is open, and so is the newest group when nothing is live.
+  function groupIsOpen(f, g) {
+    if (f.active) {
+      return activeOpen.has(g.id) ? activeOpen.get(g.id) : g.forceOpen === true;
+    }
+    if (groupOpen.has(g.id)) {
+      return groupOpen.get(g.id);
+    }
+    if (g.hasLive) {
+      return true;
+    }
+    const first = (f.groups || [])[0];
+    return g === first && !(f.groups || []).some((x) => x.hasLive);
+  }
+
+  // A group that has shown live work stays open until the user closes it.
+  function latchLiveGroups(f) {
+    if (f.active) {
+      return;
+    }
+    for (const g of fleetGroupsOf(f)) {
+      if (g.hasLive && !groupOpen.has(g.id)) {
+        groupOpen.set(g.id, true);
+      }
+    }
+  }
+
+  function rowSnapshot(f) {
+    const status = new Map();
+    const stage = new Map();
+    const open = new Map();
+    if (!f) {
+      return { status: status, stage: stage, open: open };
+    }
+    const rows = [];
+    if (f.orchestrator) {
+      rows.push(f.orchestrator);
+    }
+    for (const g of fleetGroupsOf(f)) {
+      for (const r of g.rows) {
+        rows.push(r);
+      }
+      stage.set(g.id, { stage: g.stage, family: g.stageFamily, color: g.stageColor });
+      open.set(g.id, groupIsOpen(f, g));
+    }
+    for (const r of rows) {
+      status.set(r.sessionId, r.status);
+    }
+    return { status: status, stage: stage, open: open };
+  }
+
+  function diffFleet(prev, next) {
+    if (!prev) {
+      return null;
+    }
+    const before = rowSnapshot(prev);
+    const after = rowSnapshot(next);
+    const added = new Set();
+    const done = new Set();
+    for (const [id, status] of after.status) {
+      if (!before.status.has(id)) {
+        added.add(id);
+      } else if (before.status.get(id) !== 'done' && status === 'done') {
+        done.add(id);
+      }
+    }
+    // Switching the Active projection moves whole groups; it is not a new row.
+    const switched = prev.active !== next.active;
+    if (switched) {
+      added.clear();
+      done.clear();
+    }
+    return {
+      added: added,
+      done: done,
+      stage: before.stage,
+      open: before.open,
+      activeChanged: switched,
+    };
+  }
+
+  function makeStatusMark(status, morph) {
+    const slot = document.createElement('span');
+    slot.className = 'nest-fleet-status';
+    slot.setAttribute('aria-hidden', 'true');
+    if (status === 'working') {
+      const dot = document.createElement('span');
+      dot.className = 'nest-fleet-dot nest-dot-working';
+      slot.appendChild(dot);
+    } else if (status === 'needs') {
+      const q = document.createElement('span');
+      q.className = 'nest-fleet-needs';
+      q.textContent = '?';
+      slot.appendChild(q);
+    } else if (status === 'queued') {
+      const dot = document.createElement('span');
+      dot.className = 'nest-fleet-dot nest-dot-queued';
+      slot.appendChild(dot);
+    } else if (status === 'done') {
+      slot.appendChild(svgEl(12, 12, 'nest-fleet-check', ['M2 6.5 5 9.5 10 3']));
+      if (morph) {
+        slot.classList.add('nest-morph');
+      }
+    } else {
+      const dot = document.createElement('span');
+      dot.className = 'nest-fleet-dot nest-fleet-dot-idle';
+      slot.appendChild(dot);
+    }
+    return slot;
+  }
+
+  const PILL_FAMILIES = ['teal', 'orange', 'blue', 'green'];
+
+  function applyPillColor(pill, family, color) {
+    if (color) {
+      const bg = hexToRgba(color, 0.15);
+      if (bg) {
+        pill.className = 'nest-pill nest-pill-custom';
+        pill.style.setProperty('--pill-custom-bg', bg);
+        pill.style.setProperty('--pill-custom-fg', color);
+        return;
+      }
+    }
+    pill.className = 'nest-pill nest-pill-' + (PILL_FAMILIES.indexOf(family) >= 0 ? family : 'blue');
+  }
+
+  // A stage pill. When the previous message had a different stage color family for the
+  // same id, the pill starts in the old colors and moves to the new ones next frame, so
+  // the colors cross-fade.
+  function makeStagePill(text, family, color, before) {
+    const pill = document.createElement('span');
+    pill.textContent = text;
+    const oldFamily =
+      before && before.family && before.family !== family && !before.color && !color ? before.family : null;
+    applyPillColor(pill, oldFamily || family, color);
+    if (oldFamily) {
+      requestAnimationFrame(() => requestAnimationFrame(() => applyPillColor(pill, family, color)));
+    }
+    return pill;
+  }
+
+  function makeAgentTag(row) {
+    const tag = document.createElement('span');
+    const kind = ['build', 'fix', 'qa', 'spike', 'review', 'capture'].indexOf(row.tagKind) >= 0 ? row.tagKind : 'review';
+    tag.className = 'nest-agent-tag nest-agent-' + kind;
+    tag.textContent = row.agentTag;
+    return tag;
+  }
+
+  function setTreeitemAria(el, row) {
+    el.setAttribute('role', 'treeitem');
+    el.setAttribute('aria-level', String(row.ariaLevel));
+    el.setAttribute('aria-posinset', String(row.ariaPosInSet));
+    el.setAttribute('aria-setsize', String(row.ariaSetSize));
+    el.setAttribute('aria-label', row.ariaLabel);
+    el.setAttribute('tabindex', '-1');
+  }
+
+  function wireFleetChat(el, row) {
+    el.dataset.kind = 'chat';
+    el.dataset.id = row.sessionId;
+    if (activeId && row.sessionId === activeId) {
+      el.classList.add('nest-active');
+    }
+    el.draggable = true;
+    el.addEventListener('click', () => activateRow(row.sessionId));
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openChatMenu(e, row.sessionId);
+    });
+    el.addEventListener('dragstart', (e) => onRowDragStart(e, row.sessionId));
+    el.addEventListener('dragend', onDragEnd);
+  }
+
+  function makeOrchestratorCard(row) {
+    const el = document.createElement('div');
+    el.className = 'nest-fleet-orch';
+    setTreeitemAria(el, row);
+    wireFleetChat(el, row);
+    el.appendChild(svgEl(14, 14, 'nest-fleet-orch-icon', ['M5 1.5h4l-.6 4 2.1 2H3.5l2.1-2L5 1.5ZM7 7.5v5']));
+    const label = document.createElement('span');
+    label.className = 'nest-fleet-orch-label';
+    label.textContent = 'Orchestrator';
+    el.appendChild(label);
+    el.appendChild(makeStatusMark(row.status, false));
+    return el;
+  }
+
+  function makeFleetChatRow(row, group) {
+    const el = document.createElement('div');
+    el.className = 'nest-fleet-chat' + (row.child ? ' nest-fleet-child' : '');
+    setTreeitemAria(el, row);
+    wireFleetChat(el, row);
+    el.dataset.parentFleetGroup = group.id;
+    if (fleetDiff && fleetDiff.added.has(row.sessionId)) {
+      el.classList.add('nest-fleet-enter');
+    }
+    if (row.child) {
+      const branch = document.createElement('span');
+      branch.className = 'nest-fleet-branch';
+      branch.setAttribute('aria-hidden', 'true');
+      branch.textContent = '└';
+      el.appendChild(branch);
+    }
+    el.appendChild(makeStatusMark(row.status, !!(fleetDiff && fleetDiff.done.has(row.sessionId))));
+    if (row.agentTag) {
+      el.appendChild(makeAgentTag(row));
+    }
+    const isTicket = group.kind === 'ticket';
+    const text = isTicket ? row.suffix : row.title;
+    if (text || (isTicket && !row.agentTag)) {
+      const label = document.createElement('span');
+      label.className = 'nest-fleet-chat-text' + (isTicket && row.suffix ? ' nest-fleet-suffix' : '');
+      label.textContent = text || row.title;
+      el.appendChild(label);
+    }
+    return el;
+  }
+
+  function makeFleetGroupHeader(g, open) {
+    const el = document.createElement('div');
+    const isPast = g.id === 'past-orchestrators';
+    el.className = 'nest-fleet-group-row' + (isPast ? ' nest-fleet-past' : '');
+    setTreeitemAria(el, g);
+    el.setAttribute('aria-expanded', open ? 'true' : 'false');
+    el.dataset.kind = 'fleet-group';
+    el.dataset.id = 'fleet-group:' + g.id;
+    el.dataset.groupId = g.id;
+    el.appendChild(svgEl(12, 12, 'nest-fleet-chev', ['M4 2.5 7.5 6 4 9.5']));
+
+    if (isPast) {
+      const label = document.createElement('span');
+      label.className = 'nest-fleet-group-text';
+      label.textContent = g.label;
+      el.appendChild(label);
+    } else if (g.kind === 'ticket') {
+      if (g.rollup) {
+        el.appendChild(makeStatusMark(g.rollup, false));
+      }
+      const text = document.createElement('span');
+      text.className = 'nest-fleet-group-text';
+      const id = document.createElement('span');
+      id.className = 'nest-fleet-ticket';
+      id.textContent = g.ticket || g.label;
+      text.appendChild(id);
+      if (g.title) {
+        text.appendChild(document.createTextNode(' ' + g.title));
+      }
+      el.appendChild(text);
+      if (g.stage) {
+        const before = fleetDiff && fleetDiff.stage.get(g.id);
+        el.appendChild(makeStagePill(g.stage, g.stageFamily, g.stageColor, before));
+      }
+    } else {
+      if (g.kind === 'date') {
+        el.appendChild(svgEl(14, 14, 'nest-fleet-clock-icon', ['M7 4v3.2l2 1.3'], [[7, 7, 5.3]]));
+      } else {
+        el.appendChild(
+          svgEl(15, 13, 'nest-fleet-folder-icon', [
+            'M1.5 3V11a.8.8 0 0 0 .8.8h10.4a.8.8 0 0 0 .8-.8V4.6a.8.8 0 0 0-.8-.8H7L5.6 2.2H2.3a.8.8 0 0 0-.8.8Z',
+          ]),
+        );
+      }
+      const label = document.createElement('span');
+      label.className = 'nest-fleet-group-text nest-fleet-label';
+      label.textContent = g.label;
+      el.appendChild(label);
+      if (g.hasLive) {
+        const live = document.createElement('span');
+        live.className = 'nest-fleet-live';
+        live.setAttribute('aria-hidden', 'true');
+        el.appendChild(live);
+      }
+      const count = document.createElement('span');
+      count.className = 'nest-fleet-count';
+      count.setAttribute('aria-hidden', 'true');
+      count.textContent = String(g.count);
+      el.appendChild(count);
+    }
+    el.addEventListener('click', () => toggleFleetGroup(g.id));
+    return el;
+  }
+
+  function renderFleetGroup(g) {
+    const open = groupIsOpen(fleet, g);
+    const wrap = document.createElement('div');
+    wrap.className = 'nest-fleet-group';
+    wrap.dataset.groupId = g.id;
+    const header = makeFleetGroupHeader(g, open);
+    wrap.appendChild(header);
+    const body = document.createElement('div');
+    body.className = 'nest-fleet-body';
+    body.setAttribute('role', 'group');
+    body.setAttribute('aria-label', g.label || g.ticket || '');
+    const inner = document.createElement('div');
+    inner.className = 'nest-fleet-body-inner';
+    for (const row of g.rows) {
+      inner.appendChild(makeFleetChatRow(row, g));
+    }
+    body.appendChild(inner);
+    wrap.appendChild(body);
+    if (fleetDiff && fleetDiff.activeChanged) {
+      wrap.classList.add('nest-fleet-slide');
+    }
+    // Start in the previous open state and move to the new one next frame, so a change
+    // slides instead of snapping.
+    const was = fleetDiff && fleetDiff.open.has(g.id) ? fleetDiff.open.get(g.id) : open;
+    wrap.classList.toggle('is-open', was);
+    if (was !== open) {
+      requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.toggle('is-open', open)));
+    }
+    fleetGroupEls.set(g.id, { wrap: wrap, header: header });
+    listEl.appendChild(wrap);
+  }
+
+  function toggleFleetGroup(id) {
+    const entry = fleetGroupEls.get(id);
+    const g = fleetGroupsOf(fleet).find((x) => x.id === id);
+    if (!entry || !g) {
+      return;
+    }
+    const next = !groupIsOpen(fleet, g);
+    if (fleet.active) {
+      activeOpen.set(id, next);
+    } else {
+      groupOpen.set(id, next);
+      saveFleetState();
+    }
+    entry.wrap.classList.toggle('is-open', next);
+    entry.header.setAttribute('aria-expanded', next ? 'true' : 'false');
+  }
+
+  function fleetHasContent() {
+    return (
+      !!fleet &&
+      (!!fleet.orchestrator ||
+        !!fleet.pastOrchestrators ||
+        (fleet.groups || []).length > 0 ||
+        (fleet.active && (fleet.userFolders || []).length > 0) ||
+        !!fleet.unsorted)
+    );
+  }
+
+  // The fleet layout: the pinned orchestrator, past orchestrators, then the groups.
+  function renderFleetLayout() {
+    fleetGroupEls.clear();
+    if (fleet.orchestrator) {
+      listEl.appendChild(makeOrchestratorCard(fleet.orchestrator));
+    }
+    const all = fleetGroupsOf(fleet);
+    const past = all.filter((g) => g.id === 'past-orchestrators');
+    const rest = all.filter((g) => g.id !== 'past-orchestrators');
+    for (const g of past) {
+      renderFleetGroup(g);
+    }
+    if (fleet.orchestrator || past.length > 0) {
+      const spacer = document.createElement('div');
+      spacer.className = 'nest-fleet-spacer';
+      listEl.appendChild(spacer);
+    }
+    for (const g of rest) {
+      renderFleetGroup(g);
+    }
+    if (!fleetHasContent()) {
+      const empty = document.createElement('div');
+      empty.className = 'nest-fleet-empty';
+      empty.textContent = fleet.active ? 'Nothing is running.' : 'No chats yet.';
+      listEl.appendChild(empty);
+    }
+  }
+
+  function renderQueue() {
+    if (!queueListEl || !queueBtnEl) {
+      return;
+    }
+    queueBtnEl.setAttribute('aria-pressed', queueOpen ? 'true' : 'false');
+    queueListEl.hidden = !queueOpen;
+    queueListEl.textContent = '';
+    if (!queueOpen || !fleet) {
+      return;
+    }
+    const rows = fleet.queue || [];
+    if (rows.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'nest-queue-empty';
+      empty.textContent = 'The queue is empty.';
+      queueListEl.appendChild(empty);
+      return;
+    }
+    for (const q of rows) {
+      const row = document.createElement('div');
+      row.className = 'nest-queue-row';
+      row.setAttribute('role', 'listitem');
+      const dot = document.createElement('span');
+      dot.className = 'nest-queue-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      row.appendChild(dot);
+      const pos = document.createElement('span');
+      pos.className = 'nest-queue-pos';
+      pos.textContent = String(q.position);
+      row.appendChild(pos);
+      const text = document.createElement('span');
+      text.className = 'nest-queue-text';
+      const key = document.createElement('span');
+      key.className = 'nest-queue-key';
+      key.textContent = q.key;
+      text.appendChild(key);
+      if (q.title) {
+        text.appendChild(document.createTextNode(' ' + q.title));
+      }
+      row.appendChild(text);
+      if (q.stage) {
+        row.appendChild(makeStagePill(q.stage, q.stageFamily, q.stageColor, null));
+      }
+      queueListEl.appendChild(row);
+    }
+  }
+
+  // The Active and Queue buttons mirror the latest fleet message.
+  function renderFleetControls() {
+    if (!fleet || !activeBtnEl || !queueBtnEl) {
+      return;
+    }
+    activeBtnEl.hidden = false;
+    queueBtnEl.hidden = false;
+    activeBtnEl.setAttribute('aria-pressed', fleet.active ? 'true' : 'false');
+    activeLabelEl.textContent = 'Active ' + fleet.activeCount;
+    queueLabelEl.textContent = 'Queue ' + fleet.queueCount;
+    renderQueue();
+  }
+
+  function isValidFleetMessage(msg) {
+    return (
+      msg &&
+      msg.type === 'fleet' &&
+      Array.isArray(msg.groups) &&
+      Array.isArray(msg.userFolders) &&
+      Array.isArray(msg.queue) &&
+      typeof msg.activeCount === 'number' &&
+      typeof msg.queueCount === 'number'
+    );
+  }
+
+  function onFleetMessage(msg) {
+    if (!isValidFleetMessage(msg)) {
+      return;
+    }
+    fleetDiff = diffFleet(fleet, msg);
+    if (fleet && fleet.active !== msg.active) {
+      activeOpen.clear();
+    }
+    fleet = msg;
+    latchLiveGroups(fleet);
+    renderFleetControls();
+    render();
+    fleetDiff = null;
+  }
+
+  function onActiveClick() {
+    const next = !(fleet && fleet.active);
+    activeBtnEl.setAttribute('aria-pressed', next ? 'true' : 'false');
+    vscode.postMessage({ type: 'setActive', active: next });
+  }
+
+  function onQueueClick() {
+    queueOpen = !queueOpen;
+    saveFleetState();
+    renderQueue();
+  }
+
   // ---- inbound host messages ----
 
   window.addEventListener('message', (event) => {
@@ -3067,6 +3675,8 @@
         }
       }
       render();
+    } else if (msg.type === 'fleet') {
+      onFleetMessage(msg);
     } else if (msg.type === 'searchResults') {
       // Host content-search reply. Adopt the ranked ids and the
       // per-id snippet ONLY for the query still in the box; a reply for a stale query
@@ -3145,11 +3755,11 @@
         return;
       }
       activeId = next;
-      for (const el of listEl.querySelectorAll('.nest-row.nest-active')) {
+      for (const el of listEl.querySelectorAll('.nest-row.nest-active, .nest-fleet-chat.nest-active, .nest-fleet-orch.nest-active')) {
         el.classList.remove('nest-active');
       }
       if (activeId) {
-        for (const el of listEl.querySelectorAll('.nest-row')) {
+        for (const el of listEl.querySelectorAll('.nest-row, .nest-fleet-chat, .nest-fleet-orch')) {
           if (el.dataset.id === activeId) {
             el.classList.add('nest-active');
           }
@@ -3207,6 +3817,13 @@
     settingsEl.addEventListener('click', () => openSettingsOverlay());
   }
   wireSortPopover();
+  if (activeBtnEl) {
+    activeBtnEl.addEventListener('click', onActiveClick);
+  }
+  if (queueBtnEl) {
+    queueBtnEl.addEventListener('click', onQueueClick);
+  }
+  restoreFleetState();
 
   vscode.postMessage({ type: 'ready' });
 })();

@@ -18,10 +18,12 @@ to [Semantic Versioning](https://semver.org/).
   grouping, linked folders and fleet files, with a JSON schema, hot reload and an
   Open Layout File command.
 - Nest works out a live status for each chat (working, needs you, queued, done or idle)
-  from running Claude Code sessions, fleet records and an optional queue file. The panel
-  does not show it yet.
+  from running Claude Code sessions, fleet records and an optional queue file.
 - Nest can now sort chats into ticket, folder and date groups, with an automatic mode
-  that picks the best fit. The panel does not show these groups yet.
+  that picks the best fit.
+- The panel shows the fleet view: a pinned orchestrator, past orchestrators, ticket or
+  folder groups with status dots, stage pills and agent tags, an Active filter and a
+  read-only Queue list.
 
 ## [0.2.0] - 2026-07-10
 

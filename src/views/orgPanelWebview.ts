@@ -7,10 +7,11 @@ import { FleetSections, buildFleetSections } from '../fleet/groupModel';
 import type { QueueRow } from '../fleet/queueTable';
 import { GroupBy } from '../fleet/nestConfig';
 import { EMPTY_FLEET_STATE, FleetState } from '../fleet/types';
+import { DEFAULT_STAGE_STYLE, StageStyleConfig, buildFleetMessage, coerceSetActive } from './fleetPanel';
 import { readTranscriptBodies } from '../claude/bodyReader';
 import { MetadataStore } from '../store/metadataStore';
 import { ProjectMeta, clampName, isSafeRecordId, isValidColor } from '../store/schema';
-import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
+import { OPEN_CHAT_COMMAND, isOpenableSessionId } from '../launch/uriLauncher';
 import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 import { tokenBadge } from './chatTooltip';
 import { relativeTime, relativeTimeCompact } from './relativeTime';
@@ -139,6 +140,9 @@ type Inbound =
   // stateStore (new _KEY constants), never on ProjectMeta and never synced. Setting the window also triggers a fresh auto-archive pass so a shortened
   // window applies without a reload.
   | { type: 'setState'; sort?: string; collapsedFolders?: string[] }
+  // The Active button's pressed state. The host recomputes the fleet sections with the
+  // Active projection and posts them back; nothing is persisted.
+  | { type: 'setActive'; active: boolean }
   | { type: 'setAutoArchiveWindow'; days: number }
   | {
       type: 'setSectionsVisible';
@@ -369,7 +373,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     listener(this.view?.visible === true);
   }
 
-  // Live status inputs. Rendering reads them in a later change.
+  // Live status inputs. They feed the fleet message the panel renders.
   private agentSessions: readonly AgentSession[] = [];
   private lastRecords: readonly ChatRecord[] = [];
   private statusByChat: ReadonlyMap<string, ChatStatus> = new Map();
@@ -378,18 +382,45 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   setAgentSessions(sessions: readonly AgentSession[]): void {
     this.agentSessions = sessions;
     this.recomputeStatuses();
+    this.postFleet();
   }
 
   setQueueRows(rows: readonly QueueRow[]): void {
     this.queueRows = rows;
+    this.postFleet();
+  }
+
+  // The layout file's stage colors and finished stages, used to color stage pills.
+  setStageStyle(style: StageStyleConfig): void {
+    this.stageStyle = style;
+    this.postFleet();
   }
 
   getQueueRows(): readonly QueueRow[] {
     return this.queueRows;
   }
 
-  // The fleet sections for the current records, fleet state, statuses and queue. Read by
-  // the panel renderer; nothing posts them yet.
+  private stageStyle: StageStyleConfig = DEFAULT_STAGE_STYLE;
+  // The Active projection is per window and not persisted.
+  private fleetActive = false;
+  // The last fleet message as text, so an unchanged poll does not re-render the panel.
+  private lastFleetJson = '';
+
+  // Post the fleet sections to the panel when they changed since the last post.
+  private postFleet(force = false): void {
+    if (this.view === undefined) {
+      return;
+    }
+    const message = buildFleetMessage(this.getFleetSections(this.fleetActive), this.stageStyle);
+    const json = JSON.stringify(message);
+    if (!force && json === this.lastFleetJson) {
+      return;
+    }
+    this.lastFleetJson = json;
+    void this.view.webview.postMessage(message);
+  }
+
+  // The fleet sections for the current records, fleet state, statuses and queue.
   getFleetSections(active: boolean): FleetSections {
     const projectKey = this.getProjectKey();
     const meta: ProjectMeta | undefined =
@@ -536,6 +567,9 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       void this.onArchiveChat(msg.sessionId);
     } else if (msg.type === 'setState') {
       this.onSetState(msg.sort, msg.collapsedFolders);
+    } else if (msg.type === 'setActive') {
+      this.fleetActive = msg.active;
+      this.postFleet();
     } else if (msg.type === 'setAutoArchiveWindow') {
       this.onSetAutoArchiveWindow(msg.days);
     } else if (msg.type === 'setSectionsVisible') {
@@ -799,6 +833,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       return;
     }
     void this.view.webview.postMessage({ type: 'sections', sections: this.buildSectionModel() });
+    this.postFleet(true);
   }
 
   // Post the Settings overlay's state: the current auto-archive window in days and the
@@ -1229,6 +1264,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 <link href="${styleUri}" rel="stylesheet" />
 </head>
 <body>
+  <header class="nest-header"><span id="robinSlot" class="nest-robin-slot" aria-hidden="true"></span><span class="nest-wordmark">Nest</span></header>
   <div class="nest-toolbar">
     <button id="newSession" class="nest-new-session" type="button" title="New session" aria-label="New session"><span class="nest-new-session-plus" aria-hidden="true">+</span>New session</button>
     <span class="nest-spacer"></span>
@@ -1243,11 +1279,17 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       </div>
     </span>
   </div>
-  <div class="nest-search">
-    <span class="nest-search-icon" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
-    <input id="filter" class="nest-filter" type="text" placeholder="Search chats &amp; messages" aria-label="Search chats and messages" />
-    <button id="searchClear" class="nest-search-clear" type="button" title="Clear search" aria-label="Clear search" hidden>&#215;</button>
+  <div class="nest-controls">
+    <div class="nest-search">
+      <span class="nest-search-icon" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+      <input id="filter" class="nest-filter" type="text" placeholder="Search" aria-label="Search chats and messages" />
+      <button id="searchClear" class="nest-search-clear" type="button" title="Clear search" aria-label="Clear search" hidden>&#215;</button>
+    </div>
+
+    <button id="activeBtn" class="nest-fleet-btn nest-fleet-btn-active" type="button" aria-pressed="false" hidden><span class="nest-fleet-btn-dot nest-dot-working" aria-hidden="true"></span><span id="activeLabel">Active 0</span></button>
+    <button id="queueBtn" class="nest-fleet-btn nest-fleet-btn-queue" type="button" aria-pressed="false" aria-controls="queueList" hidden><span class="nest-fleet-btn-dot nest-dot-queued" aria-hidden="true"></span><span id="queueLabel">Queue 0</span></button>
   </div>
+  <div id="queueList" class="nest-queue" role="list" aria-label="Queue" hidden></div>
   <div id="chips" class="nest-chips" role="group" aria-label="Tag filters"></div>
   <div id="list" class="nest-tree" role="tree" aria-label="Organized chats" tabindex="0"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
@@ -1308,6 +1350,7 @@ function coerce(raw: unknown): Inbound | null {
     questions?: unknown;
     folders?: unknown;
     unsorted?: unknown;
+    active?: unknown;
   };
   if (obj.type === 'ready') {
     return { type: 'ready' };
@@ -1315,7 +1358,7 @@ function coerce(raw: unknown): Inbound | null {
   if (obj.type === 'refresh') {
     return { type: 'refresh' };
   }
-  if (obj.type === 'open' && isSafeRecordId(obj.sessionId)) {
+  if (obj.type === 'open' && isSafeRecordId(obj.sessionId) && isOpenableSessionId(obj.sessionId)) {
     // The open id is the ONE webview-controlled id that reaches a PERSISTENCE
     // sink (OPEN_CHAT_COMMAND marks the chat seen, and ReadStateStore.markSeen
     // persists the id into the workspaceState lastSeenAt map), so it gets the
@@ -1460,6 +1503,9 @@ function coerce(raw: unknown): Inbound | null {
       folders: asBool(obj.folders),
       unsorted: asBool(obj.unsorted),
     };
+  }
+  if (obj.type === 'setActive') {
+    return coerceSetActive(obj);
   }
   if (obj.type === 'setState') {
     // collapsedFolders entries are FOLDER IDS persisted to workspaceState: accept

@@ -1438,6 +1438,7 @@ export function activate(context: vscode.ExtensionContext): void {
       for (const problem of [...parsed.problems, ...linked.problems, ...files.problems]) {
         console.warn(`Nest layout file: ${problem}`);
       }
+      orgPanelProvider.setStageStyle({ tags: parsed.config.tags, doneStages: parsed.config.doneStages });
       fleetWatcher.refresh();
       void fleetReloader.reload();
       void loadQueueRows(parsed.config.queue, workspacePath, {

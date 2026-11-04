@@ -80,6 +80,7 @@
     that host so the harness exercises the real script wiring; if the host shell
     changes, this must change with it.
   -->
+  <header class="nest-header"><span id="robinSlot" class="nest-robin-slot" aria-hidden="true"></span><span class="nest-wordmark">Nest</span></header>
   <div class="nest-toolbar">
     <button id="newSession" class="nest-new-session" type="button" title="New session" aria-label="New session"><span class="nest-new-session-plus" aria-hidden="true">+</span>New session</button>
     <span class="nest-spacer"></span>
@@ -94,11 +95,17 @@
       </div>
     </span>
   </div>
-  <div class="nest-search">
-    <span class="nest-search-icon" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#A6A294" stroke-width="1.6"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke="#A6A294" stroke-width="1.6" stroke-linecap="round"/></svg></span>
-    <input id="filter" class="nest-filter" type="text" placeholder="Search chats &amp; messages" aria-label="Search chats and messages" />
-    <button id="searchClear" class="nest-search-clear" type="button" title="Clear search" aria-label="Clear search" hidden>&#215;</button>
+  <div class="nest-controls">
+    <div class="nest-search">
+      <span class="nest-search-icon" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#A6A294" stroke-width="1.6"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke="#A6A294" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+      <input id="filter" class="nest-filter" type="text" placeholder="Search" aria-label="Search chats and messages" />
+      <button id="searchClear" class="nest-search-clear" type="button" title="Clear search" aria-label="Clear search" hidden>&#215;</button>
+    </div>
+
+    <button id="activeBtn" class="nest-fleet-btn nest-fleet-btn-active" type="button" aria-pressed="false" hidden><span class="nest-fleet-btn-dot nest-dot-working" aria-hidden="true"></span><span id="activeLabel">Active 0</span></button>
+    <button id="queueBtn" class="nest-fleet-btn nest-fleet-btn-queue" type="button" aria-pressed="false" aria-controls="queueList" hidden><span class="nest-fleet-btn-dot nest-dot-queued" aria-hidden="true"></span><span id="queueLabel">Queue 0</span></button>
   </div>
+  <div id="queueList" class="nest-queue" role="list" aria-label="Queue" hidden></div>
   <div id="chips" class="nest-chips" role="group" aria-label="Tag filters"></div>
   <div id="list" class="nest-tree" role="tree" aria-label="Organized chats" tabindex="0"></div>
 
@@ -193,6 +200,10 @@
             // Archive overlay populates exactly as it would against the real host.
             if (m && m.type === 'openArchive') {
               window.postMessage(window.__nestHarnessArchivedRows(), '*');
+            }
+            // The host answers the Active button by posting the recomputed fleet sections.
+            if (m && m.type === 'setActive' && window.__nestHarnessFleet) {
+              window.postMessage(window.__nestHarnessFleet(m.active), '*');
             }
           },
           setState: function () {},
@@ -460,8 +471,185 @@
         },
         '*',
       );
-      window.postMessage({ type: 'sections', sections: sections }, '*');
+      // ?fleet=ticket or ?fleet=folder adds the fleet view: the host's 'fleet' message in
+      // the ticket view or the any-folder view, with made-up data. The Starred and
+      // Questions sections are empty there so the capture shows the fleet layout alone.
+      const fleetView = (/[?&]fleet=(ticket|folder)(&|$)/.exec(location.search) || [])[1] || null;
+      const fleetSections = Object.assign({}, sections, {
+        starred: [],
+        questions: [],
+        folders: sections.folders.filter((f) => f.folderId === 'f-personal'),
+        tags: [],
+        allTags: [],
+        archivedCount: 3,
+      });
+      window.postMessage({ type: 'sections', sections: fleetView ? fleetSections : sections }, '*');
       window.postMessage({ type: 'active', sessionId: 's-01' }, '*');
+
+      const STATUS_LABELS = { working: 'Working', needs: 'Needs you', queued: 'Queued', done: 'Done', idle: 'Idle' };
+      const isLive = (r) => r.status === 'working' || r.status === 'needs';
+
+      // A chat row in the host's message shape. A child chat sits one level deeper.
+      function fleetRow(o, level, pos, size) {
+        const label = [o.tag, o.suffix || o.title].filter(Boolean).join(' ');
+        return {
+          sessionId: o.id,
+          title: o.title || '',
+          status: o.status,
+          statusLabel: STATUS_LABELS[o.status],
+          agentTag: o.tag || '',
+          tagKind: o.tag || '',
+          suffix: o.suffix || '',
+          child: !!o.child,
+          ariaLevel: o.child ? level + 1 : level,
+          ariaPosInSet: pos,
+          ariaSetSize: size,
+          ariaLabel: (label || o.title) + '. ' + STATUS_LABELS[o.status] + '.',
+        };
+      }
+
+      function fleetGroup(g, active, pos, size) {
+        const chats = active ? g.rows.filter(isLive) : g.rows;
+        const rows = chats.map((r, i) => fleetRow(r, 2, i + 1, chats.length));
+        const rank = ['needs', 'working', 'queued', 'done', 'idle'];
+        const rollup = chats.length === 0 ? null : chats.map((r) => r.status).sort((a, b) => rank.indexOf(a) - rank.indexOf(b))[0];
+        const hasLive = g.rows.some(isLive);
+        return {
+          id: g.id,
+          kind: g.kind,
+          label: g.label,
+          ticket: g.ticket || null,
+          title: g.title || '',
+          stage: g.stage || '',
+          stageFamily: g.family || '',
+          stageColor: null,
+          rollup: rollup,
+          hasLive: hasLive,
+          forceOpen: active && hasLive,
+          count: rows.length,
+          ariaLevel: 1,
+          ariaPosInSet: pos,
+          ariaSetSize: size,
+          ariaLabel: (g.ticket ? g.ticket + ' ' + g.title : g.label) + '. ' + rows.length + ' chats.',
+          rows: rows,
+        };
+      }
+
+      const TICKET_DATA = {
+        orchestrator: { id: 'o-0001', title: 'Orchestrator', status: 'working' },
+        past: [
+          { id: 'o-0002', title: 'Orchestrator, earlier', status: 'done' },
+          { id: 'o-0003', title: 'Orchestrator, before that', status: 'done' },
+        ],
+        groups: [
+          { id: 'ticket.A-101', kind: 'ticket', label: 'A-101', ticket: 'A-101', title: 'Gateway response handling', stage: 'Back for UAT', family: 'teal', rows: [
+            { id: 'c-101', tag: 'fix', suffix: 'round 2', status: 'done' },
+            { id: 'c-102', tag: 'qa', suffix: 'round 2', status: 'working' },
+          ] },
+          { id: 'ticket.A-102', kind: 'ticket', label: 'A-102', ticket: 'A-102', title: 'Quote line rounding', stage: 'UAT failed', family: 'orange', rows: [
+            { id: 'c-103', tag: 'fix', suffix: '', status: 'needs' },
+          ] },
+          { id: 'ticket.A-105', kind: 'ticket', label: 'A-105', ticket: 'A-105', title: 'Rebate tier rounding', stage: 'In build', family: 'blue', rows: [
+            { id: 'c-104', tag: 'build', suffix: '', status: 'working' },
+            { id: 'c-105', tag: 'spike', suffix: 'data check', status: 'working' },
+          ] },
+          { id: 'ticket.A-103', kind: 'ticket', label: 'A-103', ticket: 'A-103', title: 'Price list import', stage: 'In build', family: 'blue', rows: [
+            { id: 'c-106', tag: 'build', suffix: '', status: 'working' },
+            { id: 'c-107', tag: 'qa', suffix: 'waiting for sandbox', status: 'queued' },
+          ] },
+          { id: 'ticket.A-099', kind: 'ticket', label: 'A-099', ticket: 'A-099', title: 'Approval email template', stage: 'Done', family: 'green', rows: [
+            { id: 'c-108', tag: 'build', suffix: '', status: 'done' },
+            { id: 'c-109', tag: 'qa', suffix: '', status: 'done' },
+          ] },
+        ],
+        unsorted: { id: 'unsorted', kind: 'unsorted', label: 'Unsorted', rows: [
+          { id: 'c-110', title: 'Scratch notes', status: 'idle' },
+        ] },
+        queue: [
+          { key: 'A-106', title: 'Discount floor check', stage: 'To build', family: 'blue' },
+          { key: 'A-107', title: 'Contract sync retry', stage: 'UAT failed', family: 'orange' },
+          { key: 'A-108', title: 'Tier export', stage: 'To build', family: 'blue' },
+        ],
+      };
+
+      const FOLDER_DATA = {
+        orchestrator: null,
+        past: [],
+        groups: [
+          { id: 'folder.release-notes', kind: 'folder', label: 'release-notes-draft', rows: [
+            { id: 'd-101', title: 'Draft the release notes', status: 'working' },
+            { id: 'd-102', title: 'Review of the draft', status: 'working', child: true },
+            { id: 'd-103', title: 'Changelog cleanup', status: 'working' },
+          ] },
+          { id: 'folder.packaging', kind: 'folder', label: 'packaging', rows: [
+            { id: 'd-104', title: 'Packaging rebuild', status: 'done' },
+          ] },
+          { id: 'folder.notes', kind: 'folder', label: 'notes', rows: [
+            { id: 'd-105', title: 'One-to-one prep', status: 'idle' },
+          ] },
+          { id: 'date.today', kind: 'date', label: 'Today', rows: [
+            { id: 'd-106', title: 'Terminal research', status: 'done' },
+            { id: 'd-107', title: 'Skills sync', status: 'done' },
+          ] },
+          { id: 'date.week', kind: 'date', label: 'Earlier this week', rows: [
+            { id: 'd-108', title: 'Plan the week', status: 'done' },
+            { id: 'd-109', title: 'Tidy the notes folder', status: 'done' },
+            { id: 'd-110', title: 'Read the changelog', status: 'idle' },
+          ] },
+        ],
+        unsorted: null,
+        queue: [],
+      };
+
+      // Builds the host's 'fleet' message from the made-up data above.
+      window.__nestHarnessFleet = function (active) {
+        const data = fleetView === 'folder' ? FOLDER_DATA : TICKET_DATA;
+        const orch = data.orchestrator && (!active || isLive(data.orchestrator)) ? data.orchestrator : null;
+        const pastRows = active ? data.past.filter(isLive) : data.past;
+        const groups = data.groups.filter((g) => !active || g.rows.some(isLive));
+        const unsorted = data.unsorted && (!active || data.unsorted.rows.some(isLive)) ? data.unsorted : null;
+        const top = (orch ? 1 : 0) + (pastRows.length > 0 ? 1 : 0) + groups.length + (unsorted ? 1 : 0);
+        let pos = 0;
+        const orchestratorRow = orch ? fleetRow(orch, 1, ++pos, top) : null;
+        let past = null;
+        if (pastRows.length > 0) {
+          past = fleetGroup({ id: 'past-orchestrators', kind: 'user', label: 'Past orchestrators', rows: pastRows }, active, ++pos, top);
+          past.forceOpen = active;
+        }
+        const groupMsgs = groups.map((g) => fleetGroup(g, active, ++pos, top));
+        const unsortedMsg = unsorted ? fleetGroup(unsorted, active, ++pos, top) : null;
+        // The Active count covers every live chat, whatever the projection.
+        const liveCount =
+          (data.orchestrator && isLive(data.orchestrator) ? 1 : 0) +
+          data.past.filter(isLive).length +
+          data.groups.reduce((n, g) => n + g.rows.filter(isLive).length, 0) +
+          (data.unsorted ? data.unsorted.rows.filter(isLive).length : 0);
+        return {
+          type: 'fleet',
+          mode: fleetView === 'folder' ? 'folders' : 'tickets',
+          active: !!active,
+          activeCount: liveCount,
+          queueCount: data.queue.length,
+          archivedCount: 3,
+          orchestrator: orchestratorRow,
+          pastOrchestrators: past,
+          groups: groupMsgs,
+          userFolders: [],
+          unsorted: unsortedMsg,
+          queue: data.queue.map((q, i) => ({
+            position: i + 1,
+            key: q.key,
+            title: q.title,
+            stage: q.stage,
+            stageFamily: q.family,
+            stageColor: null,
+            live: false,
+          })),
+        };
+      };
+      if (fleetView) {
+        window.postMessage(window.__nestHarnessFleet(false), '*');
+      }
 
       // Signal to the screenshot driver that the mock has been posted so it can wait
       // for a rendered row rather than a fixed delay.
