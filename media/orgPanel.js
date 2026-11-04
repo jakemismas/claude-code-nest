@@ -3766,7 +3766,7 @@
   // ---- robin ----
   // The host decides the robin's state and posts it. This block draws the pixel art from
   // robinArt.js as square SVG rects, sets classes that CSS animates, and runs the note,
-  // blink, tail and flutter timers. Colors come from CSS classes, never from style strings.
+  // blink and tail timers. Colors come from CSS classes, never from style strings.
 
   const robinSlotEl = document.getElementById('robinSlot');
   const robinLiveEl = document.getElementById('robinLive');
@@ -3780,9 +3780,6 @@
   const ROBIN_BLINK_MS = 170;
   const ROBIN_FLICK_EVERY_MS = 3500;
   const ROBIN_FLICK_MS = 500;
-  const ROBIN_FLUTTER_MIN_MS = 20000;
-  const ROBIN_FLUTTER_SPREAD_MS = 20000;
-  const ROBIN_FLUTTER_MS = 950;
   const ROBIN_SVG_NS = 'http://www.w3.org/2000/svg';
   const robinArt = window.NestRobinArt;
   const reducedMotionQuery =
@@ -3799,8 +3796,6 @@
   let robinBlinkOffTimer = null;
   let robinFlickTimer = null;
   let robinFlickOffTimer = null;
-  let robinFlutterTimer = null;
-  let robinFlutterOffTimer = null;
   let robinNoteCount = 0;
   // Set by the host when the sidebar view is collapsed or switched away, which does not flip document.hidden.
   let robinPanelHidden = false;
@@ -3875,9 +3870,15 @@
 
     const origin = robinArt.BIRD_ORIGIN;
     const perch = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y), 'rp-perch');
-    const root = robinGroup(perch, 'rp-root');
+    // Jumps and hops move rp-hop, legs included. Planted states move only rp-root, so the
+    // feet never leave the branch.
+    const hop = robinGroup(perch, 'rp-hop');
     const parts = robinArt.birdParts(robinArt.BIRD);
     const flickParts = robinArt.birdParts(robinArt.birdFrame({ flick: true }));
+    const legs = robinGroup(hop, 'rp-legs');
+    robinDraw(legs, robinArt.legStretch(robinArt.BIRD));
+    robinDraw(legs, parts.legs);
+    const root = robinGroup(hop, 'rp-root');
     robinDraw(robinGroup(root, 'rp-tail rp-tail-rest'), parts.tail);
     robinDraw(robinGroup(root, 'rp-tail rp-tail-flick'), flickParts.tail);
     robinDraw(robinGroup(root, 'rp-body'), parts.body);
@@ -3943,14 +3944,10 @@
     clearTimeout(robinBlinkOffTimer);
     clearTimeout(robinFlickTimer);
     clearTimeout(robinFlickOffTimer);
-    clearTimeout(robinFlutterTimer);
-    clearTimeout(robinFlutterOffTimer);
     robinBlinkTimer = null;
     robinBlinkOffTimer = null;
     robinFlickTimer = null;
     robinFlickOffTimer = null;
-    robinFlutterTimer = null;
-    robinFlutterOffTimer = null;
   }
 
   // The eye is the dark pixel; a blink paints it the head color. Sleep keeps it shut.
@@ -3964,12 +3961,6 @@
   function setRobinTail(flicked) {
     if (robinSlotEl) {
       robinSlotEl.setAttribute('data-flick', flicked ? '1' : '0');
-    }
-  }
-
-  function setRobinFlutter(on) {
-    if (robinSlotEl) {
-      robinSlotEl.setAttribute('data-flutter', on ? '1' : '0');
     }
   }
 
@@ -3989,17 +3980,6 @@
       }
       scheduleRobinFlick();
     }, ROBIN_FLICK_EVERY_MS);
-  }
-
-  // An idle robin now and then flutters up off the branch and lands again.
-  function scheduleRobinFlutter() {
-    robinFlutterTimer = setTimeout(() => {
-      if (robinState === 'idle') {
-        setRobinFlutter(true);
-        robinFlutterOffTimer = setTimeout(() => setRobinFlutter(false), ROBIN_FLUTTER_MS);
-      }
-      scheduleRobinFlutter();
-    }, ROBIN_FLUTTER_MIN_MS + Math.random() * ROBIN_FLUTTER_SPREAD_MS);
   }
 
   // A note pops out above the head in the lane of the chat that made it.
@@ -4054,14 +4034,12 @@
     }
     setRobinEye(false);
     setRobinTail(false);
-    setRobinFlutter(false);
     syncRobinPlayback();
     if (!robinMsg || robinStill() || document.hidden || robinPanelHidden) {
       return;
     }
     scheduleRobinBlink();
     scheduleRobinFlick();
-    scheduleRobinFlutter();
     if (robinState === 'working') {
       for (let i = 0; i < robinMsg.noteBudget; i += 1) {
         scheduleRobinNote(i, robinMsg.noteDelaysMs[i]);

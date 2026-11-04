@@ -45,6 +45,8 @@
   const BIRD_ORIGIN = { x: 2, y: 0 };
   // Rows 0 to 3 are the head; the eye is the single 'e' pixel.
   const HEAD_ROWS = 4;
+  // The last row is the legs. They stand on the branch and only leave it when the bird does.
+  const LEG_ROW = BIRD.length - 1;
 
   // The branches with the bird removed (the bird's feet land on row 10).
   const BRANCHES = {
@@ -283,9 +285,12 @@
     return out;
   }
 
-  // Splits a bird frame into head, eye, tail, wing and body so each part can move alone.
+  // Splits a bird frame into head, eye, tail, wing, body and legs so each part can move alone.
   function birdParts(rows) {
     const part = (x, y, c) => {
+      if (y >= LEG_ROW) {
+        return 'legs';
+      }
       if (c === 'e') {
         return 'eye';
       }
@@ -301,10 +306,16 @@
       return 'body';
     };
     const out = {};
-    for (const name of ['head', 'eye', 'tail', 'wing', 'body']) {
+    for (const name of ['head', 'eye', 'tail', 'wing', 'body', 'legs']) {
       out[name] = runs(rows, (x, y, c) => part(x, y, c) === name);
     }
     return out;
+  }
+
+  // One more pixel on top of each leg. The body hides it at rest; when the body rises a
+  // pixel to breathe, it shows, so the legs stretch and the feet stay on the branch.
+  function legStretch(rows) {
+    return birdParts(rows).legs.map((r) => ({ x: r.x, y: r.y - 1, w: r.w, h: r.h, c: r.c }));
   }
 
   function glyphRows(name, color) {
@@ -359,6 +370,7 @@
     PALETTE,
     BIRD,
     BIRD_ORIGIN,
+    LEG_ROW,
     BRANCHES,
     BRANCH_W,
     BRANCH_H,
@@ -379,6 +391,7 @@
     flightFrame,
     runs,
     birdParts,
+    legStretch,
     glyphRows,
     badCells,
     allGrids,
