@@ -41,7 +41,11 @@ modules.
 | `src/claude/agentsCli.ts` | The only module that imports `child_process`. Runs `claude agents --json` through `execFile` and parses the output. |
 | `src/fleet/` (group model) | `groupModel` (pure: turns chats, fleet state, statuses, the queue and the group-by mode into panel sections), `suffix` (pure: the short text after a chat row's agent tag). |
 | `src/fleet/` (live status) | `status` (pure status mapping and rollup), `queueTable` (pure Markdown table parser), `queueSource` (the only reader of the queue file), `agentsPoller` (poll scheduler with an injected clock and runner). |
-| `src/commands/openLayoutFile.ts` | Opens the layout file in the editor. Writes nothing. |
+| `src/fleet/robinState.ts` | Pure state machine for the header robin: inputs, clock and random source in, one state out. |
+| `src/views/fleetPanel.ts` | Pure: turns the group model's sections into the display-ready groups and rows the webview draws. |
+| `src/commands/openLayoutFile.ts`, `src/commands/openLayoutFileHost.ts` | `openLayoutFile` opens the layout file in the editor and writes nothing. `openLayoutFileHost` wires it to the host editor APIs. |
+| `src/fleet/types.ts` | Fleet record version, event names, field limits and the session id grammar, with the record types. |
+| `media/readme/robin.svg` | Static robin illustration shown in the README. |
 | `src/fleet/rules.ts` | Pure organize rules: compile, first-match, folder templates, the Preview plan, the hand-filed guard and the Undo plan. |
 | `src/commands/organizeCommands.ts` | Preview, Apply and Undo. Imports no `vscode`. Writes only through the metadata store, after the reconcile barrier. |
 | `schemas/nest-config.schema.json` | JSON schema for the layout file, shipped in the extension. |
@@ -206,7 +210,7 @@ The `rules` array of the layout file files existing chats into your folders and 
 
 A rule is `{ "match": { ... }, "folder"?, "tags"?, "pin"? }`. The `match` object takes `role`, `agent`, `ticket` (`true` or a regular expression), `name` (a regular expression) and `cwd` (a glob where `*` matches any run of characters). Every condition must hold. `folder` is a template with the fields `{ticket}`, `{title}`, `{agent}`, `{role}` and `{subfolder}`; a slash in the template makes one sublevel. `tags` lists tag names, and `pin: true` stars the chat.
 
-- `src/fleet/rules.ts` is pure and clock-free. Rules are evaluated in file order and the first match wins. Each regular expression is capped at 200 characters, compiled once, and limited to a backtracking-safe shape: at most three quantifiers, no repeated groups, lookarounds or backreferences. Only the first 500 characters of a name or ticket are tested, and rules stay off until the workspace is trusted. A rule with an invalid or over-long pattern, an unknown key or field, no condition or no action is turned off and reported, and the other rules stay active.
+- `src/fleet/rules.ts` is pure and clock-free. Rules are evaluated in file order and the first match wins. Each regular expression is capped at 200 characters, compiled once, and limited to a backtracking-safe shape: at most three quantifiers, no repeated groups, lookarounds or backreferences. A pattern whose worst-case match cost over the tested text exceeds a fixed budget (100000 steps) is refused. Only the first 64 characters of a name or ticket are tested, and rules stay off until the workspace is trusted. A rule with an invalid or over-long pattern, an unknown key or field, no condition or no action is turned off and reported, and the other rules stay active.
 - A template expands from the coerced fleet fields and the scan only. A field value never adds a level (its slashes become hyphens), the result has at most two levels, and an empty field leaves the chat unfiled by that rule. Names go through the same folder path expansion as a folder created by hand.
 - Preview covers every unarchived chat, including chats known only from `backfill` records, and lists each move with the current folder, the target folder, the tags to add and whether the chat is starred. It writes nothing.
 - A chat you filed by hand is never moved or retagged. A chat is movable only when it has no folder, or its folder is the one the last Apply chose for it. After Undo, a folder the user kept on a chat Undo skipped counts as filed by hand.
@@ -227,8 +231,9 @@ idle. The panel draws them as the dots described under Fleet panel.
   of objects, keeps `sessionId`, `kind`, `state`, `status`, `cwd`, `name`, `startedAt`
   and `pid` after coercion, drops any entry whose session id fails
   `^[0-9a-fA-F-]{8,64}$`, and returns an empty list for anything else.
-- The command runs with the first workspace folder as its working directory. It does
-  not run in an untrusted workspace: Nest treats the command as missing and logs once.
+- The command runs with the home directory as its working directory, and a hard
+  SIGKILL ends it at the timeout. It does not run in an untrusted workspace: the
+  poller reports live status as off and does not start the process.
 - `status.ts` is pure. An interactive session with `status: busy`, or a background
   session in state `running`, `working` or `busy`, is working. A background session in
   state `blocked`, `waiting`, `needs-input` or `needs_input`, or an unread assistant

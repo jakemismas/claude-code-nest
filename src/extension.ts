@@ -1514,7 +1514,7 @@ export function activate(context: vscode.ExtensionContext): void {
     warn: (message) => console.warn(message),
   });
   // Live session list from `claude agents --json`. It never runs in an untrusted
-  // workspace, and it runs with the workspace folder as its working directory.
+  // workspace, and it runs from the home directory.
   const agentsPoller = new AgentsPoller({
     poll: async (): Promise<AgentsResult> => {
       if (workspacePath === undefined || vscode.workspace.isTrusted === false) {
