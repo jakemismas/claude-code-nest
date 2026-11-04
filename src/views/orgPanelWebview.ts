@@ -1319,7 +1319,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private renderHtml(webview: vscode.Webview, mediaRoot: vscode.Uri): string {
     const nonce = makeNonce();
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'orgPanel.js'));
-    const artUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'robinArt.js'));
+    const mascotUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'mascot.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'orgPanel.css'));
     const cspSource = webview.cspSource;
     const csp = [
@@ -1366,7 +1366,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   <div id="queueList" class="nest-queue" role="list" aria-label="Queue" hidden></div>
   <div id="chips" class="nest-chips" role="group" aria-label="Tag filters"></div>
   <div id="list" class="nest-tree" role="tree" aria-label="Organized chats" tabindex="0"></div>
-  <script nonce="${nonce}" src="${artUri}"></script>
+  <script nonce="${nonce}" src="${mascotUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

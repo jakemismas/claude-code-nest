@@ -1,153 +1,160 @@
 #!/usr/bin/env node
-// Builds the README robin images from the same pixel art the panel draws, so the two never
-// drift apart. Writes animated SVGs plus still PNG fallbacks (vsce refuses SVG-only images).
+// Builds the README robin images from the same scenes the panel draws, so the two never drift
+// apart. Writes an animated hero and a state sheet as SVG, light and dark, plus still PNG
+// fallbacks (vsce refuses SVG-only images).
 // Usage: node scripts/readme/robin.js
 'use strict';
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const vm = require('vm');
 const { execFileSync } = require('child_process');
 
 const repo = path.resolve(__dirname, '..', '..');
 const outDir = path.join(repo, 'media', 'readme');
-require(path.join(repo, 'media', 'robinArt.js'));
-const art = globalThis.NestRobinArt;
+const sandbox = {};
+vm.runInNewContext(fs.readFileSync(path.join(repo, 'media', 'mascot.js'), 'utf8'), sandbox);
+const mascot = sandbox.NestMascot;
 
-// Follow the branch the panel ships with.
-const panelJs = fs.readFileSync(path.join(repo, 'media', 'orgPanel.js'), 'utf8');
-const branchMatch = /const ROBIN_BRANCH = '([a-z]+)'/.exec(panelJs);
-const BRANCH = branchMatch && art.BRANCHES[branchMatch[1]] ? branchMatch[1] : 'thick';
+// The area one robin needs: the highest jump and burst reach 13 pixels above the art's top row.
+const BOX = { x: -4, y: -13, w: 34, h: 27 };
+// The hero loop: the robin works with two chats, then finishes and celebrates.
+const HERO = [
+  { state: 'working', ms: 4000 },
+  { state: 'done', ms: 3500 },
+];
+const HERO_STEP_MS = 50;
+const NOTES = { delays: [150, 1350], minMs: 2500, spreadMs: 0 };
+// One telling moment per state for the sheet, in ms.
+const SHEET = [
+  ['idle', 'idle', 0],
+  ['working', 'working', 1000],
+  ['needs', 'needs you', 600],
+  ['done', 'done', 1400],
+  ['error', 'error', 200],
+  ['sleep', 'sleeping', 600],
+  ['night', 'night', 2000],
+  ['worm', 'new chat', 1050],
+  ['rotate', 'new orchestrator', 3000],
+  ['hatch', 'first run', 2750],
+  ['milestone', 'queue done', 1500],
+];
 
-// The area one robin needs: glyphs reach 9 pixels above the branch and 5 past its end.
-const BOX = { x: -1, y: -9, w: 32, h: 23 };
+function runs(rows) {
+  const out = [];
+  rows.forEach((row, y) => {
+    let x = 0;
+    while (x < row.length) {
+      let x1 = x + 1;
+      if (row[x] !== '.') {
+        while (x1 < row.length && row[x1] === row[x]) {
+          x1 += 1;
+        }
+        out.push([x, y, x1 - x, row[x]]);
+      }
+      x = x1;
+    }
+  });
+  return out;
+}
 
-function rects(list, dx, dy) {
-  return list
-    .map((r) => `<rect x="${r.x + dx}" y="${r.y + dy}" width="${r.w}" height="1" fill="${art.PALETTE[r.c]}"/>`)
+function rects(rows, dx, dy, pal) {
+  return runs(rows)
+    .map(([x, y, w, c]) => `<rect x="${x + dx}" y="${y + dy}" width="${w}" height="1" fill="${pal[c]}"/>`)
     .join('');
 }
 
-function rows(gridRows, dx, dy) {
-  return rects(art.runs(gridRows), dx, dy);
+// Each sprite once as a symbol; every frame then places sprites with <use>, which keeps the file small.
+function Sprites(pal) {
+  const ids = new Map();
+  const defs = [];
+  return {
+    use(d, dx, dy) {
+      let id = ids.get(d.k);
+      if (!id) {
+        id = 's' + ids.size;
+        ids.set(d.k, id);
+        defs.push(`<symbol id="${id}" overflow="visible">${rects(d.rows, 0, 0, pal)}</symbol>`);
+      }
+      const op = d.op < 1 ? ` opacity="${d.op}"` : '';
+      return `<use href="#${id}" x="${d.x + dx}" y="${d.y + dy}"${op}/>`;
+    },
+    defs() {
+      return `<defs>${defs.join('')}</defs>`;
+    },
+  };
 }
 
-function glyph(key, cls) {
-  const p = art.PLACEMENTS[key];
-  return `<g class="${cls}">${rows(art.glyphRows(p.g, p.c), p.x, p.y)}</g>`;
-}
-
-function bird(peck) {
-  const o = art.BIRD_ORIGIN;
-  const rest = art.birdParts(art.BIRD);
-  const flick = art.birdParts(art.birdFrame({ flick: true }));
-  return (
-    `<g class="tail-rest">${rects(rest.tail, o.x, o.y)}</g>` +
-    `<g class="tail-flick">${rects(flick.tail, o.x, o.y)}</g>` +
-    rects(rest.legs, o.x, o.y) +
-    rects(rest.lower, o.x, o.y) +
-    rects(rest.chest, o.x, o.y) +
-    `<g class="${peck ? 'peck' : 'head'}">${rects(rest.head, o.x, o.y)}` +
-    `<g class="eye">${rects(rest.eye, o.x, o.y)}</g></g>`
-  );
-}
-
-// Glyphs per state; classes pick the motion below.
-const STATES = [
-  { id: 'idle', label: 'idle', glyphs: [] },
-  {
-    id: 'working',
-    label: 'working',
-    glyphs: [
-      ['noteB', 'rise r1'],
-      ['noteA', 'rise r2'],
-    ],
-  },
-  { id: 'needs', label: 'needs you', glyphs: [['question', 'bob']] },
-  {
-    id: 'done',
-    label: 'done',
-    glyphs: [
-      ['stillCheck', 'pop'],
-      ['sparkA', 'twinkle t1'],
-      ['sparkB', 'twinkle t2'],
-      ['sparkC', 'twinkle t3'],
-    ],
-  },
-  {
-    id: 'sleep',
-    label: 'sleeping',
-    glyphs: [
-      ['zSmall', 'drift d1'],
-      ['zBig', 'drift d2'],
-    ],
-  },
-  { id: 'error', label: 'error', glyphs: [['bang', 'flash']] },
-];
-
-const STYLE = `
-  .eye { animation: blink 4.2s steps(1, end) infinite; }
-  .tail-flick { opacity: 0; animation: flick 7s steps(1, end) infinite; }
-  .tail-rest { animation: rest 7s steps(1, end) infinite; }
-  .peck { animation: peck 0.8s steps(1, end) infinite; }
-  .rise { animation: rise 2.4s steps(6, end) infinite; }
-  .r2 { animation-delay: 1.2s; }
-  .bob { animation: bob 1.4s steps(1, end) infinite; }
-  .pop { animation: pop 2.8s steps(1, end) infinite; }
-  .twinkle { animation: twinkle 1.6s steps(1, end) infinite; }
-  .t2 { animation-delay: 0.5s; } .t3 { animation-delay: 1s; }
-  .drift { animation: drift 3s steps(6, end) infinite; }
-  .d2 { animation-delay: 1.5s; }
-  .flash { animation: flash 1s steps(1, end) infinite; }
-  .label { font: 600 3.4px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #8A7469; }
-  @keyframes blink { 0%, 94% { opacity: 1; } 96% { opacity: 0; } }
-  @keyframes rest { 0%, 88% { opacity: 1; } 90%, 94% { opacity: 0; } 96% { opacity: 1; } }
-  @keyframes flick { 0%, 88% { opacity: 0; } 90%, 94% { opacity: 1; } 96% { opacity: 0; } }
-  @keyframes peck { 0% { transform: translate(0, 0); } 45% { transform: translate(1px, 2px); } 60% { transform: translate(1px, 1px); } 75% { transform: translate(0, 0); } }
-  @keyframes rise { 0% { transform: translateY(2px); opacity: 0; } 15% { opacity: 1; } 80% { opacity: 1; } 100% { transform: translateY(-4px); opacity: 0; } }
-  @keyframes bob { 0%, 49% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
-  @keyframes pop { 0%, 79% { opacity: 1; } 80%, 89% { opacity: 0; } 90% { opacity: 1; } }
-  @keyframes twinkle { 0%, 59% { opacity: 1; } 60% { opacity: 0.25; } }
-  @keyframes drift { 0% { transform: translate(0, 1px); opacity: 0; } 20% { opacity: 1; } 75% { opacity: 1; } 100% { transform: translate(1px, -3px); opacity: 0; } }
-  @keyframes flash { 0%, 59% { opacity: 1; } 60% { opacity: 0.2; } }
-  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
-`;
-
-function robinAt(state, dx, dy) {
-  const g = state.glyphs.map(([key, cls]) => glyph(key, cls)).join('');
-  return `<g transform="translate(${dx} ${dy})">${rows(art.BRANCHES[BRANCH], 0, 0)}${bird(state.id === 'working')}${g}</g>`;
-}
-
-function svg(w, h, body, label, viewBox, extraStyle) {
+function svg(w, h, viewBox, label, style, body) {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${w}" height="${h}" ` +
-    `shape-rendering="crispEdges" role="img" aria-label="${label}">` +
-    `<style>${STYLE}${extraStyle || ''}</style>${body}</svg>\n`
+    `shape-rendering="crispEdges" role="img" aria-label="${label}"><style>${style}</style>${body}</svg>\n`
   );
 }
 
-function hero(still) {
-  const working = STATES.find((s) => s.id === 'working');
+// The hero steps through real frames: each frame group shows for one step of the loop.
+function hero(pal, still) {
+  const sprites = Sprites(pal);
+  const frames = [];
+  for (const part of HERO) {
+    for (let t = 0; t < part.ms; t += HERO_STEP_MS) {
+      frames.push(mascot.frame(part.state, t, { notes: NOTES, speed: 0 }));
+    }
+  }
+  // Merge runs of identical frames so the file carries each pose once.
+  const merged = [];
+  for (const f of frames) {
+    const key = JSON.stringify(f.map((d) => [d.k, d.x, d.y, d.op]));
+    const last = merged[merged.length - 1];
+    if (last && last.key === key) {
+      last.steps += 1;
+    } else {
+      merged.push({ key, frame: f, steps: 1 });
+    }
+  }
+  const period = (frames.length * HERO_STEP_MS) / 1000;
+  const branch = rects(mascot.BRANCH, 0, 0, pal);
+  let at = 0;
+  const keyframes = [];
+  const groups = merged.map((m, i) => {
+    const from = (at / frames.length) * 100;
+    at += m.steps;
+    const to = (at / frames.length) * 100;
+    keyframes.push(
+      `@keyframes k${i}{0%,${from.toFixed(3)}%{visibility:hidden}${from.toFixed(3)}%,${to.toFixed(3)}%{visibility:visible}${to.toFixed(3)}%,100%{visibility:hidden}}` +
+        `.k${i}{animation:k${i} ${period}s steps(1,end) infinite}`,
+    );
+    return `<g class="f k${i}">${m.frame.map((d) => sprites.use(d, 0, 0)).join('')}</g>`;
+  });
+  const pose = mascot.frame('working', 0, { still: true }).map((d) => sprites.use(d, 0, 0)).join('');
+  const style =
+    '.f{visibility:hidden}.pose{visibility:hidden}' +
+    keyframes.join('') +
+    '@media (prefers-reduced-motion:reduce){.f{animation:none!important}.pose{visibility:visible}}' +
+    (still ? '.f{animation:none!important}.pose{visibility:visible}' : '');
+  const body = sprites.defs() + branch + groups.join('') + `<g class="pose">${pose}</g>`;
   const vb = `${BOX.x} ${BOX.y} ${BOX.w} ${BOX.h}`;
-  return svg(BOX.w * 6, BOX.h * 6, robinAt(working, 0, 0), 'A pixel-art robin singing on a branch', vb, still ? STILL : '');
+  return svg(BOX.w * 6, BOX.h * 6, vb, 'A pixel-art robin working on a branch, then singing when the work is done', style, body);
 }
 
-function sheet(still) {
-  const cols = 3;
-  const tileH = BOX.h + 7;
-  const tiles = STATES.map((s, i) => {
+function sheet(pal, labelColor) {
+  const sprites = Sprites(pal);
+  const cols = 4;
+  const tileH = BOX.h + 6;
+  const tiles = SHEET.map(([state, label, t], i) => {
     const tx = (i % cols) * BOX.w - BOX.x;
     const ty = Math.floor(i / cols) * tileH - BOX.y;
-    const text = `<text class="label" x="${tx + 13}" y="${ty + 18.5}" text-anchor="middle" shape-rendering="auto">${s.label}</text>`;
-    return robinAt(s, tx, ty) + text;
-  }).join('');
+    const art = rects(mascot.BRANCH, tx, ty, pal) + mascot.frame(state, t, { notes: NOTES }).map((d) => sprites.use(d, tx, ty)).join('');
+    const text = `<text class="label" x="${tx + 13}" y="${ty + 18.5}" text-anchor="middle" shape-rendering="auto">${label}</text>`;
+    return art + text;
+  });
   const w = cols * BOX.w;
-  const h = Math.ceil(STATES.length / cols) * tileH;
-  return svg(w * 5, h * 5, tiles, 'The robin in six states: idle, working, needs you, done, sleeping and error', `0 0 ${w} ${h}`, still ? STILL : '');
+  const h = Math.ceil(SHEET.length / cols) * tileH;
+  const style = `.label{font:600 3.4px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:${labelColor}}`;
+  const label = 'The robin in ' + SHEET.length + ' states: ' + SHEET.map((s) => s[1]).join(', ');
+  return { text: svg(w * 5, h * 5, `0 0 ${w} ${h}`, label, style, sprites.defs() + tiles.join('')), w: w * 5, h: h * 5 };
 }
-
-// The PNG fallback shows the resting pose with every glyph in place.
-const STILL = '* { animation: none !important; } .tail-flick { opacity: 0; }';
 
 function findChrome() {
   const list = [
@@ -169,22 +176,28 @@ function png(svgText, w, h, outFile) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nest-readme-'));
   const src = path.join(tmp, 'img.svg');
   fs.writeFileSync(src, svgText);
-  execFileSync(chrome, [
-    '--headless=new',
-    '--disable-gpu',
-    '--hide-scrollbars',
-    '--force-device-scale-factor=2',
-    '--default-background-color=00000000',
-    `--window-size=${w},${h}`,
-    `--screenshot=${outFile}`,
-    'file://' + src,
-  ], { stdio: 'ignore' });
+  execFileSync(
+    chrome,
+    [
+      '--headless=new',
+      '--disable-gpu',
+      '--hide-scrollbars',
+      '--force-device-scale-factor=2',
+      '--default-background-color=00000000',
+      `--window-size=${w},${h}`,
+      `--screenshot=${outFile}`,
+      'file://' + src,
+    ],
+    { stdio: 'ignore' },
+  );
 }
 
-const heroSvg = hero(false);
-const sheetSvg = sheet(false);
-fs.writeFileSync(path.join(outDir, 'robin.svg'), heroSvg);
-fs.writeFileSync(path.join(outDir, 'robin-states.svg'), sheetSvg);
-png(hero(true), BOX.w * 6, BOX.h * 6, path.join(outDir, 'robin.png'));
-png(sheet(true), 3 * BOX.w * 5, 2 * (BOX.h + 7) * 5, path.join(outDir, 'robin-states.png'));
-console.log('Wrote robin.svg, robin.png, robin-states.svg and robin-states.png (' + BRANCH + ' branch).');
+const LABEL = { light: '#8A7469', dark: '#B8A596' };
+fs.writeFileSync(path.join(outDir, 'robin.svg'), hero(mascot.LIGHT, false));
+fs.writeFileSync(path.join(outDir, 'robin-dark.svg'), hero(mascot.DARK, false));
+const light = sheet(mascot.LIGHT, LABEL.light);
+fs.writeFileSync(path.join(outDir, 'robin-states.svg'), light.text);
+fs.writeFileSync(path.join(outDir, 'robin-states-dark.svg'), sheet(mascot.DARK, LABEL.dark).text);
+png(hero(mascot.LIGHT, true), BOX.w * 6, BOX.h * 6, path.join(outDir, 'robin.png'));
+png(light.text, light.w, light.h, path.join(outDir, 'robin-states.png'));
+console.log('Wrote robin.svg, robin-dark.svg, robin.png, robin-states.svg, robin-states-dark.svg and robin-states.png.');

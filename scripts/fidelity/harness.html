@@ -206,16 +206,18 @@
   </script>
 
   <!-- The real, shipped panel script. Renders the mock posted below. -->
+  <script src="../../media/mascot.js"></script>
   <script>
     (function () {
-      // ?branch=leafy picks the other branch for the robin captures.
-      const m = /[?&]branch=([a-z]+)(&|$)/.exec(location.search);
-      if (m) {
-        document.getElementById('robinSlot').setAttribute('data-branch', m[1]);
+      // &freeze=<seconds> draws the robin at exactly that moment of its scene, with seeded notes.
+      const freeze = (/[?&]freeze=([0-9.]+)(&|$)/.exec(location.search) || [])[1];
+      if (freeze && window.NestMascot) {
+        const render = window.NestMascot.render;
+        window.NestMascot.render = (slot, state, opts) => render(slot, state, Object.assign({}, opts, { freezeAt: parseFloat(freeze) * 1000 }));
+        window.__nestHarnessFrozen = true;
       }
     })();
   </script>
-  <script src="../../media/robinArt.js"></script>
   <script src="../../media/orgPanel.js"></script>
 
   <!--
@@ -728,18 +730,6 @@
           reducedHint: markers[robinState] || '',
           liveText: robinState === 'needs' ? 'A chat needs you' : robinState === 'error' ? 'A chat failed' : '',
         }, '*');
-      }
-
-      // &freeze=<seconds> pauses every animation at that time so a capture shows an exact moment.
-      const freeze = (/[?&]freeze=([0-9.]+)(&|$)/.exec(location.search) || [])[1];
-      if (robinState && freeze) {
-        setTimeout(() => {
-          for (const a of document.getAnimations()) {
-            a.pause();
-            a.currentTime = parseFloat(freeze) * 1000;
-          }
-          window.__nestHarnessFrozen = true;
-        }, 100);
       }
 
       // Signal to the screenshot driver that the mock has been posted so it can wait

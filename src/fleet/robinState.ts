@@ -20,14 +20,15 @@ export const ROBIN_STATES = [
 ] as const;
 export type RobinState = (typeof ROBIN_STATES)[number];
 
-// How long each transient state plays before the robin falls back.
+// How long each transient state plays before the robin falls back. The one-shot scenes in
+// media/mascot.js run exactly this long, so a scene is never cut off mid-flight.
 export const TRANSIENT_MS: Readonly<Partial<Record<RobinState, number>>> = {
-  hatch: 2400,
-  rotate: 3200,
+  hatch: 5300,
+  rotate: 4400,
   error: 6000,
-  worm: 1800,
-  done: 1600,
-  milestone: 4000,
+  worm: 4000,
+  done: 3500,
+  milestone: 4500,
 };
 
 // Nothing running for this long puts the robin to sleep.
