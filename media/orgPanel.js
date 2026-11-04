@@ -1541,6 +1541,21 @@
     var sessionId = row.sessionId;
     var currentTagIds = row.tagIds || [];
 
+    if (isAttachableChat(sessionId)) {
+      var termBtn = document.createElement('button');
+      termBtn.type = 'button';
+      termBtn.className = 'nest-menu-item';
+      termBtn.setAttribute('role', 'menuitem');
+      termBtn.textContent = 'Open in terminal';
+      termBtn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        vscode.postMessage({ type: 'openInTerminal', sessionId: sessionId, explicit: true });
+        closeChatMenu();
+      });
+      menu.appendChild(termBtn);
+      menu.appendChild(chatMenuDivider());
+    }
+
     menu.appendChild(chatMenuCaption('TAGS'));
     var allTags = sections.allTags || [];
     for (var i = 0; i < allTags.length; i++) {
@@ -2757,8 +2772,45 @@
       .filter((el) => !el.closest('.nest-fleet-group:not(.is-open) > .nest-fleet-body'));
   }
 
+  // The live fleet row for a chat, or null. Rows come from the latest fleet message, so
+  // the attachable flag is always the host's current answer.
+  function fleetRowFor(sessionId) {
+    if (!fleet) {
+      return null;
+    }
+    const lists = [];
+    if (fleet.orchestrator) {
+      lists.push([fleet.orchestrator]);
+    }
+    const groups = (fleet.groups || []).concat(fleet.userFolders || []);
+    if (fleet.pastOrchestrators) {
+      groups.push(fleet.pastOrchestrators);
+    }
+    if (fleet.unsorted) {
+      groups.push(fleet.unsorted);
+    }
+    for (const g of groups) {
+      lists.push(g.rows || []);
+    }
+    for (const rows of lists) {
+      for (const r of rows) {
+        if (r.sessionId === sessionId) {
+          return r;
+        }
+      }
+    }
+    return null;
+  }
+
+  function isAttachableChat(sessionId) {
+    const row = fleetRowFor(sessionId);
+    return !!row && row.attachable === true;
+  }
+
+  // The host re-checks attachable and falls back to a plain open, so this only chooses
+  // which message to post.
   function activateRow(sessionId) {
-    vscode.postMessage({ type: 'open', sessionId });
+    vscode.postMessage({ type: isAttachableChat(sessionId) ? 'openInTerminal' : 'open', sessionId });
   }
 
   function moveFocus(delta) {

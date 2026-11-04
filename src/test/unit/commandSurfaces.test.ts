@@ -158,7 +158,7 @@ describe('command surfaces stay honest after the s3a view consolidation', () => 
       .sort();
 
     // The accepted set as of (CHANGELOG Unreleased / Removed). Groups: invoked
-    // programmatically (openChat rides the org panel row click; the refresh pair services
+    // programmatically (openChat and openInTerminal ride the org panel row click and context menu; the refresh pair services
     // the kept non-view providers), panel-internal equivalents kept registered for
     // programmatic callers (folder/tag mutation and the smart-group promotes), the s3b
     // interim gaps that wait for the in-panel hover card and context menu (previewChat,
@@ -178,6 +178,7 @@ describe('command surfaces stay honest after the s3a view consolidation', () => 
       'claudeNest.deleteTag',
       'claudeNest.exportChat',
       'claudeNest.openChat',
+      'claudeNest.openInTerminal',
       'claudeNest.previewArchivedChat',
       'claudeNest.previewChat',
       'claudeNest.promoteSmartGroupToFolder',

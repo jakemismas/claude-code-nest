@@ -19,6 +19,9 @@ to [Semantic Versioning](https://semver.org/).
   Open Layout File command.
 - Nest works out a live status for each chat (working, needs you, queued, done or idle)
   from running Claude Code sessions, fleet records and an optional queue file.
+- Clicking a chat that runs as a working or waiting background session offers an Open in
+  terminal button that runs `claude attach` in a new terminal. The chat context menu has
+  the same entry. Every other chat opens through Claude Code as before.
 - Nest can now sort chats into ticket, folder and date groups, with an automatic mode
   that picks the best fit.
 - The panel shows the fleet view: a pinned orchestrator, past orchestrators, ticket or

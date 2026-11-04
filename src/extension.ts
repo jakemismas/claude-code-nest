@@ -16,6 +16,7 @@ import {
 } from './views/orgPanelWebview';
 import { ReadStateStore } from './views/readState';
 import { matchTabLabelToChat, isClaudeChatViewType } from './views/tabFocusMatch';
+import { OPEN_IN_TERMINAL_COMMAND, openRunningChat } from './launch/attachLauncher';
 import { OPEN_CHAT_COMMAND, openChat, OpenUri } from './launch/uriLauncher';
 import { launchNewSession } from './launch/newSessionLauncher';
 import { MetadataStore, SyncMemento } from './store/metadataStore';
@@ -1131,6 +1132,28 @@ export function activate(context: vscode.ExtensionContext): void {
         ),
       );
     }),
+  );
+
+  // Open in terminal runs `claude attach <id>` for a running background chat. Every other
+  // case, and an untrusted workspace, uses the same URI open as a plain click.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(OPEN_IN_TERMINAL_COMMAND, (sessionId: string, explicit?: boolean) =>
+      openRunningChat(sessionId, {
+        createTerminal: (options) =>
+          vscode.window.createTerminal({
+            name: options.name,
+            shellPath: options.shellPath,
+            shellArgs: [...options.shellArgs],
+          }),
+        onDidCloseTerminal: (listener) => vscode.window.onDidCloseTerminal((t) => listener(t)),
+        warn: (message) => void vscode.window.showWarningMessage(message),
+        isAttachable: (id) => orgPanelProvider.isAttachable(id),
+        isTrusted: () => vscode.workspace.isTrusted !== false,
+        chatName: (id) => orgPanelProvider.getChatName(id),
+        offer: async (message, button) => (await vscode.window.showInformationMessage(message, button)) === button,
+        openChat: (id) => vscode.commands.executeCommand(OPEN_CHAT_COMMAND, id),
+      }, explicit === true),
+    ),
   );
 
   // The palette-visible Refresh: prime the kept FoldersProvider snapshot under the

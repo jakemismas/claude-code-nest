@@ -15,6 +15,7 @@ function row(id: string, over: Partial<FleetRow> = {}): FleetRow {
     title: `Chat ${id}`,
     timestamp: null,
     status: 'idle',
+    attachable: false,
     agentTag: '',
     suffix: '',
     ticket: null,
@@ -156,5 +157,26 @@ describe('fleetPanel', () => {
     assert.strictEqual(coerceSetActive({ type: 'setActive', active: 'true' }), null);
     assert.strictEqual(coerceSetActive({ type: 'setActive' }), null);
     assert.strictEqual(coerceSetActive({ type: 'other', active: true }), null);
+  });
+});
+
+describe('fleetPanel attachable flag', () => {
+  it('passes the attachable flag through to the orchestrator, group rows and children', () => {
+    const child = row('c1', { attachable: true });
+    const msg = buildFleetMessage(
+      sections({
+        orchestrator: row('o1', { attachable: true }),
+        groups: [group('T-1', [row('r1', { attachable: true, children: [child] }), row('r2')])],
+      }),
+    );
+    assert.strictEqual(msg.orchestrator?.attachable, true);
+    assert.deepStrictEqual(
+      msg.groups[0].rows.map((r) => [r.sessionId, r.attachable]),
+      [
+        ['r1', true],
+        ['c1', true],
+        ['r2', false],
+      ],
+    );
   });
 });
