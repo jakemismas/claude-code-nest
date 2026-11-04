@@ -893,6 +893,12 @@ body {
   animation: nest-tags-marquee var(--tag-scroll-duration, 8s) linear infinite;
 }
 
+/* Fade the clipped edge so a cut pill reads as more to come, not as a broken chip. */
+.nest-row-tags.nest-tags-overflow {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+}
+
 .nest-row-tags.nest-tags-overflow:hover .nest-row-tags-strip {
   animation-play-state: paused;
 }
