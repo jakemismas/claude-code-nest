@@ -1457,13 +1457,13 @@ describe('MetadataStore project-key gate (synced-surface pollution)', () => {
   it('still accepts a legitimate encodeProjectKey-shaped key unchanged', async () => {
     const mem = new FakeMemento();
     const store = makeStore(mem);
-    store.upsertTag('c--Users-JakeMismas-Documents-Claude-Code---Nest', {
+    store.upsertTag('c--Users-User-Documents-sample-app', {
       id: 't',
       label: 'x',
     });
     await store.flush();
     assert.ok(
-      mem.get(metaKeyFor('c--Users-JakeMismas-Documents-Claude-Code---Nest')) !==
+      mem.get(metaKeyFor('c--Users-User-Documents-sample-app')) !==
         undefined,
     );
   });

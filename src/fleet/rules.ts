@@ -91,9 +91,89 @@ function hasTopLevelAlternation(pattern: string): boolean {
   return false;
 }
 
+// Backslashes directly before index i; an odd count means the character is escaped.
+function isEscapedAt(pattern: string, i: number): boolean {
+  let n = 0;
+  for (let j = i - 1; j >= 0 && pattern[j] === '\\'; j--) {
+    n++;
+  }
+  return n % 2 === 1;
+}
+
+// Drops a leading '.*' and a trailing '.*' that cannot change whether RegExp.test finds a
+// match on a single-line name. The trailing one stays when the pattern has a '$'. Only one
+// of each is dropped, so stacked repeats are still costed.
+export function normalizeMatchPattern(pattern: string): string {
+  let out = pattern;
+  if (out.startsWith('.*') && !/^[*+{]/.test(out.slice(2, 3))) {
+    out = out.slice(out.startsWith('.*?') ? 3 : 2);
+  }
+  if (!out.includes('$')) {
+    const lazy = out.endsWith('.*?');
+    const tail = lazy ? out.length - 3 : out.length - 2;
+    if ((lazy || out.endsWith('.*')) && tail >= 0 && !isEscapedAt(out, tail)) {
+      out = out.slice(0, tail);
+    }
+  }
+  return out;
+}
+
+interface Anchors {
+  readonly start: boolean;
+  readonly end: boolean;
+}
+
+const anchorCache = new WeakMap<RegExp, Anchors>();
+
+function anchorsOf(re: RegExp): Anchors {
+  const known = anchorCache.get(re);
+  if (known !== undefined) {
+    return known;
+  }
+  const pattern = re.source;
+  let start = false;
+  let end = false;
+  let inClass = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '\\') {
+      i++;
+    } else if (inClass) {
+      inClass = ch !== ']';
+    } else if (ch === '[') {
+      inClass = true;
+    } else if (ch === '^') {
+      start = true;
+    } else if (ch === '$') {
+      end = true;
+    }
+  }
+  const anchors = { start, end };
+  anchorCache.set(re, anchors);
+  return anchors;
+}
+
+// Tests at most MAX_TESTED_SUBJECT_LEN characters. A pattern with '$' sees the last
+// characters, so 'x$' still means the text ends in x; a pattern anchored at both ends
+// cannot match text over the cap.
+function testCapped(re: RegExp, text: string): boolean {
+  if (text.length <= MAX_TESTED_SUBJECT_LEN) {
+    return re.test(text);
+  }
+  const { start, end } = anchorsOf(re);
+  if (!end) {
+    return re.test(text.slice(0, MAX_TESTED_SUBJECT_LEN));
+  }
+  if (start) {
+    return false;
+  }
+  return re.test(text.slice(-MAX_TESTED_SUBJECT_LEN));
+}
+
 export function unsafePatternReason(pattern: string): string | null {
   let quantifiers = 0;
-  let cost = pattern.startsWith('^') && !hasTopLevelAlternation(pattern) ? 1 : MAX_TESTED_SUBJECT_LEN + 1;
+  const topLevelAlt = hasTopLevelAlternation(pattern);
+  let cost = pattern.startsWith('^') && !topLevelAlt ? 1 : MAX_TESTED_SUBJECT_LEN + 1;
   let inClass = false;
   // Branch count of each open group; a group with several branches multiplies the cost.
   const branches: number[] = [];
@@ -151,9 +231,16 @@ export function unsafePatternReason(pattern: string): string | null {
       }
     }
     if (width > 0) {
-      cost *= reach + 1;
+      // A repeat that ends the pattern succeeds as soon as its minimum is met, so it
+      // never backtracks into earlier text.
+      let end = i + width;
+      if (pattern[end] === '?') {
+        end++;
+      }
+      const isFinal = end === pattern.length && branches.length === 0 && !topLevelAlt;
+      cost *= isFinal ? 1 : reach + 1;
       if (cost > MAX_PATTERN_COST) {
-        return 'is too expensive to match: use fewer or narrower repeats, or anchor it with ^';
+        return 'is too expensive to match: drop a leading or trailing .* (it is implied), use fewer or narrower repeats, or anchor it with ^';
       }
     }
     if (width > 0) {
@@ -172,7 +259,7 @@ export function unsafePatternReason(pattern: string): string | null {
       if (count > 1) {
         cost *= count;
         if (cost > MAX_PATTERN_COST) {
-          return 'is too expensive to match: use fewer alternations, or anchor it with ^';
+          return 'is too expensive to match: use fewer alternations, drop a leading or trailing .*, or anchor it with ^';
         }
       }
       const rest = pattern.slice(i + 1);
@@ -229,13 +316,14 @@ export function compileRules(raw: readonly NestRule[]): CompileResult {
       } else if (key === 'cwd') {
         cwd = value;
       } else {
-        const unsafe = unsafePatternReason(value);
+        const normalized = normalizeMatchPattern(value);
+        const unsafe = unsafePatternReason(normalized);
         if (unsafe !== null) {
           fail(`has a match.${key} that ${unsafe}`);
           return;
         }
         try {
-          const re = new RegExp(value, 'i');
+          const re = new RegExp(normalized, 'i');
           if (key === 'ticket') {
             ticket = re;
           } else {
@@ -303,11 +391,11 @@ export function ruleMatches(rule: CompiledRule, subject: RuleSubject, homedir: s
     if (subject.ticket === null || subject.ticket.length === 0) {
       return false;
     }
-    if (rule.ticket !== true && !rule.ticket.test(subject.ticket.slice(0, MAX_TESTED_SUBJECT_LEN))) {
+    if (rule.ticket !== true && !testCapped(rule.ticket, subject.ticket)) {
       return false;
     }
   }
-  if (rule.name !== null && !rule.name.test(subject.name.slice(0, MAX_TESTED_SUBJECT_LEN))) {
+  if (rule.name !== null && !testCapped(rule.name, subject.name)) {
     return false;
   }
   if (rule.cwd !== null) {
@@ -568,6 +656,9 @@ export interface UndoAction {
   readonly sessionId: string;
   // The folder to restore, or undefined when Apply left the folder alone.
   readonly folderId?: string | null;
+  // The folder the chat was filed in by an earlier Apply, which Undo gives back to the
+  // record of Apply-made placements.
+  readonly appliedFolderId?: string;
   readonly removeTagIds: readonly string[];
   readonly unstar: boolean;
 }
@@ -618,6 +709,9 @@ export function planUndo(
     if (entry.folderId !== null) {
       const prior = entry.priorFolderId !== null && folders[entry.priorFolderId] !== undefined ? entry.priorFolderId : null;
       action.folderId = prior;
+      if (prior !== null) {
+        action.appliedFolderId = prior;
+      }
       afterFolder.set(chatId, prior);
     }
     for (const id of removeTagIds) {

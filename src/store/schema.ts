@@ -21,7 +21,7 @@ export const META_KEY_PREFIX = 'nest.meta.v1';
 export const META_KEY_SEPARATOR = '::';
 
 // Build the synced globalState key for a project key (the encoded directory name
-// from projectKeyResolver, e.g. c--Users-JakeMismas-Documents-Claude-Code---Nest).
+// from projectKeyResolver, e.g. c--Users-User-Documents-sample-app).
 export function metaKeyFor(projectKey: string): string {
   return META_KEY_PREFIX + META_KEY_SEPARATOR + projectKey;
 }
