@@ -1,11 +1,11 @@
 # Third-party notices
 
 Claude Code Nest redistributes the following third-party artifacts in its
-repository and (where noted) in the packaged VSIX. Each artifact's license text
+repository and in the packaged VSIX. Each artifact's license text
 ships alongside it (or inline in its header) as noted below. Any future
 vendored asset added under `media/` or `src/**/vendor/` must be enumerated here
 with its license text, source URL, provenance (how the exact bytes were
-produced), and a checksum recorded in DECISIONS.md.
+produced), and a checksum.
 
 ## Newsreader (font)
 
@@ -35,21 +35,7 @@ produced), and a checksum recorded in DECISIONS.md.
 - License: MIT. The full license text is carried inline in the vendored file's
   header comment, which ships in both the repo and the VSIX copy.
 
-## React and ReactDOM (design mockup runtime)
-
-- Files: `media/design/ChatSidebar.html` embeds `react.production.min.js` and
-  `react-dom.production.min.js`, both version 18.3.1, as gzip+base64 resource
-  blobs inside the self-contained design-handoff mockup. Each embedded copy
-  retains its original `@license React` MIT header inside the decompressed
-  bytes.
-- Ships in the repository only: the VSIX excludes it (`media/design/**` in
-  `.vscodeignore`), and the extension never loads it at runtime; it is a
-  design reference document.
-- Copyright (c) Facebook, Inc. and its affiliates.
-- License: MIT (https://github.com/facebook/react/blob/main/LICENSE).
-
-MIT license text (applies to MiniSearch, React, and ReactDOM above, per their
-respective copyright holders):
+MIT license text (applies to MiniSearch above, per its copyright holder):
 
 ```
 Permission is hereby granted, free of charge, to any person obtaining a copy

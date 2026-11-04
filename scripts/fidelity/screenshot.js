@@ -1,27 +1,19 @@
-// Visual-fidelity screenshot driver (slice s3a-visual-harness, issue #79).
+// Screenshot driver for the Nest panel.
 //
-// Renders two pages at the design's 320px width via headless Chrome or Edge and
-// writes full-page PNGs into .claude-working/fidelity/ (gitignored):
+// Renders the real panel assets (media/orgPanel.{css,js}) through
+// scripts/fidelity/harness.html, which feeds them made-up data, in headless Chrome
+// or Edge at 320px wide. It writes one full-page PNG per panel state into
+// .claude-working/fidelity/ (gitignored): the default list, search results, the
+// context menu, the settings and archive overlays, popovers, drag highlight and
+// inline rename. Review the images by eye; there is no pixel diffing.
 //
-//   - harness.png      the REAL org-panel asset (media/orgPanel.{css,js}) rendered
-//                      by scripts/fidelity/harness.html with synthetic mock data.
-//   - prototype.png    media/design/ChatSidebar.html, the design authority.
+// It has zero npm dependencies. The extension ships with no runtime dependencies,
+// so this talks to the browser over the Chrome DevTools Protocol using only Node
+// built-ins (Node 20+ has a global fetch and WebSocket). The scripts/ folder is
+// excluded from the VSIX.
 //
-// Reviewers (and the build agent) open these side by side with the committed
-// reference screenshots under media/design/reference/ and eyeball the panel
-// against the handoff. This slice deliberately does NO pixel diffing (a non-goal):
-// the comparison is reviewer-eye plus the human gate.
-//
-// ZERO npm dependencies by design. The extension is zero-runtime-dependency and
-// packages with `vsce package --no-dependencies`; adding puppeteer would either
-// bloat the tree or (as a dep) never ship and false-pass the install proof. Node
-// 20+ ships a global fetch and WebSocket, so this drives the browser directly over
-// the Chrome DevTools Protocol with built-ins only. The whole scripts/ tree is
-// excluded from the VSIX (.vscodeignore), so nothing here reaches a user.
-//
-// Read-only invariant: this script only reads repo files and writes PNGs under
-// .claude-working/fidelity/. It never touches ~/.claude/projects and never writes
-// under the extension's shipped tree.
+// It only reads repo files and writes PNGs under .claude-working/fidelity/. It never
+// touches ~/.claude/projects.
 
 'use strict';
 
@@ -36,20 +28,13 @@ const { pathToFileURL } = require('url');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const OUT_DIR = path.join(REPO_ROOT, '.claude-working', 'fidelity');
 const HARNESS_HTML = path.join(__dirname, 'harness.html');
-const PROTOTYPE_HTML = path.join(REPO_ROOT, 'media', 'design', 'ChatSidebar.html');
 
-// The design capture width (UI-SPEC deviation 1: 320px is the reference width; the
-// panel must stay sane 260-480px but the baseline screenshots are 320px).
+// Panel width for every capture. The panel stays usable from 260 to 480px.
 const VIEWPORT_WIDTH = 320;
 // A tall viewport so the full sectioned list fits without the page needing to
 // scroll; captureBeyondViewport in the capture call still grabs anything taller.
 const VIEWPORT_HEIGHT = 1400;
 const DEVICE_SCALE = 2;
-// The prototype frames its 320px sidebar to the RIGHT of a ~50px activity-bar rail
-// inside a mock VS Code window, so at a 320px viewport the sidebar overflows and
-// clips. Render it in a wider viewport, then clip the capture to the sidebar's own
-// 320px box so the reference is a clean panel-only frame matching the harness.
-const PROTOTYPE_VIEWPORT_WIDTH = 560;
 
 // --- browser discovery -----------------------------------------------------
 
@@ -435,111 +420,6 @@ async function typeIntoInput(page, selector, text) {
   );
 }
 
-// Locate the prototype's 320px sidebar column and return its bounding box so the
-// capture is clipped to the panel only (dropping the mock window chrome and the
-// activity-bar rail), matching the harness's panel-only frame. The column is a
-// 320px content-box with a 1px solid right border, so its bounding width is ~321px;
-// match a small tolerance band, require the solid right border, and require a tall
-// box. Throws with an actionable message when the column cannot be found (the
-// prototype layout changed). Shared by every prototype capture stage.
-async function clipToSidebar(page) {
-  const rect = await evaluate(
-    page,
-    '(function(){' +
-      "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
-      'for(var i=0;i<divs.length;i++){' +
-      '  var el=divs[i]; var cs=getComputedStyle(el);' +
-      '  var r=el.getBoundingClientRect();' +
-      '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
-      '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
-      '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
-      '  }' +
-      '}' +
-      'return null;' +
-      '})()',
-  );
-  if (!rect) {
-    throw new Error(
-      'Could not locate the 320px sidebar column in the prototype to clip to. ' +
-        'The prototype layout may have changed; update the sidebar selector in screenshot.js.',
-    );
-  }
-  return rect;
-}
-
-// Clip to the UNION of the sidebar column and a floating popover, so a popover the
-// prototype anchors OUTSIDE the sidebar box stays fully in frame. The prototype floats
-// its New folder popover to the viewport top-left (position:fixed at ~0,0), which is
-// above and left of the sidebar's clip origin; clipping to the sidebar alone crops away
-// most of the popover chrome (NEW FOLDER title, Folder name input, Create button) and
-// leaves the baseline useless for by-eye comparison. Union the sidebar box with the
-// popover box (matched by its floating title text) so the whole popover is captured
-// while the sidebar context stays in view. selector picks the popover by a text probe;
-// the popover box is the smallest position:fixed ancestor carrying that text. Throws
-// with an actionable message if either the sidebar or the popover cannot be located.
-async function clipToSidebarWithPopover(page, titleText) {
-  const rect = await evaluate(
-    page,
-    '(function(){' +
-      // Locate the 320px sidebar column (same tolerance band as clipToSidebar).
-      "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
-      'var side=null;' +
-      'for(var i=0;i<divs.length;i++){' +
-      '  var el=divs[i]; var cs=getComputedStyle(el);' +
-      '  var r=el.getBoundingClientRect();' +
-      '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
-      '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
-      '    side={x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height}; break;' +
-      '  }' +
-      '}' +
-      'if(!side) return {error:"no-sidebar"};' +
-      // Locate the floating popover: the smallest position:fixed element whose text
-      // contains the title probe. Picking the smallest fixed box avoids grabbing a
-      // fixed full-page overlay wrapper.
-      'var all=Array.prototype.slice.call(document.querySelectorAll("*"));' +
-      'var pop=null; var probe=' + JSON.stringify(titleText) + ';' +
-      'for(var j=0;j<all.length;j++){' +
-      '  var e=all[j]; var t=(e.textContent||"");' +
-      '  if(t.indexOf(probe)===-1) continue;' +
-      '  if(getComputedStyle(e).position!=="fixed") continue;' +
-      '  var pr=e.getBoundingClientRect();' +
-      '  if(pr.width<=0 || pr.height<=0 || pr.width>420) continue;' +
-      '  if(!pop || (pr.width*pr.height) < (pop.width*pop.height)){' +
-      '    pop={x:pr.x,y:pr.y,width:pr.width,height:pr.height};' +
-      '  }' +
-      '}' +
-      'if(!pop) return {error:"no-popover"};' +
-      // Union the two boxes so both are fully captured: the min of the two origins
-      // and the max of the two far edges. In practice the sidebar is the taller box,
-      // so the union bottom resolves to the sidebar bottom; only the top and left
-      // extend outward to reach the popover the prototype floats above and left.
-      'var left=Math.min(side.x, pop.x);' +
-      'var top=Math.min(side.y, pop.y);' +
-      'var right=Math.max(side.x+side.width, pop.x+pop.width);' +
-      'var bottom=Math.max(side.y+side.height, pop.y+pop.height);' +
-      'return {x:left, y:top, width:right-left, height:bottom-top};' +
-      '})()',
-  );
-  if (rect && rect.error === 'no-sidebar') {
-    throw new Error(
-      'Could not locate the 320px sidebar column in the prototype to clip to. ' +
-        'The prototype layout may have changed; update the sidebar selector in screenshot.js.',
-    );
-  }
-  if (rect && rect.error === 'no-popover') {
-    throw new Error(
-      'Could not locate the floating "' +
-        titleText +
-        '" popover in the prototype to include in the clip. ' +
-        'The prototype layout may have changed; update the popover probe in screenshot.js.',
-    );
-  }
-  if (!rect || !(rect.width > 0) || !(rect.height > 0)) {
-    throw new Error('Computed an empty clip for the prototype "' + titleText + '" popover.');
-  }
-  return rect;
-}
-
 // The query the results-state captures stage. It matches a body line in the mock
 // (the harness reply) and the prototype's c2 body ("...backed by Redis...") while
 // being ABSENT from those chats' titles, so the flat "N RESULTS" list shows a
@@ -600,79 +480,6 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness.png')));
 
-    // Page 2: the design prototype. It embeds a gzip+base64 React bundle and shows
-    // a full-viewport #__bundler_thumbnail placeholder until hydration. We MUST
-    // wait for the real sidebar to mount and hide that placeholder, or the capture
-    // is just the gray unpack screen and the visual lens goes blind.
-    const protoPage = await openPage(browser);
-    await renderAndCapture(
-      protoPage,
-      pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype.png'),
-      async (page) => {
-        // The bundler unpacks the embedded React app asynchronously; wait until the
-        // loading node is gone and real, non-bundler content has been rendered into
-        // the body. The sidebar renders many elements; the placeholder/loading
-        // nodes are the only #__bundler_* ones, so "real content present" is
-        // "there is a sizable element that is not a bundler node".
-        await waitForCondition(
-          page,
-          '(function(){' +
-            "var loading=document.getElementById('__bundler_loading');" +
-            'if(loading && loading.offsetParent!==null) return false;' +
-            // A rendered sidebar has many divs beyond the two bundler wrappers.
-            "var divs=document.querySelectorAll('body div');" +
-            'return divs.length > 8;' +
-            '})()',
-          30000,
-          'prototype React mount',
-        );
-        // Belt and suspenders: physically remove the thumbnail/loading placeholders
-        // so nothing overlays the captured sidebar even if their teardown lagged.
-        await evaluate(
-          page,
-          '(function(){' +
-            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
-            'var n=document.getElementById(id); if(n) n.remove();' +
-            '} return true; })()',
-        );
-        // A short settle so fonts/layout finish before we measure and grab.
-        await sleep(400);
-        // Locate the 320px sidebar column (inline style: 320px wide with the
-        // #E6E2D9 right border) and return its bounding box so the capture is
-        // clipped to the panel only, dropping the mock window chrome and the
-        // activity-bar rail. Fall back to the full page if it cannot be found.
-        const rect = await evaluate(
-          page,
-          '(function(){' +
-            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
-            'for(var i=0;i<divs.length;i++){' +
-            '  var el=divs[i]; var cs=getComputedStyle(el);' +
-            '  var r=el.getBoundingClientRect();' +
-            // The sidebar is a 320px content-box column with a 1px solid right
-            // border, so its bounding width is ~321px. Match a small tolerance
-            // band and require the solid right border so we do not catch an inner
-            // 320-ish wrapper. Require a tall box (the full-height column) too.
-            '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
-            '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
-            '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
-            '  }' +
-            '}' +
-            'return null;' +
-            '})()',
-        );
-        if (!rect) {
-          throw new Error(
-            'Could not locate the 320px sidebar column in the prototype to clip to. ' +
-              'The prototype layout may have changed; update the sidebar selector in screenshot.js.',
-          );
-        }
-        return rect;
-      },
-      PROTOTYPE_VIEWPORT_WIDTH,
-    );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype.png')));
-
     // Page 3: the RESULTS STATE of the real panel (issue #83 AC #6). Re-render the
     // harness, type a body-only-match query into the search box, wait for the flat
     // "N RESULTS" list (the harness echoes a synthetic host searchResults reply), and
@@ -712,68 +519,6 @@ async function main() {
       },
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-results.png')));
-
-    // Page 4: the RESULTS STATE of the design prototype, the fidelity baseline the
-    // results capture is judged against. Same query, driven into the prototype's own
-    // search box, then clipped to the 320px sidebar like prototype.png.
-    const protoResultsPage = await openPage(browser);
-    await renderAndCapture(
-      protoResultsPage,
-      pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-results.png'),
-      async (page) => {
-        await waitForCondition(
-          page,
-          '(function(){' +
-            "var loading=document.getElementById('__bundler_loading');" +
-            'if(loading && loading.offsetParent!==null) return false;' +
-            "var divs=document.querySelectorAll('body div');" +
-            'return divs.length > 8;' +
-            '})()',
-          30000,
-          'prototype React mount',
-        );
-        await evaluate(
-          page,
-          '(function(){' +
-            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
-            'var n=document.getElementById(id); if(n) n.remove();' +
-            '} return true; })()',
-        );
-        const typed = await typeIntoInput(
-          page,
-          'input[placeholder="Search chats & messages"]',
-          RESULTS_QUERY,
-        );
-        if (typed !== 'ok') {
-          throw new Error('Could not type into the prototype search box: ' + typed);
-        }
-        await sleep(500);
-        const rect = await evaluate(
-          page,
-          '(function(){' +
-            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
-            'for(var i=0;i<divs.length;i++){' +
-            '  var el=divs[i]; var cs=getComputedStyle(el);' +
-            '  var r=el.getBoundingClientRect();' +
-            '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
-            '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
-            '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
-            '  }' +
-            '}' +
-            'return null;' +
-            '})()',
-        );
-        if (!rect) {
-          throw new Error(
-            'Could not locate the 320px sidebar column in the prototype results state to clip to.',
-          );
-        }
-        return rect;
-      },
-      PROTOTYPE_VIEWPORT_WIDTH,
-    );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-results.png')));
 
     // Page 6: the CHAT CONTEXT MENU (list state) of the real panel (issue #85 AC #7).
     // Re-render the harness, dispatch a contextmenu on a chat row, wait for the menu, and
@@ -946,75 +691,6 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-settings.png')));
 
-    // Page 9: the SETTINGS SUB-PAGE of the design prototype, the fidelity baseline the
-    // settings capture is judged against. Click the gear (the ⚙ glyph) to open the
-    // prototype's own Settings sub-page, then clip to the 320px sidebar like the other
-    // prototype captures.
-    const protoSettingsPage = await openPage(browser);
-    await renderAndCapture(
-      protoSettingsPage,
-      pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-settings.png'),
-      async (page) => {
-        await waitForCondition(
-          page,
-          '(function(){' +
-            "var loading=document.getElementById('__bundler_loading');" +
-            'if(loading && loading.offsetParent!==null) return false;' +
-            "var divs=document.querySelectorAll('body div');" +
-            'return divs.length > 8;' +
-            '})()',
-          30000,
-          'prototype React mount',
-        );
-        await evaluate(
-          page,
-          '(function(){' +
-            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
-            'var n=document.getElementById(id); if(n) n.remove();' +
-            '} return true; })()',
-        );
-        // Click the gear glyph to open the Settings sub-page.
-        const clicked = await evaluate(
-          page,
-          '(function(){' +
-            "var spans=Array.prototype.slice.call(document.querySelectorAll('span'));" +
-            'for(var i=0;i<spans.length;i++){' +
-            "  if(spans[i].getAttribute('title')==='Settings'){ spans[i].click(); return 'ok'; }" +
-            '}' +
-            "return 'no-gear';" +
-            '})()',
-        );
-        if (clicked !== 'ok') {
-          throw new Error('Could not open the prototype Settings sub-page: ' + clicked);
-        }
-        await sleep(400);
-        const rect = await evaluate(
-          page,
-          '(function(){' +
-            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
-            'for(var i=0;i<divs.length;i++){' +
-            '  var el=divs[i]; var cs=getComputedStyle(el);' +
-            '  var r=el.getBoundingClientRect();' +
-            '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
-            '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
-            '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
-            '  }' +
-            '}' +
-            'return null;' +
-            '})()',
-        );
-        if (!rect) {
-          throw new Error(
-            'Could not locate the 320px sidebar column in the prototype Settings state to clip to.',
-          );
-        }
-        return rect;
-      },
-      PROTOTYPE_VIEWPORT_WIDTH,
-    );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-settings.png')));
-
     // Page 10: the ARCHIVE OVERLAY of the real panel (slice s3b-archive-overlay, issue #87).
     // Open the harness, click the bottom Archived (N) row to open the in-panel Archive
     // sub-page, wait for its gray-glow search box and the archived rows (the harness echoes a
@@ -1062,76 +738,6 @@ async function main() {
       },
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-archive.png')));
-
-    // Page 11: the ARCHIVE SUB-PAGE of the design prototype, the fidelity baseline the
-    // archive capture is judged against. Click the prototype's Archived row to open its
-    // Archive sub-page, then clip to the 320px sidebar like the other prototype captures.
-    const protoArchivePage = await openPage(browser);
-    await renderAndCapture(
-      protoArchivePage,
-      pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-archive.png'),
-      async (page) => {
-        await waitForCondition(
-          page,
-          '(function(){' +
-            "var loading=document.getElementById('__bundler_loading');" +
-            'if(loading && loading.offsetParent!==null) return false;' +
-            "var divs=document.querySelectorAll('body div');" +
-            'return divs.length > 8;' +
-            '})()',
-          30000,
-          'prototype React mount',
-        );
-        await evaluate(
-          page,
-          '(function(){' +
-            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
-            'var n=document.getElementById(id); if(n) n.remove();' +
-            '} return true; })()',
-        );
-        // Click the "Archived" row (a div whose text starts with "Archived") to open the
-        // Archive sub-page.
-        const clicked = await evaluate(
-          page,
-          '(function(){' +
-            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
-            'for(var i=0;i<divs.length;i++){' +
-            '  var t=(divs[i].textContent||\"\").trim();' +
-            "  if(/^Archived\\s*\\d*$/.test(t) && divs[i].querySelector('svg')){ divs[i].click(); return 'ok'; }" +
-            '}' +
-            "return 'no-archived-row';" +
-            '})()',
-        );
-        if (clicked !== 'ok') {
-          throw new Error('Could not open the prototype Archive sub-page: ' + clicked);
-        }
-        await sleep(400);
-        const rect = await evaluate(
-          page,
-          '(function(){' +
-            "var divs=Array.prototype.slice.call(document.querySelectorAll('div'));" +
-            'for(var i=0;i<divs.length;i++){' +
-            '  var el=divs[i]; var cs=getComputedStyle(el);' +
-            '  var r=el.getBoundingClientRect();' +
-            '  var hasRight=parseFloat(cs.borderRightWidth)>=1 && cs.borderRightStyle==="solid";' +
-            '  if(r.width>=319 && r.width<=323 && hasRight && r.height>=400){' +
-            '    return {x:r.x,y:r.y,width:Math.min(r.width,320),height:r.height};' +
-            '  }' +
-            '}' +
-            'return null;' +
-            '})()',
-        );
-        if (!rect) {
-          throw new Error(
-            'Could not locate the 320px sidebar column in the prototype Archive state to clip to.',
-          );
-        }
-        return rect;
-      },
-      PROTOTYPE_VIEWPORT_WIDTH,
-    );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-archive.png')));
 
     // Page 12: the DRAG DROP-HIGHLIGHT state of the real panel (slice s3c-fidelity-sweep,
     // issue #88). The .nest-drop-over highlight only paints while a chat drag is in flight
@@ -1248,61 +854,6 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-sort-popover.png')));
 
-    // Page 14: the SORT POPOVER of the design prototype, the fidelity baseline the sort
-    // capture is judged against. Click the prototype's Sort glyph to open its popover, then
-    // clip to the 320px sidebar like the other prototype captures.
-    const protoSortPage = await openPage(browser);
-    await renderAndCapture(
-      protoSortPage,
-      pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-sort-popover.png'),
-      async (page) => {
-        await waitForCondition(
-          page,
-          '(function(){' +
-            "var loading=document.getElementById('__bundler_loading');" +
-            'if(loading && loading.offsetParent!==null) return false;' +
-            "var divs=document.querySelectorAll('body div');" +
-            'return divs.length > 8;' +
-            '})()',
-          30000,
-          'prototype React mount',
-        );
-        await evaluate(
-          page,
-          '(function(){' +
-            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
-            'var n=document.getElementById(id); if(n) n.remove();' +
-            '} return true; })()',
-        );
-        // Click the Sort trigger (the ⇅ glyph carries title="Sort").
-        const clicked = await evaluate(
-          page,
-          '(function(){' +
-            "var e=document.querySelector('[title=\"Sort\"]');" +
-            "if(!e) return 'no-sort';" +
-            '(e.closest("button") || e).click();' +
-            "return 'ok';" +
-            '})()',
-        );
-        if (clicked !== 'ok') {
-          throw new Error('Could not open the prototype sort popover: ' + clicked);
-        }
-        await waitForCondition(
-          page,
-          "Array.prototype.some.call(document.querySelectorAll('*'),function(e){return e.children.length===0 && /SORT BY/i.test((e.textContent||'').trim());})",
-          10000,
-          'prototype sort popover (SORT BY) to open',
-        );
-        await sleep(300);
-        return await clipToSidebar(page);
-      },
-      PROTOTYPE_VIEWPORT_WIDTH,
-    );
-    console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-sort-popover.png')),
-    );
-
     // Page 15: the NEW-FOLDER POPOVER (open) state of the real panel (issue #88). Click the
     // FOLDERS-header + button (openNewFolderPopover) and wait for the popover with its name
     // input and Create/Cancel actions, then capture the full 320px viewport.
@@ -1350,64 +901,6 @@ async function main() {
     );
     console.log(
       '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-newfolder-popover.png')),
-    );
-
-    // Page 16: the NEW-FOLDER POPOVER of the design prototype, the fidelity baseline the
-    // new-folder capture is judged against. Click the prototype's + glyph (title="New folder")
-    // to open its popover, then clip to the 320px sidebar.
-    const protoNewFolderPage = await openPage(browser);
-    await renderAndCapture(
-      protoNewFolderPage,
-      pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-newfolder-popover.png'),
-      async (page) => {
-        await waitForCondition(
-          page,
-          '(function(){' +
-            "var loading=document.getElementById('__bundler_loading');" +
-            'if(loading && loading.offsetParent!==null) return false;' +
-            "var divs=document.querySelectorAll('body div');" +
-            'return divs.length > 8;' +
-            '})()',
-          30000,
-          'prototype React mount',
-        );
-        await evaluate(
-          page,
-          '(function(){' +
-            "for(var id of ['__bundler_thumbnail','__bundler_loading','__bundler_err']){" +
-            'var n=document.getElementById(id); if(n) n.remove();' +
-            '} return true; })()',
-        );
-        const clicked = await evaluate(
-          page,
-          '(function(){' +
-            "var e=document.querySelector('[title=\"New folder\"]');" +
-            "if(!e) return 'no-nf';" +
-            '(e.closest("button") || e).click();' +
-            "return 'ok';" +
-            '})()',
-        );
-        if (clicked !== 'ok') {
-          throw new Error('Could not open the prototype new-folder popover: ' + clicked);
-        }
-        await waitForCondition(
-          page,
-          "Array.prototype.some.call(document.querySelectorAll('*'),function(e){return /NEW FOLDER/i.test((e.textContent||''));})",
-          10000,
-          'prototype new-folder popover (NEW FOLDER) to open',
-        );
-        await sleep(300);
-        // The prototype floats this popover to the viewport top-left, above and left of
-        // the sidebar clip origin, so clipToSidebar alone would crop the popover chrome
-        // away (issue #88 fix). Clip to the UNION of the sidebar and the popover so the
-        // whole popover (NEW FOLDER title, Folder name input, Create/Cancel) is in frame.
-        return await clipToSidebarWithPopover(page, 'NEW FOLDER');
-      },
-      PROTOTYPE_VIEWPORT_WIDTH,
-    );
-    console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-newfolder-popover.png')),
     );
 
     // Page 17: the INLINE FOLDER RENAME state of the real panel (issue #88). Double-click a
@@ -1464,32 +957,6 @@ async function main() {
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-rename.png')));
 
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
-    console.log('Compare by eye:');
-    console.log('  harness.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
-    console.log('  prototype.png (freshly rendered) vs media/design/reference/prototype-320.png (drift check)');
-    console.log('  harness-results.png (real panel, filtered) vs prototype-results.png (results-state fidelity)');
-    console.log('  harness-context-menu.png (real panel, chat menu) vs the prototype context menu');
-    console.log(
-      '  harness-context-menu-newtag.png (real panel, create-tag state) vs the prototype new-tag menu',
-    );
-    console.log(
-      '  harness-settings.png (real panel, Settings overlay) vs prototype-settings.png (settings sub-page fidelity)',
-    );
-    console.log(
-      '  harness-archive.png (real panel, Archive overlay) vs prototype-archive.png (archive sub-page fidelity)',
-    );
-    console.log(
-      '  harness-drop-highlight.png (real panel, folder drop target) vs the prototype drop highlight',
-    );
-    console.log(
-      '  harness-sort-popover.png (real panel, sort open) vs prototype-sort-popover.png (sort popover fidelity)',
-    );
-    console.log(
-      '  harness-newfolder-popover.png (real panel, new-folder open) vs prototype-newfolder-popover.png (new-folder popover fidelity)',
-    );
-    console.log(
-      '  harness-rename.png (real panel, inline folder rename) vs the prototype rename input',
-    );
   } catch (err) {
     fail(
       'Fidelity capture failed: ' +
