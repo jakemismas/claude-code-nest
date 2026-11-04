@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { ChatRecord } from '../model/types';
-import { scanChats } from '../claude/chatScanner';
+import { foldersToScan, mergeFolderScans, scanChats } from '../claude/chatScanner';
+import { GroupBy } from '../fleet/nestConfig';
+import { EMPTY_FLEET_STATE, FleetState } from '../fleet/types';
 import { readTranscriptBodies } from '../claude/bodyReader';
 import { MetadataStore } from '../store/metadataStore';
 import { ProjectMeta, clampName, isSafeRecordId, isValidColor } from '../store/schema';
@@ -8,7 +10,7 @@ import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 import { tokenBadge } from './chatTooltip';
 import { relativeTime, relativeTimeCompact } from './relativeTime';
-import { buildSections, buildArchivedRows, OrgSections, isArchived } from './orgPanelModel';
+import { buildSections, buildArchivedRows, OrgSections, isArchived, PlacementContext } from './orgPanelModel';
 import { coerceAutoArchiveWindowDays } from '../store/autoArchivePolicy';
 import {
   SearchDoc,
@@ -348,6 +350,45 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     });
 
     webviewView.webview.html = this.renderHtml(webviewView.webview, mediaRoot);
+  }
+
+  // The layout file's effect on the panel: linked folders to scan, the auto grouping,
+  // and the fleet state. All read-only input; the host swaps it in on a reload.
+  private linkedFolders: readonly string[] = [];
+  private groupBy: GroupBy = 'auto';
+  private fleetState: FleetState = EMPTY_FLEET_STATE;
+  private sourceByChat: ReadonlyMap<string, string> = new Map();
+
+  setLayout(layout: { linkedFolders: readonly string[]; groupBy: GroupBy; fleet: FleetState }): void {
+    this.linkedFolders = layout.linkedFolders;
+    this.groupBy = layout.groupBy;
+    this.fleetState = layout.fleet;
+  }
+
+  // One scan of the workspace plus linked folders. Throws like scanChats did.
+  private scanAll(workspacePath: string): ChatRecord[] {
+    // The workspace scan is unguarded so a failure surfaces to the caller as before;
+    // a failing linked folder is skipped.
+    const [first, ...rest] = foldersToScan(workspacePath, this.linkedFolders);
+    const parts = [{ folder: first, records: scanChats(first) }];
+    for (const folder of rest) {
+      try {
+        parts.push({ folder, records: scanChats(folder) });
+      } catch {
+        // A linked folder that cannot be read contributes nothing.
+      }
+    }
+    const scan = mergeFolderScans(parts);
+    this.sourceByChat = scan.sourceByChat;
+    return scan.records;
+  }
+
+  private placementContext(): PlacementContext {
+    const fleetByChat = new Map<string, { folder: string | null; ticket: string | null }>();
+    for (const entry of this.fleetState.entries) {
+      fleetByChat.set(entry.sessionId, { folder: entry.folder, ticket: entry.ticket });
+    }
+    return { groupBy: this.groupBy, now: Date.now(), fleetByChat, sourceByChat: this.sourceByChat };
   }
 
   // Re-post the section model. Called by the wiring's refresh closure after any
@@ -765,7 +806,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
     let records: ChatRecord[];
     try {
-      records = scanChats(this.workspacePath);
+      records = this.scanAll(this.workspacePath);
     } catch {
       return empty;
     }
@@ -777,7 +818,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     const projectKey = this.getProjectKey();
     const meta: ProjectMeta | undefined =
       projectKey !== undefined ? this.store.getProjectMeta(projectKey) : undefined;
-    return buildSections(records, meta, tokenBadge, this.readState.getMap());
+    return buildSections(records, meta, tokenBadge, this.readState.getMap(), this.placementContext());
   }
 
   // Scan the current records and return them, tolerant of no workspace or a failed
@@ -788,7 +829,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       return [];
     }
     try {
-      const records = scanChats(this.workspacePath);
+      const records = this.scanAll(this.workspacePath);
       this.cachePreviewPaths(records);
       return records;
     } catch {
@@ -959,7 +1000,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
     let records: ChatRecord[];
     try {
-      records = scanChats(this.workspacePath);
+      records = this.scanAll(this.workspacePath);
     } catch {
       return null;
     }

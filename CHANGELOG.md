@@ -14,6 +14,9 @@ to [Semantic Versioning](https://semver.org/).
   module that unit tests cover.
 - Nest reads fleet records from `dev/fleet.jsonl` in each workspace folder, read-only,
   and refreshes the panel when the file changes.
+- Optional layout file `.nest/config.json` (JSON with comments, read-only) controls
+  grouping, linked folders and fleet files, with a JSON schema, hot reload and an
+  Open Layout File command.
 
 ## [0.2.0] - 2026-07-10
 

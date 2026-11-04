@@ -45,7 +45,8 @@
     "onCommand:claudeNest.importLibrary",
     "onCommand:claudeNest.refresh",
     "onCommand:claudeNest.linkToChat",
-    "onCommand:claudeNest.unlinkChat"
+    "onCommand:claudeNest.unlinkChat",
+    "onCommand:claudeNest.openLayoutFile"
   ],
   "contributes": {
     "viewsContainers": {
@@ -123,7 +124,18 @@
       }
     ],
     "viewsWelcome": [],
+    "jsonValidation": [
+      {
+        "fileMatch": ".nest/config.json",
+        "url": "./schemas/nest-config.schema.json"
+      }
+    ],
     "commands": [
+      {
+        "command": "claudeNest.openLayoutFile",
+        "title": "Open Layout File",
+        "category": "Claude Code Nest"
+      },
       {
         "command": "claudeNest.openChat",
         "title": "Open Chat",

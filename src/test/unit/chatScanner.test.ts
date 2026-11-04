@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { scanChats, readChat, sessionIdFromPath, resolveDir } from '../../claude/chatScanner';
+import { scanChats, readChat, sessionIdFromPath, resolveDir, foldersToScan, mergeFolderScans } from '../../claude/chatScanner';
 
 // File-reading unit tests run against a scratch fixture tree under the OS temp
 // dir, NEVER the real ~/.claude files. No vscode import. The scanner is given an
@@ -210,5 +210,23 @@ describe('chatScanner.scanChats', () => {
 describe('chatScanner.readChat', () => {
   it('returns null when the file cannot be read', () => {
     assert.strictEqual(readChat(path.join(root, 'does-not-exist.jsonl')), null);
+  });
+});
+
+describe('linked folder scan merge', () => {
+  const rec = (id: string, ts: number | null) => ({ sessionId: id, timestamp: ts }) as unknown as import('../../model/types').ChatRecord;
+
+  it('lists the workspace first and each linked folder once', () => {
+    assert.deepStrictEqual(foldersToScan('/w', ['/a', '/w', '/a', '/b']), ['/w', '/a', '/b']);
+  });
+
+  it('merges newest first, keeps the workspace copy of a duplicate, and records the source', () => {
+    const merged = mergeFolderScans([
+      { folder: '/x/work', records: [rec('s1', 10), rec('s2', 30)] },
+      { folder: '/x/other', records: [rec('s2', 99), rec('s3', 20)] },
+    ]);
+    assert.deepStrictEqual(merged.records.map((r) => r.sessionId), ['s2', 's3', 's1']);
+    assert.strictEqual(merged.sourceByChat.get('s2'), 'work');
+    assert.strictEqual(merged.sourceByChat.get('s3'), 'other');
   });
 });

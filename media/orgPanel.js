@@ -467,8 +467,10 @@
       const header = document.createElement('div');
       header.className = 'nest-unsorted-header';
       header.textContent = name;
-      header.dataset.dropFolderId = folderId;
-      attachDropTarget(header, folderId);
+      if (!folder.auto) {
+        header.dataset.dropFolderId = folderId;
+        attachDropTarget(header, folderId);
+      }
       listEl.appendChild(header);
     } else {
       // The header count is the rolled-up count (chats in this folder + all its
@@ -499,7 +501,9 @@
       rowEl.dataset.parentFolderId = folderId;
       group.appendChild(rowEl);
     }
-    attachDropTarget(group, folderId);
+    if (!folder.auto) {
+      attachDropTarget(group, folderId);
+    }
     listEl.appendChild(group);
   }
 
@@ -821,7 +825,8 @@
       // folders by the Folders toggle. A folder skipped by its toggle contributes
       // nothing to the collapse bookkeeping (it and its subtree are simply not drawn).
       if (folder.synthetic) {
-        if (showUnsorted) {
+        // Computed groups (auto) are not the Unsorted bucket and stay visible.
+        if (folder.auto || showUnsorted) {
           renderFolderSection(folder);
         }
         continue;

@@ -37,6 +37,9 @@ modules.
 | `src/store/deviceId.ts` | Stable per-install id used to stamp edits. |
 | `src/settings/claudeSettingsIO.ts` | Write chokepoint for Claude Code's `settings.json` (the retention setting only). |
 | `src/fleet/` | Read-only fleet input: `types`, `fleetRecord` (pure parse and fold), `fleetSource` (the only reader of `dev/fleet.jsonl`), `fleetReloader` (debounce), `fleetWatcher` (the one file that imports `vscode`). |
+| `src/fleet/` (layout file) | `nestConfig` (pure parse and validate), `configSource` (the only reader of `.nest/config.json`, with a debounced reloader), `placement` (pure group precedence). |
+| `src/commands/openLayoutFile.ts` | Opens the layout file in the editor. Writes nothing. |
+| `schemas/nest-config.schema.json` | JSON schema for the layout file, shipped in the extension. |
 | `src/search/` | Full-text index (`searchIndex`), its persistence (`searchStore`), and the vendored MiniSearch build. |
 | `src/smart/` | Signal extraction (PR, ticket, branch, fork lineage) used to suggest groups. |
 | `src/export/chatExport.ts` | Renders one chat as Markdown or JSON. |
@@ -139,6 +142,45 @@ state. Nest never writes a fleet record.
   the watcher are injected, so unit tests use a fake clock. `fleetWatcher.ts` is
   wired from `extension.ts` and is covered by `npm run test:integration`.
 - Nothing in the panel renders fleet data yet. The panel only refreshes on change.
+
+## Layout file (.nest/config.json)
+
+Nest reads an optional `.nest/config.json` from the first workspace folder. Nest
+never writes, creates, renames or deletes it. You edit it in the editor.
+
+- `src/fleet/configSource.ts` is the only reader of `.nest/config.json`. Like
+  `fleetSource`, it imports no write API and reads with `fs.promises.stat` and
+  `fs.promises.readFile`, so the lint write ban needs no exception. A file over
+  256 KB is skipped.
+- `nestConfig.ts` parses JSON with comments. A missing or unparsable file yields
+  defaults. An invalid field falls back to its default and adds one readable problem;
+  valid sibling fields are kept. Strings are stripped of control characters and
+  capped (paths 1024, names 200). Colors that are not hex are dropped. Arrays are
+  capped (rules 200, linked folders 50, tags 100, fleet files 50).
+- Linked folders expand `~`, allow `*` in the last path segment only, keep existing
+  directories and stop at 50 matches. A folder or fleet file that resolves into
+  `~/.claude/projects`, by path or by realpath, is dropped, so a symlink cannot
+  escape the exclusion. Expansion only reads (stat, readdir, realpath).
+- Linked folders and `fleet.files` are ignored in an untrusted workspace.
+- Chats in linked folders go through the same `scanChats` and `resolveProjectDir`
+  path, one scan per folder, merged by session id (the workspace copy wins).
+  Metadata stays under the window's project key. The `dev/fleet.jsonl` file of each
+  linked folder and every `fleet.files` entry feed the same `fleetSource` list.
+- The reloader debounces watcher events by 150 ms, then reloads. The clock and the
+  watcher are injected. On a reload, `extension.ts` recomputes linked folders and
+  fleet paths, re-creates the fleet watchers only when the resolved path list
+  changed, reloads fleet state and refreshes the panel.
+- `placement.ts` picks a chat's group in this order: a folder you filed it in by
+  hand, a fleet organize folder, rules (not used yet), then automatic grouping by
+  `groupBy` (`auto`, `tickets`, `folders`, `date`). A computed group is display
+  only. It is not a drop target and writes no metadata, and it stays visible when
+  the Unsorted section is hidden.
+- `schemas/nest-config.schema.json` is contributed through `contributes.jsonValidation`
+  for `.nest/config.json` and ships in the VSIX.
+- Open Layout File opens the existing file with `showTextDocument`, or an untitled
+  JSONC editor when the file is missing. It uses no filesystem write.
+- Unit tests cover parsing, coercion, expansion, precedence and the reloader with a
+  fake clock. The hot reload and the command run in `npm run test:integration`.
 
 ## Invariants
 

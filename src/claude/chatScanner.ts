@@ -86,6 +86,39 @@ export function scanChats(workspacePath: string, options: ScannerOptions = {}): 
   return records;
 }
 
+export interface LinkedScan {
+  readonly records: ChatRecord[];
+  // sessionId -> basename of the folder whose transcript directory held the chat.
+  readonly sourceByChat: Map<string, string>;
+}
+
+// The folders to scan: the workspace first, then each linked folder once. The caller
+// passes linked folders already expanded and checked against ~/.claude/projects.
+export function foldersToScan(workspacePath: string, linkedFolders: readonly string[]): string[] {
+  return [workspacePath, ...new Set(linkedFolders.filter((f) => f !== workspacePath))];
+}
+
+// Merges per-folder scan results into one list. A chat found twice keeps the first
+// (workspace) copy. Sorted newest first. Pure: the caller runs scanChats per folder.
+export function mergeFolderScans(
+  parts: ReadonlyArray<{ folder: string; records: readonly ChatRecord[] }>,
+): LinkedScan {
+  const sourceByChat = new Map<string, string>();
+  const byId = new Map<string, ChatRecord>();
+  for (const part of parts) {
+    const label = path.basename(part.folder) || part.folder;
+    for (const record of part.records) {
+      if (!byId.has(record.sessionId)) {
+        byId.set(record.sessionId, record);
+        sourceByChat.set(record.sessionId, label);
+      }
+    }
+  }
+  const records = [...byId.values()];
+  records.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+  return { records, sourceByChat };
+}
+
 // Read one transcript into a ChatRecord. Returns null only when the file cannot
 // be read at all; an empty or title-less transcript still yields a record whose
 // title falls back to the sessionId.

@@ -751,3 +751,54 @@ describe('orgPanelModel buildArchivedRows', () => {
     assert.strictEqual(rows[0].starred, true, 'the synced star flag rides the row');
   });
 });
+
+describe('orgPanelModel placement (layout file grouping)', () => {
+  const NOW = new Date(2026, 5, 15, 12, 0, 0).getTime();
+  const DAY = 24 * 60 * 60 * 1000;
+  const records = [
+    record({ sessionId: 'today', timestamp: NOW - 1000 }),
+    record({ sessionId: 'old', timestamp: NOW - 90 * DAY }),
+    record({ sessionId: 'filed', timestamp: NOW - 1000 }),
+    record({ sessionId: 'fleet', timestamp: NOW - 1000 }),
+  ];
+  const m = meta({
+    folders: { f1: { id: 'f1', name: 'Mine', parentId: null, order: 0 } },
+    chats: { filed: { folderId: 'f1', tags: [], links: [], updatedAt: 0, deviceId: 'd' } },
+  });
+  const ctx = (groupBy: 'auto' | 'tickets' | 'folders' | 'date') => ({
+    groupBy,
+    now: NOW,
+    fleetByChat: new Map([['fleet', { folder: 'Fleet folder', ticket: 'T-7' }]]),
+    sourceByChat: new Map([['today', 'proj']]),
+  });
+  const names = (s: FolderSection[]) => s.map((f) => f.name);
+  const rowsOf = (s: FolderSection[], name: string) => s.find((f) => f.name === name)?.rows.map((r) => r.sessionId) ?? [];
+
+  it('without a placement context behaves as before', () => {
+    const s = buildSections(records, m, badge).folders;
+    assert.deepStrictEqual(names(s), ['Mine', 'Unsorted']);
+    assert.deepStrictEqual(rowsOf(s, 'Unsorted').sort(), ['fleet', 'old', 'today']);
+  });
+
+  it('auto grouping still honors a fleet organize folder and leaves a hand-filed chat in its folder', () => {
+    const s = buildSections(records, m, badge, new Map(), ctx('auto')).folders;
+    assert.deepStrictEqual(rowsOf(s, 'Mine'), ['filed']);
+    assert.deepStrictEqual(rowsOf(s, 'Fleet folder'), ['fleet']);
+    assert.deepStrictEqual(rowsOf(s, 'Unsorted').sort(), ['old', 'today']);
+    assert.strictEqual(s.find((f) => f.name === 'Fleet folder')?.auto, true);
+  });
+
+  it('groupBy date regroups unfiled chats into date buckets before Unsorted', () => {
+    const s = buildSections(records, m, badge, new Map(), ctx('date')).folders;
+    assert.deepStrictEqual(names(s), ['Mine', 'Fleet folder', 'Today', 'Older', 'Unsorted']);
+    assert.deepStrictEqual(rowsOf(s, 'Today'), ['today']);
+    assert.deepStrictEqual(rowsOf(s, 'Older'), ['old']);
+    assert.deepStrictEqual(rowsOf(s, 'Mine'), ['filed']);
+    assert.strictEqual(s[s.length - 1].folderId, UNSORTED_FOLDER_ID);
+  });
+
+  it('groupBy folders groups by source folder', () => {
+    const s = buildSections(records, m, badge, new Map(), ctx('folders')).folders;
+    assert.deepStrictEqual(rowsOf(s, 'proj'), ['today']);
+  });
+});

@@ -38,6 +38,8 @@ import { asksSomething } from '../model/questionHeuristic';
 // gate. It applies the one-visible-sublevel render cap to the emitted section depth
 // without ever touching the stored hierarchy.
 import { clampFolderDepth } from '../model/folderTree';
+import { GroupBy } from '../fleet/nestConfig';
+import { Placement, resolvePlacement } from '../fleet/placement';
 
 // The synthetic catch-all bucket id for chats with no (or an unresolvable) home
 // folder. Duplicated as a literal here rather than imported from folderTree.ts so
@@ -119,6 +121,9 @@ export interface FolderSection {
   // tree; filtering swaps to the flat results list). The synthetic Unsorted bucket has no
   // rollup semantics (it has no descendants); its count is just its own rows.
   rolledUpCount: number;
+  // True for a computed group (fleet folder, ticket, source folder or date bucket).
+  // It is display-only: it is not a drop target and no metadata is written for it.
+  auto?: boolean;
   rows: OrgChatRow[];
 }
 
@@ -160,6 +165,24 @@ export interface OrgSections {
 // and the s3b hover card, NOT the visible row) matches every other surface exactly.
 export type TokenBadgeFn = (record: ChatRecord) => string;
 
+// Inputs for the placement resolver. Optional: without it every unfiled chat lands in
+// Unsorted, exactly as before.
+export interface PlacementContext {
+  groupBy: GroupBy;
+  now: number;
+  // Per chat: the newest fleet organize folder and the fleet ticket, when known.
+  fleetByChat: ReadonlyMap<string, { folder: string | null; ticket: string | null }>;
+  // Per chat: the name of the folder the transcript was scanned from.
+  sourceByChat: ReadonlyMap<string, string>;
+}
+
+interface AutoGroup {
+  key: string;
+  label: string;
+  order: number;
+  rows: OrgChatRow[];
+}
+
 // Build the org-panel section model from the scanned records and the project's
 // curation document. Pure and total: a missing meta (project key not resolved yet)
 // yields every chat unfiled, untagged, unstarred, with the read-state status still
@@ -171,6 +194,7 @@ export function buildSections(
   meta: ProjectMeta | undefined,
   tokenBadge: TokenBadgeFn,
   lastSeenAt: ReadonlyMap<string, number> = new Map(),
+  placement?: PlacementContext,
 ): OrgSections {
   // Archived chats (the SYNCED ChatMeta.userArchived flag) are excluded from EVERY
   // visible section and surfaced only as the bottom "Archived (N)" row. This is the
@@ -199,11 +223,41 @@ export function buildSections(
   // Single-home folder placement: group each row under its resolved home folder
   // id (the Unsorted sentinel when unfiled or the folder no longer resolves).
   const homeByChat = new Map<string, string>();
+  const autoByChat = new Map<string, Placement & { kind: 'group' }>();
   for (const record of visibleRecords) {
-    homeByChat.set(record.sessionId, resolveHomeFolderId(record.sessionId, meta));
+    const home = resolveHomeFolderId(record.sessionId, meta);
+    homeByChat.set(record.sessionId, home);
+    if (placement !== undefined && home === UNSORTED_FOLDER_ID) {
+      const fleet = placement.fleetByChat.get(record.sessionId);
+      const placed = resolvePlacement(
+        {
+          handFiledFolderId: null,
+          fleetFolder: fleet?.folder ?? null,
+          ticket: fleet?.ticket ?? null,
+          sourceFolder: placement.sourceByChat.get(record.sessionId) ?? null,
+          timestamp: record.timestamp,
+        },
+        placement.groupBy,
+        placement.now,
+      );
+      if (placed.kind === 'group') {
+        autoByChat.set(record.sessionId, placed);
+      }
+    }
   }
   const rowsByFolder = new Map<string, OrgChatRow[]>();
+  const autoGroups = new Map<string, AutoGroup>();
   for (const row of rows) {
+    const auto = autoByChat.get(row.sessionId);
+    if (auto !== undefined) {
+      const existing = autoGroups.get(auto.key);
+      if (existing === undefined) {
+        autoGroups.set(auto.key, { key: auto.key, label: auto.label, order: auto.order, rows: [row] });
+      } else {
+        existing.rows.push(row);
+      }
+      continue;
+    }
     const home = homeByChat.get(row.sessionId) ?? UNSORTED_FOLDER_ID;
     const bucket = rowsByFolder.get(home);
     if (bucket === undefined) {
@@ -213,7 +267,7 @@ export function buildSections(
     }
   }
 
-  const folders = buildFolderSections(meta, rowsByFolder);
+  const folders = buildFolderSections(meta, rowsByFolder, [...autoGroups.values()]);
   const tags = buildTagChips(visibleRecords, meta);
   const allTags = buildAllTags(visibleRecords, meta);
 
@@ -467,6 +521,7 @@ function resolveTagsFor(
 function buildFolderSections(
   meta: ProjectMeta | undefined,
   rowsByFolder: Map<string, OrgChatRow[]>,
+  autoGroups: readonly AutoGroup[] = [],
 ): FolderSection[] {
   const sections: FolderSection[] = [];
   const folders = meta?.folders ?? {};
@@ -537,6 +592,23 @@ function buildFolderSections(
       synthetic: false,
       rolledUpCount: rollup.get(folder.id) ?? 0,
       rows: sortNewestFirst(rowsByFolder.get(folder.id) ?? []),
+    });
+  }
+
+  // Computed groups sit after the real folders and before Unsorted.
+  const orderedGroups = [...autoGroups].sort(
+    (a, b) => a.order - b.order || a.label.localeCompare(b.label) || a.key.localeCompare(b.key),
+  );
+  for (const g of orderedGroups) {
+    sections.push({
+      folderId: g.key,
+      name: g.label,
+      depth: 0,
+      treeDepth: 0,
+      synthetic: true,
+      auto: true,
+      rolledUpCount: g.rows.length,
+      rows: sortNewestFirst(g.rows),
     });
   }
 

@@ -139,7 +139,11 @@ import { ExportOrgLayer } from './export/chatExport';
 import { writeTextFile } from './store/exportIO';
 import { FleetReloader } from './fleet/fleetReloader';
 import { fleetFilePaths } from './fleet/fleetSource';
-import { watchFleetFiles } from './fleet/fleetWatcher';
+import { watchFile, watchFleetFilesResubscribing } from './fleet/fleetWatcher';
+import { ConfigReloader, nestConfigPath } from './fleet/configSource';
+import { expandLinkedFolders, resolveFleetFileEntries } from './fleet/nestConfig';
+import { OPEN_LAYOUT_FILE_COMMAND, openLayoutFile } from './commands/openLayoutFile';
+import { createOpenLayoutDeps } from './commands/openLayoutFileHost';
 import { resolveFolderName, resolveStarred, resolveTagLabels } from './views/chatMeta';
 
 // Entry point for the Claude Code Nest extension. It contributes the claudeNest Activity
@@ -1390,21 +1394,65 @@ export function activate(context: vscode.ExtensionContext): void {
   // synced/git-tracked canonical export location. Fire-and-forget; shown once.
   void maybePromptAutoExport(exportImportDeps);
 
-  // Fleet records are read-only input. The state is held by the reloader; the panel
-  // refreshes when a fleet file changes.
-  const fleetPaths = fleetFilePaths(
-    (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
-  );
+  // The layout file (.nest/config.json) and fleet records are read-only input. The
+  // config reloader holds the parsed layout; the fleet reloader holds the fleet state.
+  // A layout change recomputes linked folders and fleet paths, re-subscribes the fleet
+  // watchers, and refreshes the panel.
+  const workspaceFolderPaths = (): string[] =>
+    (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+  let linkedFolders: readonly string[] = [];
+  let extraFleetFiles: readonly string[] = [];
+  const configPath = workspacePath === undefined ? undefined : nestConfigPath(workspacePath);
+  const computeFleetPaths = (): string[] => [
+    ...fleetFilePaths([...workspaceFolderPaths(), ...linkedFolders]),
+    ...extraFleetFiles,
+  ];
   const fleetReloader = new FleetReloader({
-    getPaths: () => fleetPaths,
-    onChange: () => refreshOrgPanel(),
+    getPaths: computeFleetPaths,
+    onChange: (state) => {
+      orgPanelProvider.setLayout({
+        linkedFolders,
+        groupBy: configReloader.getParsed().config.groupBy,
+        fleet: state,
+      });
+      refreshOrgPanel();
+    },
+    warn: (message) => console.warn(message),
+  });
+  const fleetWatcher = watchFleetFilesResubscribing(computeFleetPaths, fleetReloader);
+  const configReloader: ConfigReloader = new ConfigReloader({
+    getPath: () => configPath,
+    onChange: (parsed) => {
+      // An untrusted workspace cannot point scans or reads at paths outside itself.
+      const trusted = vscode.workspace.isTrusted !== false;
+      const linked = trusted ? expandLinkedFolders(parsed.config.linkedFolders) : { paths: [], problems: [] };
+      const files = trusted ? resolveFleetFileEntries(parsed.config.fleetFiles) : { paths: [], problems: [] };
+      if (!trusted && (parsed.config.linkedFolders.length > 0 || parsed.config.fleetFiles.length > 0)) {
+        console.warn('Nest layout file: linkedFolders and fleet.files are ignored in an untrusted workspace.');
+      }
+      linkedFolders = linked.paths;
+      extraFleetFiles = files.paths;
+      for (const problem of [...parsed.problems, ...linked.problems, ...files.problems]) {
+        console.warn(`Nest layout file: ${problem}`);
+      }
+      fleetWatcher.refresh();
+      void fleetReloader.reload();
+    },
     warn: (message) => console.warn(message),
   });
   context.subscriptions.push(
     { dispose: () => fleetReloader.dispose() },
-    watchFleetFiles(fleetPaths, fleetReloader),
+    { dispose: () => configReloader.dispose() },
+    fleetWatcher,
+    ...(configPath === undefined ? [] : [watchFile(configPath, () => configReloader.notifyFileEvent())]),
+    vscode.commands.registerCommand(OPEN_LAYOUT_FILE_COMMAND, () =>
+      openLayoutFile(createOpenLayoutDeps(workspacePath, context.extensionUri)),
+    ),
   );
-  void fleetReloader.reload();
+  if (typeof vscode.workspace.onDidGrantWorkspaceTrust === 'function') {
+    context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => void configReloader.reload()));
+  }
+  void configReloader.reload();
 }
 
 export function deactivate(): Thenable<void> | void {
