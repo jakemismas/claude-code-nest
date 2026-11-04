@@ -32,7 +32,7 @@ describe('agents CLI missing (host)', () => {
   it('rejects the real runner with ENOENT and maps it to a failed result', async () => {
     await assert.rejects(execFileRunner(dir), (e: NodeJS.ErrnoException) => e.code === 'ENOENT');
     const result = await listAgentSessions(execFileRunner, dir);
-    assert.deepStrictEqual(result, { ok: false, reason: 'The claude command was not found.' });
+    assert.deepStrictEqual(result, { ok: false, reason: 'The claude command was not found.', unavailable: true });
   });
 
   it('logs once and delivers only empty lists when the poller runs against the real runner', async () => {
