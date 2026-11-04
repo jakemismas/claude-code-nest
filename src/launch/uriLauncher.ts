@@ -14,6 +14,8 @@
 // imports the vscode module here. The extension host passes
 // vscode.env.openExternal and builds the Uri via vscode.Uri.from.
 
+import { SESSION_ID_RE } from '../fleet/types';
+
 // The open-chat command id. It lives here, next to the launcher that implements it, since
 // deleted its original home (the retired flat Chats tree's flatProvider.ts). Every
 // surface that opens a chat (the org panel, the Archive view, the kept non-view services'
@@ -38,7 +40,15 @@ export interface OpenUri {
 // Promise, or void without depending on the vscode module here.
 export type OpenExternal = (uri: OpenUri) => unknown;
 
+// A session id reaches the URI only when it matches the session id grammar.
+export function isOpenableSessionId(value: unknown): value is string {
+  return typeof value === 'string' && SESSION_ID_RE.test(value);
+}
+
 export function buildOpenUri(sessionId: string): OpenUri {
+  if (!isOpenableSessionId(sessionId)) {
+    throw new Error('Invalid session id');
+  }
   return {
     scheme: 'vscode',
     authority: 'Anthropic.claude-code',
@@ -48,5 +58,8 @@ export function buildOpenUri(sessionId: string): OpenUri {
 }
 
 export function openChat(sessionId: string, openExternal: OpenExternal): unknown {
+  if (!isOpenableSessionId(sessionId)) {
+    return undefined;
+  }
   return openExternal(buildOpenUri(sessionId));
 }

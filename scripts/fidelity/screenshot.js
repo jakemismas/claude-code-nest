@@ -5,7 +5,7 @@
 // or Edge at 320px wide. It writes one full-page PNG per panel state into
 // .claude-working/screens/ (gitignored) as <state>-<theme>.png: the default list,
 // search results, the context menu, the settings and archive overlays, popovers, drag
-// highlight and inline rename. Review the images by eye; there is no pixel diffing.
+// highlight, inline rename and the fleet view (ticket, any-folder, Active, Queue). Review the images by eye; there is no pixel diffing.
 //
 // Usage: npm run fidelity -- [--theme light|dark] [--out <dir>]
 //
@@ -63,6 +63,11 @@ function harnessOut(state) {
 // The harness reads ?theme= and opts into the dark --vscode-* variables.
 function harnessUrl() {
   return pathToFileURL(HARNESS_HTML).href + '?theme=' + THEME;
+}
+
+// The fleet captures add ?fleet=ticket|folder so the harness posts the fleet view.
+function harnessFleetUrl(view) {
+  return harnessUrl() + '&fleet=' + view;
 }
 
 // Panel width for every capture. The panel stays usable from 260 to 480px.
@@ -985,6 +990,59 @@ async function main() {
       },
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('rename')));
+
+    // The FLEET VIEW states: the ticket view, the any-folder view, the Active filter on
+    // and the Queue list open. Each page loads the harness with made-up fleet data and
+    // waits for the group rows. Captures are the clipped 320px column.
+    const fleetStates = [
+      { name: 'fleet-ticket', view: 'ticket', drive: null, ready: "document.querySelectorAll('#list .nest-fleet-group').length > 0" },
+      { name: 'fleet-folder', view: 'folder', drive: null, ready: "document.querySelectorAll('#list .nest-fleet-group').length > 0" },
+      {
+        name: 'fleet-active',
+        view: 'ticket',
+        drive: "document.getElementById('activeBtn').click();",
+        ready:
+          "document.getElementById('activeBtn').getAttribute('aria-pressed')==='true'" +
+          " && document.querySelectorAll('#list .nest-fleet-group').length > 0" +
+          " && !document.querySelector('#list .nest-fleet-group[data-group-id=\"ticket.A-099\"]')",
+      },
+      {
+        name: 'fleet-queue',
+        view: 'ticket',
+        drive: "document.getElementById('queueBtn').click();",
+        ready: "document.querySelectorAll('#queueList .nest-queue-row').length === 3",
+      },
+    ];
+    for (const state of fleetStates) {
+      const fleetPage = await openPage(browser);
+      await renderAndCapture(
+        fleetPage,
+        harnessFleetUrl(state.view),
+        harnessOut(state.name),
+        async (page) => {
+          await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+          await waitForCondition(
+            page,
+            "document.querySelectorAll('#list .nest-fleet-group').length > 0 && !document.getElementById('activeBtn').hidden",
+            10000,
+            'harness fleet groups to render',
+          );
+          if (state.drive) {
+            const driven = await evaluate(page, '(function(){' + state.drive + "return 'ok';})()");
+            if (driven !== 'ok') {
+              throw new Error('Could not drive the ' + state.name + ' state: ' + driven);
+            }
+          }
+          await waitForCondition(page, state.ready, 10000, 'the ' + state.name + ' state to render');
+          await sleep(500);
+          return await evaluate(
+            page,
+            '(function(){return {x:0,y:0,width:320,height:document.documentElement.scrollHeight};})()',
+          );
+        },
+      );
+      console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(state.name)));
+    }
 
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
   } catch (err) {

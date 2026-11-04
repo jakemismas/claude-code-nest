@@ -144,7 +144,7 @@ state. Nest never writes a fleet record.
 - `fleetReloader.ts` debounces watcher events by 250 ms, then reloads. The clock and
   the watcher are injected, so unit tests use a fake clock. `fleetWatcher.ts` is
   wired from `extension.ts` and is covered by `npm run test:integration`.
-- Nothing in the panel renders fleet data yet. The panel only refreshes on change.
+- The panel renders the fleet record through the fleet message described under Fleet panel.
 
 ## Layout file (.nest/config.json)
 
@@ -189,7 +189,7 @@ never writes, creates, renames or deletes it. You edit it in the editor.
 
 Each chat gets one status: `working`, `needs`, `queued`, `done` or `idle`. A group
 shows the most urgent status of its chats, in the order needs, working, queued, done,
-idle. Nothing in the panel renders these statuses yet.
+idle. The panel draws them as the dots described under Fleet panel.
 
 - `src/claude/agentsCli.ts` runs `claude agents --json` with `execFile`, a fixed binary
   name, fixed arguments, no shell, a 5 second timeout and a 4 MB output cap. The
@@ -265,7 +265,7 @@ match, or the panel will render nothing there.
 
 ## Group model
 
-`src/fleet/groupModel.ts` is pure and clock-free. `buildFleetSections` takes the chats, the user folders, the fleet state, the statuses, the queue rows, the group-by mode, the workspace root and the current time, and returns the sections the panel shows. It writes nothing. The webview host exposes it through `getFleetSections`; no message carries the result yet.
+`src/fleet/groupModel.ts` is pure and clock-free. `buildFleetSections` takes the chats, the user folders, the fleet state, the statuses, the queue rows, the group-by mode, the workspace root and the current time, and returns the sections the panel shows. It writes nothing. The webview host exposes it through `getFleetSections` and posts it as the fleet message.
 
 - Tickets mode returns the pinned current orchestrator, past orchestrators newest first, one group per ticket (id, title, stage, chats, rollup status), your folders, Unsorted and the archived count. A ticket title comes from the queue title column, else the newest chat name with the ticket id removed. A ticket stage comes from the queue, else the newest fleet organize stage.
 - Folders mode groups by the working subfolder relative to the workspace root, from the fleet `cwd`, else the live session `cwd`, else the `cwd` read from the transcript and carried on the chat record. A chat launched by another chat in the same group nests one level under its parent. A launch cycle leaves its members unnested.
@@ -276,3 +276,16 @@ match, or the panel will render nothing there.
 - The queue projection lists queue rows in file order and marks rows whose ticket has a working or needs chat.
 - Group ids use a kind prefix and replace `:`, `#` and `>`, so they never collide with the reserved sentinels in `idFactory`.
 - `suffix.ts` removes the ticket id, the ticket title words and the agent word from a chat name and trims the result to 24 characters.
+
+## Fleet panel
+
+The host posts one `fleet` message that the webview only draws. `src/views/fleetPanel.ts` is pure: it turns the group model's sections into display-ready groups and rows, including the ARIA level, position, set size and label of every treeitem, the stage pill color family and the agent tag color key.
+
+- The host posts `fleet` after each `sections` post, and again when live sessions, queue rows or the layout file's stage colors change. It skips a post whose text equals the last one, so the 10 second poll does not redraw an unchanged panel.
+- The webview posts `setActive` with a strict boolean when you press Active. The host recomputes the sections with the Active projection and posts them back. The Active state is not stored.
+- The webview keeps the open state of each group and saves it with the webview `setState`. The Active projection forces live groups open without changing that state, so turning Active off restores it.
+- A stage pill takes its color from the layout file's `tags` by stage name. Otherwise stages that match `fail` are orange, `doneStages` are green, stages that match `uat`, `review` or `test` are teal, and the rest are blue. Only a `#rrggbb` color reaches a style.
+- Fleet, layout, queue and CLI strings reach the page through `textContent`. The webview builds no HTML from data.
+- With a fleet message, the panel draws Starred and Questions when they are not empty, then the fleet layout, then your folders. Active shows only the fleet groups that hold a working or needs chat.
+- Group open and close, new rows, the dot to check change and the stage color change are animated. Each has a `prefers-reduced-motion` rule that removes the motion.
+- The header has an empty robin slot beside the "Nest" wordmark.

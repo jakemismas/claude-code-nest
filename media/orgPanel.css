@@ -1614,3 +1614,692 @@ body {
   outline: 2px solid var(--nest-accent);
   outline-offset: 1px;
 }
+
+/* ---- Fleet view: header, controls, queue, groups ---- */
+
+/* Fleet tokens. Surfaces and text follow the VS Code theme and fall back to the light
+   values; the status, pill and tag hues are content colors and stay hardcoded. */
+:root {
+  --nf-text: var(--vscode-foreground, #1F1D1A);
+  --nf-muted: var(--vscode-descriptionForeground, #6A645B);
+  --nf-quiet: var(--vscode-icon-foreground, #8A847A);
+  --nf-hover: var(--vscode-list-hoverBackground, #F1EEE8);
+  --nf-border: var(--vscode-panel-border, #E6E2DA);
+  --nf-divider: var(--vscode-panel-border, #EDE9E2);
+  --nf-input-border: var(--vscode-input-border, #DDD8CF);
+  --nf-input-fill: var(--vscode-input-background, #FFFFFF);
+  --nf-card: var(--vscode-editorWidget-background, #FFFFFF);
+  --nf-wordmark: #C2571A;
+  --nf-branch: #A8A29A;
+  --nf-mono: var(--vscode-editor-font-family, Menlo, monospace);
+
+  --nf-working: #2E9E57;
+  --nf-needs: #E9A100;
+  --nf-needs-ink: #2B1E00;
+  --nf-queued: #3B82D6;
+  --nf-done: #3F8F5C;
+  --nf-idle: #9A948B;
+
+  --pill-teal-bg: #DDF3EE;
+  --pill-teal-fg: #0E6656;
+  --pill-orange-bg: #FCE6D6;
+  --pill-orange-fg: #9A410C;
+  --pill-blue-bg: #E2ECFB;
+  --pill-blue-fg: #1A55AD;
+  --pill-green-bg: #DFF3E5;
+  --pill-green-fg: #1C6E37;
+
+  --tag-build-bg: #E2ECFB;
+  --tag-build-fg: #1A55AD;
+  --tag-fix-bg: #FCE6D6;
+  --tag-fix-fg: #9A410C;
+  --tag-qa-bg: #ECE5F8;
+  --tag-qa-fg: #55389A;
+  --tag-spike-bg: #DDF3EE;
+  --tag-spike-fg: #0E6656;
+  --tag-review-bg: #F1EEE8;
+  --tag-review-fg: #4A453E;
+  --tag-capture-bg: #FBE3EC;
+  --tag-capture-fg: #9A2A55;
+
+  --btn-active-bg: #E3F4E8;
+  --btn-active-border: #8CCB9F;
+  --btn-active-fg: #1C6E37;
+  --btn-queue-bg: #E2ECFB;
+  --btn-queue-border: #9DBDEB;
+  --btn-queue-fg: #1A55AD;
+}
+
+/* Dark: the same hues, fills at 22 percent over the panel, text lightened. */
+html[data-theme='dark'],
+body.vscode-dark,
+body.vscode-high-contrast {
+  --nf-wordmark: #E07B3C;
+  --nf-branch: #6F6A62;
+  --nf-done: #6CC58C;
+  --nf-idle: #8C867D;
+
+  --pill-teal-bg: rgba(47, 191, 159, 0.22);
+  --pill-teal-fg: #6FD9C0;
+  --pill-orange-bg: rgba(232, 121, 54, 0.22);
+  --pill-orange-fg: #F4A672;
+  --pill-blue-bg: rgba(79, 140, 230, 0.22);
+  --pill-blue-fg: #8DB8F5;
+  --pill-green-bg: rgba(60, 170, 100, 0.22);
+  --pill-green-fg: #7FD39B;
+
+  --tag-build-bg: rgba(79, 140, 230, 0.22);
+  --tag-build-fg: #8DB8F5;
+  --tag-fix-bg: rgba(232, 121, 54, 0.22);
+  --tag-fix-fg: #F4A672;
+  --tag-qa-bg: rgba(140, 110, 220, 0.22);
+  --tag-qa-fg: #BBA4F2;
+  --tag-spike-bg: rgba(47, 191, 159, 0.22);
+  --tag-spike-fg: #6FD9C0;
+  --tag-review-bg: rgba(150, 145, 135, 0.22);
+  --tag-review-fg: #D0CBC2;
+  --tag-capture-bg: rgba(219, 80, 130, 0.22);
+  --tag-capture-fg: #F29AB8;
+
+  --btn-active-bg: rgba(46, 158, 87, 0.22);
+  --btn-active-border: rgba(46, 158, 87, 0.6);
+  --btn-active-fg: #7FD39B;
+  --btn-queue-bg: rgba(59, 130, 214, 0.22);
+  --btn-queue-border: rgba(59, 130, 214, 0.6);
+  --btn-queue-fg: #8DB8F5;
+}
+
+/* Header: the robin slot (empty until the robin ships) and the wordmark. */
+.nest-header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 16px 16px;
+  flex: none;
+}
+
+.nest-robin-slot:empty {
+  display: none;
+}
+
+.nest-wordmark {
+  font-family: var(--nf-mono);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--nf-wordmark);
+}
+
+/* Controls row: the search box beside the Active and Queue buttons. */
+.nest-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 10px;
+  flex: none;
+}
+
+.nest-controls .nest-search {
+  flex: 1 1 96px;
+  min-width: 0;
+  padding: 0;
+}
+
+.nest-controls .nest-search-icon {
+  left: 10px;
+  top: 10px;
+}
+
+.nest-controls .nest-filter {
+  height: 34px;
+  padding: 0 28px 0 30px;
+  border-radius: 8px;
+  border-color: var(--nf-input-border);
+  background: var(--nf-input-fill);
+}
+
+.nest-controls .nest-filter:focus {
+  background: var(--nf-input-fill);
+}
+
+.nest-controls .nest-search-clear {
+  right: 7px;
+  top: 7px;
+}
+
+.nest-fleet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--nf-input-border);
+  background: var(--nf-input-fill);
+  color: var(--nf-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  flex: none;
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.nest-fleet-btn[hidden] {
+  display: none;
+}
+
+.nest-fleet-btn-active[aria-pressed='true'] {
+  background: var(--btn-active-bg);
+  border-color: var(--btn-active-border);
+  color: var(--btn-active-fg);
+}
+
+.nest-fleet-btn-queue[aria-pressed='true'] {
+  background: var(--btn-queue-bg);
+  border-color: var(--btn-queue-border);
+  color: var(--btn-queue-fg);
+}
+
+.nest-fleet-btn:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+.nest-fleet-btn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Status marks: one set of dots shared by buttons, rows and the queue. */
+.nest-dot-working {
+  background: var(--nf-working);
+  animation: nest-pulse 1.4s ease-in-out infinite;
+}
+
+.nest-dot-queued {
+  background: var(--nf-queued);
+}
+
+@keyframes nest-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 158, 87, 0.55);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(46, 158, 87, 0);
+    opacity: 0.45;
+  }
+}
+
+@keyframes nest-qblink {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+/* Queue: a read-only card under the controls. */
+.nest-queue {
+  margin: 0 12px 8px;
+  border: 1px solid var(--nf-border);
+  border-radius: 10px;
+  background: var(--nf-card);
+  overflow: hidden;
+  flex: none;
+}
+
+.nest-queue[hidden] {
+  display: none;
+}
+
+.nest-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--nf-divider);
+}
+
+.nest-queue-row:last-child {
+  border-bottom: 0;
+}
+
+.nest-queue-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--nf-queued);
+  flex: none;
+}
+
+.nest-queue-pos {
+  width: 12px;
+  flex: none;
+  color: var(--nf-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.nest-queue-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nest-queue-key,
+.nest-fleet-ticket {
+  color: var(--nf-muted);
+}
+
+.nest-queue-empty {
+  padding: 10px;
+  color: var(--nf-muted);
+}
+
+/* Pills and tags. */
+.nest-pill {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.nest-pill-teal {
+  background: var(--pill-teal-bg);
+  color: var(--pill-teal-fg);
+}
+
+.nest-pill-orange {
+  background: var(--pill-orange-bg);
+  color: var(--pill-orange-fg);
+}
+
+.nest-pill-blue {
+  background: var(--pill-blue-bg);
+  color: var(--pill-blue-fg);
+}
+
+.nest-pill-green {
+  background: var(--pill-green-bg);
+  color: var(--pill-green-fg);
+}
+
+.nest-pill-custom {
+  background: var(--pill-custom-bg);
+  color: var(--pill-custom-fg);
+}
+
+.nest-agent-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nest-agent-build {
+  background: var(--tag-build-bg);
+  color: var(--tag-build-fg);
+}
+
+.nest-agent-fix {
+  background: var(--tag-fix-bg);
+  color: var(--tag-fix-fg);
+}
+
+.nest-agent-qa {
+  background: var(--tag-qa-bg);
+  color: var(--tag-qa-fg);
+}
+
+.nest-agent-spike {
+  background: var(--tag-spike-bg);
+  color: var(--tag-spike-fg);
+}
+
+.nest-agent-review {
+  background: var(--tag-review-bg);
+  color: var(--tag-review-fg);
+}
+
+.nest-agent-capture {
+  background: var(--tag-capture-bg);
+  color: var(--tag-capture-fg);
+}
+
+/* Status slot and marks inside rows. */
+.nest-fleet-status {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nest-fleet-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: block;
+}
+
+.nest-fleet-dot.nest-dot-working {
+  background: var(--nf-working);
+}
+
+.nest-fleet-dot.nest-dot-queued {
+  background: var(--nf-queued);
+}
+
+.nest-fleet-dot-idle {
+  border: 1.5px solid var(--nf-idle);
+  box-sizing: border-box;
+}
+
+.nest-fleet-needs {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--nf-needs);
+  color: var(--nf-needs-ink);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: nest-qblink 1s steps(2, end) infinite;
+}
+
+.nest-fleet-check {
+  display: block;
+}
+
+.nest-fleet-check path {
+  fill: none;
+  stroke: var(--nf-done);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A dot that became done morphs into the check. */
+.nest-fleet-status.nest-morph .nest-fleet-check path {
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  animation: nest-check-draw 0.4s ease-out 0.05s forwards;
+}
+
+@keyframes nest-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Orchestrator card and group rows. */
+.nest-fleet-orch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  min-height: 40px;
+  margin: 2px 12px 0;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--nf-card);
+  border: 1px solid var(--nf-border);
+  color: inherit;
+  cursor: pointer;
+}
+
+.nest-fleet-orch-icon {
+  flex: none;
+  display: block;
+}
+
+.nest-fleet-orch-icon path {
+  fill: none;
+  stroke: var(--nf-wordmark);
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.nest-fleet-orch-label {
+  flex: 1;
+  font-weight: 600;
+}
+
+.nest-fleet-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 12px 4px 14px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nest-fleet-group-row.nest-fleet-past {
+  min-height: 32px;
+  padding: 4px 16px;
+  margin-top: 2px;
+  color: var(--nf-muted);
+}
+
+.nest-fleet-chev {
+  flex: none;
+  transition: transform 0.15s;
+}
+
+.nest-fleet-chev path {
+  fill: none;
+  stroke: var(--nf-quiet);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nest-fleet-group.is-open > .nest-fleet-group-row .nest-fleet-chev {
+  transform: rotate(90deg);
+}
+
+.nest-fleet-folder-icon path {
+  fill: none;
+  stroke: var(--nf-wordmark);
+  stroke-width: 1.2;
+}
+
+.nest-fleet-clock-icon circle,
+.nest-fleet-clock-icon path {
+  fill: none;
+  stroke: var(--nf-quiet);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.nest-fleet-folder-icon,
+.nest-fleet-clock-icon {
+  flex: none;
+  display: block;
+}
+
+.nest-fleet-group-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nest-fleet-group-text.nest-fleet-label {
+  font-weight: 500;
+}
+
+.nest-fleet-live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--nf-working);
+  flex: none;
+  animation: nest-pulse 1.4s ease-in-out infinite;
+}
+
+.nest-fleet-count {
+  flex: none;
+  font-size: 11px;
+  color: var(--nf-muted);
+}
+
+.nest-fleet-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 12px 3px 40px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nest-fleet-chat.nest-fleet-child {
+  padding-left: 54px;
+}
+
+.nest-fleet-branch {
+  flex: none;
+  color: var(--nf-branch);
+}
+
+.nest-fleet-chat-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nest-fleet-chat-text.nest-fleet-suffix {
+  color: var(--nf-muted);
+}
+
+.nest-fleet-orch:hover,
+.nest-fleet-group-row:hover,
+.nest-fleet-chat:hover {
+  background: var(--nf-hover);
+}
+
+.nest-fleet-orch:focus,
+.nest-fleet-group-row:focus,
+.nest-fleet-chat:focus {
+  outline: none;
+}
+
+.nest-fleet-orch:focus-visible,
+.nest-fleet-group-row:focus-visible,
+.nest-fleet-chat:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--nest-accent);
+}
+
+.nest-fleet-chat.nest-active {
+  background: var(--nest-active-row);
+}
+
+.nest-fleet-spacer {
+  height: 10px;
+  flex: none;
+}
+
+/* Group open and close slide. The body animates from zero to its natural height. */
+.nest-fleet-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition: grid-template-rows 0.18s ease, visibility 0s linear 0.18s;
+}
+
+.nest-fleet-group.is-open > .nest-fleet-body {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows 0.18s ease, visibility 0s;
+}
+
+.nest-fleet-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* A new row slides in with a brief highlight. */
+.nest-fleet-enter {
+  animation: nest-fleet-slide 0.35s ease-out, nest-fleet-flash 1.2s ease-out;
+}
+
+.nest-fleet-slide {
+  animation: nest-fleet-slide 0.25s ease-out;
+}
+
+@keyframes nest-fleet-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nest-fleet-flash {
+  from {
+    background: var(--nest-accent-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.nest-fleet-empty {
+  padding: 18px 16px;
+  color: var(--nf-muted);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nest-dot-working,
+  .nest-fleet-live,
+  .nest-fleet-needs {
+    animation: none;
+  }
+
+  .nest-fleet-enter,
+  .nest-fleet-slide,
+  .nest-fleet-status.nest-morph .nest-fleet-check path {
+    animation: none;
+  }
+
+  .nest-fleet-status.nest-morph .nest-fleet-check path {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+
+  .nest-fleet-body,
+  .nest-fleet-group.is-open > .nest-fleet-body,
+  .nest-fleet-chev,
+  .nest-pill,
+  .nest-fleet-btn {
+    transition: none;
+  }
+}
