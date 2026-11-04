@@ -1,6 +1,8 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
+import { integrationUserDataDir } from './userDataDir';
 import { resolveVscodeExecutable } from './vscodeExecutable';
 
 // The electron-host integration test LAUNCHER. This is the file package.json's
@@ -38,7 +40,11 @@ async function main(): Promise<void> {
       // controllers and a fake store directly (the project key is supplied), so
       // they do not depend on a real ~/.claude/projects scan. Disable the
       // bundled-extensions to keep the host minimal and deterministic.
-      launchArgs: ['--disable-extensions'],
+      launchArgs: [
+        '--disable-extensions',
+        '--user-data-dir=' +
+          integrationUserDataDir(path.resolve(process.cwd(), '.vscode-test', 'user-data'), os.tmpdir()),
+      ],
     });
     process.exit(exitCode);
   } catch (err) {
