@@ -1,25 +1,19 @@
-// asksSomething: the PURE, vscode-free heuristic that decides whether an assistant
-// turn's (truncated) tier-A text reads as a question awaiting the user's reply. It
-// backs the org panel's status: 'question' badge and the Questions section
-// (UI-SPEC.md line 51: an unread assistant turn "whose text asks something (question
-// mark or input request near the end)"; design README line 43).
-//
-// It imports no vscode types and touches no filesystem (ARCHITECTURE.md unit-gate
-// rule), so it stays in the headless unit suite. It replaces the inline
-// endsWithQuestion in orgPanelModel.ts, which matched ONLY a trailing '?'.
-//
-// Why more than a trailing '?': the input is the tier-A lastMessageText, a BOUNDED,
-// often TRUNCATED reduction (the reader caps snippet length), so a genuine question
-// can be cut off before its '?' or an assistant can request input in prose without a
-// '?', e.g. "Let me know which option you want" or "Tell me the repo name and I'll
-// continue." Matching only a trailing '?' misses both. The AC's clause is "question
-// mark OR input request near the end of the turn", so this looks at a TAIL WINDOW.
-//
-// The design bias is conservative toward NOT flagging: a false 'question' turns a
-// plain assistant statement into a blinking badge and a Questions-section entry the
-// user must dismiss, which is more annoying than a missed one (that shows as the
-// 'done' unread dot instead, still surfacing the chat). So statement-shaped tails
-// (a period/ellipsis end with no '?' and no request phrase) return false.
+// asksSomething: the PURE, vscode-free heuristic that decides whether an assistant turn's
+// (truncated) summary text reads as a question awaiting the user's reply. It backs the org
+// panel's status: 'question' badge and the Questions section.  It imports no vscode types
+// and touches no filesystem, so it stays in the headless unit suite. It replaces the
+// inline endsWithQuestion in orgPanelModel.ts, which matched ONLY a trailing '?'.  Why
+// more than a trailing '?': the input is the summary lastMessageText, a BOUNDED, often
+// TRUNCATED reduction (the reader caps snippet length), so a genuine question can be cut
+// off before its '?' or an assistant can request input in prose without a '?', e.g. "Let
+// me know which option you want" or "Tell me the repo name and I'll continue." Matching
+// only a trailing '?' misses both. A question is a question mark OR an input request
+// near the end of the turn, so this looks at a TAIL WINDOW.  The design bias is
+// conservative toward NOT flagging: a false 'question' turns a plain assistant statement
+// into a blinking badge and a Questions-section entry the user must dismiss, which is
+// more annoying than a missed one (that shows as the 'done' unread dot instead, still
+// surfacing the chat). So statement-shaped tails (a period/ellipsis end with no '?' and
+// no request phrase) return false.
 
 // How many trailing characters of the (already truncated) text form the tail window
 // the heuristic inspects. Large enough to hold a final sentence or two of a typical
@@ -116,7 +110,7 @@ const REQUEST_PHRASES: readonly RegExp[] = [
   /\bhow (do|would|should|are|did|can|many|much) (you|should i|do i|shall i)\b/,
 ];
 
-// Whether the assistant turn's tier-A text reads as a question / input request near
+// Whether the assistant turn's summary text reads as a question / input request near
 // its end. Total and null-safe: null, empty, or whitespace-only text is not a
 // question; a garbage/non-prose tail simply fails the phrase and '?' checks and
 // returns false rather than throwing.
@@ -156,8 +150,8 @@ export function asksSomething(text: string | null | undefined): boolean {
     return true;
   }
 
-  // An explicit input-request phrase near the end, covering the AC's "input request
-  // near the end" clause where the assistant asks for something without a '?'.
+  // An explicit input-request phrase near the end, covering an input request
+  // near the end where the assistant asks for something without a '?'.
   for (const phrase of REQUEST_PHRASES) {
     if (phrase.test(tail)) {
       return true;

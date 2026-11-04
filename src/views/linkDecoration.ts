@@ -4,23 +4,20 @@ import { LinkedChild } from '../model/links';
 import { relativeTime } from './relativeTime';
 import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 
-// linkDecoration: the rendering of a linkedChild occurrence in the Folders tree.
-// A linked child renders as a distinct node (composite id `${parentChatId}>link>
-// ${chatId}`) nested beneath its one designated parent chat-member occurrence, with
-// a git-branch ThemeIcon. A BROKEN child (its target chat id no longer resolves to a
-// scanned record) renders MUTED: a placeholder label, a muted (disabled-foreground)
-// icon, an explanatory tooltip, and NO open command (there is nothing to open).
-//
-// Read-only chokepoint (ARCHITECTURE.md): this module performs NO filesystem writes.
-// It only constructs vscode TreeItems and ThemeIcons. It sits inside the read-only
-// surface with no carve-out (only src/settings/claudeSettingsIO.ts and src/test/**
-// are exempt), which is correct for a pure decoration module: the eslint
-// no-restricted-syntax bank applies here in full, and nothing in it can write under
-// ~/.claude.
+// linkDecoration: the rendering of a linkedChild occurrence in the Folders tree. A linked
+// child renders as a distinct node (composite id `${parentChatId}>link> ${chatId}`)
+// nested beneath its one designated parent chat-member occurrence, with a git-branch
+// ThemeIcon. A BROKEN child (its target chat id no longer resolves to a scanned record)
+// renders MUTED: a placeholder label, a muted (disabled-foreground) icon, an explanatory
+// tooltip, and NO open command (there is nothing to open).  Read-only chokepoint: this
+// module performs NO filesystem writes. It only constructs vscode TreeItems and
+// ThemeIcons. It sits inside the read-only surface with no carve-out (only
+// src/settings/claudeSettingsIO.ts and src/test/** are exempt), which is correct for a
+// pure decoration module: the eslint no-restricted-syntax bank applies here in full, and
+// nothing in it can write under ~/.claude.
 
 // The ThemeIcon a linked child uses when its target resolves: a git-branch glyph,
-// signalling the link/branch relationship (ARCHITECTURE.md / PLAN.md "git-branch
-// ThemeIcon"). Built once and shared; ThemeIcon is immutable.
+// signalling the link/branch relationship. Built once and shared; ThemeIcon is immutable.
 export const LINK_BRANCH_ICON = new vscode.ThemeIcon('git-branch');
 
 // The ThemeIcon a BROKEN linked child uses: the same branch glyph tinted with the
@@ -47,8 +44,8 @@ export const LINKED_CHILD_BROKEN_CONTEXT = 'claudeNest.linkedChildBroken';
 // this function sets only the VISUAL + behavioral fields that distinguish a linked
 // child from a folder member: label/description, icon, tooltip, contextValue, and
 // the open command (omitted for a broken child). Keeping the decoration here lets
-// the provider stay a thin id/memoization shell and matches the slice's "view
-// decoration" module boundary.
+// the provider stay a thin id/memoization shell and keeps the view decoration in its own
+// module.
 //
 // record is the resolved ChatRecord for the child's target, or undefined when the
 // target is BROKEN (unknown chat id). child carries the composite id and the broken

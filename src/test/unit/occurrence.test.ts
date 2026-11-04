@@ -9,10 +9,9 @@ import {
 import { UNTAGGED_TAG_ID } from '../../model/untagged';
 import { isMintableId, mintTagId } from '../../model/idFactory';
 
-// Pure-logic unit tests for the ChatOccurrence wrapper model and its composite-id
-// grammar `${tagId}:${chatId}`. No vscode import, no filesystem. These are the
-// highest-priority tests for slice 3 (composite-id round-trip and the wrapper's
-// single-owning-tag recovery).
+// Pure-logic unit tests for the ChatOccurrence wrapper model and its composite-id grammar
+// `${tagId}:${chatId}`. No vscode import, no filesystem. These are the highest-priority
+// tests for (composite-id round-trip and the wrapper's single-owning-tag recovery).
 
 describe('tagOccurrenceId / parseTagOccurrenceId (composite-id round-trip)', () => {
   it('builds and round-trips an occurrence id splitting on the first :', () => {
@@ -67,8 +66,8 @@ describe('makeOccurrence (the wrapper)', () => {
   });
 
   it('getParent recovery: the occurrence id resolves to EXACTLY one owning tag', () => {
-    // The single-parent rule (ARCHITECTURE.md line 100) at the model level: parsing
-    // the occurrence id yields one tag id, the wrapper's owning tag.
+    // The single-parent rule at the model level: parsing the occurrence id yields one tag
+    // id, the wrapper's owning tag.
     const occ = makeOccurrence('owning-tag', 'chatX');
     const parsed = parseTagOccurrenceId(occ.id);
     assert.ok(parsed);
@@ -114,8 +113,8 @@ describe('memoizeById (node-object memoization across refreshes)', () => {
   // OBJECT REFERENCE, so this proves the by-id reuse contract with object
   // identity, headlessly: an unchanged id returns the SAME object across refreshes;
   // a changed id (content drift) returns a fresh object that replaces the cached
-  // one; distinct ids never collide. This is the slice-3 "node objects memoized by
-  // id" acceptance.
+  // one; distinct ids never collide. This is the "node objects memoized by
+  // id" rule.
   it('returns the SAME object for an unchanged id across refreshes', () => {
     const cache = new Map<string, { id: string; v: number }>();
     let built = 0;

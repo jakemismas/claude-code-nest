@@ -1,15 +1,14 @@
 import { TokenTotals } from '../model/types';
 import { ProjectMeta } from '../store/schema';
 
-// PURE, vscode-free token-cost rollup reducers (Slice 5 s2-export-and-rollup). They
-// sum each chat's tier-A tokenTotals by folder and by tag. tokens only, NO USD
-// (slice non-goal). The reducer NEVER reads the provider: the caller passes a plain
+// PURE, vscode-free token-cost rollup reducers. They
+// sum each chat's summary tokenTotals by folder and by tag. tokens only, NO USD
+// . The reducer NEVER reads the provider: the caller passes a plain
 // {chatId -> TokenTotals} map (surfaced from the provider's full ChatRecords via the
 // narrow tokenTotalsByChat seam) plus the ProjectMeta membership, keeping this module
 // headless-testable.
 //
-// THE COUNTING RULE (slice patch "ROLLUP DOUBLE-COUNT RULE", pinned here and asserted
-// in tokenRollup.test.ts):
+// THE COUNTING RULE (asserted in tokenRollup.test.ts):
 //  - by FOLDER: a chat counts ONCE, in its SINGLE home folder. A chat with no folder
 //    (folderId null/absent, or a folderId that no longer resolves) counts in the
 //    synthetic UNFILED bucket. Every chat lands in exactly one folder bucket, so the
@@ -24,7 +23,7 @@ import { ProjectMeta } from '../store/schema';
 //    Only an UNTAGGED chat contributes to the untagged bucket, and an untagged chat
 //    has no tag bucket, so the untagged bucket never double-counts.
 //
-// Token total per chat is the sum of the four trusted tier-A counts (input + output +
+// Token total per chat is the sum of the four trusted summary counts (input + output +
 // cacheCreation + cacheRead). A chat absent from the token map contributes 0 (it is
 // still counted as a member so the bucket's chatCount is honest).
 
@@ -58,7 +57,7 @@ export interface RollupResult {
 
 // The set of chats the rollup ranges over, with their token totals. chatIds is the
 // authoritative member set (the scanned chats); tokensByChat supplies each chat's
-// tier-A total (a chat absent from the map contributes 0). meta carries the folder
+// summary total (a chat absent from the map contributes 0). meta carries the folder
 // and tag membership and the folder/tag label resolution. now is unused here (the
 // rollup is timeless); kept out of the signature deliberately.
 export interface RollupInput {

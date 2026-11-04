@@ -1,25 +1,21 @@
-// dropPayload: the PURE payload-extraction helpers behind the drag-and-drop
-// controller. Given the raw values found on a real DataTransfer (already pulled
-// out of vscode types by the controller), these functions recover the dragged
-// chat ids and pick which recognized MIME actually carried a Nest payload. They
-// import no vscode types and touch no filesystem (ARCHITECTURE.md unit-gate
-// rule), so the unit test exercises the controller's payload-parse edge cases
-// (tolerant JSON, foreign DataTransfer, cross-view reserved-MIME carrier) without
-// pulling vscode in. The vscode-bound controller (dndController.ts) reads the real
-// DataTransferItem values and hands them here as plain unknowns.
-//
-// WHY these MIMEs are recognized: VSCode 1.66 preserves a custom MIME set in
-// handleDrag into handleDrop ONLY when the drop lands in the SAME tree's
-// controller, so the shared chat MIME (and the controller's own reserved MIME)
-// recover the payload for a WITHIN-view drop. A CROSS-view drop is different: the
-// host does NOT deliver a source controller's custom value to a peer controller's
-// handleDrop (verified against the pinned extHostTreeViews source; see
-// dndController.ts and DECISIONS.md Slice 5 fix-pass), so the cross-view payload
-// rides an in-process stash (dragContext.ts), not these MIMEs. handleDrop reads
-// whichever recognized MIME is present here (within-view) and otherwise falls back
-// to the stash (cross-view). These helpers stay focused on the within-view
-// DataTransfer recognition and the tolerant parse; the stash fallback lives in the
-// controller.
+// dropPayload: the PURE payload-extraction helpers behind the drag-and-drop controller.
+// Given the raw values found on a real DataTransfer (already pulled out of vscode types
+// by the controller), these functions recover the dragged chat ids and pick which
+// recognized MIME actually carried a Nest payload. They import no vscode types and touch
+// no filesystem, so the unit test exercises the controller's payload-parse edge cases
+// (tolerant JSON, foreign DataTransfer, cross-view reserved-MIME carrier) without pulling
+// vscode in. The vscode-bound controller (dndController.ts) reads the real
+// DataTransferItem values and hands them here as plain unknowns.  WHY these MIMEs are
+// recognized: VSCode 1.66 preserves a custom MIME set in handleDrag into handleDrop ONLY
+// when the drop lands in the SAME tree's controller, so the shared chat MIME (and the
+// controller's own reserved MIME) recover the payload for a WITHIN-view drop. A
+// CROSS-view drop is different: the host does NOT deliver a source controller's custom
+// value to a peer controller's handleDrop (verified against the pinned extHostTreeViews
+// source; see dndController.ts fix-pass), so the cross-view payload rides an in-process
+// stash (dragContext.ts), not these MIMEs. handleDrop reads whichever recognized MIME is
+// present here (within-view) and otherwise falls back to the stash (cross-view). These
+// helpers stay focused on the within-view DataTransfer recognition and the tolerant
+// parse; the stash fallback lives in the controller.
 
 import { NEST_CHAT_MIME } from './dropReducer';
 

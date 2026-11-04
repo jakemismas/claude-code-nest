@@ -1,18 +1,17 @@
 // orgPanelModel: the PURE, vscode-free assembler behind the primary org-panel
-// webview (slice s2-org-panel-webview). Given the scanned chat records and the
+// webview. Given the scanned chat records and the
 // project's curation document (ProjectMeta), it builds the serializable section
 // model the webview renders: Starred, Questions (the scan-time awaiting-reply
 // heuristic), the folder hierarchy with per-folder color, and Unsorted.
 //
-// It imports no vscode types and touches no filesystem (ARCHITECTURE.md unit-gate
-// rule; mirrors the dropReducer.ts / orgPanelModel split that keeps the unit test
+// It imports no vscode types and touches no filesystem (mirrors the dropReducer.ts / orgPanelModel split that keeps the unit test
 // free of a transitive vscode require). The webview host (orgPanelWebview.ts)
 // scans the records and reads the store, calls buildSections, and posts the plain
 // result over postMessage; the model never reads the store or the disk itself.
 //
-// Binding rules honored:
+// Rules this module follows:
 // - The Questions section membership and the '?' badge are the SAME scan-time read-
-//   state signal (slice s3a-row-anatomy; UI-SPEC.md line 51, design README line 43):
+//   state signal:
 //   a chat is in Questions iff its status is 'question', i.e. its last genuine turn
 //   is an UNREAD assistant turn whose text asks something. This REPLACES the prior
 //   lastMessageRole==='user' heuristic. "Unread" is per-device: the last activity is
@@ -25,43 +24,43 @@
 //   CROSS-CUTTING sections: a chat can appear in Starred and/or Questions AND in
 //   its folder. This is intentional (the same chat is pinned, awaiting reply, and
 //   filed); only the folder placement is single-home.
-// - Per-folder color rides each folder section from Folder.color (slice 3),
+// - Per-folder color rides each folder section from Folder.color,
 //   absent when the user set none.
 // - lastSeenAt is threaded in as a PLAIN Map<sessionId, epochMs> (the vscode-thin
 //   readState.ts owns the Memento); this model imports no store and no vscode, so it
-//   stays in the headless unit gate (ARCHITECTURE.md unit-gate rule).
+//   stays in the headless unit gate.
 
 import { ChatRecord } from '../model/types';
 import { ProjectMeta, Folder } from '../store/schema';
 import { asksSomething } from '../model/questionHeuristic';
 // clampFolderDepth is a PURE, vscode-free helper (folderTree.ts imports only the
-// vscode-free schema + idFactory), so importing it keeps this model in the headless
-// unit gate. It applies the one-visible-sublevel render cap (issue #82 AC4) to the
-// emitted section depth without ever touching the stored hierarchy.
+// vscode-free schema + idFactory), so importing it keeps this model in the headless unit
+// gate. It applies the one-visible-sublevel render cap to the emitted section depth
+// without ever touching the stored hierarchy.
 import { clampFolderDepth } from '../model/folderTree';
 
 // The synthetic catch-all bucket id for chats with no (or an unresolvable) home
 // folder. Duplicated as a literal here rather than imported from folderTree.ts so
 // this pure model stays free of any transitive import that might pull vscode in;
-// the value is the binding contract and is asserted equal in the unit test. It
+// the value is a fixed contract and is asserted equal in the unit test. It
 // matches the dropReducer's UNFILED sentinel so a drop onto the Unsorted section
 // reduces to an unfile.
 export const UNSORTED_FOLDER_ID = '__unfiled__';
 
-// The per-row status slot (UI-SPEC.md "Chat row", design README line 51). It drives
+// The per-row status slot. It drives
 // the left status affordance the panel renders:
 //   'question' -> a blinking '?' badge (an UNREAD assistant turn that asks something)
 //   'done'     -> a solid unread dot (an UNREAD assistant reply that is not a question)
 //   'none'     -> an empty slot (seen, or the last turn is the user's)
 // Both non-empty states are gated on the turn being UNREAD relative to the per-device
-// lastSeenAt read state (UI-SPEC.md "Read state"; slice s3a-row-anatomy). See
+// lastSeenAt read state. See
 // rowStatus below.
 export type RowStatus = 'question' | 'done' | 'none';
 
 // One chat row in the org panel, projected from a ChatRecord plus its curation
 // state. Plain, JSON-serializable data (no vscode, no ChatRecord reference) so it
 // crosses postMessage cleanly. tokens is the formatted ~token badge ('' when no
-// usage). snippet is the tier-A last-message text (null when none). tags is the
+// usage). snippet is the summary last-message text (null when none). tags is the
 // chat's full resolved tag-label set; tagIds is the parallel id set the DnD shell
 // and chip filter key on. starred and awaitingReply drive the cross-cutting
 // sections; status drives the per-row status slot (dot vs '?' badge). folderId is
@@ -75,38 +74,35 @@ export interface OrgChatRow {
   snippet: string | null;
   tags: string[];
   tagIds: string[];
-  // Parallel to tags: each tag's color (#rrggbb) or null when the tag has none, so
-  // the webview can render each tag pill in its handoff hue (design README line 98).
-  // Same length and order as tags.
+  // Parallel to tags: each tag's color (#rrggbb) or null when the tag has none, so the
+  // webview can render each tag pill in its own color. Same length and order as tags.
   tagColors: (string | null)[];
   starred: boolean;
   // awaitingReply is now an ALIAS of (status === 'question'): the chat is awaiting the
-  // user's reply because an unread assistant turn asks something. It drives the
-  // Questions section membership and the aria "awaiting your reply" phrasing. Kept as
-  // a distinct field so the webview does not re-derive it. (Superseded the prior
-  // lastMessageRole==='user' definition; slice s3a-row-anatomy.)
+  // user's reply because an unread assistant turn asks something. It drives the Questions
+  // section membership and the aria "awaiting your reply" phrasing. Kept as a distinct
+  // field so the webview does not re-derive it. (Superseded the prior
+  // lastMessageRole==='user' definition.)
   awaitingReply: boolean;
   status: RowStatus;
   // The folder-path breadcrumb (e.g. "Work / Backend API"), rendered on the right of
-  // a row ONLY in the Questions section and the flat search/filter results (design
-  // README lines 54, 42). null when the chat is unfiled or its folder no longer
+  // a row ONLY in the Questions section and the flat search/filter results. null when the chat is unfiled or its folder no longer
   // resolves (no breadcrumb to show).
   breadcrumb: string | null;
 }
 
-// One folder section: the folder's id, name, optional color (slice 3), nesting
-// depth (0 for a root, deeper for a child), and its directly-homed chat rows in
-// the assembler's sort order. The synthetic Unsorted bucket is a FolderSection too
-// (synthetic: true), always last, so the webview renders every folder-homed group
-// uniformly.
+// One folder section: the folder's id, name, optional color, nesting depth (0 for a root,
+// deeper for a child), and its directly-homed chat rows in the assembler's sort order.
+// The synthetic Unsorted bucket is a FolderSection too (synthetic: true), always last, so
+// the webview renders every folder-homed group uniformly.
 export interface FolderSection {
   folderId: string;
   name: string;
   color?: string;
   // The nesting depth used for rendering, CLAMPED to the one-visible-sublevel cap
-  // (MAX_FOLDER_RENDER_DEPTH; issue #82 AC4). A deeper legacy folder renders at the
-  // cap; its stored parentId chain is never modified. The webview's indent
-  // (11 + depth * 18) and the aria-level read this clamped value.
+  // (MAX_FOLDER_RENDER_DEPTH). A deeper legacy folder renders at the cap; its stored
+  // parentId chain is never modified. The webview's indent (11 + depth * 18) and the
+  // aria-level read this clamped value.
   depth: number;
   // The TRUE stored nesting depth (uncapped), used ONLY by the webview's
   // collapse/hide bookkeeping (the pre-order "skip everything deeper than a
@@ -116,14 +112,12 @@ export interface FolderSection {
   // within-cap folder treeDepth === depth.
   treeDepth: number;
   synthetic: boolean;
-  // The rolled-up chat count for the folder header (issue #82 AC1, design README
-  // line 66: "Top folder count = chats in it + its subfolders"): the folder's
-  // directly-homed chats PLUS every descendant folder's directly-homed chats. It is
-  // computed over the STORED hierarchy (real parentId), so it is a stable structural
-  // count independent of the render clamp and of any active filter (folder headers
-  // render only in the unfiltered tree; filtering swaps to the flat results list).
-  // The synthetic Unsorted bucket has no rollup semantics (it has no descendants);
-  // its count is just its own rows.
+  // The rolled-up chat count for the folder header: the folder's directly-homed chats
+  // PLUS every descendant folder's directly-homed chats. It is computed over the STORED
+  // hierarchy (real parentId), so it is a stable structural count independent of the
+  // render clamp and of any active filter (folder headers render only in the unfiltered
+  // tree; filtering swaps to the flat results list). The synthetic Unsorted bucket has no
+  // rollup semantics (it has no descendants); its count is just its own rows.
   rolledUpCount: number;
   rows: OrgChatRow[];
 }
@@ -137,27 +131,25 @@ export interface TagChip {
   count: number;
 }
 
-// The full section model the webview renders. starred and questions are the
-// cross-cutting sections (each a flat row list); folders is the single-home
-// hierarchy (roots first in stored order, each followed by its descendants in a
-// pre-order flattening, the synthetic Unsorted bucket last); tags are the filter
-// chips. archivedCount is the number of scanned chats the user has archived
-// (ChatMeta.userArchived === true), which drives the bottom "Archived (N)" row; it
-// is a COUNT only, since archived chats are excluded from every visible section
-// (design README lines 45-46: archived chats live in the Archive sub-page).
+// The full section model the webview renders. starred and questions are the cross-cutting
+// sections (each a flat row list); folders is the single-home hierarchy (roots first in
+// stored order, each followed by its descendants in a pre-order flattening, the synthetic
+// Unsorted bucket last); tags are the filter chips. archivedCount is the number of
+// scanned chats the user has archived (ChatMeta.userArchived === true), which drives the
+// bottom "Archived (N)" row; it is a COUNT only, since archived chats are excluded from
+// every visible section.
 export interface OrgSections {
   starred: OrgChatRow[];
   questions: OrgChatRow[];
   folders: FolderSection[];
   tags: TagChip[];
-  // The FULL project tag list (every tag in meta.tags, with id, label, color, and
-  // its carrying-chat count over the scanned records). DISTINCT from `tags`, which is
-  // the filter-chip row and OMITS zero-chat tags (an empty chip is filter noise).
-  // The right-click context menu (slice s3b-context-menu, issue #85 AC #1) must list
-  // ALL tags with a checkmark on the chat's current tags, INCLUDING tags no chat
-  // carries yet, so it reads allTags rather than the chip set. Additive: buildTagChips
-  // is unchanged. Sorted the same way (label case-insensitive, then id) for a stable
-  // menu order.
+  // The FULL project tag list (every tag in meta.tags, with id, label, color, and its
+  // carrying-chat count over the scanned records). DISTINCT from `tags`, which is the
+  // filter-chip row and OMITS zero-chat tags (an empty chip is filter noise). The
+  // right-click context menu must list ALL tags with a checkmark on the chat's current
+  // tags, INCLUDING tags no chat carries yet, so it reads allTags rather than the chip
+  // set. Additive: buildTagChips is unchanged. Sorted the same way (label
+  // case-insensitive, then id) for a stable menu order.
   allTags: TagChip[];
   archivedCount: number;
 }
@@ -171,7 +163,7 @@ export type TokenBadgeFn = (record: ChatRecord) => string;
 // Build the org-panel section model from the scanned records and the project's
 // curation document. Pure and total: a missing meta (project key not resolved yet)
 // yields every chat unfiled, untagged, unstarred, with the read-state status still
-// derived from the record's tier-A last-message fields against lastSeenAt. Never
+// derived from the record's summary last-message fields against lastSeenAt. Never
 // throws. lastSeenAt is a plain per-device Map<sessionId, epochMs> (default empty =
 // nothing seen); the vscode-thin readState.ts owns the Memento behind it.
 export function buildSections(
@@ -180,15 +172,13 @@ export function buildSections(
   tokenBadge: TokenBadgeFn,
   lastSeenAt: ReadonlyMap<string, number> = new Map(),
 ): OrgSections {
-  // Archived chats (the SYNCED ChatMeta.userArchived flag, slice s2-star-archive)
-  // are excluded from EVERY visible section and surfaced only as the bottom
-  // "Archived (N)" row (design README lines 45-46; the Archive sub-page owns them,
-  // which is the existing claudeNest.archive view until the s3b overlay ships). This
-  // is the SYNCED curation flag, never the local orphan-reconcile flag (the model is
-  // vscode-free and reads only the passed ProjectMeta). The count is over SCANNED
-  // records only, matching the "N results" the Archive view lists for present chats;
-  // an archived chat whose transcript was cleaned up out of band is not scanned and
-  // shows only in the Archive view, exactly as before.
+  // Archived chats (the SYNCED ChatMeta.userArchived flag) are excluded from EVERY
+  // visible section and surfaced only as the bottom "Archived (N)" row. This is the
+  // SYNCED curation flag, never the local orphan-reconcile flag (the model is vscode-free
+  // and reads only the passed ProjectMeta). The count is over SCANNED records only,
+  // matching the "N results" the Archive view lists for present chats; an archived chat
+  // whose transcript was cleaned up out of band is not scanned and shows only in the
+  // Archive view, exactly as before.
   const visibleRecords = records.filter((r) => !isArchived(r.sessionId, meta));
   const archivedCount = records.length - visibleRecords.length;
 
@@ -230,16 +220,15 @@ export function buildSections(
   return { starred, questions, folders, tags, allTags, archivedCount };
 }
 
-// One archived-chat row for the in-panel Archive overlay (slice s3b-archive-overlay,
-// issue #87). Plain, JSON-serializable data (no vscode, no ChatRecord reference) so it
-// crosses postMessage cleanly, mirroring OrgChatRow. Built from the SYNCED
-// ChatMeta.userArchived membership, NOT the scan: an archived chat whose transcript was
-// cleaned up out of band still lists here (present:false), matching the retired
-// archiveProvider's membership rule. title falls back to the record title, else the
-// stored body-copy title (fallbackTitles), else the sessionId. folder is the folder-path
-// breadcrumb or 'Unsorted'. relativeTime is the compact age for a present chat, empty
-// when the transcript is gone (no timestamp). starred rides the synced flag; present is
-// whether the live transcript is still scanned.
+// One archived-chat row for the in-panel Archive overlay. Plain, JSON-serializable data
+// (no vscode, no ChatRecord reference) so it crosses postMessage cleanly, mirroring
+// OrgChatRow. Built from the SYNCED ChatMeta.userArchived membership, NOT the scan: an
+// archived chat whose transcript was cleaned up out of band still lists here
+// (present:false), matching the retired archiveProvider's membership rule. title falls
+// back to the record title, else the stored body-copy title (fallbackTitles), else the
+// sessionId. folder is the folder-path breadcrumb or 'Unsorted'. relativeTime is the
+// compact age for a present chat, empty when the transcript is gone (no timestamp).
+// starred rides the synced flag; present is whether the live transcript is still scanned.
 export interface ArchivedRow {
   sessionId: string;
   title: string;
@@ -255,16 +244,16 @@ export interface ArchivedRow {
 // rows exactly. A null timestamp yields '' (a gone chat has no timestamp).
 export type RelativeTimeFn = (timestamp: number | null) => string;
 
-// Build the archived-chat rows for the in-panel Archive overlay (issue #87). Membership
-// is the SYNCED ChatMeta.userArchived flag (NOT the local orphan-reconcile flag, and NOT
-// the scan), matching the retired archiveProvider: a chat archived on another device or
-// whose transcript Claude cleaned up still appears. For each archived chat id in meta:
-// resolve its scanned record (present) for title/timestamp/breadcrumb; when the transcript
-// is gone, fall back to the stored body-copy title from fallbackTitles, else the sessionId,
+// Build the archived-chat rows for the in-panel Archive overlay. Membership is the SYNCED
+// ChatMeta.userArchived flag (NOT the local orphan-reconcile flag, and NOT the scan),
+// matching the retired archiveProvider: a chat archived on another device or whose
+// transcript Claude cleaned up still appears. For each archived chat id in meta: resolve
+// its scanned record (present) for title/timestamp/breadcrumb; when the transcript is
+// gone, fall back to the stored body-copy title from fallbackTitles, else the sessionId,
 // with an empty age and the Unsorted-or-folder breadcrumb resolved from the synced meta.
-// Sorted newest-first for present chats, gone chats after (no timestamp), then by sessionId
-// for a stable order, mirroring the retired provider's sort. Pure and total: an absent meta
-// yields []. Never throws.
+// Sorted newest-first for present chats, gone chats after (no timestamp), then by
+// sessionId for a stable order, mirroring the retired provider's sort. Pure and total: an
+// absent meta yields []. Never throws.
 export function buildArchivedRows(
   records: readonly ChatRecord[],
   meta: ProjectMeta | undefined,
@@ -335,7 +324,7 @@ export function isArchived(chatId: string, meta: ProjectMeta | undefined): boole
 
 // Project one record to its org-panel row, resolving its curation state from the
 // meta. Tolerant of an absent meta or chat entry (defaults to unfiled/untagged/
-// unstarred). The read-state status reads the record's tier-A last-message fields
+// unstarred). The read-state status reads the record's summary last-message fields
 // against the injected lastSeenAt map; it never consults a store.
 function buildRow(
   record: ChatRecord,
@@ -366,8 +355,7 @@ function buildRow(
   };
 }
 
-// The scan-time status for a chat's status slot (UI-SPEC.md lines 51-52 and "Read
-// state"; slice s3a-row-anatomy). Both non-empty states are gated on the last turn
+// The scan-time status for a chat's status slot. Both non-empty states are gated on the last turn
 // being an UNREAD assistant turn:
 //   unread = lastMessageRole === 'assistant' && (timestamp === null || timestamp > lastSeenAt)
 // then:
@@ -472,10 +460,10 @@ function resolveTagsFor(
 }
 
 // Build the folder sections in pre-order (each root followed by its descendants),
-// carrying per-folder color and depth, then the synthetic Unsorted bucket last.
-// A folder with no directly-homed chats still renders (an empty section), so the
-// hierarchy is visible and a drop target exists for every folder. The Unsorted
-// bucket is ALWAYS present (UI-SPEC: "always present"), even when empty.
+// carrying per-folder color and depth, then the synthetic Unsorted bucket last. A folder
+// with no directly-homed chats still renders (an empty section), so the hierarchy is
+// visible and a drop target exists for every folder. The Unsorted bucket is ALWAYS
+// present, even when empty.
 function buildFolderSections(
   meta: ProjectMeta | undefined,
   rowsByFolder: Map<string, OrgChatRow[]>,
@@ -502,12 +490,12 @@ function buildFolderSections(
 
   // Precompute each folder's rolled-up chat count (its own directly-homed chats
   // plus every descendant's), over the STORED hierarchy. This is the header count
-  // (AC1, README line 66) and is independent of the render clamp below.
+  // and is independent of the render clamp below.
   const rollup = computeRolledUpCounts(folders, childrenByParent, rowsByFolder);
 
   // Pre-order walk from the roots (parentId null). A visited set guards against a
   // corrupt store that produced a parent cycle, so the walk always terminates. The
-  // emitted depth is CLAMPED to the one-visible-sublevel render cap (AC4); the walk
+  // emitted depth is CLAMPED to the one-visible-sublevel render cap; the walk
   // still recurses on the true depth so descendants keep their real ordering.
   const visited = new Set<string>();
   const walk = (parentId: string | null, depth: number): void => {
@@ -642,13 +630,13 @@ function buildTagChips(
   return chips;
 }
 
-// Build the FULL project tag list for the right-click context menu (issue #85 AC #1):
-// EVERY tag in meta.tags with its id, label, optional color, and the count of SCANNED
-// (visible, non-archived) chats carrying it. Unlike buildTagChips this KEEPS a
-// zero-chat tag (count 0), so the menu can list and check tags no chat carries yet; a
-// blank-label tag is still dropped (a menu row with no label is unusable). Sorted by
-// label (case-insensitive) then id, matching the chip order, so the menu is stable and
-// readable. Pure and tolerant: an absent meta yields [].
+// Build the FULL project tag list for the right-click context menu: EVERY tag in
+// meta.tags with its id, label, optional color, and the count of SCANNED (visible,
+// non-archived) chats carrying it. Unlike buildTagChips this KEEPS a zero-chat tag (count
+// 0), so the menu can list and check tags no chat carries yet; a blank-label tag is still
+// dropped (a menu row with no label is unusable). Sorted by label (case-insensitive) then
+// id, matching the chip order, so the menu is stable and readable. Pure and tolerant: an
+// absent meta yields [].
 function buildAllTags(
   records: readonly ChatRecord[],
   meta: ProjectMeta | undefined,

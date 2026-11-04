@@ -18,7 +18,7 @@ import {
 
 // Pure-logic unit tests for the link graph model and its composite-id grammar
 // `${parentChatId}>link>${chatId}`. No vscode import, no filesystem (unit-gate
-// rule). Covers the slice-5 acceptance: graph build, transitive-cycle and diamond
+// rule). Covers graph build, transitive-cycle and diamond
 // detection, parent-child nesting, broken-target handling, the deterministic
 // single-parent tie-break, and unique ids.
 
@@ -84,7 +84,7 @@ describe('parentSourcesOf / designatedParentOf (deterministic single-parent sele
     assert.deepStrictEqual(sources, ['A', 'B']);
   });
 
-  it('picks the lexicographically smallest source chat id as the designated parent (DECISIONS slice-5 tie-break)', () => {
+  it('picks the lexicographically smallest source chat id as the designated parent', () => {
     // X is the target of parent links from C, A, B. The smallest id (A) wins,
     // independent of insertion/iteration order.
     const links = linksOf({

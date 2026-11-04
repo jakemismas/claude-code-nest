@@ -249,7 +249,7 @@ describe('expandFolderPath (interpretation (b): a chain of real records)', () =>
   });
 });
 
-describe('clampFolderDepth (one-visible-sublevel render cap, issue #82 AC4)', () => {
+describe('clampFolderDepth (one-visible-sublevel render cap)', () => {
   it('passes through depths within the render cap', () => {
     assert.strictEqual(clampFolderDepth(0), 0);
     assert.strictEqual(clampFolderDepth(1), 1);

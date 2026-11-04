@@ -9,10 +9,10 @@ import {
   mintFolderId,
 } from '../../model/idFactory';
 
-// Pure-logic unit tests for the id factory. No vscode import, no filesystem.
-// ARCHITECTURE.md: folder/tag/chat ids must be free of ':' '#' '>' and the rule
-// must be enforced in the id factory; the accepted patch adds that '__unfiled__'
-// (and '__untagged__') are excluded from the mintable space.
+// Pure-logic unit tests for the id factory. No vscode import, no filesystem.:
+// folder/tag/chat ids must be free of ':' '#' '>' and the rule must be enforced in the id
+// factory; the accepted patch adds that '__unfiled__' (and '__untagged__') are excluded
+// from the mintable space.
 
 describe('idFactory separator discipline', () => {
   it('treats all three reserved separators as reserved', () => {

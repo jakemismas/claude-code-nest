@@ -25,22 +25,19 @@ import {
   writeTextFile,
 } from '../store/exportIO';
 
-// The vscode-bound side of Slice 8. This module owns ALL filesystem IO, the
-// activation hook, the window-focus polling, globalStorage access, and the LWW
-// warning toast. The pure modules (exportImport, reconcileSync, schemaMigrate,
-// autoExport) take plain data and return plain results; here we plumb them to the
-// real environment.
-//
-// Read-only chokepoint (slice patch "WRITE-BAN COLLISION" resolution): the lint
-// bank's first selector is object-AGNOSTIC, so even a vscode.workspace.fs write
-// (vscode.workspace.fs.writeFile(...)) trips it the same as a node fs write. The
-// file IO is therefore isolated in the narrow, carve-out-exempted src/store/
-// exportIO.ts (listed in .eslintrc alongside claudeSettingsIO.ts); this command
-// module calls those helpers and performs NO write-shaped call itself, so it stays
-// under the full ban and the exemption is confined to a tiny auditable module that
-// does nothing but the vscode.workspace.fs primitives. NOTHING writes under
-// ~/.claude (export targets are a user-chosen path or globalStorageUri); the only
-// sanctioned ~/.claude write remains claudeSettingsIO.ts.
+// The vscode-bound side of. This module owns ALL filesystem IO, the activation hook, the
+// window-focus polling, globalStorage access, and the LWW warning toast. The pure modules
+// (exportImport, reconcileSync, schemaMigrate, autoExport) take plain data and return
+// plain results; here we plumb them to the real environment.  Read-only chokepoint: the
+// lint bank's first selector is object-AGNOSTIC, so even a vscode.workspace.fs write
+// (vscode.workspace.fs.writeFile(...)) trips it the same as a node fs write. The file IO
+// is therefore isolated in the narrow, carve-out-exempted src/store/ exportIO.ts (listed
+// in .eslintrc alongside claudeSettingsIO.ts); this command module calls those helpers
+// and performs NO write-shaped call itself, so it stays under the full ban and the
+// exemption is confined to a tiny auditable module that does nothing but the
+// vscode.workspace.fs primitives. NOTHING writes under ~/.claude (export targets are a
+// user-chosen path or globalStorageUri); the only sanctioned ~/.claude write remains
+// claudeSettingsIO.ts.
 
 export const EXPORT_COMMAND = 'claudeNest.exportLibrary';
 export const IMPORT_COMMAND = 'claudeNest.importLibrary';
@@ -245,7 +242,7 @@ function buildPlanFromText(text: string, deps: ExportImportDeps): PlanResult {
   }
   const now = (deps.now ?? Date.now)();
   const normalized = migrateEnvelope(validation.envelope, deps.deviceId, now);
-  // Build the plan from the RECONCILED live read (security fix pass round 3):
+  // Build the plan from the RECONCILED live read:
   // the plan's per-project merge result is persisted wholesale via
   // putProjectMeta, so a plan rooted on an unreconciled, just-landed lossy
   // foreign sync value would carry that loss straight through the apply loop
@@ -428,10 +425,9 @@ export class AutoExporter {
   }
 }
 
-// The one-time prompt to enable auto-export and point the canonical export at a
-// synced or git-tracked location (ARCHITECTURE.md line 242-243). Shown once; the
-// prompted flag is then set so it never nags again. Opt-in: declining leaves
-// auto-export OFF.
+// The one-time prompt to enable auto-export and point the canonical export at a synced or
+// git-tracked location. Shown once; the prompted flag is then set so it never nags again.
+// Opt-in: declining leaves auto-export OFF.
 export async function maybePromptAutoExport(deps: ExportImportDeps): Promise<void> {
   if (deps.flags.get(AUTO_EXPORT_PROMPTED_KEY) === true) {
     return;

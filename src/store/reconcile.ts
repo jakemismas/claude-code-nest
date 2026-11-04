@@ -3,8 +3,7 @@
 // filesystem; the caller supplies the observed sessionIds and the prior local
 // state, and applies the returned plan via the store.
 //
-// Binding rules honored (ARCHITECTURE.md "Data integrity, read-only, and
-// settings rules"):
+// Rules this module follows:
 // - NEVER hard-deletes on a scan. Permanent removal is user-gated, reversible
 //   (a tombstone), and only after a grace window.
 // - NEVER mass-archives on a transient zero-result or a suspect low scan: if a

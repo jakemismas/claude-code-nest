@@ -3,21 +3,16 @@ import { Tag } from '../store/schema';
 import { assertMintableId, mintTagId } from '../model/idFactory';
 import { TagItem, ChatOccurrenceItem } from '../views/tagsProvider';
 
-// The Tags-view commands: create a tag, delete a tag, and apply/remove a tag on a
-// chat. Every store mutation runs through MetadataStore (the synced ProjectMeta),
-// and the view is refreshed ONCE after the store flush (refresh coalescing,
-// ARCHITECTURE.md "Refresh coalescing").
-//
-// Create mints a SEPARATOR-FREE tag id through the shared id factory
-// (mintTagId), so a tag id can never carry ':' '#' '>' and the occurrence
-// composite id `${tagId}:${chatId}` always splits unambiguously on the first ':'.
-// Delete removes the tag and (via the store's deleteTag) strips the tag id from
-// every chat that referenced it, so no occurrence survives a delete and a chat
-// whose last tag was deleted recomputes into Untagged on the next refresh.
-//
-// The injectable TagCommandUi seam mirrors FolderCommandUi so the command logic is
-// exercisable without the real vscode UI; extension.ts wires the real window
-// methods.
+// The Tags-view commands: create a tag, delete a tag, and apply/remove a tag on a chat.
+// Every store mutation runs through MetadataStore (the synced ProjectMeta), and the view
+// is refreshed ONCE after the store flush (refresh coalescing).  Create mints a
+// SEPARATOR-FREE tag id through the shared id factory (mintTagId), so a tag id can never
+// carry ':' '#' '>' and the occurrence composite id `${tagId}:${chatId}` always splits
+// unambiguously on the first ':'. Delete removes the tag and (via the store's deleteTag)
+// strips the tag id from every chat that referenced it, so no occurrence survives a
+// delete and a chat whose last tag was deleted recomputes into Untagged on the next
+// refresh.  The injectable TagCommandUi seam mirrors FolderCommandUi so the command logic
+// is exercisable without the real vscode UI; extension.ts wires the real window methods.
 
 export const CREATE_TAG_COMMAND = 'claudeNest.createTag';
 export const DELETE_TAG_COMMAND = 'claudeNest.deleteTag';

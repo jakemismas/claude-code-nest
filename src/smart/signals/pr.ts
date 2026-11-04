@@ -1,13 +1,10 @@
-// PR signal: the ONE clean, solid smart-group signal in this data
-// (ARCHITECTURE.md "Smart-group signal strength"). A chat carries a PR when its
-// transcript had a type "pr-link" line (prNumber + prUrl + prRepository). Chats
-// are grouped by their PR identity so every chat that worked the same pull
-// request lands in one bucket.
-//
-// This module is PURE and vscode-free (unit-gate rule): no vscode import, no fs.
-// It takes plain SmartSignalsInput rows and returns plain SmartBucket rows; the
-// view layer renders them. Mirrors the occurrence.ts-vs-tagsProvider.ts split so
-// the signal is unit-tested headless.
+// PR signal: the ONE clean, solid smart-group signal in this data. A chat carries a PR
+// when its transcript had a type "pr-link" line (prNumber + prUrl + prRepository). Chats
+// are grouped by their PR identity so every chat that worked the same pull request lands
+// in one bucket.  This module is PURE and vscode-free (unit-gate rule): no vscode import,
+// no fs. It takes plain SmartSignalsInput rows and returns plain SmartBucket rows; the
+// view layer renders them. Mirrors the occurrence.ts-vs-tagsProvider.ts split so the
+// signal is unit-tested headless.
 
 import { SmartSignalsInput } from '../../model/types';
 import { SmartBucket, sortMembersInput } from './bucket';

@@ -2,19 +2,16 @@ import { ChatRecord } from '../model/types';
 import { ChatMessageBody, readTranscriptBodies } from '../claude/bodyReader';
 import type { ArchivedBodyEnvelope } from '../store/archiveBodyStore';
 
-// The "Preview Full Chat" command: the slice-1 ON-DEMAND single-chat body reader's
-// production caller. The hover card and the row badge ride the bounded tier-A
-// snapshot and never read a body; this command is the one place a user explicitly
-// asks for a chat's FULL prose, so it reads exactly ONE transcript's bodies via
+// The "Preview Full Chat" command: the ON-DEMAND single-chat body reader's
+// production caller. The hover card and the row badge ride the bounded summary snapshot
+// and never read a body; this command is the one place a user explicitly asks for a
+// chat's FULL prose, so it reads exactly ONE transcript's bodies via
 // bodyReader.readTranscriptBodies, formats them, opens them in a read-only editor
-// document, and DISCARDS the bodies (no provider holds them) — exactly the
-// ARCHITECTURE.md tier-A rule ("full message BODIES are read on demand for one chat
-// and discarded"). This wires the headline reader into the running extension rather
-// than leaving it dead until a later slice.
-//
-// Split into a PURE formatter (formatBodyPreview, vscode-free, headless-testable)
-// and a vscode-thin orchestrator (previewChatBody) that takes injected seams for
-// the body read and the document open. extension.ts supplies the real
+// document, and DISCARDS the bodies (no provider holds them) — exactly the summary rule
+// ("full message BODIES are read on demand for one chat and discarded"). This wires the
+// headline reader into the running extension rather than leaving it unused. Split into a PURE formatter (formatBodyPreview, vscode-free, headless-testable)
+// and a vscode-thin orchestrator (previewChatBody) that takes injected seams for the body
+// read and the document open. extension.ts supplies the real
 // vscode.workspace.openTextDocument + vscode.window.showTextDocument.
 
 export const PREVIEW_CHAT_COMMAND = 'claudeNest.previewChat';

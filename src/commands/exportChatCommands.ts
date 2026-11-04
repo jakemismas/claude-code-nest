@@ -2,20 +2,18 @@ import { ChatRecord } from '../model/types';
 import { ChatMessageBody, readTranscriptBodies } from '../claude/bodyReader';
 import { ExportOrgLayer, renderJson, renderMarkdown } from '../export/chatExport';
 
-// The "Export Chat" command (Slice 5 s2-export-and-rollup). It exports ONE chat to
-// Markdown (YAML front-matter org layer + body) or JSON via the exportIO chokepoint
-// with the runtime path guard. Split into a vscode-thin orchestrator (exportChat,
-// here) and the PURE formatters (chatExport.ts, headless-tested); the orchestrator
-// takes injected seams for the format pick, the save dialog, the body read, the
-// org-layer resolution, and the guarded write, so it is exercisable without a vscode
-// host and the read-only invariant holds.
-//
-// READ-ONLY INVARIANT: the body is read ONCE on demand (bodyReader.readTranscriptBodies,
-// read-only on the transcript) and DISCARDED after rendering; the write goes ONLY
-// through the injected writeFile seam (wired to exportIO.writeTextFile in
-// extension.ts), which runtime-asserts assertNotUnderClaudeProjects before the bytes
-// land. So an export aimed (by a user navigating the save dialog) into
-// ~/.claude/projects is refused by the guard, never overwriting a transcript.
+// The "Export Chat" command. It exports ONE chat to Markdown (YAML front-matter org layer
+// + body) or JSON via the exportIO chokepoint with the runtime path guard. Split into a
+// vscode-thin orchestrator (exportChat, here) and the PURE formatters (chatExport.ts,
+// headless-tested); the orchestrator takes injected seams for the format pick, the save
+// dialog, the body read, the org-layer resolution, and the guarded write, so it is
+// exercisable without a vscode host and the read-only invariant holds.  READ-ONLY
+// INVARIANT: the body is read ONCE on demand (bodyReader.readTranscriptBodies, read-only
+// on the transcript) and DISCARDED after rendering; the write goes ONLY through the
+// injected writeFile seam (wired to exportIO.writeTextFile in extension.ts), which
+// runtime-asserts assertNotUnderClaudeProjects before the bytes land. So an export aimed
+// (by a user navigating the save dialog) into ~/.claude/projects is refused by the guard,
+// never overwriting a transcript.
 
 export const EXPORT_CHAT_COMMAND = 'claudeNest.exportChat';
 

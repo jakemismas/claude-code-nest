@@ -6,17 +6,16 @@
 // cross-controller DataTransfer gap and NO dragContext stash is consulted (the
 // stash exists only for the cross-tree TreeView case, where VSCode 1.66 will not
 // deliver a controller's custom DataTransferItem to a peer controller; see
-// dragContext.ts and ARCHITECTURE.md "Drag and drop"). This adapter never imports
+// dragContext.ts). This adapter never imports
 // dragContext.
 //
 // This module imports NO vscode types (it depends on the MetadataStore structural
 // seam, which is itself vscode-free) and does no filesystem work, so the unit test
 // that exercises the message-to-DropInput mapping never transitively requires
-// vscode (ARCHITECTURE.md unit-gate rule). The DnD-shell-only contract holds: the
-// only thing this slice adds on the drop path is the extraction shell here; the
+// vscode. This adapter is only the extraction shell on the drop path; the
 // interpretation stays in the unchanged reduceDrop.
 //
-// Binding rules honored (ARCHITECTURE.md "Drag and drop" + "Refresh coalescing"):
+// Rules this module follows:
 // - The drop is interpreted strictly BY THE TARGET VIEW via reduceDrop: an
 //   in-panel folder row / empty space maps to {targetView:'claudeNest.folders'},
 //   a tag chip maps to {targetView:'claudeNest.tags'}. The reducer (not this
@@ -105,8 +104,7 @@ export async function handleWebviewDrop(
     return 0;
   }
   applyIntents(deps.store, projectKey, intents);
-  // One flush, one refresh for the whole (possibly multi-select) mutation
-  // (ARCHITECTURE.md "Refresh coalescing").
+  // One flush, one refresh for the whole (possibly multi-select) mutation.
   await deps.store.flush();
   deps.refresh();
   return intents.length;

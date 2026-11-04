@@ -6,7 +6,7 @@
 // MIME against the shared chat MIME, and treats an unrecognized source as a no-op
 // (an empty intent list).
 //
-// This module is vscode-free (ARCHITECTURE.md unit-gate rule): it imports no
+// This module is vscode-free: it imports no
 // vscode types (no DataTransfer, no TreeDragAndDropController) and touches no
 // filesystem. The vscode-bound controller (dndController.ts) extracts the plain
 // data (payload MIME, source chat ids, target view/id) out of the real
@@ -15,7 +15,7 @@
 // The split mirrors occurrence.ts vs tagsProvider.ts so the unit test that
 // imports this reducer never transitively requires vscode.
 //
-// Binding rules honored (ARCHITECTURE.md "Drag and drop"):
+// Rules this module follows:
 // - handleDrop asserts the payload MIME and interprets by the TARGET view.
 // - Reject unrecognized sources as a no-op (here: an empty intent list).
 // - Refresh coalescing: the controller batches the returned intents into ONE
@@ -34,11 +34,11 @@ export const NEST_CHAT_MIME = 'application/vnd.code.tree.claudenest.chat';
 // the controller can pass its own view id straight through.
 export type DropTargetView = 'claudeNest.folders' | 'claudeNest.tags';
 
-// One store-mutation intent produced by the reducer. A 'setFolder' intent sets a
-// chat's single home folder (folderId null unfiles it); a 'addTag' intent adds a
-// tag id to a chat. The controller maps each to exactly one synchronous store
-// call (setChatFolder / addChatTag), and the burst coalesces into one pending
-// write via the store's existing debounce (ARCHITECTURE.md "Refresh coalescing").
+// One store-mutation intent produced by the reducer. A 'setFolder' intent sets a chat's
+// single home folder (folderId null unfiles it); a 'addTag' intent adds a tag id to a
+// chat. The controller maps each to exactly one synchronous store call (setChatFolder /
+// addChatTag), and the burst coalesces into one pending write via the store's existing
+// debounce.
 export type DropIntent =
   | { kind: 'setFolder'; chatId: string; folderId: string | null }
   | { kind: 'addTag'; chatId: string; tagId: string };
@@ -59,7 +59,7 @@ export interface DropInput {
 
 // The Folders-view synthetic Unfiled bucket id. Duplicated as a literal here
 // rather than imported from folderTree.ts so this pure reducer stays free of any
-// transitive import that might pull vscode in; the value is the binding contract
+// transitive import that might pull vscode in; the value is a fixed contract
 // and is asserted equal in the unit test. A drop ONTO the Unfiled bucket unfiles
 // the chats (folderId null), matching a "move out of any folder" gesture.
 const UNFILED_FOLDER_ID = '__unfiled__';
@@ -74,9 +74,8 @@ const UNTAGGED_TAG_ID = '__untagged__';
 //
 // MIME guard: the payload MUST be the shared chat MIME. Any other value (a
 // foreign tree's reserved MIME, a file drop, undefined) is an unrecognized source
-// and yields NO intents (a no-op), per ARCHITECTURE.md "Reject unrecognized
-// sources as a no-op". The per-view reserved MIME is deliberately NOT accepted
-// here: a same-view reorder is out of scope for this slice, and accepting a
+// and yields NO intents (a no-op). The per-view reserved MIME is deliberately NOT accepted
+// here: a same-view reorder is out of scope here, and accepting a
 // reserved MIME as a cross-view payload would let a Folders reorder payload tag a
 // chat. Only the shared chat MIME crosses views.
 //

@@ -48,13 +48,11 @@ function plural(value: number, unit: string): string {
   return value + ' ' + unit + (value === 1 ? '' : 's') + ' ago';
 }
 
-// The COMPACT relative-time buckets the redesigned chat row uses (design README line
-// 55; UI-SPEC.md data mapping): 'now', then Nm / Nh / Nd / Nw / Nmo / Ny. This is an
-// ADDITIVE fork of the verbose relativeTime above (slice s3a-row-anatomy; recorded in
-// DECISIONS.md): the row time is served by the in-webview relative() helper (already
+// The COMPACT relative-time buckets the redesigned chat row uses: 'now', then Nm / Nh / Nd / Nw / Nmo / Ny. This is an
+// ADDITIVE fork of the verbose relativeTime above: the row time is served by the in-webview relative helper (already
 // compact and byte-identical to this table), and the host-side search-result
-// description + hover phrasing stay on the verbose 'N ago' output above until s3b
-// consumes the compact form. Kept here, beside its verbose twin, so both are covered
+// description + hover phrasing stay on the verbose 'N ago' output above until a
+// later change consumes the compact form. Kept here, beside its verbose twin, so both are covered
 // by the same headless unit gate and cannot drift from the webview copy.
 //
 // The bucket edges MIRROR the webview relative() (media/orgPanel.js), which floors each

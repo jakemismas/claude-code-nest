@@ -2,12 +2,11 @@ import * as assert from 'assert';
 import { ChatRecord, TokenTotals } from '../../model/types';
 import { buildChatTooltip, tokenBadge } from '../../views/chatTooltip';
 
-// Headless unit tests for the PURE hover-card builder and the row token badge
-// (slice 1). No vscode import and no filesystem: buildChatTooltip takes a plain
-// ChatRecord plus a plain folder name and tag-label list and returns markdown, so
-// the provider's vscode.MarkdownString wrapping is the only vscode contact and
-// stays out of this gate (mirrors occurrence.ts / dropReducer.ts vscode-free
-// builders).
+// Headless unit tests for the PURE hover-card builder and the row token badge. No vscode
+// import and no filesystem: buildChatTooltip takes a plain ChatRecord plus a plain folder
+// name and tag-label list and returns markdown, so the provider's vscode.MarkdownString
+// wrapping is the only vscode contact and stays out of this gate (mirrors occurrence.ts /
+// dropReducer.ts vscode-free builders).
 
 function tokens(partial: Partial<TokenTotals> = {}): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, ...partial };
@@ -62,7 +61,7 @@ describe('chatTooltip: full record', () => {
       'both models present (escaped): ' + md,
     );
     assert.ok(md.includes('Files touched: 3'), 'files-touched count present');
-    // BOTH the first and the last snippet render (binding UI-SPEC first/last).
+    // BOTH the first and the last snippet render.
     assert.ok(md.includes('the first thing asked'), 'first snippet present');
     assert.ok(md.includes('First (you):'), 'user first snippet label');
     assert.ok(md.includes('the last thing said'), 'last snippet present');

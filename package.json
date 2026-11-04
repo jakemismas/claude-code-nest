@@ -1,7 +1,7 @@
 {
   "name": "claude-code-nest",
   "displayName": "Claude Code Nest",
-  "description": "A read-only organizer for your Claude Code chat history: folders, tags, links, full-text search, archive, and export in a single VS Code sidebar panel.",
+  "description": "Organize your Claude Code chat history in VS Code with folders, tags, stars, search, archive and export. Read-only, local and private.",
   "version": "0.2.0",
   "publisher": "jakemismas",
   "license": "MIT",
@@ -28,7 +28,10 @@
     "sessions",
     "organize",
     "folders",
-    "tags"
+    "tags",
+    "search",
+    "archive",
+    "export"
   ],
   "galleryBanner": {
     "color": "#1E1B4B",
@@ -408,7 +411,8 @@
     "test": "mocha",
     "test:integration": "node ./out/test/integration/runTest.js",
     "fidelity": "node ./scripts/fidelity/screenshot.js",
-    "package": "vsce package --no-dependencies -o nest-build-check.vsix"
+    "package": "vsce package --no-dependencies",
+    "check:private": "node scripts/private-words/check.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",

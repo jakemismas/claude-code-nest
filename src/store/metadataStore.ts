@@ -1,13 +1,13 @@
 // MetadataStore: CRUD over the per-project ProjectMeta documents, backed by a
 // structural Memento-plus-sync seam.
 //
-// This module is vscode-free (ARCHITECTURE.md build contract). It depends on the
+// This module is vscode-free. It depends on the
 // locally-declared SyncMemento structural interface below, NOT on the vscode
 // module. extension.ts adapts the real context.globalState (which structurally
 // satisfies get/update/setKeysForSync) to SyncMemento at the call site, and the
 // headless unit suite supplies a fake implementing the same interface.
 //
-// Binding rules honored (ARCHITECTURE.md "Sync architecture"):
+// Rules this module follows:
 // - One synced globalState key per project, `nest.meta.v1::<projectKey>`.
 // - All project keys registered with setKeysForSync, REFRESHED when a new project
 //   key first appears (the union of every known nest.meta.v1::<projectKey> is
@@ -110,7 +110,7 @@ export class MetadataStore {
   // stale Memento. An entry is removed only once its memento.update resolves.
   private readonly inFlight = new Map<string, ProjectMeta>();
 
-  // FOREIGN-WRITE DETECTION AT THE DRAIN (security fix pass round 2): the JSON
+  // FOREIGN-WRITE DETECTION AT THE DRAIN: the JSON
   // encoding of the raw Memento value this store last READ (readBase) or WROTE
   // (drainPending) per project key, i.e. the value the staged pending chain is
   // rooted on. A Settings Sync write can land in the Memento at ANY time with no
@@ -129,7 +129,7 @@ export class MetadataStore {
   // value as a foreign write, so the LWW warning still surfaces).
   private readonly mementoBelief = new Map<string, string>();
 
-  // FOREIGN-WRITE DETECTION AT THE CHAIN ROOT (security fix pass round 3): the
+  // FOREIGN-WRITE DETECTION AT THE CHAIN ROOT: the
   // JSON encoding of the last Memento value this device WROTE (drainPending) or
   // POSITIVELY CLASSIFIED as its own / already reconciled (reconciledBase), per
   // project key. Distinct from mementoBelief, which records what the current
@@ -209,8 +209,8 @@ export class MetadataStore {
     }
   }
 
-  // Recompute and re-register the full union of synced meta keys. Called whenever
-  // a new project key first appears (refresh-on-new-key per ARCHITECTURE.md).
+  // Recompute and re-register the full union of synced meta keys. Called whenever a new
+  // project key first appears (refresh-on-new-key).
   private refreshSyncKeys(): void {
     const keys: string[] = [];
     for (const projectKey of this.syncedProjectKeys) {
@@ -599,7 +599,7 @@ export class MetadataStore {
   }
 
   // Replace the whole synced document for a project in one stamped write. Used by
-  // the sync-reconcile slice; here it is the primitive the granular mutations and
+  // the sync reconcile; it is the primitive the granular mutations and
   // the reconcile scaffolding build on. The supplied document is re-stamped at
   // the project level.
   //
@@ -745,7 +745,7 @@ export class MetadataStore {
       return false;
     }
     this.ensureSyncRegistered(projectKey);
-    // Root the new pending chain on the RECONCILED base (round 3): if a foreign
+    // Root the new pending chain on the RECONCILED base: if a foreign
     // Settings Sync value landed since this device last wrote or classified the
     // key, the root is the additive merge of last-known-good and the foreign
     // value, so the local edit below is applied ON TOP of the restoration

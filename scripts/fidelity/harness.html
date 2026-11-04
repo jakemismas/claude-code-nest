@@ -3,45 +3,33 @@
 <head>
 <meta charset="UTF-8" />
 <!--
-  Visual-fidelity harness (slice s3a-visual-harness, issue #79; shell rebuilt for
-  s3a-design-shell, issue #80).
+  Screenshot harness for the org panel.
 
-  This page hosts the REAL org-panel webview assets (../../media/orgPanel.css and
-  ../../media/orgPanel.js) exactly as the extension ships them, so the fidelity
-  screenshot shows what the panel actually renders, not a hand-drawn copy. It stands
-  in for the VS Code webview host by:
+  This page hosts the real panel assets (../../media/orgPanel.css and
+  ../../media/orgPanel.js) exactly as the extension ships them, so a screenshot shows
+  what the panel actually renders. It stands in for the VS Code webview host by:
 
-    1. defining acquireVsCodeApi() before orgPanel.js runs (the script calls it at
-       module load; without the stub the whole script throws and nothing renders);
-    2. reproducing the EXACT static DOM skeleton orgPanelWebview.renderHtml emits
-       (the New session pill, the gear, the sort button + popover, the search box with
-       its magnifier and clear button, the #chips rail, and the #list role="tree"
-       container) so the script's getElementById wiring finds every node it expects.
-       This shell MUST stay byte-aligned with renderHtml; the fidelity lens is the
-       reminder if it drifts;
-    3. posting synthetic 'state' then 'sections' messages in the SAME shape the host
-       posts (orgPanelWebview.postState / postSections; see OrgSections and OrgChatRow
-       in src/views/orgPanelModel.ts), so the script's message handler renders the
-       mock exactly as it would render real data.
+    1. defining acquireVsCodeApi() before orgPanel.js runs (the script calls it at load;
+       without the stub it throws and nothing renders);
+    2. reproducing the static DOM skeleton that orgPanelWebview.renderHtml emits (the
+       New session pill, the gear, the sort button and popover, the search box, the
+       #chips rail and the #list tree) so the script's getElementById wiring finds every
+       node it expects. Keep this shell in step with renderHtml; if it drifts, the panel
+       renders nothing here;
+    3. posting made-up 'state' then 'sections' messages in the same shape the host posts
+       (see OrgSections and OrgChatRow in src/views/orgPanelModel.ts).
 
-  ALL mock data here is synthetic. No real transcript content is embedded, so nothing
-  private is committed. The mock deliberately carries starred:true rows, per-row status
-  ('question' -> blinking '?' badge, 'done' -> solid unread dot; design README line 51),
-  a folder-path breadcrumb on the Questions rows, an ACTIVE row (posted via an 'active'
-  message so the currently-open chat shows the #F6E5DB tint + inset left border, the
-  ONLY row tint), colored folders, colored tag chips, and archivedCount > 0, so
-  re-running the harness surfaces every visual the shipped asset draws for slice
-  s3a-row-anatomy (the depth indents 11/29/47, the done-dot, the blinking-'?' badge, the
-  Questions breadcrumb, the star toggle glyph, the active-row tint, the FOLDERS + / ^
-  buttons, and the Archived (N) row). No per-row token badge is drawn (tokens moved to
-  the hover card), so the harness deliberately does not assert one.
+  All data here is made up. No real transcript content is embedded.
 
-  The palette is now HARDCODED in orgPanel.css (s3a-design-shell), so the old
-  --vscode-* shim is a no-op and has been removed; only the 320px width + panel
-  background pin remains so the screenshot frames the panel exactly as a 320px sidebar
-  would (UI-SPEC deviation 1). The Newsreader @font-face in orgPanel.css resolves its
-  relative fonts/ url against ../../media/, which exists in the repo, so the harness
-  loads the same bundled face the extension ships.
+  The mock includes starred rows, per-row status ('question' shows a blinking '?' badge,
+  'done' a solid unread dot), a folder breadcrumb on the Questions rows, an active row,
+  colored folders and tag chips, and archived chats, so one run shows every state the
+  panel draws.
+
+  Only the 320px width and the panel background are pinned, so the screenshot frames the
+  panel like a 320px sidebar. The Newsreader @font-face in orgPanel.css resolves its
+  relative fonts/ url against ../../media/, so the harness loads the same bundled font
+  the extension ships.
 -->
 <style id="harness-frame">
   html, body {
@@ -59,7 +47,7 @@
   <!--
     The exact static shell orgPanelWebview.renderHtml emits. Kept byte-aligned with
     that host so the harness exercises the real script wiring; if the host shell
-    changes, this must change with it (the fidelity lens is the reminder).
+    changes, this must change with it.
   -->
   <div class="nest-toolbar">
     <button id="newSession" class="nest-new-session" type="button" title="New session" aria-label="New session"><span class="nest-new-session-plus" aria-hidden="true">+</span>New session</button>
@@ -93,14 +81,13 @@
     (function () {
       const outbound = [];
       // The host content-search reply the harness stands in for. When the panel
-      // posts { type:'search', query } (the debounced content-search request, issue
-      // #83), the real extension host answers with { type:'searchResults' } ranked
+      // posts { type:'search', query } (the debounced content-search request), the real extension host answers with { type:'searchResults' } ranked
       // rows carrying a role-prefixed body-match snippet. The harness must reply too,
-      // or the flat "N RESULTS" state renders 0 results and the fidelity capture of
-      // the results state (issue #83 AC #6) goes blind. The reply is synthetic and
+      // or the flat "N RESULTS" state renders 0 results and the results-state
+      // capture is blank. The reply is synthetic and
       // deterministic: for a non-empty query it returns the 'Rate limiter design'
       // chat (s-11, filed under Work / Backend API, so it shows a breadcrumb) with a
-      // "You: ..." body-match snippet, matching the prototype's redis-filtered state.
+      // "You: ..." body-match snippet.
       // An empty query returns no rows (mirrors the host short-circuit).
       window.__nestHarnessSearchReply = function (query) {
         const q = (query || '').trim();
@@ -123,15 +110,13 @@
           ],
         };
       };
-      // The host reply for an openArchive request (slice s3b-archive-overlay, issue #87).
+      // The host reply for an openArchive request.
       // When the panel opens the Archive overlay it posts { type:'openArchive' }; the real
       // extension host answers with { type:'archivedRows', rows } built by buildArchivedRows
       // from the synced userArchived membership. The harness must reply too, or the overlay
-      // renders an empty "Nothing archived." state and the archive fidelity capture goes
-      // blind. The rows are synthetic and deterministic: two present archived chats (one
-      // filed, one unsorted) plus one cleaned-up (gone) chat, matching the prototype's
-      // archived set (c7 "Resume rewrite" filed, c12 "Onboarding flow copy" unsorted). All
-      // titles are invented.
+      // renders an empty "Nothing archived." state and the archive capture is
+      // blank. The rows are synthetic and deterministic: two present archived chats (one
+      // filed, one unsorted) plus one cleaned-up (gone) chat. All titles are invented.
       window.__nestHarnessArchivedRows = function () {
         return {
           type: 'archivedRows',
@@ -195,7 +180,7 @@
   <!--
     Synthetic mock data, posted in the exact host message shape. Timestamps are
     computed relative to load time so the panel's relative() helper produces the
-    design's age buckets (35m / 3h / 1d / 2w) deterministically at capture.
+    the age buckets (35m / 3h / 1d / 2w) deterministically at capture.
   -->
   <script>
     (function () {
@@ -204,8 +189,7 @@
       const DAY = 24 * HOUR;
       const now = Date.now();
 
-      // Palette pulled verbatim from media/design/README.md so the colored folders
-      // and tag chips read in the handoff hues.
+      // Palette for the colored folders and tag chips.
       const TAG = {
         bug: '#B14F36',
         feature: '#9A6B1E',
@@ -224,7 +208,7 @@
       // Reusable synthetic rows. Each matches the OrgChatRow shape exactly:
       // { sessionId, title, timestamp, tokens, snippet, tags, tagIds, tagColors,
       //   starred, awaitingReply, status, breadcrumb }. tagColors is parallel to tags.
-      // status is the per-row status slot (design README line 51): 'question' ->
+      // status is the per-row status slot: 'question' ->
       // blinking '?' badge, 'done' -> solid unread dot, 'none' -> empty slot.
       // awaitingReply mirrors (status === 'question'). breadcrumb is the folder path
       // rendered on Questions/search rows (null otherwise). tokens rides the seam for
@@ -247,7 +231,7 @@
       }
 
       // The ACTIVE + starred chat: an UNREAD non-question assistant reply -> solid
-      // 'done' dot (matches the design reference's first Starred/Backend-API row).
+      // 'done' dot.
       const rStarredDone = row({
         sessionId: 's-01',
         title: 'Refactor auth middleware',
@@ -329,9 +313,9 @@
       // always-present synthetic Unsorted bucket, the tag filter chips with counts,
       // and archivedCount so the bottom Archived row renders. Each folder carries
       // depth (clamped render depth), treeDepth (true stored depth, used by the
-      // collapse/hide skip), and rolledUpCount (its own chats + all descendants;
-      // issue #82 AC1). f-legacy is a depth-2 grandchild under Backend API to
-      // exercise the render clamp (issue #82 AC4): its treeDepth is 2 and it renders
+      // collapse/hide skip), and rolledUpCount (its own chats + all descendants).
+      // f-legacy is a depth-2 grandchild under Backend API to
+      // exercise the render clamp: its treeDepth is 2 and it renders
       // at the depth-2 (47px) tier, the deepest the UI shows.
       const sections = {
         starred: [rStarredDone, rStarredIdea],
@@ -415,8 +399,7 @@
           { tagId: 't-idea', label: 'idea', color: TAG.idea, count: 2 },
           { tagId: 't-docs', label: 'docs', color: TAG.docs, count: 3 },
         ],
-        // allTags is the FULL project tag list the chat context menu lists (issue #85
-        // AC #1): every tag with id/label/color/count, INCLUDING a zero-chat tag the chip
+        // allTags is the FULL project tag list the chat context menu lists: every tag with id/label/color/count, INCLUDING a zero-chat tag the chip
         // row (tags) omits. 't-migration' (count 0) exercises the "list a tag no chat
         // carries yet" case in the harness context-menu capture.
         allTags: [
@@ -434,11 +417,10 @@
       // Post state first (sort/collapsed), then the sections, then the active chat,
       // matching the host's onMessage('ready') order (postState, postSections,
       // postActive). s-01 is the currently-open chat, so its rows carry the .nest-active
-      // tint (the design reference's tinted Starred + Backend-API "Refactor auth" rows).
+      // tint.
       window.postMessage({ type: 'state', sort: 'newest', collapsedFolders: [] }, '*');
-      // The Settings overlay state (slice s3b-settings-overlay, issue #86): a 30-day
-      // auto-archive window and all four sections ON, matching the design's default
-      // Settings sub-page. The overlay reads this on the settings-overlay capture page.
+      // The Settings overlay state: a 30-day
+      // auto-archive window and all four sections ON, the defaults. The overlay reads this on the settings-overlay capture page.
       window.postMessage(
         {
           type: 'settings',

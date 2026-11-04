@@ -1,5 +1,5 @@
 // folderTree: the PURE model behind the Folders view. It owns slash-path
-// expansion (interpretation (b): a slash name expands into a CHAIN of real
+// expansion (a slash name expands into a CHAIN of real
 // parent-child Folder records, never a literal '/' inside one Folder.name), the
 // single-home assembly of a nested tree from flat Folder records, the synthetic
 // Unfiled bucket, and the composite-id grammar for chat member nodes.
@@ -8,7 +8,7 @@
 // The view layer (foldersProvider.ts) renders the structures produced here into
 // TreeItems and memoizes node objects; this module produces only plain data.
 //
-// Composite-id grammar (ARCHITECTURE.md "Tree and VSCode API binding rules"):
+// Composite-id grammar:
 //   chat member node id = `${folderId}#${chatId}`
 // folderId is separator-free (minted by idFactory or the '__unfiled__' sentinel)
 // and chatId is a separator-free UUID, so the id splits unambiguously on the
@@ -18,11 +18,10 @@
 import { Folder } from '../store/schema';
 import { mintFolderId } from './idFactory';
 
-// The Folders-view synthetic bucket for every chat with no home folder
-// (ChatMeta.folderId null or absent). The sentinel mirrors the '__untagged__'
-// convention (PLAN.md slice 3) and is excluded from the id factory's mintable
-// space (idFactory.RESERVED_SENTINELS), so a real folder can never collide with
-// it.
+// The Folders-view synthetic bucket for every chat with no home folder (ChatMeta.folderId
+// null or absent). The sentinel mirrors the '__untagged__' convention and is excluded
+// from the id factory's mintable space (idFactory.RESERVED_SENTINELS), so a real folder
+// can never collide with it.
 export const UNFILED_FOLDER_ID = '__unfiled__';
 export const UNFILED_LABEL = 'Unfiled';
 
@@ -30,8 +29,7 @@ export const UNFILED_LABEL = 'Unfiled';
 // expands into a Work folder (parentId null) with a ClientA child.
 export const FOLDER_PATH_SEPARATOR = '/';
 
-// Folder-depth caps for the "one visible sublevel" design (UI-SPEC.md data-mapping
-// row for Folders; issue #82 AC4). Depth is the 0-based nesting depth: a root is 0,
+// Folder-depth caps for the "one visible sublevel" design. Depth is the 0-based nesting depth: a root is 0,
 // its direct child is 1, a grandchild is 2.
 //
 // - MAX_FOLDER_CREATE_DEPTH bounds what the UI CREATES: at most one level of
@@ -134,7 +132,7 @@ export interface ExpandResult {
 
 // Expand a slash path into a chain of real parent-child Folder records, reusing
 // any existing segment matched by (parentId, name) and minting a new Folder only
-// for a missing segment. This is the create-time expansion (interpretation (b)):
+// for a missing segment. This is the create-time expansion:
 // 'Work/ClientA' against an empty store yields two records (Work parentId=null,
 // ClientA parentId=Work.id); run again it reuses both and mints nothing.
 //
@@ -363,14 +361,13 @@ export function resolveChatHomeFolderId(
   return index.get(chatId) ?? hint;
 }
 
-// Node-object memoization reuse rule (the PURE half of the provider's
-// folderItemFor / chatMemberItemFor). VSCode caches tree elements by object
-// reference, so a refresh must REUSE the existing node object for an unchanged id
-// rather than return a fresh object with the same id, or reveal and selection
-// break (ARCHITECTURE.md "Memoize node objects by id across refreshes"). These
-// predicates decide whether a cached object is still valid for the current data;
-// the provider holds the actual TreeItem objects and the Map, but the
-// reuse-vs-rebuild decision lives here so the rule is unit-testable headless.
+// Node-object memoization reuse rule (the PURE half of the provider's folderItemFor /
+// chatMemberItemFor). VSCode caches tree elements by object reference, so a refresh must
+// REUSE the existing node object for an unchanged id rather than return a fresh object
+// with the same id, or reveal and selection break. These predicates decide whether a
+// cached object is still valid for the current data; the provider holds the actual
+// TreeItem objects and the Map, but the reuse-vs-rebuild decision lives here so the rule
+// is unit-testable headless.
 
 // A cached folder node may be reused when its memoized name still equals the
 // node's current name (a rename must rebuild so the label updates).

@@ -1,22 +1,20 @@
 import { ChatRecord } from '../model/types';
 import { ChatMessageBody } from '../claude/bodyReader';
 
-// PURE, vscode-free formatters for the per-chat export (Slice 5 s2-export-and-rollup).
-// Two renderers: renderMarkdown (YAML front-matter org layer + a readable body) and
-// renderJson (a single round-trippable JSON document). Both take only plain data (a
-// ChatRecord plus its resolved org layer plus the ordered bodies from bodyReader),
-// so they stay in the headless unit gate and the command layer wraps the write
-// through exportIO. Nothing here touches the filesystem or vscode.
-//
-// FRONT-MATTER ESCAPING (slice patch "FRONT-MATTER ESCAPING/INJECTION"): the export
-// front-matter carries user/transcript-derived strings (title, tags, folder name).
-// A title containing a colon, a quote, a newline, or a leading '---' must not break
-// the document or inject a second front-matter block. The JSON formatter gets this
-// for free via JSON.stringify; the Markdown front-matter does NOT, so every scalar
-// is emitted as a DOUBLE-QUOTED YAML string with its backslashes, quotes, and
-// control characters escaped (yamlQuote), and the closing fence is the only '---' a
-// parser can find at column 0 inside the block. chatTooltip.ts solves the
-// markdown-injection twin with escapeMarkdown; this is the YAML twin.
+// PURE, vscode-free formatters for the per-chat export. Two renderers: renderMarkdown
+// (YAML front-matter org layer + a readable body) and renderJson (a single
+// round-trippable JSON document). Both take only plain data (a ChatRecord plus its
+// resolved org layer plus the ordered bodies from bodyReader), so they stay in the
+// headless unit gate and the command layer wraps the write through exportIO. Nothing here
+// touches the filesystem or vscode.  FRONT-MATTER ESCAPING: the export front-matter
+// carries user/transcript-derived strings (title, tags, folder name). A title containing
+// a colon, a quote, a newline, or a leading '---' must not break the document or inject a
+// second front-matter block. The JSON formatter gets this for free via JSON.stringify;
+// the Markdown front-matter does NOT, so every scalar is emitted as a DOUBLE-QUOTED YAML
+// string with its backslashes, quotes, and control characters escaped (yamlQuote), and
+// the closing fence is the only '---' a parser can find at column 0 inside the block.
+// chatTooltip.ts solves the markdown-injection twin with escapeMarkdown; this is the YAML
+// twin.
 
 // The resolved org layer for one exported chat: the plain folder name (null when
 // unfiled), the full tag label set, the starred flag, and the link target chat ids.
@@ -29,8 +27,8 @@ export interface ExportOrgLayer {
   links: readonly string[];
 }
 
-// The token total summary the export header carries: the four trusted tier-A counts
-// plus their sum. tokens only, NO USD (slice non-goal).
+// The token total summary the export header carries: the four trusted summary counts plus
+// their sum. tokens only, NO USD.
 interface ExportTokenSummary {
   total: number;
   input: number;
@@ -108,9 +106,9 @@ export function renderMarkdown(
   lines.push('');
 
   if (bodies.length === 0) {
-    // No-body case (slice patch test target): the front-matter still carries the
-    // full org layer; the body section states the transcript had no readable
-    // messages rather than rendering an empty document.
+    // No-body case: the front-matter still carries the full org layer; the body section
+    // states the transcript had no readable messages rather than rendering an empty
+    // document.
     lines.push('_No readable messages in this transcript._');
     lines.push('');
   } else {

@@ -1,18 +1,16 @@
 import { ScannerOptions } from '../claude/chatScanner';
 
-// The explicit refresh/scan command path that wraps a transcript scan in a
-// cancellable progress notification (Polish slice). This is DELIBERATELY separate
-// from the passive getChildren/getParent path: those stay synchronous and read the
-// provider's memoized snapshot (ARCHITECTURE.md tree binding rules + the slice fit
-// patch). Here, an explicit user-driven Refresh primes the provider snapshot under
+// The explicit refresh/scan command path that wraps a transcript scan in a cancellable
+// progress notification. This is DELIBERATELY separate from the passive
+// getChildren/getParent path: those stay synchronous and read the provider's memoized
+// snapshot. Here, an explicit user-driven Refresh primes the provider snapshot under
 // vscode.window.withProgress with a CancellationToken, THEN fires onDidChangeTreeData
-// once, so the host re-renders from the freshly primed (synchronous) snapshot.
-//
-// The provider seam is ScanPrimable.primeSnapshot(scanOptions): the provider clears
-// its cached snapshot and rebuilds it ONCE with the supplied plain-callback scan
-// options (onProgress/shouldCancel from chatScanner.ScannerOptions), then refreshes.
-// The scanner stays vscode-free; this module is the only place the CancellationToken
-// and the progress UI touch the scan.
+// once, so the host re-renders from the freshly primed (synchronous) snapshot.  The
+// provider seam is ScanPrimable.primeSnapshot(scanOptions): the provider clears its
+// cached snapshot and rebuilds it ONCE with the supplied plain-callback scan options
+// (onProgress/shouldCancel from chatScanner.ScannerOptions), then refreshes. The scanner
+// stays vscode-free; this module is the only place the CancellationToken and the progress
+// UI touch the scan.
 
 // A provider that can be primed by an explicit progress-wrapped scan. Implemented
 // by the four view providers. primeSnapshot rebuilds the memoized snapshot once

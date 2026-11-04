@@ -2,20 +2,18 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
-// The PURE, vscode-free path guard for the export/import and auto-export snapshot
-// writes (build contract: logic the unit gate exercises must not import vscode).
-// exportIO.ts (the vscode-bound, lint-exempt IO module) calls assertNotUnder-
-// ClaudeProjects before every write/createDirectory/delete.
-//
-// Why this guard exists (read-only invariant, ARCHITECTURE.md): unlike the settings
-// chokepoint, whose target is a single fixed path, the export target comes from a
-// save dialog the user can navigate ANYWHERE, including into
-// ~/.claude/projects/<encoded-dir>/ where they could overwrite a Claude transcript.
-// The dialog's JSON extension filter does not hard-block typing an existing
-// transcript filename. An exempt fs module must runtime-assert its target, exactly
-// as claudeSettingsIO.assertAllowedTarget does, rather than trust the dialog. This
-// is the export twin of that assertion, pulled into a pure module so the same
-// headless unit suite that proves the settings chokepoint can prove this one.
+// The PURE, vscode-free path guard for the export/import and auto-export snapshot writes
+// (build contract: logic the unit gate exercises must not import vscode). exportIO.ts
+// (the vscode-bound, lint-exempt IO module) calls assertNotUnder- ClaudeProjects before
+// every write/createDirectory/delete.  Why this guard exists (read-only invariant):
+// unlike the settings chokepoint, whose target is a single fixed path, the export target
+// comes from a save dialog the user can navigate ANYWHERE, including into
+// ~/.claude/projects/<encoded-dir>/ where they could overwrite a Claude transcript. The
+// dialog's JSON extension filter does not hard-block typing an existing transcript
+// filename. An exempt fs module must runtime-assert its target, exactly as
+// claudeSettingsIO.assertAllowedTarget does, rather than trust the dialog. This is the
+// export twin of that assertion, pulled into a pure module so the same headless unit
+// suite that proves the settings chokepoint can prove this one.
 
 export class ExportPathError extends Error {
   constructor(message: string) {

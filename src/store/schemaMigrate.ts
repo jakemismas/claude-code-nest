@@ -97,7 +97,7 @@ export interface RawEnvelope {
 }
 
 // Validate that a parsed value is the export-envelope WRAPPER shape, before any
-// migration touches it. This is the scratch-copy gate the architecture requires:
+// migration touches it. This is the scratch-copy gate:
 // a malformed file is rejected here, BEFORE the live store is ever consulted. It
 // checks only the wrapper (version/exportedAt/projects-is-an-object-map); the
 // per-project documents are validated by migrateProjectMeta in the migrate step,

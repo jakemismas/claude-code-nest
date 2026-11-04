@@ -1,23 +1,17 @@
-// smartGroupEngine: the PURE composition of the four read-only smart-group
-// signals into the tree the Smart Groups view renders. It recomputes the buckets
-// from the current SmartSignalsInput rows on every call (the view calls it on
-// refresh); it NEVER mutates the store and NEVER auto-files a chat. Promotion to a
-// folder/tag is an explicit, separate user command (promoteSmartGroup.ts).
-//
-// This module is PURE and vscode-free (unit-gate rule): no vscode import, no fs.
-// It only orchestrates the four pure signal functions; the view turns the result
-// into TreeItems and memoizes node objects.
-//
-// Group/bucket id grammar (ARCHITECTURE.md "Separator-namespace discipline" +
-// "synthetic group rows keyed by separator-free reserved sentinels distinct from
-// __unfiled__/__untagged__"): a signal-group row id is a reserved sentinel
+// smartGroupEngine: the PURE composition of the four read-only smart-group signals into
+// the tree the Smart Groups view renders. It recomputes the buckets from the current
+// SmartSignalsInput rows on every call (the view calls it on refresh); it NEVER mutates
+// the store and NEVER auto-files a chat. Promotion to a folder/tag is an explicit,
+// separate user command (promoteSmartGroup.ts).  This module is PURE and vscode-free
+// (unit-gate rule): no vscode import, no fs. It only orchestrates the four pure signal
+// functions; the view turns the result into TreeItems and memoizes node objects.
+// Group/bucket id grammar: a signal-group row id is a reserved sentinel
 // '__smart_<signal>__' (separator-free, no ':' '#' '>'); a bucket row id is
 // '<groupId>::<bucketKey>' using '::' which contains none of the three reserved
-// composite-id separators, so it can never be confused with a folder member id
-// (`#`), a tag occurrence id (`:` single), or a linked-child id (`>`). The bucket
-// key itself is signal-defined (a url, a ticket id, a branch, a uuid-prefix) and
-// is treated as opaque; the view stores the bucket's memberChatIds directly
-// rather than re-parsing the id.
+// composite-id separators, so it can never be confused with a folder member id (`#`), a
+// tag occurrence id (`:` single), or a linked-child id (`>`). The bucket key itself is
+// signal-defined (a url, a ticket id, a branch, a uuid-prefix) and is treated as opaque;
+// the view stores the bucket's memberChatIds directly rather than re-parsing the id.
 
 import { SmartSignalsInput } from '../model/types';
 import { SmartBucket } from './signals/bucket';

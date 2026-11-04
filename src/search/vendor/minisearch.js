@@ -1,7 +1,6 @@
 // VENDORED: MiniSearch v7.2.0 (https://github.com/lucaong/minisearch)
 // Vendored verbatim from the published npm UMD dist (minisearch@7.2.0,
-// dist/umd/index.js) per DECISIONS.md 2026-06-19 Slice s2-fulltext-search:
-// MiniSearch is a runtime dependency that .vscodeignore (node_modules/**) plus
+// dist/umd/index.js). MiniSearch is a runtime dependency that .vscodeignore (node_modules/**) plus
 // `vsce package --no-dependencies` would silently drop from the VSIX, so it is
 // vendored into the repo and copied into out/ by the compile step instead of
 // being installed as an npm dependency. This file is intentionally OUTSIDE the

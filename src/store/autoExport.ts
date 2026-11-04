@@ -1,10 +1,9 @@
-// Auto-export retention policy. PURE and vscode-free (unit-gate rule): no
-// filesystem, no vscode. The command module (exportImportCommands.ts) supplies
-// the directory listing (via vscode.workspace.fs, keeping node fs out of the lint
-// bank) and performs the deletes; this module decides the snapshot NAME and which
-// names to PRUNE so the retention count is unit-testable headless.
-//
-// Retention rule (slice patch): keep the most recent N snapshots, prune older.
+// Auto-export retention policy. PURE and vscode-free (unit-gate rule): no filesystem, no
+// vscode. The command module (exportImportCommands.ts) supplies the directory listing
+// (via vscode.workspace.fs, keeping node fs out of the lint bank) and performs the
+// deletes; this module decides the snapshot NAME and which names to PRUNE so the
+// retention count is unit-testable headless.  Retention rule: keep the most recent N
+// snapshots, prune older.
 
 // How many auto-export snapshots to retain. Older snapshots beyond this are
 // pruned. Defined here so it is unit-testable.

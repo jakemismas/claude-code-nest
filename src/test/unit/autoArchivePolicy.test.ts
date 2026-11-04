@@ -6,10 +6,10 @@ import {
   coerceAutoArchiveWindowDays,
 } from '../../store/autoArchivePolicy';
 
-// Pure-logic unit tests for the slice s3b-settings-overlay auto-archive policy. The
-// policy decides archive|copy|none purely from {lastActivity, starred, archived,
-// hasCopy, keepWindowDays, now} with no clock/config/fs access, so every case is
-// deterministic (the boundary case in particular: age exactly == window). No vscode.
+// Pure-logic unit tests for the auto-archive policy. The policy decides archive|copy|none
+// purely from {lastActivity, starred, archived, hasCopy, keepWindowDays, now} with no
+// clock/config/fs access, so every case is deterministic (the boundary case in
+// particular: age exactly == window). No vscode.
 
 const NOW = 1_700_000_000_000;
 
@@ -75,7 +75,7 @@ describe('autoArchivePolicy.decideAutoArchive', () => {
     );
   });
 
-  it('AC #5: a starred chat STILL gets a protective copy when auto-archive is Never (archiveWindowDays=0)', () => {
+  it('a starred chat STILL gets a protective copy when auto-archive is Never (archiveWindowDays=0)', () => {
     // The user disabled auto-archiving, but the starred chat is past the effective
     // Claude cleanup age (protectiveWindowDays). The protective copy must still be
     // written so the chat survives Claude cleanup, independent of the archive window.

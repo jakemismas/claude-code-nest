@@ -2,26 +2,23 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// The read-only chokepoint (ARCHITECTURE.md "Read-only invariant"): this is the
-// ONLY module in src permitted to perform a write-capable fs call. The eslint
-// no-restricted-syntax bank that bans every write-capable fs call shape across
-// src carves out exactly this file (and the test tree). Every write that lands
-// under ~/.claude routes through writeCleanupPeriodDays here, which hard-asserts
-// the canonicalized absolute target equals the ONE allowed settings.json path and
-// throws otherwise. Nothing may ever write under ~/.claude/projects/.
-//
-// This module is vscode-free so its surgical-edit, path-assertion, and mtime-guard
-// logic is exercised headlessly against scratch fixtures (build contract: unit
-// tests and the modules they import must not require vscode).
-//
-// The settings.json edit is SURGICAL: a single-key jsonc byte-range replacement
-// (or insertion) that preserves sibling keys, whitespace, and the file's EOL
-// style. It never parse-then-stringifies the whole document, so comments, key
-// order, and formatting survive untouched. A pre-write mtime re-stat aborts the
-// write if the file changed between read and write (a concurrent edit), comparing
-// float milliseconds so a same-second concurrent edit is still caught.
+// The read-only chokepoint: this is the ONLY module in src permitted to perform a
+// write-capable fs call. The eslint no-restricted-syntax bank that bans every
+// write-capable fs call shape across src carves out exactly this file (and the test
+// tree). Every write that lands under ~/.claude routes through writeCleanupPeriodDays
+// here, which hard-asserts the canonicalized absolute target equals the ONE allowed
+// settings.json path and throws otherwise. Nothing may ever write under
+// ~/.claude/projects/.  This module is vscode-free so its surgical-edit, path-assertion,
+// and mtime-guard logic is exercised headlessly against scratch fixtures (build contract:
+// unit tests and the modules they import must not require vscode).  The settings.json
+// edit is SURGICAL: a single-key jsonc byte-range replacement (or insertion) that
+// preserves sibling keys, whitespace, and the file's EOL style. It never
+// parse-then-stringifies the whole document, so comments, key order, and formatting
+// survive untouched. A pre-write mtime re-stat aborts the write if the file changed
+// between read and write (a concurrent edit), comparing float milliseconds so a
+// same-second concurrent edit is still caught.
 
-// The key this slice reads and writes. Claude Code's cleanup period for stale
+// The key this module reads and writes. Claude Code's cleanup period for stale
 // transcript retention; absent by default (Claude applies its own default).
 export const CLEANUP_PERIOD_DAYS_KEY = 'cleanupPeriodDays';
 
@@ -40,8 +37,7 @@ export class SettingsIoError extends Error {
 //
 // The webview and the host exchange small JSON messages. The protocol logic is a
 // pure function so a unit test drives it through a fake messenger (no vscode, no
-// real panel). settingsWebview.ts owns only the vscode binding (panel creation,
-// onDidReceiveMessage wiring, postMessage).
+// real panel). The caller owns the vscode wiring (onDidReceiveMessage, postMessage).
 
 // Messages the webview posts to the host.
 export type InboundMessage =
@@ -370,7 +366,7 @@ function computeInsertion(
   const indent = '  ';
   if (isEmpty) {
     // {} -> insert the sole member; drop any existing inner whitespace by anchoring
-    // the after-slice at the closing brace.
+    // the text after the brace at the closing brace.
     const closeIdx = text.indexOf('}', afterBrace);
     const before = text.slice(0, afterBrace);
     const replacement = eol + indent + '"' + CLEANUP_PERIOD_DAYS_KEY + '": ' + valueLiteral + eol;
@@ -695,10 +691,9 @@ function skipBlockComment(text: string, idx: number): number {
   return Math.min(i + 2, text.length);
 }
 
-// Atomic write via a temp file in the same directory followed by a rename, so a
-// crash mid-write never leaves a truncated settings.json. Both calls live inside
-// this exempt chokepoint module (ARCHITECTURE.md: "If atomicity uses
-// temp-write-then-rename, that rename stays inside the exempt chokepoint module").
+// Atomic write via a temp file in the same directory followed by a rename, so a crash
+// mid-write never leaves a truncated settings.json. Both calls live inside this exempt
+// chokepoint module.
 function atomicWrite(targetPath: string, content: string): void {
   const dir = path.dirname(targetPath);
   const tmp = path.join(dir, '.nest-settings-' + process.pid + '-' + Date.now() + '.tmp');

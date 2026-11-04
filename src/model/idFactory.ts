@@ -1,15 +1,14 @@
 // The id factory: the single place folder ids (and any future minted id) are
-// generated and validated. ARCHITECTURE.md "Separator-namespace discipline"
+// generated and validated.
 // mandates that tag, folder, and chat ids be free of the three composite-id
 // separators ':' '#' '>', and that the rule be "enforced in the id factory".
-// Slice 2 is the first slice to MINT folder ids, so the factory lands here.
 //
 // This module is PURE and vscode-free (build contract): no vscode import, no
 // filesystem. The runtime entropy is crypto.randomUUID (always present in the
 // VSCode 1.66 Electron runtime, mirroring deviceId.ts) with a separator-free
 // fallback so the module never throws.
 //
-// Reserved separators (the composite-id grammar from ARCHITECTURE.md):
+// Reserved separators (the composite-id grammar):
 //   folder member id   `${folderId}#${chatId}`
 //   tag occurrence id  `${tagId}:${chatId}`
 //   linked-child id    `${parentChatId}>link>${chatId}`
@@ -20,14 +19,13 @@
 // contains any of these.
 export const RESERVED_SEPARATORS = [':', '#', '>'] as const;
 
-// Synthetic-node sentinels that live in the same id-space as minted ids but are
-// NOT mintable. A real folder id must never collide with one of these, or a
-// synthetic bucket and a real folder would share a composite-id prefix.
-// '__unfiled__' is the Folders-view Unfiled bucket (slice 2); '__untagged__'
-// is the Tags-view Untagged bucket (slice 3); the four '__smart_*__' ids are the
-// Smart Groups-view signal groups (slice 6). All are separator-free by
-// construction, so they cannot collide on the separator rule alone; this set is
-// the second guard that keeps the factory from ever minting one.
+// Synthetic-node sentinels that live in the same id-space as minted ids but are NOT
+// mintable. A real folder id must never collide with one of these, or a synthetic bucket
+// and a real folder would share a composite-id prefix. '__unfiled__' is the Folders-view
+// Unfiled bucket; '__untagged__' is the Tags-view Untagged bucket; the four '__smart_*__'
+// ids are the Smart Groups-view signal groups. All are separator-free by construction, so
+// they cannot collide on the separator rule alone; this set is the second guard that
+// keeps the factory from ever minting one.
 export const RESERVED_SENTINELS = new Set<string>([
   '__unfiled__',
   '__untagged__',
@@ -55,10 +53,10 @@ export function isMintableId(id: string): boolean {
   return id.length > 0 && isSeparatorFree(id) && !RESERVED_SENTINELS.has(id);
 }
 
-// Assert a candidate id is separator-free, throwing a descriptive error otherwise.
-// This is the enforcement seam ARCHITECTURE.md points at: every mint runs through
-// it, and callers that accept an externally supplied id (e.g. a migrated store)
-// can run it too. context names the call site for the error message.
+// Assert a candidate id is separator-free, throwing a descriptive error otherwise. This
+// is the enforcement seam points at: every mint runs through it, and callers that accept
+// an externally supplied id (e.g. a migrated store) can run it too. context names the
+// call site for the error message.
 export function assertSeparatorFree(id: string, context = 'id'): void {
   if (!isSeparatorFree(id)) {
     throw new Error(
@@ -82,13 +80,12 @@ export function assertMintableId(id: string, context = 'id'): void {
   }
 }
 
-// Mint a fresh, separator-free id with a bounded retry on the (vanishingly
-// unlikely) chance an entropy source yields a non-mintable value, falling back to
-// a guaranteed-legal counter+time id. prefix names the last-resort fallback id's
-// kind ('f' folder, 't' tag) so a fallback collision across kinds is impossible;
-// the UUID path is identical for every kind, which is correct because all minted
-// ids share one separator-free namespace (ARCHITECTURE.md "Separator-namespace
-// discipline" governs folder, tag, AND chat ids together).
+// Mint a fresh, separator-free id with a bounded retry on the (vanishingly unlikely)
+// chance an entropy source yields a non-mintable value, falling back to a
+// guaranteed-legal counter+time id. prefix names the last-resort fallback id's kind ('f'
+// folder, 't' tag) so a fallback collision across kinds is impossible; the UUID path is
+// identical for every kind, which is correct because all minted ids share one
+// separator-free namespace.
 function mintId(prefix: string): string {
   for (let attempt = 0; attempt < 8; attempt++) {
     const candidate = randomId(prefix);
@@ -110,11 +107,11 @@ export function mintFolderId(): string {
   return mintId('f');
 }
 
-// Mint a fresh, separator-free tag id (slice 3). Shares the same separator-free
-// namespace and post-mint guard as a folder id: the create-tag command mints
-// through here so a tag id can never carry ':' '#' '>' (or a reserved sentinel
-// like '__untagged__'), which is what lets the tag-occurrence composite id
-// `${tagId}:${chatId}` split unambiguously on the FIRST ':'.
+// Mint a fresh, separator-free tag id. Shares the same separator-free namespace and
+// post-mint guard as a folder id: the create-tag command mints through here so a tag id
+// can never carry ':' '#' '>' (or a reserved sentinel like '__untagged__'), which is what
+// lets the tag-occurrence composite id `${tagId}:${chatId}` split unambiguously on the
+// FIRST ':'.
 export function mintTagId(): string {
   return mintId('t');
 }

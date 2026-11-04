@@ -9,14 +9,13 @@ import {
   suggestFileName,
 } from '../../commands/exportChatCommands';
 
-// Headless unit tests for the Slice 5 Export Chat orchestrator. The module is
-// vscode-free (it takes injected seams for the format pick, the save dialog, the body
-// read, the org-layer resolution, and the GUARDED write), so the test exercises the
-// flow with in-memory doubles: no vscode host, no real filesystem, no real transcript.
-// The highest-value assertions: the body is read ON DEMAND from the record's file
-// path (read-only), the org layer is carried into the rendered output, the write goes
-// through the injected (guarded) seam exactly once, and every cancel point aborts
-// without writing.
+// Headless unit tests for the Export Chat orchestrator. The module is vscode-free (it
+// takes injected seams for the format pick, the save dialog, the body read, the org-layer
+// resolution, and the GUARDED write), so the test exercises the flow with in-memory
+// doubles: no vscode host, no real filesystem, no real transcript. The highest-value
+// assertions: the body is read ON DEMAND from the record's file path (read-only), the org
+// layer is carried into the rendered output, the write goes through the injected
+// (guarded) seam exactly once, and every cancel point aborts without writing.
 
 function tokens(partial: Partial<TokenTotals> = {}): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, ...partial };

@@ -4,17 +4,10 @@ dist/
 *.vsix
 *.log
 *.bak
-.nest-build-state.json
 .claude-working/
+.claude/
+CLAUDE.md
+CLAUDE.local.md
 .vscode-test/
-.DS_Store
-# Transient chokepoint-validation probe scratch. The probe generator should write
-# under .claude-working/, but guard against any stray __probe / __lintprobe / other
-# __*probe* in the linted src/ tree being staged or tripping the gate.
-**/__probe*
-**/__*probe*
-src/__probe/
-src/__lintprobe/
-.claude/settings.local.json
 .vscode/
-media/focus-glow-demo.html
+.DS_Store

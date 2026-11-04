@@ -700,7 +700,7 @@ describe('MetadataStore putProjectMeta (whole-document replace primitive)', () =
   });
 });
 
-describe('MetadataStore curation scalar setters (Slice 3: star, archive, folder color)', () => {
+describe('MetadataStore curation scalar setters (star, archive, folder color)', () => {
   it('setChatStarred sets the flag, stamps the record, and coalesces into one write', async () => {
     const clock = clockFrom(1000);
     const mem = new FakeMemento();

@@ -1,34 +1,27 @@
-// Cross-machine ADDITIVE reconcile against an on-disk shadow. PURE and
-// vscode-free (unit-gate rule): no filesystem, no vscode. The command module
-// owns the activation hook, the window-focus polling
-// (vscode.window.onDidChangeWindowState), the shadow read/write, and the LWW
-// warning toast; this module takes plain data (the live synced ProjectMeta, the
-// last-seen shadow snapshot) and returns a plain reconcile result/intent.
-//
-// Why a shadow (slice patch + ARCHITECTURE.md lines 234-236): there is NO Memento
-// remote-change event for a Settings Sync write, so foreign-device overwrites are
-// detected by best-effort POLLING on activation and on window focus. To tell a
-// foreign wholesale-replace apart from this device's own last write, each device
-// keeps a LOCAL-ONLY shadow: the last synced ProjectMeta value THIS device wrote
-// or saw for each project. On a poll we diff the live globalState value against
-// the shadow; a difference whose records carry a DIFFERENT deviceId or newer
-// updatedAt is the foreign-write signal, and we reconcile additively rather than
-// letting the foreign opaque value wholesale-replace local organization.
-//
-// The shadow is LOCAL-ONLY and MUST live under a NON-synced key (the command
-// module uses the SHADOW_KEY_PREFIX below, which does not start with
-// META_KEY_PREFIX, so isMetaKey is false and it is never swept into
-// setKeysForSync). Storing it under a nest.meta.v1:: key would sync it and defeat
-// the whole detection.
-//
-// The additive reconcile is the SAME shape as the import merge (union tags, union
-// links, LWW per record-scalar by record updatedAt), reused so the two
-// cross-machine paths agree. The record scalars mergeProjectMeta arbitrates are
-// folderId, starred, userArchived, and archivedAt (archivedAt coupled to
-// userArchived), plus Folder.color at the document level (Slice 3). A foreign
-// write that flipped any of these is therefore reconciled additively, not
-// wholesale-replaced. The irreducible floor is a concurrent same-scalar
-// (folderId) edit, which loses one side and is surfaced.
+// Cross-machine ADDITIVE reconcile against an on-disk shadow. PURE and vscode-free
+// (unit-gate rule): no filesystem, no vscode. The command module owns the activation
+// hook, the window-focus polling (vscode.window.onDidChangeWindowState), the shadow
+// read/write, and the LWW warning toast; this module takes plain data (the live synced
+// ProjectMeta, the last-seen shadow snapshot) and returns a plain reconcile
+// result/intent.  Why a shadow: there is NO Memento remote-change event for a Settings
+// Sync write, so foreign-device overwrites are detected by best-effort POLLING on
+// activation and on window focus. To tell a foreign wholesale-replace apart from this
+// device's own last write, each device keeps a LOCAL-ONLY shadow: the last synced
+// ProjectMeta value THIS device wrote or saw for each project. On a poll we diff the live
+// globalState value against the shadow; a difference whose records carry a DIFFERENT
+// deviceId or newer updatedAt is the foreign-write signal, and we reconcile additively
+// rather than letting the foreign opaque value wholesale-replace local organization.  The
+// shadow is LOCAL-ONLY and MUST live under a NON-synced key (the command module uses the
+// SHADOW_KEY_PREFIX below, which does not start with META_KEY_PREFIX, so isMetaKey is
+// false and it is never swept into setKeysForSync). Storing it under a nest.meta.v1:: key
+// would sync it and defeat the whole detection.  The additive reconcile is the SAME shape
+// as the import merge (union tags, union links, LWW per record-scalar by record
+// updatedAt), reused so the two cross-machine paths agree. The record scalars
+// mergeProjectMeta arbitrates are folderId, starred, userArchived, and archivedAt
+// (archivedAt coupled to userArchived), plus Folder.color at the document level. A
+// foreign write that flipped any of these is therefore reconciled additively, not
+// wholesale-replaced. The irreducible floor is a concurrent same-scalar (folderId) edit,
+// which loses one side and is surfaced.
 
 import { ProjectMeta } from './schema';
 import { mergeProjectMeta, ProjectMergeResult } from './exportImport';

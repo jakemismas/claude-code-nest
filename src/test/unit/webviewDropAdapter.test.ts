@@ -10,13 +10,12 @@ import { NEST_CHAT_MIME } from '../../dnd/dropReducer';
 import { UNFILED_FOLDER_ID } from '../../model/folderTree';
 import { UNTAGGED_TAG_ID } from '../../model/untagged';
 
-// Headless unit tests for the webview drop adapter. The adapter is vscode-free
-// (it depends on the MetadataStore structural seam and the pure reducer), so this
-// test never transitively requires vscode (ARCHITECTURE.md unit-gate rule). It
-// covers the message-to-DropInput EXTRACTION mapping (the only new logic this
-// slice adds on the drop path; the interpretation stays in the unchanged
-// reduceDrop) and the intent application + no-op cases. It also asserts the adapter
-// never reaches the cross-tree dragContext stash (a webview drop is in-process).
+// Headless unit tests for the webview drop adapter. The adapter is vscode-free (it
+// depends on the MetadataStore structural seam and the pure reducer), so this test never
+// transitively requires vscode. It covers the message-to-DropInput EXTRACTION mapping
+// (the only logic on the drop path; the interpretation stays in
+// reduceDrop) and the intent application + no-op cases. It also asserts the
+// adapter never reaches the cross-tree dragContext stash (a webview drop is in-process).
 
 function newStore(): { store: MetadataStore; memento: FakeMemento } {
   const memento = new FakeMemento();

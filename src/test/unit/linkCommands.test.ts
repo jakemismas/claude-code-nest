@@ -243,9 +243,9 @@ describe('unlinkChat', () => {
   });
 });
 
-// The no-arg palette paths (slice s3a-view-consolidation): with the trees retired,
-// the palette supplies no source row, so linkToChat first picks the source and
-// unlink picks among the project's current designated-parent links.
+// The no-arg palette paths: with the trees retired, the palette supplies no source row,
+// so linkToChat first picks the source and unlink picks among the project's current
+// designated-parent links.
 
 describe('linkToChatFromPalette', () => {
   it('guards when no project is resolved and shows an error', async () => {

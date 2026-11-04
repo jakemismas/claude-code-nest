@@ -1,10 +1,10 @@
 import { RollupResult } from './tokenRollup';
 
-// PURE, vscode-free renderer for the token-cost rollup report (Slice 5). The command
-// layer builds the by-folder and by-tag RollupResults from the reducer and hands them
-// here; this returns the plain-text report the command opens in a read-only document.
-// vscode-free so the headless gate covers the exact wording, including the
-// multi-tag-can-exceed-library note that keeps the tag rollup from reading as a bug.
+// PURE, vscode-free renderer for the token-cost rollup report. The command layer builds
+// the by-folder and by-tag RollupResults from the reducer and hands them here; this
+// returns the plain-text report the command opens in a read-only document. vscode-free so
+// the headless gate covers the exact wording, including the multi-tag-can-exceed-library
+// note that keeps the tag rollup from reading as a bug.
 
 // Render the full rollup report: a by-folder section (a true partition) and a by-tag
 // section (intentionally not a partition). The tag section carries the explicit note

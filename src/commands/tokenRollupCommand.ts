@@ -3,22 +3,19 @@ import { ProjectMeta } from '../store/schema';
 import { rollupByFolder, rollupByTag } from '../rollup/tokenRollup';
 import { renderRollupReport } from '../rollup/rollupReport';
 
-// The "Show Token Cost Rollup" command (Slice 5 s2-export-and-rollup). It rolls up
-// tier-A token totals by folder and by tag and opens the report in a read-only
-// document. tokens only, NO USD (slice non-goal).
-//
-// RENDER TARGET (slice patch "ROLLUP UI SURFACE"): the lightest surface that meets
-// the AC is a virtual/untitled read-only document built from the PURE reducer +
-// renderer output, which avoids a webview/CSP dependency. The orchestrator is
-// vscode-thin and takes injected seams (the snapshot inputs and the document open),
-// so the headless gate covers the reducer + renderer and the command stays a thin
-// shell. The contributed command + a command-palette/view-title menu entry are added
-// in package.json, mirroring the Slice 4 curation-command contributions.
+// The "Show Token Cost Rollup" command. It rolls up summary token totals by folder and by
+// tag and opens the report in a read-only document. tokens only, NO USD.  RENDER TARGET:
+// the lightest suitable surface is a virtual/untitled read-only document built
+// from the PURE reducer + renderer output, which avoids a webview/CSP dependency. The
+// orchestrator is vscode-thin and takes injected seams (the snapshot inputs and the
+// document open), so the headless gate covers the reducer + renderer and the command
+// stays a thin shell. The contributed command + a command-palette/view-title menu entry
+// are added in package.json, mirroring the curation-command contributions.
 
 export const SHOW_TOKEN_ROLLUP_COMMAND = 'claudeNest.showTokenRollup';
 
 export interface TokenRollupDeps {
-  // The scanned chats' ids (the authoritative member set) and their tier-A token
+  // The scanned chats' ids (the authoritative member set) and their summary token
   // totals. extension.ts supplies these from FoldersProvider.chatRecords() (the id
   // set) and the new FoldersProvider.tokenTotalsByChat() seam; a test supplies
   // literals. A chat absent from the token map contributes 0 tokens but is still

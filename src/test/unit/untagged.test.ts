@@ -11,7 +11,7 @@ import {
 import { parseTagOccurrenceId } from '../../model/occurrence';
 
 // Pure-logic unit tests for the Untagged bucket and the many-to-many tag-tree
-// assembly. No vscode import, no filesystem. These prove the slice-3 acceptance:
+// assembly. No vscode import, no filesystem. These prove:
 // Untagged membership equals the EFFECTIVE empty-tag set (empty OR all-dangling),
 // tree-wide composite-id uniqueness over a 50x8 synthetic set, and the single
 // owning tag per occurrence.

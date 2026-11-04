@@ -284,7 +284,7 @@ describe('searchIndex.buildSnippet centering and truncation', () => {
   });
 });
 
-describe('searchIndex.buildRoleSnippet role prefixing (issue #83 AC #1)', () => {
+describe('searchIndex.buildRoleSnippet role prefixing', () => {
   // The body feed (orgPanelWebview.readBodyText) prefixes each message with its
   // role label and joins with '\n'. buildRoleSnippet must find the matched message
   // and re-emit its "You: " / "Claude: " label on the snippet.
@@ -374,7 +374,7 @@ describe('searchIndex.buildRoleSnippet role prefixing (issue #83 AC #1)', () => 
   });
 });
 
-describe('searchIndex role labels are NOT searchable tokens (regression, issue #83)', () => {
+describe('searchIndex role labels are NOT searchable tokens', () => {
   // The role labels ("You: " / "Claude: ") must ride ONLY in the stored snippet
   // source, never in the indexed text. Before the fix readBodyText prefixed each
   // message and fed the joined string as the indexed bodyText, so MiniSearch
@@ -463,7 +463,7 @@ describe('searchIndex role labels are NOT searchable tokens (regression, issue #
   });
 });
 
-describe('searchIndex multi-term query snippet centering (regression, issue #83 AC #1)', () => {
+describe('searchIndex multi-term query snippet centering', () => {
   // firstMatchedTerm centers the snippet on result.terms[0]. Before the fix the
   // injected label tokens ("you"/"claude") could be terms[0] for a query that
   // combined a real term with a label word, centering the snippet on the wrong

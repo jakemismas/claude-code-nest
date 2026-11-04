@@ -1,20 +1,17 @@
 import * as fs from 'fs';
 import { extractMessageText } from './jsonlReader';
 
-// On-demand reader for a SINGLE chat's full message bodies. Strictly read-only:
-// it reads one transcript file and returns the ordered user/assistant message
-// bodies, then the caller discards them. NO provider holds the result, and the
-// full bodies NEVER enter the scan snapshot (ARCHITECTURE.md tier-A rule: full
-// message BODIES are never retained on the snapshot and are read on demand for
-// one chat and discarded). This is the slice-1 lazy body reader; the tier-A
-// summary (counts, token totals, last-message snippet) still rides the snapshot
-// via jsonlReader.ts and is the cheap surface for rows and hovers.
-//
-// This module reads its OWN file (the single named transcript) rather than going
-// through chatScanner.scanChats, because it needs the per-line message bodies the
-// scanner deliberately discards. It stays a strict read: fs.readFileSync only, no
-// write/rename/delete, matching readChat's read-only contract. It is otherwise
-// vscode-free so the headless unit gate can cover it against a scratch fixture.
+// On-demand reader for a SINGLE chat's full message bodies. Strictly read-only: it reads
+// one transcript file and returns the ordered user/assistant message bodies, then the
+// caller discards them. NO provider holds the result, and the full bodies NEVER enter the
+// scan snapshot. This is the lazy body reader; the compact summary (counts, token
+// totals, last-message snippet) still rides the snapshot via jsonlReader.ts and is the
+// cheap surface for rows and hovers.  This module reads its OWN file (the single named
+// transcript) rather than going through chatScanner.scanChats, because it needs the
+// per-line message bodies the scanner deliberately discards. It stays a strict read:
+// fs.readFileSync only, no write/rename/delete, matching readChat's read-only contract.
+// It is otherwise vscode-free so the headless unit gate can cover it against a scratch
+// fixture.
 
 // One genuine user/assistant message body in transcript order. text is the
 // extracted prose (the same shapes extractMessageText understands: a string body,
@@ -23,7 +20,7 @@ import { extractMessageText } from './jsonlReader';
 // user line). uuid is carried when present for stable ordering/identity, null
 // otherwise. The reader returns EVERY user/assistant line in order, including
 // tool_result-feedback user lines and textless assistant turns, so a consumer can
-// reconstruct the turn sequence; it does not apply the tier-A awaiting-reply
+// reconstruct the turn sequence; it does not apply the summary awaiting-reply
 // role-suppression (that is a snapshot heuristic, not a body-extraction concern).
 export interface ChatMessageBody {
   role: 'user' | 'assistant';

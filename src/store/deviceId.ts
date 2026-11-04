@@ -1,18 +1,13 @@
 // The per-install device id used to stamp ProjectMeta writes for last-writer-wins
-// reconcile across machines.
-//
-// This module is vscode-free so it stays unit-testable under the headless gate
-// (ARCHITECTURE.md build contract: unit modules must not import vscode). The real
-// vscode binding (context.globalState as the persistent store, optionally seeded
-// from vscode.env.machineId) is supplied only in extension.ts through the
-// injected DeviceIdStore seam below.
-//
-// Persistence rule: the device id is generated once per install and persisted, so
-// every stamp from one machine carries a stable id. It is read through the seam,
-// and if absent, generated and written back through the same seam. The id itself
-// is local-install identity and is fine to keep in the (synced) globalState
-// because two machines must NOT share it; we therefore namespace it under a key
-// the store registers for sync only if asked. By default the binding in
+// reconcile across machines.  This module is vscode-free so it stays unit-testable under
+// the headless gate. The real vscode binding (context.globalState as the persistent
+// store, optionally seeded from vscode.env.machineId) is supplied only in extension.ts
+// through the injected DeviceIdStore seam below.  Persistence rule: the device id is
+// generated once per install and persisted, so every stamp from one machine carries a
+// stable id. It is read through the seam, and if absent, generated and written back
+// through the same seam. The id itself is local-install identity and is fine to keep in
+// the (synced) globalState because two machines must NOT share it; we therefore namespace
+// it under a key the store registers for sync only if asked. By default the binding in
 // extension.ts persists it under a NON-synced key so each install keeps its own.
 
 // A minimal persistence seam for the device id: a getter and a setter over some

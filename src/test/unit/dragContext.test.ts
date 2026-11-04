@@ -7,10 +7,9 @@ import {
 } from '../../dnd/dragContext';
 
 // Headless unit tests for the in-process cross-view drag stash. dragContext is
-// vscode-free (the cross-view payload carrier the DataTransfer cannot deliver
-// across controllers), so this test never transitively requires vscode
-// (ARCHITECTURE.md unit-gate rule). It covers the one-shot take contract that
-// keeps a stale stash from leaking into a later unrelated drop, the
+// vscode-free (the cross-view payload carrier the DataTransfer cannot deliver across
+// controllers), so this test never transitively requires vscode. It covers the one-shot
+// take contract that keeps a stale stash from leaking into a later unrelated drop, the
 // overwrite-on-new-drag behavior, and the defensive copy.
 
 describe('dragContext cross-view stash', () => {

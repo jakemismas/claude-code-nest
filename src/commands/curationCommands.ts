@@ -1,15 +1,14 @@
 import { MetadataStore } from '../store/metadataStore';
 import { ChatMessageBody } from '../claude/bodyReader';
 
-// curationCommands (Slice 4 s2-star-archive): STAR / UNSTAR / ARCHIVE / RESTORE.
-// Every curation flag write goes through MetadataStore's slice-3 mutations, which
+// curationCommands: STAR / UNSTAR / ARCHIVE / RESTORE.
+// Every curation flag write goes through MetadataStore's mutations, which
 // stamp updatedAt/deviceId and coalesce into the existing pending write, and the
-// affected views are refreshed ONCE after the store flush (refresh coalescing,
-// ARCHITECTURE.md). The deps mirror folderCommands/linkCommands: a store, a
+// affected views are refreshed ONCE after the store flush (refresh coalescing). The deps mirror folderCommands/linkCommands: a store, a
 // structural refresher, an on-demand getProjectKey, plus the archive-body and
 // body-reader seams so the orchestration is exercisable headless without vscode.
 //
-// FLAG SEMANTICS (slice patch "NAMING-COLLISION GUARD"):
+// FLAG SEMANTICS:
 // - ARCHIVE writes the SYNCED ChatMeta.userArchived flag via store.setChatArchived
 //   (which sets archivedAt coupled to the flag). It NEVER touches the local-only
 //   LocalChatState.archived (the orphan-reconcile flag on the separate nest.local.v1

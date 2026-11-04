@@ -12,15 +12,14 @@ import { FakeMemento } from './fakeMemento';
 import { FoldersProvider, ChatMemberItem } from '../../views/foldersProvider';
 import { TagsProvider, ChatOccurrenceItem } from '../../views/tagsProvider';
 
-// Headless unit tests for the star BADGE on the kept chat-row node builders
-// (folders members, tags occurrences). The flat Chats tree that also carried the
-// badge was retired in slice s3a-view-consolidation; FoldersProvider and
-// TagsProvider remain as non-view services whose node shapes are still consumed
-// by programmatic command callers, so their badge rendering stays pinned here.
-// These tests pin the badge to the SYNCED ChatMeta.starred flag: a starred row
-// shows star-full, an unstarred row shows the default comment-discussion icon.
-// Runs against scratch transcript fixtures (NEVER the real ~/.claude files) plus
-// a real MetadataStore.
+// Headless unit tests for the star BADGE on the kept chat-row node builders (folders
+// members, tags occurrences). The flat Chats tree that also carried the badge was retired
+// in; FoldersProvider and TagsProvider remain as non-view services whose node shapes are
+// still consumed by programmatic command callers, so their badge rendering stays pinned
+// here. These tests pin the badge to the SYNCED ChatMeta.starred flag: a starred row
+// shows star-full, an unstarred row shows the default comment-discussion icon. Runs
+// against scratch transcript fixtures (NEVER the real ~/.claude files) plus a real
+// MetadataStore.
 
 const DEVICE = 'dev-starbadge';
 const PK = 'c--Users-Tester-starbadge';

@@ -11,10 +11,10 @@ import {
 } from '../../commands/previewChatCommand';
 import type { ArchivedBodyEnvelope } from '../../store/archiveBodyStore';
 
-// Headless unit tests for the "Preview Full Chat" command (slice 1): the on-demand
-// single-chat body reader's production caller. No vscode import and no filesystem:
-// the body read and the document open are injected seams, so the orchestrator and
-// the pure formatter are exercised against in-memory doubles.
+// Headless unit tests for the "Preview Full Chat" command: the on-demand single-chat body
+// reader's production caller. No vscode import and no filesystem: the body read and the
+// document open are injected seams, so the orchestrator and the pure formatter are
+// exercised against in-memory doubles.
 
 function tokens(partial: Partial<TokenTotals> = {}): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, ...partial };

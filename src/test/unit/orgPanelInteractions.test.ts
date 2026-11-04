@@ -15,11 +15,10 @@ import {
   dialogFocusTrapAction,
 } from '../../views/orgPanelInteractions';
 
-// Headless unit tests for the PURE org-panel interaction kernels (issue #82 AC2
-// click/dblclick arbitration, and the cross-surface re-render overlay-teardown
-// contract). Imports no vscode types, so it never transitively requires the vscode
-// module (ARCHITECTURE.md unit-gate rule). The webview (media/orgPanel.js) mirrors
-// this logic; these tests pin the semantics the DOM wiring must match.
+// Headless unit tests for the PURE org-panel interaction kernels. Imports no vscode
+// types, so it never transitively requires the vscode module. The webview
+// (media/orgPanel.js) mirrors this logic; these tests pin the semantics the DOM wiring
+// must match.
 
 describe('TRANSIENT_OVERLAY_KEYS (overlays a tree re-render must tear down)', () => {
   it('names exactly the three body-level fixed overlays, so the re-render and Escape close-sets cannot drift', () => {
@@ -135,7 +134,7 @@ describe('content-search reply freshness (isFreshSearchReply)', () => {
   });
 });
 
-describe('host-hit x client-tag join (joinTextHits) — AC #3/#4 membership + order', () => {
+describe('host-hit x client-tag join (joinTextHits) — membership + order', () => {
   interface R extends JoinRow {
     sessionId: string;
     tagIds?: string[];
@@ -233,7 +232,7 @@ describe('host-hit x client-tag join (joinTextHits) — AC #3/#4 membership + or
   });
 });
 
-describe('dialog focus-trap decision kernel (dialogFocusTrapAction) — issue #89 AC3', () => {
+describe('dialog focus-trap decision kernel (dialogFocusTrapAction)', () => {
   it('empty focusable list: blocks Tab and moves focus nowhere', () => {
     const a = dialogFocusTrapAction(0, -1, false);
     assert.deepStrictEqual(a, { preventDefault: true, focusIndex: null });
@@ -435,12 +434,12 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
     );
   });
 
-  // Dialog focus-trap wiring guards (issue #89 AC3). The trap must survive a focused
-  // child that calls e.stopPropagation() on Tab. Two independent defenses are pinned:
-  // (1) the trap listener is registered in the CAPTURE phase (fires before any child
-  // handler, so no child stopPropagation can starve it), and (2) the one child that
-  // stops Tab (the New-folder name input) lets Tab through before it stops the event.
-  // A regression on EITHER lets Shift+Tab escape the New-folder popover into the tree.
+  // Dialog focus-trap wiring guards. The trap must survive a focused child that calls
+  // e.stopPropagation on Tab. Two independent defenses are pinned: (1) the trap listener
+  // is registered in the CAPTURE phase (fires before any child handler, so no child
+  // stopPropagation can starve it), and (2) the one child that stops Tab (the New-folder
+  // name input) lets Tab through before it stops the event. A regression on EITHER lets
+  // Shift+Tab escape the New-folder popover into the tree.
   it('wireDialogFocusTrap registers its keydown listener in the capture phase', () => {
     const body = fnBody('wireDialogFocusTrap');
     // The addEventListener('keydown', ...) call must pass a truthy third arg (capture).
@@ -547,7 +546,7 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
   });
 
   it('the empty-query reset clears the stale host results before re-rendering', () => {
-    // Pin the AC #4 clear path: emptying the box drops the prior host hit set at once
+    // Pin the clear path: emptying the box drops the prior host hit set at once
     // so the sectioned view returns without a flash of stale results.
     const body = fnBody('onFilterInput');
     const clearAt = body.indexOf('textFilter.length === 0');

@@ -8,12 +8,12 @@ import {
   renderMarkdown,
 } from '../../export/chatExport';
 
-// Pure-logic unit tests for the Slice 5 per-chat export formatters. No vscode, no
-// filesystem: both renderMarkdown and renderJson take plain data (a ChatRecord, a
-// resolved org layer, ordered bodies) and return a string. The highest-value cases
-// (slice patch "FRONT-MATTER ESCAPING/INJECTION"): a title with a colon/quote/
-// newline/leading '---' must not break the YAML front-matter or inject a second
-// block, the JSON must round-trip, and a no-body export must still ship the org layer.
+// Pure-logic unit tests for the per-chat export formatters. No vscode, no filesystem:
+// both renderMarkdown and renderJson take plain data (a ChatRecord, a resolved org layer,
+// ordered bodies) and return a string. The highest-value cases: a title with a
+// colon/quote/ newline/leading '---' must not break the YAML front-matter or inject a
+// second block, the JSON must round-trip, and a no-body export must still ship the org
+// layer.
 
 function tokens(partial: Partial<TokenTotals> = {}): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, ...partial };

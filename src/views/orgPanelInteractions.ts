@@ -26,8 +26,8 @@ export const TRANSIENT_OVERLAY_KEYS: readonly TransientOverlayKey[] = [
 
 // ---- Folder-row single- vs double-click arbitration ----
 
-// Issue #82 AC2 (and design README line 63): "Click toggles expand/collapse.
-// Double-click enters inline rename." In the webview a click that toggles collapse
+// A folder row toggles expand/collapse on click and enters inline rename on
+// double-click. In the webview a click that toggles collapse
 // re-renders the whole tree (listEl.textContent = ''), which detaches the very node
 // a following double-click needs, so a naive per-click toggle races the rename: the
 // first click of a double-click fires the toggle, re-renders, and the detached node
@@ -129,21 +129,18 @@ export function clearFolderToggleArm(state: FolderClickState): void {
   state.armedFolderId = null;
 }
 
-// ---- Content-search reply freshness + host-hit x client-tag join (issue #83) ----
-//
-// The org panel's text search is a two-surface join: the HOST owns the text index
-// (MiniSearch over titles + on-demand bodies) and posts a ranked id list; the
-// CLIENT owns the tag AND-filter and the sort control. Membership of the flat
-// results list is (host-ranked ids) INTERSECT (rows passing the client tag filter),
-// deduped, then ordered by the client's chosen sort (host rank decides membership,
-// sort decides order). Because the host posts TWICE per query (a warm tier-A reply
-// then a body-indexed reply) and keystrokes interleave, a reply can arrive for a
-// query the user has already changed; such a stale reply must be dropped. Both the
-// query normalization and the freshness compare are pure decisions the webview must
-// make identically on the inbound-message side and the render side, so they live
-// here as the single source of truth and media/orgPanel.js mirrors them. DOM-free
-// and vscode-free, so the headless unit gate covers the membership/ordering/drop
-// contract that AC #3/#4 rest on.
+// ---- Content-search reply freshness + host-hit x client-tag join ----  The org panel's
+// text search is a two-surface join: the HOST owns the text index (MiniSearch over titles
+// + on-demand bodies) and posts a ranked id list; the CLIENT owns the tag AND-filter and
+// the sort control. Membership of the flat results list is (host-ranked ids) INTERSECT
+// (rows passing the client tag filter), deduped, then ordered by the client's chosen sort
+// (host rank decides membership, sort decides order). Because the host posts TWICE per
+// query (a warm summary reply then a body-indexed reply) and keystrokes interleave, a
+// reply can arrive for a query the user has already changed; such a stale reply must be
+// dropped. Both the query normalization and the freshness compare are pure decisions the
+// webview must make identically on the inbound-message side and the render side, so they
+// live here as the single source of truth and media/orgPanel.js mirrors them. DOM-free
+// and vscode-free, so the headless unit gate covers the membership/ordering/drop contract.
 
 // Normalize a raw query string the ONE way both the outbound text filter
 // (textFilter) and the inbound search-reply compare use: trim, then lowercase.
@@ -199,7 +196,7 @@ export interface JoinTextHitsResult<R extends JoinRow> {
   snippets: Map<string, string>;
 }
 
-// ---- Dialog focus-trap decision kernel (slice s3b-a11y, issue #89 AC3) ----
+// ---- Dialog focus-trap decision kernel ----
 
 // The pure decision behind wireDialogFocusTrap in media/orgPanel.js. Given the count of
 // visible focusable controls inside an open role="dialog" surface, the index of the
@@ -210,7 +207,7 @@ export interface JoinTextHitsResult<R extends JoinRow> {
 //
 // The webview owns the DOM (querySelectorAll, offsetParent visibility filter, .focus()) and
 // MIRRORS this decision; this kernel never touches a DOM. Branches, matching the contract in
-// ARCHITECTURE.md and the TESTING.md keyboard step:
+//  and the keyboard step:
 //   - count === 0        -> block Tab, focus nothing (no target exists).
 //   - activeIndex < 0    -> focus escaped/outside; snap back to the first focusable.
 //   - Shift+Tab at first -> wrap to the last focusable.

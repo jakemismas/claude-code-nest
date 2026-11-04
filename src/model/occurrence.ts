@@ -9,12 +9,12 @@
 // The view layer (tagsProvider.ts) turns a ChatOccurrence into a TreeItem and
 // memoizes the node object; this module produces only plain data and the grammar.
 //
-// Composite-id grammar (ARCHITECTURE.md "Tree and VSCode API binding rules"):
+// Composite-id grammar:
 //   tag occurrence id = `${tagId}:${chatId}`
 // tagId is separator-free (minted by idFactory.mintTagId or the '__untagged__'
 // sentinel) and chatId is a separator-free UUID, so the id splits unambiguously
 // on the FIRST ':' back to its owning tag id. getParent recovers exactly that one
-// owning tag (one parent per node, ARCHITECTURE.md line 100).
+// owning tag (one parent per node).
 
 const TAG_OCCURRENCE_SEPARATOR = ':';
 
@@ -69,14 +69,13 @@ export function parseTagOccurrenceId(
 }
 
 // Node-object memoization reuse rule for an occurrence node (the PURE half of the
-// provider's occurrenceItemFor). VSCode caches tree elements by object reference,
-// so a refresh must REUSE the existing wrapper's TreeItem for an unchanged id
-// rather than return a fresh object with the same id, or reveal and selection
-// break (ARCHITECTURE.md "Memoize node objects by id across refreshes"). An
-// occurrence's RENDERED content is the shared chat's title + timestamp, so a
-// cached node may be reused only when both still match the current record (mirrors
-// folderTree.canReuseChatMemberItem). timestamp is number | null, so the
-// comparison treats null === null as unchanged.
+// provider's occurrenceItemFor). VSCode caches tree elements by object reference, so a
+// refresh must REUSE the existing wrapper's TreeItem for an unchanged id rather than
+// return a fresh object with the same id, or reveal and selection break. An occurrence's
+// RENDERED content is the shared chat's title + timestamp, so a cached node may be reused
+// only when both still match the current record (mirrors
+// folderTree.canReuseChatMemberItem). timestamp is number | null, so the comparison
+// treats null === null as unchanged.
 export function canReuseOccurrenceItem(
   cached: { title: string; timestamp: number | null } | undefined,
   current: { title: string; timestamp: number | null },

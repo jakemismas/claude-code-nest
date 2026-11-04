@@ -9,12 +9,12 @@ import {
 } from '../../views/orgPanelModel';
 import { UNFILED_FOLDER_ID } from '../../model/folderTree';
 
-// Headless unit tests for the PURE org-panel section assembler. It imports no
-// vscode types (only plain data in/out and the pure schema shape), so this test
-// never transitively requires the vscode module (ARCHITECTURE.md unit-gate rule).
-// It covers section assembly, the awaiting-reply heuristic (lastMessageRole ===
-// 'user' ONLY), single-home folder placement with per-folder color, the synthetic
-// Unsorted bucket, empty sections, tag chips, and the sentinel contract.
+// Headless unit tests for the PURE org-panel section assembler. It imports no vscode
+// types (only plain data in/out and the pure schema shape), so this test never
+// transitively requires the vscode module. It covers section assembly, the awaiting-reply
+// heuristic (lastMessageRole === 'user' ONLY), single-home folder placement with
+// per-folder color, the synthetic Unsorted bucket, empty sections, tag chips, and the
+// sentinel contract.
 
 function totals(over: Partial<TokenTotals> = {}): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, ...over };
@@ -346,7 +346,7 @@ describe('orgPanelModel folder placement and color', () => {
   });
 });
 
-describe('orgPanelModel one-visible-sublevel depth clamp (issue #82 AC4)', () => {
+describe('orgPanelModel one-visible-sublevel depth clamp', () => {
   // A four-tier legacy hierarchy: root(0) -> a(1) -> b(2) -> c(3). Rendering clamps
   // the emitted depth at MAX_FOLDER_RENDER_DEPTH (2); the stored parentId chain is
   // never touched and treeDepth carries the true depth.
@@ -406,7 +406,7 @@ describe('orgPanelModel one-visible-sublevel depth clamp (issue #82 AC4)', () =>
   });
 });
 
-describe('orgPanelModel rolled-up folder count (issue #82 AC1)', () => {
+describe('orgPanelModel rolled-up folder count', () => {
   it('rolls a top folder count up over its subfolders (chats in it + descendants)', () => {
     // Work(2 direct) -> API(3 direct) -> Deep(1 direct); Personal(1 direct).
     const m = meta({
@@ -505,7 +505,7 @@ describe('orgPanelModel tag chips and row tags', () => {
       },
     });
     const sections = buildSections(records, m, badge);
-    // The chip row omits the zero-chat tag; allTags keeps it (issue #85 AC #1).
+    // The chip row omits the zero-chat tag; allTags keeps it.
     const chipIds = new Set(sections.tags.map((c) => c.tagId));
     assert.ok(!chipIds.has('t3'), 'chip row omits the zero-chat tag');
     const allById = new Map(sections.allTags.map((c) => [c.tagId, c]));
@@ -662,9 +662,9 @@ describe('orgPanelModel row sort', () => {
   });
 });
 
-// buildArchivedRows (slice s3b-archive-overlay, issue #87): the pure builder that now owns
-// the archived-row membership + sort + fallback-title logic the retired Archive tree carried.
-// A trivial relative-time stub keeps the builder deterministic (a null timestamp yields '').
+// buildArchivedRows: the pure builder that now owns the archived-row membership + sort +
+// fallback-title logic the retired Archive tree carried. A trivial relative-time stub
+// keeps the builder deterministic (a null timestamp yields '').
 function relStub(ts: number | null): string {
   return ts === null ? '' : String(ts);
 }

@@ -10,13 +10,12 @@ import {
 } from '../../rollup/tokenRollup';
 import { renderRollupReport } from '../../rollup/rollupReport';
 
-// Pure-logic unit tests for the Slice 5 token-cost rollup. No vscode, no filesystem:
-// the reducer takes a plain {chatId -> TokenTotals} map plus a ProjectMeta and
-// returns bucket rows. The pinned counting rule (slice patch "ROLLUP DOUBLE-COUNT
-// RULE") is asserted here: a chat counts ONCE per its single folder and ONCE per EACH
-// of its tags; unfiled/untagged buckets carry the leftovers; and a multi-tag chat's
-// tokens add to every tag bucket so the by-tag totals can EXCEED the library total
-// (intentional, not a bug).
+// Pure-logic unit tests for the token-cost rollup. No vscode, no filesystem: the reducer
+// takes a plain {chatId -> TokenTotals} map plus a ProjectMeta and returns bucket rows.
+// The pinned counting rule is asserted here: a chat counts ONCE per its single folder and
+// ONCE per EACH of its tags; unfiled/untagged buckets carry the leftovers; and a
+// multi-tag chat's tokens add to every tag bucket so the by-tag totals can EXCEED the
+// library total (intentional, not a bug).
 
 const DEVICE = 'dev-rollup';
 const NOW = 1_700_000_000_000;
