@@ -137,6 +137,9 @@ import {
 } from './commands/tokenRollupCommand';
 import { ExportOrgLayer } from './export/chatExport';
 import { writeTextFile } from './store/exportIO';
+import { FleetReloader } from './fleet/fleetReloader';
+import { fleetFilePaths } from './fleet/fleetSource';
+import { watchFleetFiles } from './fleet/fleetWatcher';
 import { resolveFolderName, resolveStarred, resolveTagLabels } from './views/chatMeta';
 
 // Entry point for the Claude Code Nest extension. It contributes the claudeNest
@@ -1413,6 +1416,22 @@ export function activate(context: vscode.ExtensionContext): void {
   // The one-time opt-in prompt for the auto-export snapshot and the
   // synced/git-tracked canonical export location. Fire-and-forget; shown once.
   void maybePromptAutoExport(exportImportDeps);
+
+  // Fleet records are read-only input. The state is held by the reloader; the panel
+  // refreshes when a fleet file changes.
+  const fleetPaths = fleetFilePaths(
+    (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
+  );
+  const fleetReloader = new FleetReloader({
+    getPaths: () => fleetPaths,
+    onChange: () => refreshOrgPanel(),
+    warn: (message) => console.warn(message),
+  });
+  context.subscriptions.push(
+    { dispose: () => fleetReloader.dispose() },
+    watchFleetFiles(fleetPaths, fleetReloader),
+  );
+  void fleetReloader.reload();
 }
 
 export function deactivate(): Thenable<void> | void {

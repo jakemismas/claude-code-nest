@@ -13,6 +13,12 @@ Keep a Changelog, and the project adheres to semantic versioning.
   `<state>-<theme>.png` captures to `.claude-working/screens/`, and opts into dark
   `--vscode-*` variables only for the dark theme. `.vscodeignore` now excludes
   SPRINT-4-PLAN.md and SPRINT-5-PLAN.md.
+- Slice s5a-fleet-record: Nest reads fleet records from `dev/fleet.jsonl` in each
+  workspace folder, read-only. The new `src/fleet` module parses each line with
+  bounded, validated fields (session ids, names, tags, paths), folds the records into
+  per-session state, caps the file at 8 MB and each line at 16 KB, and skips
+  malformed lines with a warning. A debounced watcher reloads the state and refreshes
+  the Organize panel when a fleet file changes. ARCHITECTURE.md documents the module.
 
 ## [0.2.0] - 2026-07-10
 

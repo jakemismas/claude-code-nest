@@ -23,9 +23,14 @@ logic modules to thin vscode-bound surfaces. The unit gate imports only the
 vscode-free modules. This index says where each binding contract below lives.
 
 - Read path (vscode-free): src/claude/jsonlReader.ts is the SOLE transcript parser;
-  src/claude/chatScanner.ts is the SOLE file reader (globs *.jsonl); src/claude/
+  src/claude/chatScanner.ts is the SOLE reader of transcripts under ~/.claude/projects
+  (globs *.jsonl); src/claude/
   bodyReader.ts reads one chat's bodies on demand and discards them; src/claude/
   projectKeyResolver.ts encodes the project key.
+- Fleet record (read-only input): src/fleet/ is vscode-free except the watcher shell.
+  types.ts and fleetRecord.ts (pure parse, coerce, fold), fleetSource.ts (the SOLE
+  reader of dev/fleet.jsonl), fleetReloader.ts (debounce, injected clock and
+  watcher); fleetWatcher.ts is the only vscode-bound file, wired from extension.ts.
 - Store and sync (vscode-free logic, thin memento adapter in extension.ts):
   src/store/metadataStore.ts (the synced nest.meta.v1::<projectKey> document and the
   local-only nest.local.v1 orphan document), schema.ts/schemaMigrate.ts (migration and
@@ -172,7 +177,8 @@ skip-unknown-types contract:
 usage, model, and tool_use blocks are assistant-line-only (verified ground truth),
 so those absorbers fire only on assistant lines; messageCount and the last-message
 absorber fire on both user and assistant lines. The reader stays the SOLE parser
-and the scanner the SOLE file reader; no slice adds a second scan path.
+and the scanner the SOLE reader of transcripts under ~/.claude/projects; no slice
+adds a second transcript scan path.
 
 ## On-demand body reader and rich hover card (Sprint 2, slices 1 and tier-b)
 
@@ -905,6 +911,34 @@ surface) is complete.
   eases on the main and archive search inputs. It is a targeted rule list (the exact set
   of animated surfaces), not a global *{} reset, so the shipped panel and the fidelity
   harness neutralize the identical set. See DECISIONS.md Slice s3c-docs-a11y.
+
+## Fleet record (read-only input) (Sprint 5, slice s5a-fleet-record) - binding
+
+Nest reads `dev/fleet.jsonl` from each workspace folder and folds it into a
+`FleetState`. Nest never writes a fleet record; it only reads them.
+
+- src/fleet/fleetSource.ts is the SOLE reader of `dev/fleet.jsonl`. It imports no
+  write API and uses the same namespace-import fs read style as the scanner
+  (`fs.promises.stat` plus `fs.promises.readFile`; no `open` or `openSync`), so the
+  eslint write-ban bank stays unmodified and no carve-out is added. Transcripts under
+  ~/.claude/projects remain the scanner's alone.
+- A file larger than 8 MB is skipped with one logged warning. A line longer than
+  16 KB is dropped. A missing or unreadable file contributes nothing.
+- fleetSource takes a list of file paths (workspace folder defaults now), so later
+  slices add linked folders and `fleet.files` without refactoring.
+- fleetRecord.ts parses one line (null for non-JSON, non-object, `v` other than 1,
+  a session id that fails `^[0-9a-fA-F-]{8,64}$`, or an unknown event), coerces every
+  string (control characters stripped; names and folders 200, tags 40 each and at
+  most 20, paths 1024) and folds records in time order into per-session entries.
+  Unknown fields and unknown roles are ignored.
+- The current orchestrator is the newest orchestrator that no `rotate` names as
+  `previous` and that has not ended; every other orchestrator is past, newest first.
+  A `backfill` creates an entry like `launch` but flags `isBackfill` so it is never a
+  new pickup.
+- fleetReloader.ts debounces watcher events by 250 ms and reloads. The clock and the
+  watcher are injected, so the unit gate covers it with a fake clock; the real
+  watcher is exercised by `npm run test:integration` (human-run, needs a display).
+- No UI renders fleet data in this slice; the panel only refreshes on change.
 
 ## Read-only invariant (the sacred constraint)
 
