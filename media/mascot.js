@@ -249,9 +249,6 @@
       const rows = chest === 2 ? ['.rr', 'rrr', 'rrr', '.rr'] : ['r.', '.r', 'r.'];
       out.push(D('chest' + chest, sprite('chest' + chest, () => spr(rows)), X + 20, (chest === 2 ? 4 : 5) + Y + by));
     }
-    if (p.spikes) {
-      out.push(D('spb' + p.spikes, spikes(p.spikes === 2), X + (p.spikes === 2 ? 9 : 8), 3 + Y + by));
-    }
     // A head lift and a breath together would open a gap above the body; one row is the most.
     const hy = Math.max(-1, (p.hy || 0) + (p.br || 0));
     const beak = p.beak || 'c';
@@ -601,7 +598,7 @@
     const p = { br: breath(t, 1000), beak: 'c' };
     let out;
     if (T < 1000) {
-      // A squawk: only the head shakes while the crest and back feathers spike.
+      // A squawk: only the head shakes while its crest spikes; the back stays smooth (feet rule).
       const j = [0, -1, 0, 1][Math.floor(t / 80) % 4];
       p.hx = j;
       p.beak = Math.floor(t / 125) % 2 ? 's' : 'y';
@@ -943,7 +940,8 @@
       lanes: null,
       laneCount: notes ? notes.delays.length : count,
       notes,
-      speed: o.speed === 0 || o.speed === 1 || o.speed === 2 ? o.speed : count >= 4 ? 2 : count >= 2 ? 1 : 0,
+      // Without a host speed, step up at the host's thresholds: 3 and 6 working chats.
+      speed: o.speed === 0 || o.speed === 1 || o.speed === 2 ? o.speed : count >= 6 ? 2 : count >= 3 ? 1 : 0,
       rand: seeded ? lcg(11) : Math.random,
     };
   }

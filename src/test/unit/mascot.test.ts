@@ -155,6 +155,77 @@ describe('mascot', () => {
     assert.strictEqual(inn.length, out.length + 1, 'nothing else is drawn');
   });
 
+  it('draws nothing but the head, chest, legs, body and signs in a planted state', () => {
+    // sph is the crest on the head; g- glyphs, snd squawk marks and wm the worm are signs, not the bird.
+    const allowed = /^(legs|bodyrest|head|chest|sph|g-|snd|wm)/;
+    const six = { delays: [0, 300, 600, 900, 1200, 1500], minMs: NOTE_MIN_GAP_MS, spreadMs: NOTE_SPREAD_MS };
+    for (const state of PLANTED) {
+      const lists = samples(PLANTED_UNTIL).map((t) => mascot.frame(state, t, { notes: six }));
+      lists.push(mascot.frame(state, 0, { still: true }));
+      for (const list of lists) {
+        for (const d of list) {
+          assert.ok(allowed.test(d.k), state + ' draws ' + d.k);
+          if (d.k.startsWith('sph')) {
+            const head = list.find((h) => h.k.startsWith('head'));
+            assert.ok(head && d.y < head.y + 1 && d.x > head.x, state + ' keeps the crest on the head');
+          }
+        }
+      }
+    }
+  });
+
+  it('settles each one-shot scene into idle exactly when its length ends', () => {
+    for (const [state, ms] of Object.entries(mascot.DURATIONS)) {
+      for (let t = 0; t < 14000; t += 125) {
+        assert.strictEqual(
+          JSON.stringify(mascot.frame(state, ms + t)),
+          JSON.stringify(mascot.frame('idle', t)),
+          state + ' at ' + (ms + t) + ' ms matches idle at ' + t + ' ms',
+        );
+      }
+      // The scene still shows its own sign or an open beak late in its length, so it was not cut short.
+      let late = false;
+      for (let t = Math.floor(ms * 0.6); t < ms; t += 50) {
+        late = late || mascot.frame(state, t).some((d) => d.k.startsWith('g-') || /^headS[swy]/.test(d.k));
+      }
+      assert.ok(late, state + ' still plays in its last 40 percent');
+    }
+  });
+
+  it('keeps six note lanes apart from each other and off the head', () => {
+    const six = { delays: [0, 0, 0, 0, 0, 0], minMs: NOTE_MIN_GAP_MS, spreadMs: 0 };
+    const box = (d: Placement): number[] => {
+      const cols = d.rows.map((r) => [...r].map((c, x) => (c === '.' ? -1 : x)).filter((x) => x >= 0)).flat();
+      return [d.x + Math.min(...cols), topRow(d), d.x + Math.max(...cols), bottomRow(d)];
+    };
+    const apart = (a: number[], b: number[]): boolean => a[2] + 1 < b[0] || b[2] + 1 < a[0] || a[3] + 1 < b[1] || b[3] + 1 < a[1];
+    // Lane 0 leaves the open beak, so it may touch the head but never draw on it.
+    const cells = (d: Placement): Set<string> => {
+      const out = new Set<string>();
+      d.rows.forEach((r, y) => [...r].forEach((c, x) => c !== '.' && out.add(d.x + x + ',' + (d.y + y))));
+      return out;
+    };
+    let checked = 0;
+    for (let t = 0; t < 1800; t += 50) {
+      const list = mascot.frame('working', t, { notes: six, speed: 2 });
+      const noteSprites = list.filter((d) => d.k.startsWith('g-note'));
+      const notes = noteSprites.map(box);
+      const headSprite = list.find((d) => d.k.startsWith('head')) as Placement;
+      const head = box(headSprite);
+      const headCells = cells(headSprite);
+      assert.strictEqual(notes.length, 6, 'six notes at ' + t + ' ms');
+      for (let i = 0; i < notes.length; i += 1) {
+        const onHead = [...cells(noteSprites[i])].some((c) => headCells.has(c));
+        assert.ok(i === 0 ? !onHead : apart(notes[i], head), 'note ' + i + ' clears the head at ' + t + ' ms');
+        for (let j = i + 1; j < notes.length; j += 1) {
+          assert.ok(apart(notes[i], notes[j]), 'notes ' + i + ' and ' + j + ' keep a gap at ' + t + ' ms');
+          checked += 1;
+        }
+      }
+    }
+    assert.ok(checked > 400);
+  });
+
   it('leaves the branch only in a hop, jump or flight', () => {
     for (const state of LEAVES) {
       const rest = feet(mascot.frame(state, 0));
