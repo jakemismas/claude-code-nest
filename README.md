@@ -15,7 +15,7 @@ Organize your Claude Code chat history in VS Code: folders, tags, stars, search 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="media/readme/panel-dark.png">
-    <img src="media/readme/panel-light.png" alt="The Claude Code Nest panel showing starred chats, questions, folders and unsorted chats" width="320">
+    <img src="media/readme/panel.png" alt="The Claude Code Nest panel showing starred chats, questions, folders and unsorted chats" width="320">
   </picture>
 </p>
 
