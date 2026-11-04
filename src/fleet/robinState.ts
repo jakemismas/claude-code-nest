@@ -21,7 +21,7 @@ export const ROBIN_STATES = [
 export type RobinState = (typeof ROBIN_STATES)[number];
 
 // How long each transient state plays before the robin falls back. The one-shot scenes in
-// media/mascot.js run exactly this long, so a scene is never cut off mid-flight.
+// media/mascot.js run exactly this long.
 export const TRANSIENT_MS: Readonly<Partial<Record<RobinState, number>>> = {
   hatch: 5300,
   rotate: 4400,
@@ -41,7 +41,7 @@ export const NIGHT_END_HOUR = 6;
 export const NOTE_MIN_GAP_MS = 2500;
 export const NOTE_SPREAD_MS = 3500;
 export const MAX_NOTES = 6;
-// Working chats at or above these counts step up the peck speed.
+// Working chats at or above these counts step up the tap speed.
 export const FAST_AT = 3;
 export const FASTER_AT = 6;
 
@@ -72,8 +72,14 @@ export interface RobinSignals {
 
 export interface RobinTransient {
   readonly state: RobinState;
+  // When it starts to show: later than its trigger while it waits behind another one-shot.
+  readonly from: number;
   readonly until: number;
 }
+
+// Scenes that play once from start to end. They queue instead of overlapping, and one that a
+// higher state outranks is dropped, because the webview would restart it part way through.
+export const ONE_SHOTS: ReadonlySet<RobinState> = new Set<RobinState>(['hatch', 'rotate', 'worm', 'done', 'milestone']);
 
 export interface RobinMemory {
   readonly seeded: boolean;
@@ -103,7 +109,7 @@ export const INITIAL_ROBIN_MEMORY: RobinMemory = {
 
 export interface RobinOutput {
   readonly state: RobinState;
-  // 0 normal peck, 1 fast, 2 fastest. Only meaningful while working.
+  // 0 normal tap, 1 fast, 2 fastest. Only meaningful while working.
   readonly speed: 0 | 1 | 2;
   readonly workingCount: number;
   // One initial delay per note slot, in milliseconds.
@@ -179,8 +185,20 @@ export function stepRobin(
   random: () => number,
 ): { memory: RobinMemory; output: RobinOutput } {
   const started: RobinTransient[] = [];
+  const kept = memory.transients.filter((t) => t.until > now);
   const begin = (state: RobinState): void => {
-    started.push({ state, until: now + (TRANSIENT_MS[state] ?? 0) });
+    const length = TRANSIENT_MS[state] ?? 0;
+    if (!ONE_SHOTS.has(state)) {
+      started.push({ state, from: now, until: now + length });
+      return;
+    }
+    const queued = [...kept, ...started].filter((t) => ONE_SHOTS.has(t.state));
+    // One of each kind at a time, so a burst of events never builds a long queue.
+    if (queued.some((t) => t.state === state)) {
+      return;
+    }
+    const from = Math.max(now, ...queued.map((t) => t.until));
+    started.push({ state, from, until: from + length });
   };
   let hatchStarted = false;
 
@@ -216,23 +234,10 @@ export function stepRobin(
     noteDelays = Array.from({ length: noteBudget }, () => noteDelayMs(random));
   }
 
-  const transients = [...memory.transients, ...started].filter((t) => t.until > now);
-  const next: RobinMemory = {
-    seeded: true,
-    seenLaunches: addSeen(memory.seenLaunches, signals.launchIds),
-    seenDone: addSeen(memory.seenDone, signals.doneIds),
-    seenFailed: addSeen(memory.seenFailed, signals.failedIds),
-    seenRotate: signals.rotateKey ?? memory.seenRotate,
-    seenDoneTickets: addSeen(memory.seenDoneTickets, signals.doneTickets),
-    milestoneHeld: signals.queueEmpty ? memory.milestoneHeld : signals.queueAllDone,
-    transients,
-    lastBusyAt,
-    noteDelaysMs: noteDelays,
-  };
-
+  const transients = [...kept, ...started];
   const asleep = !busy && now - lastBusyAt >= SLEEP_AFTER_MS;
   const night = asleep && isNightHour(new Date(now).getHours());
-  const active = (state: RobinState): boolean => transients.some((t) => t.state === state);
+  const active = (state: RobinState): boolean => transients.some((t) => t.state === state && t.from <= now);
 
   const holds: Readonly<Record<RobinState, boolean>> = {
     hatch: active('hatch'),
@@ -248,8 +253,22 @@ export function stepRobin(
     idle: true,
   };
   const state = ROBIN_STATES.find((candidate) => holds[candidate]) ?? 'idle';
+  const remaining = transients.filter((t) => !(ONE_SHOTS.has(t.state) && t.from <= now && t.state !== state));
 
-  const checks: number[] = transients.map((t) => t.until);
+  const next: RobinMemory = {
+    seeded: true,
+    seenLaunches: addSeen(memory.seenLaunches, signals.launchIds),
+    seenDone: addSeen(memory.seenDone, signals.doneIds),
+    seenFailed: addSeen(memory.seenFailed, signals.failedIds),
+    seenRotate: signals.rotateKey ?? memory.seenRotate,
+    seenDoneTickets: addSeen(memory.seenDoneTickets, signals.doneTickets),
+    milestoneHeld: signals.queueEmpty ? memory.milestoneHeld : signals.queueAllDone,
+    transients: remaining,
+    lastBusyAt,
+    noteDelaysMs: noteDelays,
+  };
+
+  const checks: number[] = remaining.flatMap((t) => (t.from > now ? [t.from, t.until] : [t.until]));
   if (!busy) {
     checks.push(asleep ? nextNightBoundary(now) : lastBusyAt + SLEEP_AFTER_MS);
   }
