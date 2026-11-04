@@ -49,7 +49,7 @@ export const NOT_RUNNING_MESSAGE = 'This chat is no longer running. Opening it i
 
 export type OpenRunningResult = 'attached' | 'opened' | 'refused';
 
-export function isAttachableSessionId(value: unknown): value is string {
+export function isWellFormedSessionId(value: unknown): value is string {
   return typeof value === 'string' && SESSION_ID_RE.test(value);
 }
 
@@ -61,7 +61,7 @@ export function terminalName(chatName: string): string {
 }
 
 export function attachTerminalOptions(sessionId: string, chatName: string): AttachTerminalOptions {
-  if (!isAttachableSessionId(sessionId)) {
+  if (!isWellFormedSessionId(sessionId)) {
     throw new Error('Invalid session id');
   }
   return { name: terminalName(chatName), shellPath: ATTACH_BINARY, shellArgs: [ATTACH_VERB, sessionId] };
@@ -73,7 +73,7 @@ export const NOT_FOUND_WARNING =
 // Creates the terminal after the id guard. A terminal that closes with a non-zero exit
 // code, which is what a missing claude binary produces, raises one warning.
 export function attachInTerminal(sessionId: string, chatName: string, deps: AttachDeps): boolean {
-  if (!isAttachableSessionId(sessionId)) {
+  if (!isWellFormedSessionId(sessionId)) {
     deps.warn('Cannot open the chat in a terminal: the session id is not valid.');
     return false;
   }
@@ -102,7 +102,7 @@ export async function openRunningChat(
   deps: OpenRunningDeps,
   explicit = false,
 ): Promise<OpenRunningResult> {
-  if (!isAttachableSessionId(sessionId)) {
+  if (!isWellFormedSessionId(sessionId)) {
     deps.warn('Cannot open the chat: the session id is not valid.');
     return 'refused';
   }
