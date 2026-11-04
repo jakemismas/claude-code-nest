@@ -45,4 +45,41 @@ describe('fleet watcher (host)', () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // An orchestrator often writes its first record after Nest has started watching the folder.
+  const cases = [
+    { title: 'its folder exists', parts: ['dev'], existing: 1 },
+    { title: 'its folder is created with it', parts: ['dev'], existing: 0 },
+    { title: 'two folders are created with it', parts: ['linked', 'dev'], existing: 0 },
+  ];
+  for (const c of cases) {
+    it('loads a fleet file created after the watch starts when ' + c.title, async function () {
+      this.timeout(15000);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nest-fleet-it-'));
+      if (c.existing > 0) {
+        fs.mkdirSync(path.join(dir, ...c.parts.slice(0, c.existing)), { recursive: true });
+      }
+      const file = path.join(dir, ...c.parts, 'fleet.jsonl');
+
+      let latest: FleetState | undefined;
+      const reloader = new FleetReloader({ getPaths: () => [file], onChange: (s) => (latest = s) });
+      const watch = watchFleetFiles([file], reloader);
+      try {
+        await reloader.reload();
+        assert.strictEqual(latest?.entries.length ?? 0, 0);
+        await new Promise((r) => setTimeout(r, 500));
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, line(A, 'first'), 'utf8');
+        const deadline = Date.now() + 10000;
+        while ((latest?.entries.length ?? 0) < 1 && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        assert.strictEqual(latest?.entries.length, 1);
+      } finally {
+        watch.dispose();
+        reloader.dispose();
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
 });
