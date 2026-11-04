@@ -33,9 +33,10 @@ to [Semantic Versioning](https://semver.org/).
 - The header robin reacts to the fleet: it pecks while chats work
   (faster with more of them, with a pixel note for each), asks when one needs
   you, celebrates finished work, ruffles on a failure, flies when the orchestrator
-  rotates and sleeps when nothing runs. It is drawn in square pixels, pauses while the
-  panel is hidden, and stays still with `claudeNest.robin.animations` off or with the
-  editor's reduced motion preference.
+  rotates and sleeps when nothing runs. It is drawn in square pixels, keeps its feet
+  on the branch unless it hops, jumps or flies, pauses while the panel is hidden, and
+  stays still with `claudeNest.robin.animations` off or with the editor's reduced
+  motion preference.
 
 ### Security
 
