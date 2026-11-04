@@ -98,7 +98,6 @@ interface SearchRow {
 // workspaceState. Row density does not exist, so setState does not carry it.
 type Inbound =
   | { type: 'ready' }
-  | { type: 'refresh' }
   | { type: 'open'; sessionId: string }
   // Open a running background chat in a terminal. The host re-checks the live session
   // list and falls back to a plain open when the chat is not attachable.
@@ -757,8 +756,6 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
         void this.postArchivedRows();
         this.postOpenArchive();
       }
-    } else if (msg.type === 'refresh') {
-      this.refresh();
     } else if (msg.type === 'open') {
       void vscode.commands.executeCommand(OPEN_CHAT_COMMAND, msg.sessionId);
     } else if (msg.type === 'openInTerminal') {
@@ -1696,9 +1693,6 @@ function coerce(raw: unknown): Inbound | null {
   }
   if (obj.type === 'organizeUndo') {
     return { type: 'organizeUndo' };
-  }
-  if (obj.type === 'refresh') {
-    return { type: 'refresh' };
   }
   if (obj.type === 'open' && isSafeRecordId(obj.sessionId) && isOpenableSessionId(obj.sessionId)) {
     // The open id is the ONE webview-controlled id that reaches a PERSISTENCE

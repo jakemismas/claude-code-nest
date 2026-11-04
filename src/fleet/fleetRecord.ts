@@ -1,6 +1,5 @@
 // Pure parsing, coercion and folding of fleet records. No fs, no vscode.
 import {
-  EMPTY_FLEET_STATE,
   FLEET_EVENTS,
   FLEET_RECORD_VERSION,
   FLEET_ROLES,
@@ -263,17 +262,4 @@ export function foldFleet(records: readonly FleetRecord[]): FleetState {
     orchestrators.find((e) => !rotatedAway.has(e.sessionId) && !e.ended) ?? null;
   const past = orchestrators.filter((e) => e !== current);
   return { entries: out, currentOrchestrator: current, pastOrchestrators: past };
-}
-
-// Convenience for callers that hold raw lines.
-export function foldFleetLines(lines: readonly string[]): FleetState {
-  if (lines.length === 0) {
-    return EMPTY_FLEET_STATE;
-  }
-  const records: FleetRecord[] = [];
-  for (const line of lines) {
-    const rec = parseFleetLine(line);
-    if (rec !== null) records.push(rec);
-  }
-  return foldFleet(records);
 }
