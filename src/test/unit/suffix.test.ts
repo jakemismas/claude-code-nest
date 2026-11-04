@@ -1,3 +1,4 @@
+// Unit tests for the chat title suffix and ticket removal.
 import * as assert from 'assert';
 import { SUFFIX_MAX_LEN, chatSuffix, removeTicket } from '../../fleet/suffix';
 

@@ -12,9 +12,8 @@ import {
 } from '../../smart/smartGroupEngine';
 import { RESERVED_SENTINELS, isMintableId } from '../../model/idFactory';
 
-// Unit tests for the PURE engine composition: it recomputes four signal groups,
-// always renders all four even when empty, marks PR solid and the rest
-// best-effort, and mints separator-free, non-colliding ids.
+// Unit tests for the pure engine: it recomputes four signal groups, always renders all four, marks PR solid
+// and the rest best-effort, and mints separator-free, non-colliding ids.
 
 function row(partial: Partial<SmartSignalsInput> & { sessionId: string }): SmartSignalsInput {
   return {

@@ -10,10 +10,8 @@ import { ParsedNestConfig } from '../../fleet/nestConfig';
 import { OPEN_LAYOUT_FILE_COMMAND, openLayoutFile } from '../../commands/openLayoutFile';
 import { createOpenLayoutDeps } from '../../commands/openLayoutFileHost';
 
-// Runs only in the Extension Development Host (npm run test:integration, human-run,
-// needs a display). It proves a save to .nest/config.json reaches the parsed layout
-// within 500 ms through the real vscode watcher, and that the Open Layout File command
-// creates nothing on disk.
+// Runs only in the Extension Development Host (npm run test:integration, needs a display). A save to
+// .nest/config.json must reach the parsed layout within 500 ms, and Open Layout File must create nothing.
 
 describe('nest config (host)', () => {
   it('reloads the layout within 500 ms of a save', async function () {

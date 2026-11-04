@@ -4,11 +4,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { scanChats } from '../../claude/chatScanner';
 
-// The scanner has a vscode-free progress/cancellation seam to scanChats
-// (ScannerOptions.onProgress / shouldCancel). These run against a scratch fixture
-// tree under the OS temp dir, never the real ~/.claude files, and import no
-// vscode (unit-gate rule). They prove the scanner reports per-file progress and
-// stops promptly on a cancel, returning the partial-but-sorted result.
+// Tests for the vscode-free progress and cancel seam of scanChats (onProgress, shouldCancel) against a
+// scratch fixture tree in the OS temp dir: per-file progress, and a prompt stop returning a sorted partial result.
 
 let root: string;
 const PROJECT = 'c--Users-Tester-scanprog';
@@ -22,7 +19,6 @@ before(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'nest-scanprog-'));
   const proj = path.join(root, PROJECT);
   fs.mkdirSync(proj, { recursive: true });
-  // Five transcripts so progress reports a known total and a cancel can stop early.
   for (let i = 1; i <= 5; i++) {
     const id = 'aaaaaaaa-0000-0000-0000-00000000000' + i;
     writeJsonl(proj, id + '.jsonl', [
@@ -50,7 +46,6 @@ describe('chatScanner progress + cancellation seam', () => {
     });
     assert.strictEqual(records.length, 5);
     assert.strictEqual(calls.length, 5);
-    // total is constant; done climbs 1..5.
     assert.deepStrictEqual(
       calls.map((c) => c[0]),
       [1, 2, 3, 4, 5],
@@ -64,22 +59,18 @@ describe('chatScanner progress + cancellation seam', () => {
     let seen = 0;
     const records = scanChats(WORKSPACE, {
       projectsRoot: root,
-      // Cancel after two files have been read. shouldCancel is polled BEFORE each
-      // file, so allow the first two through, then cancel before the third.
+      // shouldCancel is polled before each file, so two files are read before the cancel lands.
       shouldCancel: () => seen >= 2,
       onProgress: () => {
         seen++;
       },
     });
-    // Exactly two of the five were read before the cancel took effect.
     assert.strictEqual(records.length, 2);
-    // The partial result is still sorted newest-first (readdir order is not asserted,
-    // only that the partial set comes back sorted by timestamp descending).
+    // The partial result is still sorted newest first.
     assert.ok(
       (records[0].timestamp ?? 0) >= (records[1].timestamp ?? 0),
       'partial result should be sorted newest-first',
     );
-    // Every returned record is one of the fixture chats (no phantom records).
     for (const r of records) {
       assert.ok(/^Chat [1-5]$/.test(r.title), 'unexpected record title: ' + r.title);
     }

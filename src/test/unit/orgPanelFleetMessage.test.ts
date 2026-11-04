@@ -1,3 +1,4 @@
+// Unit tests for the org panel fleet and robin messages posted to the webview.
 import './vscodeStub';
 
 import * as assert from 'assert';

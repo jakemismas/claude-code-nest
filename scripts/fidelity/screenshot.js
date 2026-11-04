@@ -1,21 +1,14 @@
-// Screenshot driver for the Nest panel.
-//
-// Renders the real panel assets (media/orgPanel.{css,js}) through
-// scripts/fidelity/harness.html, which feeds them made-up data, in headless Chrome
-// or Edge at 320px wide. It writes one full-page PNG per panel state into
-// .claude-working/screens/ (gitignored) as <state>-<theme>.png: the default list,
-// search results, the context menu, the settings and archive overlays, popovers, drag
-// highlight, inline rename and the fleet view (ticket, any-folder, Active, Queue). Review the images by eye; there is no pixel diffing.
+// Screenshot driver for the Nest panel. Renders the real panel assets (media/orgPanel.{css,js}) through
+// scripts/fidelity/harness.html, which feeds them made-up data, in headless Chrome or Edge at 320px wide.
+// Writes one full-page PNG per panel state to .claude-working/screens/ (gitignored) as <state>-<theme>.png:
+// the default list, search results, menus, Settings and Archive overlays, popovers, drag highlight, inline
+// rename, the fleet view and the robin. Review the images by eye; there is no pixel diffing.
 //
 // Usage: npm run fidelity -- [--theme light|dark] [--out <dir>]
 //
-// It has zero npm dependencies. The extension ships with no runtime dependencies,
-// so this talks to the browser over the Chrome DevTools Protocol using only Node
-// built-ins (Node 20+ has a global fetch and WebSocket). The scripts/ folder is
-// excluded from the VSIX.
-//
-// It only reads repo files and writes PNGs under the output folder. It never
-// touches ~/.claude/projects.
+// It has no npm dependencies: it talks to the browser over the Chrome DevTools Protocol with Node built-ins
+// (Node 20+ has a global fetch and WebSocket), and scripts/ is excluded from the VSIX. It reads repo files
+// and writes PNGs under the output folder only; it never reads the author's Claude Code session data.
 
 'use strict';
 
@@ -458,10 +451,8 @@ async function typeIntoInput(page, selector, text) {
   );
 }
 
-// The query the results-state captures stage. It matches a body line in the mock (the
-// harness reply) and a body line while being ABSENT
-// from those chats' titles, so the flat "N RESULTS" list shows a role-prefixed "You: ..."
-// body-match snippet.
+// The query the results captures stage. It matches a body line in the harness reply but no chat title, so
+// the flat "N RESULTS" list shows a role-prefixed "You: ..." body-match snippet.
 const RESULTS_QUERY = 'redis';
 
 // --- main ------------------------------------------------------------------
@@ -518,10 +509,8 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('default')));
 
-    // the RESULTS STATE of the real panel. Re-render the harness, type a
-    // body-only-match query into the search box, wait for the flat "N RESULTS" list (the
-    // harness echoes a synthetic host searchResults reply), and capture it. This is the
-    // results-state analogue of default-<theme>.png.
+    // Results state: re-render the harness, type a body-only query, wait for the flat "N RESULTS" list (the
+    // harness echoes a synthetic searchResults reply) and capture it.
     const harnessResultsPage = await openPage(browser);
     await renderAndCapture(
       harnessResultsPage,
@@ -558,10 +547,8 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('results')));
 
-    // the CHAT CONTEXT MENU (list state) of the real panel. Re-render the
-    // harness, dispatch a contextmenu on a chat row, wait for the menu, and capture the
-    // full 320px viewport so the floating menu is in frame. The menu is a body-level
-    // position:fixed node, so this capture is NOT clipped to the tree.
+    // Chat context menu (list state): dispatch contextmenu on a chat row and capture the full viewport, since
+    // the menu is a body-level fixed node and a tree clip would cut it.
     const harnessMenuPage = await openPage(browser);
     await renderAndCapture(
       harnessMenuPage,
@@ -610,8 +597,7 @@ async function main() {
       '  wrote ' + path.relative(REPO_ROOT, harnessOut('context-menu')),
     );
 
-    // the CREATE-TAG state of the chat context menu. Open the menu, click "Create
-    // new tag" to switch to the name-input + 8-swatch state, and capture it.
+    // Create-tag state: open the menu, click Create new tag and capture the name input and swatches.
     const harnessNewTagPage = await openPage(browser);
     await renderAndCapture(
       harnessNewTagPage,
@@ -681,10 +667,8 @@ async function main() {
         path.relative(REPO_ROOT, harnessOut('context-menu-newtag')),
     );
 
-    // the SETTINGS OVERLAY of the real panel. Open the harness, click the gear to
-    // open the in-panel Settings sub-page, wait for its "Keep chats for" select and the
-    // four section switches, and capture the full 320px viewport (the overlay is
-    // position:fixed;inset:0 over the panel).
+    // Settings overlay: click the gear, wait for the Keep chats for select and the section switches, and
+    // capture the full viewport (the overlay is fixed over the panel).
     const harnessSettingsPage = await openPage(browser);
     await renderAndCapture(
       harnessSettingsPage,
@@ -771,11 +755,8 @@ async function main() {
       console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(state.name)));
     }
 
-    // the ARCHIVE OVERLAY of the real panel. Open the harness, click the bottom
-    // Archived (N) row to open the in-panel Archive sub-page, wait for its gray-glow
-    // search box and the archived rows (the harness echoes a synthetic archivedRows
-    // reply), and capture the full 320px viewport (the overlay is position:fixed;inset:0
-    // over the panel).
+    // Archive overlay: click the Archived (N) row, wait for the search box and rows (the harness echoes a
+    // synthetic archivedRows reply) and capture the full viewport.
     const harnessArchivePage = await openPage(browser);
     await renderAndCapture(
       harnessArchivePage,
@@ -819,13 +800,9 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('archive')));
 
-    // the DRAG DROP-HIGHLIGHT state of the real panel. The .nest-drop-over
-    // highlight only paints while a chat drag is in flight (attachDropTarget's dragover
-    // handler is gated on draggingChatIds.length > 0), so this stage first dispatches a
-    // dragstart on a chat row to arm the in-process drag, then a dragover onto a folder
-    // header so the header paints its inset-ring drop target. The capture is the clipped
-    // 320px tree (the highlight is an in-list state, not a body-level overlay), matching
-    // the "clipped tree for in-list states" rule.
+    // Drag drop highlight: .nest-drop-over paints only while a chat drag is in flight (dragover is gated on
+    // draggingChatIds), so dispatch dragstart on a row, then dragover on a folder header. The capture is the
+    // clipped tree, since the highlight is an in-list state.
     const harnessDropPage = await openPage(browser);
     await renderAndCapture(
       harnessDropPage,
@@ -844,13 +821,9 @@ async function main() {
           10000,
           'harness sectioned rows to render',
         );
-        // Arm the drag on the 'Fix N+1 query in orders' row (s-05), then drag over the
-        // 'Backend API' folder header (the second .nest-folder-row) so that header shows
-        // the drop highlight. A DragEvent carries a real DataTransfer so the panel's
-        // dragstart handler (onRowDragStart) records draggingChatIds and the dragover
-        // handler paints .nest-drop-over (the handler paints on any folder header while a
-        // drag is armed; the highlight is purely visual and does not depend on the target
-        // being a non-home folder).
+        // Arm the drag on the 'Fix N+1 query in orders' row (s-05), then drag over the second folder header. The
+        // DragEvent carries a real DataTransfer so onRowDragStart records draggingChatIds; the highlight is
+        // purely visual and does not depend on the target folder.
         const dropped = await evaluate(
           page,
           '(function(){' +
@@ -889,9 +862,7 @@ async function main() {
       '  wrote ' + path.relative(REPO_ROOT, harnessOut('drop-highlight')),
     );
 
-    // the SORT POPOVER (open) state of the real panel. Click the sort button and
-    // wait for the popover to un-hide, then capture the full 320px viewport (the popover
-    // is a body-adjacent toolbar overlay, so capture the whole panel like the menus).
+    // Sort popover: click the sort button, wait for it to un-hide and capture the full viewport.
     const harnessSortPage = await openPage(browser);
     await renderAndCapture(
       harnessSortPage,
@@ -934,9 +905,8 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('sort-popover')));
 
-    // the NEW-FOLDER POPOVER (open) state of the real panel. Click the
-    // FOLDERS-header + button (openNewFolderPopover) and wait for the popover with its
-    // name input and Create/Cancel actions, then capture the full 320px viewport.
+    // New-folder popover: click the FOLDERS + button, wait for the name input and Create and Cancel actions,
+    // and capture the full viewport.
     const harnessNewFolderPage = await openPage(browser);
     await renderAndCapture(
       harnessNewFolderPage,
@@ -983,10 +953,8 @@ async function main() {
       '  wrote ' + path.relative(REPO_ROOT, harnessOut('newfolder-popover')),
     );
 
-    // the INLINE FOLDER RENAME state of the real panel. Double-click a folder
-    // header (its dblclick handler calls beginRename), wait for the .nest-rename-input to
-    // replace the folder name in place, then capture the clipped 320px tree (an in-list
-    // state).
+    // Inline folder rename: double-click a folder header, wait for .nest-rename-input to replace the name,
+    // and capture the clipped tree.
     const harnessRenamePage = await openPage(browser);
     await renderAndCapture(
       harnessRenamePage,

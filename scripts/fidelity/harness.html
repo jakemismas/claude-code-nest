@@ -118,15 +118,9 @@
   <script>
     (function () {
       const outbound = [];
-      // The host content-search reply the harness stands in for. When the panel
-      // posts { type:'search', query } (the debounced content-search request), the real extension host answers with { type:'searchResults' } ranked
-      // rows carrying a role-prefixed body-match snippet. The harness must reply too,
-      // or the flat "N RESULTS" state renders 0 results and the results-state
-      // capture is blank. The reply is synthetic and
-      // deterministic: for a non-empty query it returns the 'Rate limiter design'
-      // chat (s-11, filed under Work / Backend API, so it shows a breadcrumb) with a
-      // "You: ..." body-match snippet.
-      // An empty query returns no rows (mirrors the host short-circuit).
+      // Stands in for the host's search reply. For a non-empty query the harness answers { type:'searchResults' }
+      // with the 'Rate limiter design' chat (s-11, filed under Work / Backend API, so it shows a breadcrumb) and a
+      // "You: ..." body-match snippet; without it the results capture is blank. An empty query returns no rows.
       window.__nestHarnessSearchReply = function (query) {
         const q = (query || '').trim();
         if (q.length === 0) {
@@ -148,13 +142,8 @@
           ],
         };
       };
-      // The host reply for an openArchive request.
-      // When the panel opens the Archive overlay it posts { type:'openArchive' }; the real
-      // extension host answers with { type:'archivedRows', rows } built by buildArchivedRows
-      // from the synced userArchived membership. The harness must reply too, or the overlay
-      // renders an empty "Nothing archived." state and the archive capture is
-      // blank. The rows are synthetic and deterministic: two present archived chats (one
-      // filed, one unsorted) plus one cleaned-up (gone) chat. All titles are invented.
+      // Stands in for the host's reply to openArchive: two present archived chats (one filed, one unsorted) and one
+      // cleaned-up chat, all invented. Without it the overlay shows "Nothing archived." and the capture is blank.
       window.__nestHarnessArchivedRows = function () {
         return {
           type: 'archivedRows',
@@ -257,14 +246,10 @@
         defaultColor: '#C2A56E',
       };
 
-      // Reusable synthetic rows. Each matches the OrgChatRow shape exactly:
-      // { sessionId, title, timestamp, tokens, snippet, tags, tagIds, tagColors,
-      //   starred, awaitingReply, status, breadcrumb }. tagColors is parallel to tags.
-      // status is the per-row status slot: 'question' ->
-      // blinking '?' badge, 'done' -> solid unread dot, 'none' -> empty slot.
-      // awaitingReply mirrors (status === 'question'). breadcrumb is the folder path
-      // rendered on Questions/search rows (null otherwise). tokens rides the seam for
-      // the search row / hover card but is NOT drawn on the visible row.
+      // Reusable synthetic rows in the OrgChatRow shape: { sessionId, title, timestamp, tokens, snippet, tags,
+      // tagIds, tagColors, starred, awaitingReply, status, breadcrumb }. tagColors is parallel to tags. status
+      // drives the status slot ('question' blinks a '?', 'done' shows a dot, 'none' is empty); breadcrumb is the
+      // folder path on Questions and search rows; tokens is carried but not drawn.
       function row(o) {
         return {
           sessionId: o.sessionId,
@@ -359,16 +344,10 @@
         status: 'none',
       });
 
-      // The full section model, in the exact OrgSections shape. Covers Starred,
-      // Questions (heuristic), a nested folder hierarchy with per-folder color
-      // (Work with a Backend API child folder, Personal, Experiments), the
-      // always-present synthetic Unsorted bucket, the tag filter chips with counts,
-      // and archivedCount so the bottom Archived row renders. Each folder carries
-      // depth (clamped render depth), treeDepth (true stored depth, used by the
-      // collapse/hide skip), and rolledUpCount (its own chats + all descendants).
-      // f-legacy is a depth-2 grandchild under Backend API to
-      // exercise the render clamp: its treeDepth is 2 and it renders
-      // at the depth-2 (47px) tier, the deepest the UI shows.
+      // The full section model in the OrgSections shape: Starred, Questions, nested folders with colors (Work with a
+      // Backend API child, Personal, Experiments), the Unsorted bucket, tag chips with counts and archivedCount.
+      // Each folder carries depth (clamped), treeDepth (true) and rolledUpCount. f-legacy is a depth-2 grandchild
+      // of Backend API that exercises the render clamp (treeDepth 2, drawn at the 47px tier).
       const sections = {
         starred: [rStarredDone, rStarredIdea],
         questions: [rQuestionDocs, rQuestionFeature],
@@ -451,9 +430,7 @@
           { tagId: 't-idea', label: 'idea', color: TAG.idea, count: 2 },
           { tagId: 't-docs', label: 'docs', color: TAG.docs, count: 3 },
         ],
-        // allTags is the FULL project tag list the chat context menu lists: every tag with id/label/color/count, INCLUDING a zero-chat tag the chip
-        // row (tags) omits. 't-migration' (count 0) exercises the "list a tag no chat
-        // carries yet" case in the harness context-menu capture.
+        // allTags is the full tag list the chat menu shows, including the zero-chat 't-migration' that the chip row omits.
         allTags: [
           { tagId: 't-bug', label: 'bug', color: TAG.bug, count: 2 },
           { tagId: 't-docs', label: 'docs', color: TAG.docs, count: 3 },
@@ -466,13 +443,10 @@
         archivedCount: 2,
       };
 
-      // Post state first (sort/collapsed), then the sections, then the active chat,
-      // matching the host's onMessage('ready') order (postState, postSections,
-      // postActive). s-01 is the currently-open chat, so its rows carry the .nest-active
-      // tint.
+      // Post order matches the host's 'ready' handling: state, sections, then the active chat. s-01 is the open
+      // chat, so its row carries the .nest-active tint.
       window.postMessage({ type: 'state', sort: 'newest', collapsedFolders: [] }, '*');
-      // The Settings overlay state: a 30-day
-      // auto-archive window and all four sections ON, the defaults. The overlay reads this on the settings-overlay capture page.
+      // Settings overlay state: a 30-day auto-archive window and all four sections on (the defaults).
       window.postMessage(
         {
           type: 'settings',

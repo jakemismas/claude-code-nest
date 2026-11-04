@@ -1,12 +1,12 @@
+// Unit tests for the chat scanner, run against a scratch transcript tree.
+
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { scanChats, readChat, sessionIdFromPath, resolveDir, foldersToScan, mergeFolderScans } from '../../claude/chatScanner';
 
-// File-reading unit tests run against a scratch fixture tree under the OS temp
-// dir, NEVER the real ~/.claude files. No vscode import. The scanner is given an
-// explicit projectsRoot pointing at the scratch tree.
+// The scanner gets an explicit projectsRoot so the real ~/.claude files are never read.
 
 let root: string;
 
@@ -37,10 +37,7 @@ before(() => {
     { type: 'user', timestamp: '2026-06-15T12:00:00.000Z', cwd: 'c:\\Users\\Tester\\proj', message: { content: 'newer' } },
   ]);
 
-  // A transcript carrying all five smart-group signals: a pr-link line (PR
-  // number/url/repo), a gitBranch on the user/assistant lines, and a leading run of
-  // message uuids. Asserts readChat/scanChats wire each scan field through to the
-  // ChatRecord (the seam between the reader and the scanner's input).
+  // A transcript carrying every smart-group signal (PR link, gitBranch, leading message uuids), to check each scan field reaches the ChatRecord.
   writeJsonl(proj, 'dddddddd-0000-0000-0000-000000000004.jsonl', [
     { type: 'custom-title', customTitle: 'Signal Chat' },
     {

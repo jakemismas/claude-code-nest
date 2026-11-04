@@ -1,14 +1,11 @@
+// Regression guard that every contributed command has a UI surface and a matching README entry.
+
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Regression guard for the docs findings: retiring a view must not leave README
-// advertising a command that no longer has any UI surface (the "Export Chat..." case),
-// and a command left surfaceless must be an explicitly accepted interim gap rather than a
-// silent orphan. Both checks read the same package.json the extension ships, so a future
-// change that removes a menu or view contribution fails here and forces an explicit decision.
-// Compiled tests run from out/test/unit and sources live in src/test/unit; the repo root
-// is three levels up from either.
+// Both checks read the package.json the extension ships, so removing a menu or view contribution fails here.
+// Compiled tests run from out/test/unit and sources live in src/test/unit; the repo root is three levels up from either.
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
 interface CommandContribution {
@@ -157,19 +154,8 @@ describe('command surfaces stay honest after the view consolidation', () => {
       .filter((id) => !reachable.has(id))
       .sort();
 
-    // The accepted set as of (CHANGELOG Unreleased / Removed). Groups: invoked
-    // programmatically (openChat and openInTerminal ride the org panel row click and context menu; the refresh pair services
-    // the kept non-view providers), panel-internal equivalents kept registered for
-    // programmatic callers (folder/tag mutation and the smart-group promotes), the
-    // interim gaps that wait for the in-panel hover card and context menu (previewChat,
-    // exportChat, archiveChat of a live chat), and the curation + archived-preview
-    // commands whose Archive-tree surface was RETIRED:
-    // star/unstar/restore/previewArchivedChat now route through the org panel (the row
-    // star toggle, the context menu, and the in-panel Archive overlay's Restore /
-    // star-unarchive / row preview) via the OrgPanelActions seams, so the standalone
-    // commands stay registered for those programmatic callers but have no menu/palette
-    // surface. Adding an id here means deliberately shipping a command with no UI
-    // surface: record it in CHANGELOG and keep README silent about it.
+    // Commands accepted without a menu or palette surface: invoked programmatically by the org panel and the kept non-view
+    // providers, plus panel-internal equivalents. Adding an id here ships a command with no UI: record it in CHANGELOG and keep README silent.
     assert.deepStrictEqual(surfaceless, [
       'claudeNest.addTagToChat',
       'claudeNest.archiveChat',
@@ -194,10 +180,7 @@ describe('command surfaces stay honest after the view consolidation', () => {
     ]);
   });
 
-  // Retiring the flat and smart-groups trees stripped the view/title and
-  // view/item/context menus off refresh, linkToChat, and unlinkChat, leaving the
-  // palette as their only surface. Under the declared engines floor those need an
-  // explicit onCommand activation event or a cold palette invocation errors.
+  // Commands whose only surface is the palette need an explicit onCommand activation event under the engines floor.
   it('every palette-only command declares an onCommand activation event', () => {
     const manifest = loadManifest();
     if (enginesFloorHasImplicitActivation(manifest.engines.vscode)) {

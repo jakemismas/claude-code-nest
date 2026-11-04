@@ -10,12 +10,8 @@ import { NEST_CHAT_MIME } from '../../dnd/dropReducer';
 import { UNFILED_FOLDER_ID } from '../../model/folderTree';
 import { UNTAGGED_TAG_ID } from '../../model/untagged';
 
-// Headless unit tests for the webview drop adapter. The adapter is vscode-free (it
-// depends on the MetadataStore structural seam and the pure reducer), so this test never
-// transitively requires vscode. It covers the message-to-DropInput EXTRACTION mapping
-// (the only logic on the drop path; the interpretation stays in
-// reduceDrop) and the intent application + no-op cases. It also asserts the
-// adapter never reaches the cross-tree dragContext stash (a webview drop is in-process).
+// Unit tests for the vscode-free webview drop adapter: message-to-DropInput extraction (interpretation stays in
+// reduceDrop), intent application and no-ops, and that it never touches the cross-tree dragContext stash.
 
 function newStore(): { store: MetadataStore; memento: FakeMemento } {
   const memento = new FakeMemento();
@@ -86,7 +82,6 @@ describe('handleWebviewDrop intent application', () => {
     const meta = store.getProjectMeta(KEY);
     assert.strictEqual(meta.chats.c1.folderId, 'f1');
     assert.strictEqual(meta.chats.c2.folderId, 'f1');
-    // The two granular writes coalesce into a single pending write (one update).
     assert.ok(memento.updateCount <= 1, 'the burst coalesced into one persisted write');
   });
 
@@ -152,18 +147,14 @@ describe('handleWebviewDrop intent application', () => {
       { store, getProjectKey: () => KEY, refresh: () => undefined },
       { sourceChatIds: ['c1', 'c1', 'c2'], targetKind: 'folder', targetId: 'f1' },
     );
-    // The reducer de-dupes c1, so two intents (c1, c2).
     assert.strictEqual(n, 2);
   });
 });
 
 describe('webviewDropAdapter does not touch the cross-tree stash', () => {
   it('the adapter never writes the cross-tree stash (webview DnD is fully in-process)', async () => {
-    // The dragContext stash is a module singleton other tests may have populated;
-    // clear it first, then run a full adapter drop and confirm the stash is STILL
-    // empty. The adapter never calls stashDrag (that exists only for the cross-tree
-    // TreeView case); a populated stash here would prove the adapter wrongly went
-    // through the cross-controller path.
+    // dragContext is a module singleton other tests may populate; clear it, run a drop, and confirm it stays empty,
+    // since a webview drop is in-process and never stashes.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const dragContext = require('../../dnd/dragContext') as {
       peekDrag: () => unknown;

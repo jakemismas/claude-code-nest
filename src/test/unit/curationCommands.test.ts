@@ -1,3 +1,5 @@
+// Unit tests for the curation commands and the archived-copy read path.
+
 // vscodeStub MUST be imported first so require('vscode') resolves before
 // archiveProvider's transitive import of vscode (TreeItem/EventEmitter/ThemeIcon)
 // runs under the headless runner.
@@ -21,14 +23,8 @@ import {
 } from '../../commands/previewChatCommand';
 import { writeArchivedBody, readArchivedBody } from '../../store/archiveBodyStore';
 
-// Headless unit tests for the curation commands and the archived-copy read path. The
-// commands run against a real MetadataStore over the FakeMemento double, with the
-// archive-body IO seams stubbed in memory. The archived-row membership + sort + fallback-
-// title logic that once lived on the Archive tree provider moved to the pure
-// buildArchivedRows, tested in orgPanelModel.test.ts; the SYNCED-userArchived- only
-// membership rule (never the local orphan flag) is asserted there. What remains here is
-// the cleanup-survival read path: the Nest-owned body copy is still readable after the
-// transcript is gone. No vscode host beyond the stub.
+// Commands run on a real MetadataStore over FakeMemento with in-memory archive-body IO. Archived-row membership is tested
+// in orgPanelModel.test.ts; this file covers the read path where the body copy outlives the transcript.
 
 const DEVICE = 'dev-curation';
 const PK = 'c--Users-Tester-curation';
@@ -237,12 +233,7 @@ describe('curationCommands.restoreChat', () => {
   });
 });
 
-// ---- The archived-copy READ path (survives the Archive-tree retirement). The Archive
-// tree provider is retired; its membership + sort + fallback-title logic moved to the
-// pure buildArchivedRows (covered in orgPanelModel.test.ts). What still lives here is the
-// cleanup-survival read: once Claude deletes the live transcript, the Nest-owned body
-// copy must still be readable via previewArchivedBody, the command the Archive overlay
-// row and the palette both call.
+// Archived-copy read path: once Claude deletes the transcript, the Nest-owned copy stays readable through previewArchivedBody.
 
 describe('archived-copy read path survives transcript cleanup', () => {
   it('end to end: a saved copy is readable AFTER the transcript is gone', async () => {

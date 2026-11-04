@@ -1,4 +1,5 @@
 'use strict';
+// Tests for the private-words push check: word matching, diff parsing and exit codes.
 
 const assert = require('assert');
 const fs = require('fs');

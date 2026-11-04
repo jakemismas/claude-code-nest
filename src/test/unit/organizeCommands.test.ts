@@ -1,3 +1,4 @@
+// Unit tests for the organize Preview, Apply and Undo commands over a real MetadataStore.
 import * as assert from 'assert';
 import { MetadataStore } from '../../store/metadataStore';
 import { FakeMemento } from './fakeMemento';
@@ -115,7 +116,7 @@ describe('organize commands', () => {
     h.store.setChatFolder(PK, 'a', 'f-old');
     h.store.addChatTag(PK, 'a', 't-keep');
     await h.store.flush();
-    // a is in a folder no rule chose, so it is filed by hand and untouched.
+    // a is in a folder no rule chose, so it counts as filed by hand and stays untouched.
     h.setSubjects([subject('a', { role: 'qa' }), subject('c', { role: 'qa' })]);
     const applied = await applyOrganize(h.deps);
     assert.strictEqual(applied.undoCount, 1);
@@ -147,7 +148,6 @@ describe('organize commands', () => {
     const meta = h.store.getProjectMeta(PK);
     assert.strictEqual(meta.chats.a.folderId, 'f-mine');
     assert.strictEqual(meta.chats.b.folderId, null);
-    // Apply created QA; no chat uses it after Undo, so it is gone.
     assert.deepStrictEqual(Object.keys(meta.folders), ['f-mine']);
     // The skipped chat now counts as filed by hand: a second Preview leaves it alone.
     const preview = previewOrganize(h.deps);

@@ -1,17 +1,7 @@
-// A compact relative-time string for a chat row description. Pure and
-// deterministic: no vscode dependency and an injectable clock, so the headless
-// unit gate can cover the boundary rounding (the null branch, the negative
-// clamp, the 'just now' floor, and each unit rollover). The row builders import
-// this; keeping it vscode-free keeps it in the unit suite.
-//
-// Rollover boundaries (each computed against the same base, not chained):
-//   < 60s            -> 'just now'
-//   < 60 min         -> N minute(s) ago        (minutes = round(seconds/60))
-//   < 24 hours       -> N hour(s) ago          (hours   = round(minutes/60))
-//   < 7 days         -> N day(s) ago           (days    = round(hours/24))
-//   weeks < 5        -> N week(s) ago          (weeks   = round(days/7))
-//   months < 12      -> N month(s) ago         (months  = round(days/30))
-//   otherwise        -> N year(s) ago          (years   = round(days/365))
+// Relative-time strings for chat rows. Pure with an injectable clock, no vscode import.
+
+// Verbose form ("3 hours ago"). Each unit is rounded from the previous one, so a unit
+// rolls over once its rounded value reaches the next threshold.
 export function relativeTime(timestamp: number | null, now: number = Date.now()): string {
   if (timestamp === null) {
     return '';
@@ -48,23 +38,8 @@ function plural(value: number, unit: string): string {
   return value + ' ' + unit + (value === 1 ? '' : 's') + ' ago';
 }
 
-// The COMPACT relative-time buckets the redesigned chat row uses: 'now', then Nm / Nh / Nd / Nw / Nmo / Ny. This is an
-// ADDITIVE fork of the verbose relativeTime above: the row time is served by the in-webview relative helper (already
-// compact and byte-identical to this table), and the host-side search-result
-// description + hover phrasing stay on the verbose 'N ago' output above until a
-// later change consumes the compact form. Kept here, beside its verbose twin, so both are covered
-// by the same headless unit gate and cannot drift from the webview copy.
-//
-// The bucket edges MIRROR the webview relative() (media/orgPanel.js), which floors each
-// unit (Math.floor) against a fixed base rather than the verbose rounding, so the two
-// renderings of the same age agree exactly:
-//   < 60s      -> 'now'
-//   < 60 min   -> 'Nm'   (floor(seconds/60))
-//   < 24 hours -> 'Nh'   (floor(minutes/60))
-//   < 7 days   -> 'Nd'   (floor(hours/24))
-//   < 30 days  -> 'Nw'   (floor(days/7))
-//   < 12 months-> 'Nmo'  (floor(days/30))   [months measured in 30-day units]
-//   otherwise  -> 'Ny'   (floor(days/365))
+// Compact form ("3h"). Floors against a fixed base to match relative() in
+// media/orgPanel.js, so host and webview agree on the same age. Months are 30 days.
 export function relativeTimeCompact(timestamp: number | null, now: number = Date.now()): string {
   if (timestamp === null) {
     return '';

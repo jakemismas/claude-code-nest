@@ -1,70 +1,36 @@
 import MiniSearch from './vendor/minisearch';
 import { ChatRecord } from '../model/types';
 
-// PURE, vscode-free full-text search over chat content. Builds a MiniSearch index from
-// each chat's summary text plus, optionally, its on-demand body text, and answers a query
-// with a ranked list of {sessionId, score, snippet}. It imports the VENDORED MiniSearch
-// by RELATIVE path (never the bare specifier 'minisearch', which is not an npm dependency
-// and would not ship: 2026-06-19, so the emitted CommonJS require resolves inside
-// out/search/vendor/, which ships in the VSIX. This module imports NO vscode, so the
-// headless unit gate exercises it.  Body-index invariant: a chat's full BODY may be
-// indexed for an in-memory session index (bodyText fed in by the caller, which reads it
-// on demand via bodyReader and discards it), but the PERSISTED index (searchStore.ts) is
-// built from summary fields ONLY, so no body-derived token is ever written to disk. This
-// module is agnostic to that split: it indexes whatever SearchDoc fields it is handed.
-// The caller (searchStore.ts) decides whether to include bodyText.
+// Pure full-text search over chat content: builds a MiniSearch index from each chat's summary text plus optional on-demand body text and returns ranked {sessionId, score, snippet} hits.
+// It imports the vendored MiniSearch by relative path because the bare 'minisearch' specifier is not an npm dependency and would not ship in the VSIX.
+// It indexes whatever SearchDoc fields it is given; the persisted index (searchStore.ts) never includes bodyText, so no body token reaches disk.
 
-// One document fed into the index. sessionId is the MiniSearch id field. title,
-// lastMessage, and files are the summary fields (always safe to index and
-// persist). bodyText is the OPTIONAL full-body text (in-memory sessions only,
-// never persisted); when absent the document is indexed on summary text alone.
-//
-// bodyText holds ONLY the searchable message text with any per-message role label
-// ("You: " / "Claude: ") STRIPPED, so the label words are never tokenized into the
-// index (a critical bug otherwise: MiniSearch splits "You: hi" into ["you","hi"],
-// so "you"/"claude" would become indexed tokens on every chat and every prefix of
-// them would match every chat). The role label rides ONLY in bodySnippetSource,
-// which is a STORE-only field (not in FIELDS, so never tokenized/matched) that
-// buildRoleSnippet reads to re-emit the label on a body-match snippet. Keeping the
-// two apart is what lets the snippet say "Claude: ..." while a search for "claude"
-// matches nothing that does not genuinely contain the word.
+// One document fed into the index. title, lastMessage and files are summary fields, safe to index and persist. bodyText is optional full-body text for in-memory indexes only.
+// bodyText has per-message role labels ("You: " / "Claude: ") stripped, since MiniSearch would otherwise index "you" and "claude" on every chat. The label rides only in bodySnippetSource, a stored but unindexed field that buildRoleSnippet uses to re-emit it.
 export interface SearchDoc {
   sessionId: string;
   title: string;
   lastMessage: string;
   files: string;
   bodyText: string;
-  // The role-labeled body text ("You: ..\nClaude: ..") used ONLY to build a
-  // snippet; stored, never indexed. Empty when no body was supplied.
+  // Role-labeled body text used only to build a snippet; stored, never indexed. Empty when no body was supplied.
   bodySnippetSource: string;
 }
 
-// One ranked search hit: the chat's sessionId, the MiniSearch relevance score
-// (higher is more relevant), and a snippet centered on a matched term drawn from
-// the best available text for that chat (body when indexed, else the summary
-// last-message text, else the title).
+// One ranked hit: the sessionId, the relevance score (higher is better) and a snippet centered on a matched term from the best text available (body, else last message, else title).
 export interface SearchHit {
   sessionId: string;
   score: number;
   snippet: string;
 }
 
-// The indexed (full-text searchable) field names. Kept as a const so buildIndex
-// and search agree and a rename cannot drift between them. bodySnippetSource is
-// DELIBERATELY absent: it carries the role labels and is store-only, so no role
-// label word ("you"/"claude") is ever tokenized into a searchable term. Exported
-// so searchStore's load-time options reuse the exact same field set (no drift).
+// The indexed field names, shared by buildIndex and search. bodySnippetSource is deliberately absent so role-label words are never tokenized. Exported so searchStore's load-time options reuse them.
 export const FIELDS = ['title', 'lastMessage', 'files', 'bodyText'];
 
-// The stored (retrieved-on-hit) field names. bodySnippetSource is stored but not
-// indexed, so the snippet can carry the role label the index never saw. Exported
-// so searchStore's load-time options reuse the exact same set (no drift).
+// The stored (retrieved-on-hit) field names. bodySnippetSource is stored but not indexed. Exported so searchStore's load-time options reuse them.
 export const STORE_FIELDS = ['title', 'lastMessage', 'bodyText', 'bodySnippetSource'];
 
-// The MiniSearch options used for both building and (on load) reconstructing the
-// index. storeFields carries the text needed to build a snippet back on every
-// result without a second lookup. searchOptions enables prefix + light fuzzy so a
-// partial or slightly-misspelled query still matches, and boosts the title.
+// MiniSearch options for building and reconstructing the index. storeFields carry the snippet text on every result; searchOptions enable prefix and light fuzzy matching and boost the title.
 function indexOptions(): ConstructorParameters<typeof MiniSearch<SearchDoc>>[0] {
   return {
     fields: FIELDS,
@@ -78,21 +44,14 @@ function indexOptions(): ConstructorParameters<typeof MiniSearch<SearchDoc>>[0] 
   };
 }
 
-// Build a fresh in-memory index from a list of documents. Tolerant of an empty
-// list (returns an empty index that search() answers with []). Each field is
-// coerced to a string so a malformed input cannot throw inside MiniSearch, and
-// documents are deduplicated by sessionId (first-seen wins) because MiniSearch
-// THROWS on a duplicate id; a pathological scan that yielded the same sessionId
-// twice must degrade to one indexed document, not throw out of a content search.
+// Build an in-memory index from documents. An empty list gives an empty index. Fields are coerced to strings, and documents are deduplicated by sessionId (first wins) because MiniSearch throws on a duplicate id.
 export function buildIndex(docs: SearchDoc[]): MiniSearch<SearchDoc> {
   const mini = new MiniSearch<SearchDoc>(indexOptions());
   mini.addAll(dedupeById(docs.map(normalizeDoc)));
   return mini;
 }
 
-// Keep the first document seen for each sessionId; drop later duplicates. A blank
-// sessionId is dropped entirely (it cannot be a real chat and MiniSearch needs a
-// usable id).
+// Keep the first document per sessionId and drop later duplicates and blank ids, which MiniSearch cannot use.
 function dedupeById(docs: SearchDoc[]): SearchDoc[] {
   const seen = new Set<string>();
   const out: SearchDoc[] = [];
@@ -107,17 +66,8 @@ function dedupeById(docs: SearchDoc[]): SearchDoc[] {
   return out;
 }
 
-// Build a SearchDoc from a ChatRecord and an OPTIONAL body text. The summary
-// fields come off the record; the body is supplied by the caller only for an
-// in-memory session index (it is never persisted). Exported so both the in-memory
-// path and the persisted (summary-only) path build documents the same way.
-//
-// The caller (orgPanelWebview.readBodyText) passes the ROLE-LABELED body ("You:
-// ..\nClaude: .."). We split it into two derived fields: bodySnippetSource keeps
-// the labeled text verbatim for snippeting, and bodyText holds the SAME text with
-// each per-message role label stripped, so no label word enters the searchable
-// index. A body without role markers (e.g. a test feeding plain text) passes
-// through unchanged in both fields. When no body is supplied both are empty.
+// Build a SearchDoc from a ChatRecord and an optional body text, which the caller supplies only for an in-memory index.
+// A role-labeled body (from orgPanelWebview.readBodyText) goes to bodySnippetSource verbatim, and bodyText gets the same text with labels stripped. A body without role markers passes through unchanged in both fields.
 export function docFromRecord(record: ChatRecord, bodyText?: string): SearchDoc {
   const labeled = bodyText ?? '';
   return {
@@ -130,14 +80,7 @@ export function docFromRecord(record: ChatRecord, bodyText?: string): SearchDoc 
   };
 }
 
-// Strip a leading per-message role label ("You: " / "Claude: ") from every
-// newline-joined segment of a role-labeled body, returning the searchable text
-// with the label WORDS removed so they are never tokenized into the index. A
-// segment with no known label is kept as-is (marker-less bodies, e.g. the summary
-// last message or a plain-text test feed, are unaffected). Segments are re-joined
-// with '\n' so buildRoleSnippet's segment splitting still lines up 1:1 with the
-// labeled source, but this stripped text is only ever the INDEX text, not a
-// snippet source.
+// Strip the leading role label from every newline-joined segment so the label words are never tokenized. Segments without a label are kept, and the '\n' joins keep them aligned 1:1 with the labeled source.
 function stripRoleLabels(labeled: string): string {
   if (labeled.length === 0) {
     return '';
@@ -151,10 +94,7 @@ function stripRoleLabels(labeled: string): string {
     .join('\n');
 }
 
-// Run a query against an index and return ranked hits with a snippet each.
-// Returns [] for an empty/whitespace query or no match. The snippet is built
-// from the best available stored text for the hit, centered on the first matched
-// term so the matched context is visible.
+// Run a query and return ranked hits, each with a snippet centered on the first matched term. Returns [] for an empty or whitespace query or no match.
 export function search(
   index: MiniSearch<SearchDoc>,
   query: string,
@@ -173,10 +113,7 @@ export function search(
     const sessionId = typeof r.id === 'string' ? r.id : String(r.id);
     const source = bestSnippetSource(r);
     const term = firstMatchedTerm(r);
-    // buildRoleSnippet finds the matched message segment and re-prepends its
-    // "You: " / "Claude: " role label when the body was fed with role markers; a
-    // marker-less source (the summary last message or title, or a body indexed
-    // without role prefixes) degrades to a plain snippet with no prefix.
+    // buildRoleSnippet re-prepends the role label when the source has role markers; otherwise the snippet is plain.
     hits.push({
       sessionId,
       score: typeof r.score === 'number' ? r.score : 0,
@@ -186,9 +123,7 @@ export function search(
   return hits;
 }
 
-// The role labels prefixed on each message in the role-marked body feed
-// (orgPanelWebview.readBodyText) and re-emitted on a body-match snippet (the body snippet reads "You: ..." / "Claude: ..."). Kept as
-// exported consts so the feed side and the snippet side agree on the exact literal.
+// The role labels prefixed on each message in the body feed (orgPanelWebview.readBodyText) and re-emitted on body-match snippets. Exported so the feed and snippet sides share the literal.
 export const ROLE_LABEL_USER = 'You: ';
 export const ROLE_LABEL_ASSISTANT = 'Claude: ';
 
@@ -196,18 +131,8 @@ export const ROLE_LABEL_ASSISTANT = 'Claude: ';
 export const SNIPPET_LENGTH = 160;
 const ELLIPSIS = '...';
 
-// Build a snippet from a source text centered on the first occurrence of term.
-// PURE and exported so the unit gate exercises the centering/truncation directly.
-// Rules:
-//   - whitespace is collapsed to single spaces and the text trimmed;
-//   - an empty source yields '';
-//   - a source at or under SNIPPET_LENGTH is returned whole (no ellipsis);
-//   - when term is found, the window is centered on the match, with a leading
-//     '...' when the window does not start at the beginning and a trailing '...'
-//     when it does not reach the end; the window snaps to word boundaries where
-//     possible so it does not cut mid-word;
-//   - when term is empty or not found, the head of the text is returned
-//     (truncated with a trailing '...').
+// Build a snippet centered on the first occurrence of term, whitespace-collapsed and trimmed, with '...' at a trimmed edge and word-boundary snapping.
+// An empty source gives ''; text at or under SNIPPET_LENGTH returns whole; an empty or missing term returns the truncated head.
 export function buildSnippet(
   source: string,
   term: string,
@@ -225,11 +150,9 @@ export function buildSnippet(
   const matchIndex = needle.length > 0 ? text.toLowerCase().indexOf(needle) : -1;
 
   if (matchIndex < 0) {
-    // No located term: return the head of the text.
     return clampHead(text, windowLength);
   }
 
-  // Center the window on the match.
   const matchEnd = matchIndex + needle.length;
   const half = Math.floor((windowLength - needle.length) / 2);
   let start = Math.max(0, matchIndex - half);
@@ -265,16 +188,8 @@ export function buildSnippet(
   return snippet;
 }
 
-// PURE, role-aware snippet over a body fed with per-message role labels
-// (orgPanelWebview.readBodyText prefixes each message with "You: " / "Claude: " and joins
-// them with '\n'). It locates the message segment that actually contains the matched
-// term, snippets THAT segment via the unchanged buildSnippet, and guarantees the role
-// label leads the result so the row shows "You: ..." / "Claude: ...". Exported so the
-// unit gate exercises the role prefixing directly, mirroring buildSnippet.  Faithful
-// degradation: a source with no leading role label on any line (the summary last-message
-// text, the title, or a body indexed without role prefixes, e.g. every prior searchIndex
-// test) is treated as ONE segment and returned by the plain buildSnippet with NO
-// synthesized prefix, so no existing behavior changes.
+// Role-aware snippet over a body whose messages are prefixed with role labels and joined by '\n': snippets the segment containing the match with buildSnippet and keeps the label leading, for example "You: ...".
+// A source with no role labels (summary text, title, plain body) is one segment and gets the plain buildSnippet with no prefix.
 export function buildRoleSnippet(
   source: string,
   term: string,
@@ -284,16 +199,11 @@ export function buildRoleSnippet(
   if (collapse(raw).length === 0) {
     return '';
   }
-  // Split into per-message segments on the newline the feed joins messages with.
-  // A segment that opens with a role label carries a known role; a segment without
-  // one (or a source that never had markers) has role null and is snippeted plain.
+  // Split into per-message segments on the feed's newline; a segment without a role label has role null and snippets plain.
   const segments = raw.split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
   const needle = collapse(term).toLowerCase();
 
-  // Find the segment that contains the matched term (case-insensitive). With no
-  // usable term, or when the term is not in any single segment, fall back to the
-  // first labelled segment (so a role-prefixed head still reads naturally), else
-  // the whole collapsed source.
+  // Use the segment containing the term (case-insensitive); otherwise the first labelled segment, else the whole collapsed source.
   let chosen: string | null = null;
   if (needle.length > 0) {
     for (const seg of segments) {
@@ -313,9 +223,7 @@ export function buildRoleSnippet(
     return buildSnippet(chosen, term, windowLength);
   }
 
-  // Snippet the segment's TEXT (after the role label) so the window budget is spent
-  // on content, then re-prepend the label. This keeps the label always-present even
-  // when the match is deep in the message and buildSnippet would open with '...'.
+  // Snippet the text after the label so the window budget goes to content, then re-prepend the label even when the match is deep and buildSnippet opens with '...'.
   const body = chosen.slice(role.length);
   const inner = buildSnippet(body, term, Math.max(8, windowLength - role.length));
   if (inner.length === 0) {
@@ -324,10 +232,7 @@ export function buildRoleSnippet(
   return role + inner;
 }
 
-// The role label a segment opens with (ROLE_LABEL_USER / ROLE_LABEL_ASSISTANT), or
-// null when the segment carries no known label. Case-sensitive on the exact literal
-// the feed writes, so ordinary transcript prose that merely starts with the word
-// "you" is never mistaken for a role marker.
+// The role label a segment opens with, or null. Case-sensitive on the exact literal the feed writes, so prose starting with "you" is not mistaken for a label.
 function roleOf(segment: string): string | null {
   if (segment.startsWith(ROLE_LABEL_USER)) {
     return ROLE_LABEL_USER;
@@ -355,22 +260,14 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
 }
 
-// The best text to snippet from for a hit: the ROLE-LABELED body when present (so
-// buildRoleSnippet can re-emit the "You: "/"Claude: " label), otherwise the summary
-// last message, otherwise the title. It reads bodySnippetSource (the stored,
-// never-indexed labeled text), NOT bodyText (the label-stripped index text), so the
-// snippet carries the role label the searchable index deliberately never saw. Reads
-// from the stored fields MiniSearch returns on the result (STORE_FIELDS above), so
-// no second record lookup is needed.
+// The best text to snippet from: bodySnippetSource (role-labeled, stored, never indexed), else bodyText, else the summary last message, else the title.
+// It reads the stored fields on the hit, so no second record lookup is needed.
 function bestSnippetSource(result: Record<string, unknown>): string {
   const body = asString(result.bodySnippetSource);
   if (body.trim().length > 0) {
     return body;
   }
-  // A body that was indexed without role markers still has snippet text in
-  // bodyText (e.g. every prior searchIndex test feeds plain bodyText); prefer it
-  // before the summary fields so those tests and any marker-less body still snippet
-  // from the body.
+  // A marker-less body has its text only in bodyText; prefer it over the summary fields.
   const plainBody = asString(result.bodyText);
   if (plainBody.trim().length > 0) {
     return plainBody;

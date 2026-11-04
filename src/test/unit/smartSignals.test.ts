@@ -9,10 +9,8 @@ import {
   MIN_SHARED_PREFIX,
 } from '../../smart/signals/forkLineage';
 
-// High-priority unit tests for the four PURE smart-group signal functions. Each
-// signal is a pure function of plain SmartSignalsInput rows; none imports vscode
-// or fs, so this suite runs headless (unit-gate rule). The fork-lineage signal is
-// exercised on synthetic SHARED and DIVERGENT leading-uuid prefixes.
+// Unit tests for the four pure smart-group signal functions over plain SmartSignalsInput rows,
+// with synthetic shared and divergent leading-uuid prefixes for the fork-lineage signal.
 
 function row(partial: Partial<SmartSignalsInput> & { sessionId: string }): SmartSignalsInput {
   return {
@@ -47,25 +45,19 @@ describe('pr signal (the solid signal)', () => {
   });
 
   it('keys by canonical repo#number, deriving repo+number from a GitHub url', () => {
-    // Explicit repo+number win and produce the canonical key even when a
-    // (non-standard) url is also present.
+    // Explicit repo and number win, even when a non-standard url is also present.
     assert.strictEqual(prKey(row({ sessionId: 'a', prUrl: 'U', prNumber: 5, prRepository: 'o/r' })), 'rn:o/r#5');
     assert.strictEqual(prKey(row({ sessionId: 'a', prNumber: 5, prRepository: 'o/r' })), 'rn:o/r#5');
-    // A real GitHub PR url with NO explicit fields resolves to the same canonical
-    // key by parsing owner/repo and the number out of the path.
+    // A GitHub PR url with no explicit fields parses owner, repo and number into the same key.
     assert.strictEqual(prKey(row({ sessionId: 'a', prUrl: 'https://github.com/o/r/pull/5' })), 'rn:o/r#5');
     assert.strictEqual(prKey(row({ sessionId: 'a', prUrl: 'https://github.com/o/r/pull/5/files' })), 'rn:o/r#5');
-    // Number with no derivable repo stays a bare #number (NOT merged into a
-    // specific repo's PR of the same number, which could be a different PR).
+    // A number with no derivable repo stays a bare #number, not merged into some repo's PR of that number.
     assert.strictEqual(prKey(row({ sessionId: 'a', prNumber: 5 })), 'n:#5');
-    // A non-standard url that exposes no repo+number falls back to the raw url.
     assert.strictEqual(prKey(row({ sessionId: 'a', prUrl: 'https://x/pull/9' })), 'url:https://x/pull/9');
   });
 
   it('co-locates the SAME PR across mixed-completeness pr-link payloads', () => {
-    // A regression guard: one transcript's pr-link
-    // carried only a url, another's carried only repo+number, for the SAME PR.
-    // They must land in ONE bucket, not split, because PR is the solid signal.
+    // One PR seen as a url-only link and as a repo+number link must land in one bucket.
     const rows = [
       row({ sessionId: 'a', prUrl: 'https://github.com/o/r/pull/5' }),
       row({ sessionId: 'b', prNumber: 5, prRepository: 'o/r' }),
@@ -79,8 +71,7 @@ describe('pr signal (the solid signal)', () => {
 
   it('labels a number-only PR and a url-only PR', () => {
     assert.strictEqual(prLabel(row({ sessionId: 'a', prNumber: 9 })), 'PR #9');
-    // A url-only label routes through the canonical identity: a GitHub url renders
-    // the parsed number+repo, a non-PR-shaped url renders the bare url.
+    // A url-only label routes through the canonical identity.
     assert.strictEqual(prLabel(row({ sessionId: 'a', prUrl: 'https://github.com/o/r/pull/9' })), 'PR #9 (o/r)');
     assert.strictEqual(prLabel(row({ sessionId: 'a', prUrl: 'https://x/pull/9' })), 'https://x/pull/9');
   });
@@ -159,7 +150,6 @@ describe('fork-lineage signal (best-effort, often empty)', () => {
       row({ sessionId: 'a', leadingMessageUuids: ['u1', 'x2', 'x3'] }),
       row({ sessionId: 'b', leadingMessageUuids: ['u1', 'y2', 'y3'] }),
     ];
-    // Sharing only ONE leading uuid is below MIN_SHARED_PREFIX (2), so no family.
     assert.strictEqual(MIN_SHARED_PREFIX, 2);
     assert.strictEqual(forkLineageBuckets(rows).length, 0);
   });
@@ -208,10 +198,8 @@ describe('fork-lineage signal (best-effort, often empty)', () => {
   });
 
   it('keeps the SAME label when the fork family grows (idempotency-on-name)', () => {
-    // The label feeds promote-to-folder/tag verbatim as the target name; if it
-    // changed as the family grew, re-promoting would mint a duplicate folder/tag
-    // (promoteSmartGroup idempotency-on-name reuse keys on the label). So the
-    // label MUST NOT vary with member count.
+    // The label feeds promote-to-folder and tag as the target name, so it must not vary with member count,
+    // or re-promoting would mint a duplicate.
     const head = '0f16803a';
     const three = forkLineageBuckets([
       row({ sessionId: 'a', leadingMessageUuids: [head + 'xx', 'u2', 'a3'] }),

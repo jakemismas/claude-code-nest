@@ -1,3 +1,4 @@
+// Unit tests for the org panel visibility message and the webview visibility handler.
 import './vscodeStub';
 
 import * as assert from 'assert';

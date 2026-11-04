@@ -1,9 +1,6 @@
-// A headless fake of the store's SyncMemento structural seam, used by the store
-// unit tests. It implements the same interface the real context.globalState
-// satisfies (get/update/keys/setKeysForSync), with no vscode import, so the store
-// is exercised exactly as in production but against an in-memory map. It also
-// captures every setKeysForSync registration so a test can assert the refreshed
-// union when a new project key first appears.
+// Headless in-memory fake of the store SyncMemento seam, with no vscode import.
+// It records every setKeysForSync call so tests can assert the registered key union.
+
 
 import { SyncMemento } from '../../store/metadataStore';
 

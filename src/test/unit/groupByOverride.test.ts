@@ -1,3 +1,5 @@
+// Unit tests for coercing the group-by mode and override values.
+
 import * as assert from 'assert';
 import {
   coerceGroupByMode,

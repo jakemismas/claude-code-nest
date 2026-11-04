@@ -6,9 +6,8 @@ import * as path from 'path';
 import { AgentsResult, execFileRunner, listAgentSessions } from '../../claude/agentsCli';
 import { AgentsPoller } from '../../fleet/agentsPoller';
 
-// Runs only in the Extension Development Host (npm run test:integration). It proves the
-// real execFile runner against an absent `claude` binary degrades quietly: a failed
-// result, one log line, no throw.
+// Runs only in the Extension Development Host (npm run test:integration). The real execFile runner against an
+// absent `claude` binary must degrade quietly: a failed result, one log line, no throw.
 
 describe('agents CLI missing (host)', () => {
   let dir: string;

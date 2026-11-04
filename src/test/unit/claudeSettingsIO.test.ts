@@ -1,3 +1,5 @@
+// Unit tests for the read-only settings chokepoint and its surgical jsonc edit.
+
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -14,19 +16,8 @@ import {
   writeCleanupPeriodDays,
 } from '../../settings/claudeSettingsIO';
 
-// Unit tests for the read-only chokepoint and its surgical jsonc edit. Every
-// filesystem test runs against a scratch fixture under the OS temp dir; the real
-// ~/.claude/settings.json is NEVER read or written here. No vscode import (the IO
-// module is vscode-free). The test tree is exempt from the no-restricted-syntax
-// chokepoint, so this file may call write-capable fs to build and tear down
-// fixtures.
-//
-// CRITICAL safety check: writes go to a scratch path, but writeCleanupPeriodDays
-// hard-asserts the allowed settings.json path. To exercise the write path against
-// a scratch file WITHOUT disabling the assertion, we point the assertion at the
-// scratch path by overriding HOME/USERPROFILE so settingsJsonPath() (which is
-// os.homedir()-anchored) resolves under the scratch tree. We restore the env
-// afterward. This proves the real chokepoint logic, not a test-only bypass.
+// Filesystem tests use a scratch dir; the real ~/.claude/settings.json is never touched. The test tree may call write-capable fs.
+// writeCleanupPeriodDays asserts the real settings path, so HOME is repointed at the scratch tree and restored afterward.
 
 let root: string;
 let savedHome: string | undefined;
@@ -34,9 +25,7 @@ let savedUserProfile: string | undefined;
 let savedHomeDrive: string | undefined;
 let savedHomePath: string | undefined;
 
-// Repoint os.homedir() at the scratch tree by setting the env vars Node reads on
-// each platform, so settingsJsonPath() yields <scratch>/.claude/settings.json and
-// the chokepoint's allowed-path assertion targets the fixture.
+// Repoint os.homedir() at the scratch tree so the chokepoint assertion targets the fixture.
 function repointHome(to: string): void {
   savedHome = process.env.HOME;
   savedUserProfile = process.env.USERPROFILE;
@@ -293,11 +282,7 @@ describe('claudeSettingsIO.writeCleanupPeriodDays (create-when-missing, full pat
     writeSettings('{\n  "cleanupPeriodDays": 30\n}\n');
     const original = fs.readFileSync(settingsPath(), 'utf8');
 
-    // Inject a MOVING mtime reader through the WriteOptions seam so the re-stat
-    // (immediately before the write) differs from the initial read-stat. This
-    // exercises the mtimeMs float-comparison guard directly and deterministically,
-    // independent of filesystem second-resolution, without monkeypatching the
-    // non-configurable fs.statSync module property.
+    // A moving mtime reader makes the re-stat differ from the initial stat, which exercises the mtime guard deterministically.
     let calls = 0;
     assert.throws(
       () =>

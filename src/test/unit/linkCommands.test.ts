@@ -1,3 +1,5 @@
+// Unit tests for the Links command orchestration over a real MetadataStore and FakeMemento.
+
 import * as assert from 'assert';
 import { MetadataStore } from '../../store/metadataStore';
 import { FakeMemento } from './fakeMemento';
@@ -14,10 +16,7 @@ import { LinkedChild, linkedChildId } from '../../model/links';
 import type { Link } from '../../store/schema';
 import type { FoldersProvider } from '../../views/foldersProvider';
 
-// Headless unit tests for the Links command orchestration. The commands depend only
-// on the injectable LinkCommandUi/LinkCommandDeps seams, a real MetadataStore over
-// the FakeMemento double, and a refresh-counting FoldersProvider stub. No vscode
-// host. Mirrors tagCommands.test.ts.
+// Mirrors tagCommands.test.ts.
 
 const DEVICE = 'dev-link';
 const PK = 'c--proj-link';
@@ -243,9 +242,7 @@ describe('unlinkChat', () => {
   });
 });
 
-// The no-arg palette paths: with the trees retired, the palette supplies no source row,
-// so linkToChat first picks the source and unlink picks among the project's current
-// designated-parent links.
+// Palette paths with no source row: linkToChat first picks the source, and unlink picks among the designated-parent links.
 
 describe('linkToChatFromPalette', () => {
   it('guards when no project is resolved and shows an error', async () => {

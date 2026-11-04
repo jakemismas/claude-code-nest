@@ -9,9 +9,8 @@ import {
 } from '../../store/reconcile';
 import { LocalChatState, LocalProjectMeta, emptyLocalProjectMeta } from '../../store/schema';
 
-// Pure-logic unit tests for orphan reconcile: the zero-result / low-count circuit
-// breaker, the grace-window soft archive, the never-hard-delete invariant, and
-// the tombstone/restore lifecycle. No vscode import, no filesystem.
+// Unit tests for orphan reconcile: the zero-result and low-count circuit breaker, the grace-window
+// soft archive, never hard-deleting, and the tombstone and restore lifecycle.
 
 const GRACE = DEFAULT_RECONCILE_CONFIG.graceMs;
 const CONFIG: ReconcileConfig = { graceMs: GRACE, lowCountFraction: 0.5 };
@@ -92,11 +91,10 @@ describe('reconcile transitions (grace window, soft archive, never hard-delete)'
     if (outcome.kind !== 'applied') {
       return;
     }
-    // The chat record still EXISTS in the plan (never hard-deleted), soft-marked.
+    // The record still exists in the outcome and is only soft-marked.
     assert.strictEqual(outcome.plan.chats.b.missingSince, 5000);
     assert.strictEqual(outcome.plan.chats.b.archived, false);
     assert.strictEqual(outcome.plan.chats.b.tombstone, false);
-    // Transition surfaced.
     assert.deepStrictEqual(outcome.transitions, [
       { chatId: 'b', from: 'present', to: 'missing-grace' },
     ]);
@@ -127,7 +125,6 @@ describe('reconcile transitions (grace window, soft archive, never hard-delete)'
     });
     assert.strictEqual(past.kind, 'applied');
     if (past.kind === 'applied') {
-      // Soft-archived, NEVER removed.
       assert.strictEqual(past.plan.chats.b.archived, true);
       assert.strictEqual(past.plan.chats.b.tombstone, false);
       assert.deepStrictEqual(past.transitions, [
@@ -149,7 +146,7 @@ describe('reconcile transitions (grace window, soft archive, never hard-delete)'
     });
     assert.strictEqual(outcome.kind, 'applied');
     if (outcome.kind === 'applied') {
-      // missingSince cleared on reappearance; archived stays until a user acts.
+      // missingSince clears on reappearance; archived stays until the user acts.
       assert.strictEqual(outcome.plan.chats.b.missingSince, null);
       assert.strictEqual(outcome.plan.chats.b.archived, true);
     }
@@ -166,7 +163,7 @@ describe('reconcile transitions (grace window, soft archive, never hard-delete)'
     });
     assert.strictEqual(outcome.kind, 'applied');
     if (outcome.kind === 'applied') {
-      // b is clean-present again, so it is NOT stored (sparse local doc).
+      // A clean-present chat is not stored (sparse local doc).
       assert.ok(!('b' in outcome.plan.chats));
       assert.ok(!('a' in outcome.plan.chats));
     }
@@ -218,7 +215,7 @@ describe('reconcile tombstone / restore lifecycle (user-gated, reversible)', () 
 });
 
 describe('reconcile phaseOf', () => {
-  it('maps each state to its phase, tombstone winning over archived', () => {
+  it('maps each state to its lifecycle label, tombstone winning over archived', () => {
     assert.strictEqual(phaseOf({ missingSince: null, archived: false, tombstone: false }), 'present');
     assert.strictEqual(phaseOf({ missingSince: 1, archived: false, tombstone: false }), 'missing-grace');
     assert.strictEqual(phaseOf({ missingSince: 1, archived: true, tombstone: false }), 'archived');

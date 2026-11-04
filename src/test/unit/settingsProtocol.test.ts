@@ -6,15 +6,10 @@ import {
   handleSettingsMessage,
 } from '../../settings/claudeSettingsIO';
 
-// Unit tests for the webview message protocol, driven through a fake messenger
-// (an in-memory SettingsIo) with NO vscode and NO real panel and NO filesystem.
-// handleSettingsMessage is the pure reducer the webview module wires to
-// onDidReceiveMessage; here we feed it inbound messages and assert the outbound
-// reply sequence and the write side effects on the fake.
+// Unit tests for the webview message protocol through an in-memory SettingsIo: inbound messages
+// drive handleSettingsMessage, and the tests assert the outbound replies and the writes.
 
-// An in-memory SettingsIo double. read returns the scripted state; write records
-// the value, optionally throwing a scripted error (to exercise the chokepoint's
-// throw-on-bad-target surfacing through the protocol).
+// In-memory SettingsIo: read returns scripted state, write records the value or throws a scripted error.
 class FakeIo implements SettingsIo {
   public writes: number[] = [];
   public throwOnWrite: Error | null = null;

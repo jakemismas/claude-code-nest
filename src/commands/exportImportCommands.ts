@@ -25,34 +25,20 @@ import {
   writeTextFile,
 } from '../store/exportIO';
 
-// The vscode-bound side of. This module owns ALL filesystem IO, the activation hook, the
-// window-focus polling, globalStorage access, and the LWW warning toast. The pure modules
-// (exportImport, reconcileSync, schemaMigrate, autoExport) take plain data and return
-// plain results; here we plumb them to the real environment.  Read-only chokepoint: the
-// lint bank's first selector is object-AGNOSTIC, so even a vscode.workspace.fs write
-// (vscode.workspace.fs.writeFile(...)) trips it the same as a node fs write. The file IO
-// is therefore isolated in the narrow, carve-out-exempted src/store/ exportIO.ts (listed
-// in .eslintrc alongside claudeSettingsIO.ts); this command module calls those helpers
-// and performs NO write-shaped call itself, so it stays under the full ban and the
-// exemption is confined to a tiny auditable module that does nothing but the
-// vscode.workspace.fs primitives. NOTHING writes under ~/.claude (export targets are a
-// user-chosen path or globalStorageUri); the only sanctioned ~/.claude write remains
-// claudeSettingsIO.ts.
+// The vscode-bound side of export, import and cross-machine sync: filesystem IO, the activation hook, window-focus polling, globalStorage access and the last-writer-wins warning toast.
+// Pure modules (exportImport, reconcileSync, schemaMigrate, autoExport) do the data work. File writes live in the exempted src/store/exportIO.ts, so this module makes no write-shaped call and nothing writes under ~/.claude.
 
 export const EXPORT_COMMAND = 'claudeNest.exportLibrary';
 export const IMPORT_COMMAND = 'claudeNest.importLibrary';
 
-// The opt-in auto-export gate and its one-time prompt flag, stored on globalState
-// (non-synced concerns; plain booleans). Default off (opt-in).
+// The opt-in auto-export flag and its one-time prompt flag, stored on globalState (not synced). Default off.
 const AUTO_EXPORT_ENABLED_KEY = 'nest.autoExport.enabled.v1';
 const AUTO_EXPORT_PROMPTED_KEY = 'nest.autoExport.prompted.v1';
 
-// Retention: keep the most recent N auto-export snapshots, prune older. N lives in
-// the pure autoExport module so it is unit-testable; here it is the default.
+// Keep the most recent N auto-export snapshots and prune older ones; N comes from the autoExport module.
 const AUTO_EXPORT_DEBOUNCE_MS = 5000;
 
-// The honest last-writer-wins warning, surfaced once per reconcile/import pass
-// when a same-scalar (folderId) conflict lost one side.
+// The last-writer-wins warning, shown once per reconcile or import pass when a same-scalar (folderId) conflict lost one side.
 function lwwWarning(conflictCount: number): string {
   return (
     'Claude Code Nest: merged organization across machines. ' +
@@ -64,40 +50,27 @@ function lwwWarning(conflictCount: number): string {
   );
 }
 
-// The dependencies the export/import wiring needs from extension.ts. Kept narrow
-// so the command logic is testable in isolation if needed and so extension.ts
-// threads exactly what is required (the store, the globalStorageUri, the
-// globalState for the opt-in flags).
+// What the export and import wiring needs from extension.ts: the store, globalStorageUri and globalState for the opt-in flags.
 export interface ExportImportDeps {
   store: MetadataStore;
-  // context.globalStorageUri: the per-extension storage dir the auto-export
-  // snapshots write to (and prune within). The dir may not exist yet; we create
-  // it via vscode.workspace.fs before the first write.
+  // The per-extension storage dir for auto-export snapshots; created before the first write if missing.
   globalStorageUri: vscode.Uri;
-  // context.globalState, used ONLY for the opt-in flags (enabled, prompted). The
-  // store owns all ProjectMeta/shadow access; these are plain UI-preference
-  // booleans, intentionally not synced.
+  // Used only for the opt-in flags; the store owns all ProjectMeta and shadow access.
   flags: {
     get(key: string): boolean | undefined;
     update(key: string, value: boolean): Thenable<void>;
   };
-  // The device id this install stamps with, for the reconcile self/foreign
-  // attribution.
+  // The device id this install stamps with, to tell self writes from foreign ones.
   deviceId: string;
   // Called after a reconcile/import applies merges so the views re-render.
   refresh: () => void;
-  // Injected clock for deterministic snapshot names in tests; defaults to
-  // Date.now in the production wiring.
+  // Injected clock for deterministic snapshot names; defaults to Date.now.
   now?: () => number;
-  // Auto-export debounce window in ms; defaults to AUTO_EXPORT_DEBOUNCE_MS in the
-  // production wiring. Injected small in unit tests so the debounce/coalesce
-  // behavior is exercisable deterministically with short real timers (there is no
-  // fake-timer dependency in this project).
+  // Auto-export debounce window in ms; defaults to AUTO_EXPORT_DEBOUNCE_MS. Tests inject a short value because there is no fake-timer dependency.
   autoExportDebounceMs?: number;
 }
 
-// ---- Export. Writes ALL projects (with their stamps) to a user-chosen JSON as
-// ---- the authoritative backup.
+// ---- Export: all projects, with their stamps, to a user-chosen JSON backup.
 
 export async function exportLibrary(deps: ExportImportDeps): Promise<void> {
   const now = (deps.now ?? Date.now)();
@@ -132,12 +105,7 @@ export async function exportLibrary(deps: ExportImportDeps): Promise<void> {
   );
 }
 
-// ---- Import. Validates and migrates a SCRATCH copy BEFORE touching the live
-// ---- store, then merges additively per project (never deleting a project absent
-// ---- from the file). The "scratch copy" is the parsed-and-migrated envelope held
-// ---- in memory; the live store is only consulted (read) to build the plan and is
-// ---- mutated only after the whole plan is validated and built. putProjectMeta is
-// ---- itself a single staged write per project that flushes atomically.
+// ---- Import: validate and migrate a parsed copy before touching the live store, then merge additively per project (a project absent from the file is never deleted).
 
 export async function importLibrary(deps: ExportImportDeps): Promise<void> {
   const picked = await vscode.window.showOpenDialog({
@@ -161,25 +129,19 @@ export async function importLibrary(deps: ExportImportDeps): Promise<void> {
     return;
   }
 
-  // Parse + validate + migrate the SCRATCH copy first; the live store is untouched
-  // until the plan is fully built.
+  // Validate and migrate the parsed copy first; the live store is untouched until the plan is built.
   const plan = buildPlanFromText(text, deps);
   if (!plan.ok) {
     vscode.window.showErrorMessage('Claude Code Nest: ' + plan.error);
     return;
   }
 
-  // Apply: persist each merged project via the store, then one flush so the swap
-  // is durable in one settle. putProjectMeta re-stamps and preserves __unknown; a
-  // project absent from the file is never enumerated and so never touched.
+  // Persist each merged project, then one flush. putProjectMeta re-stamps and preserves __unknown; projects absent from the file are never touched.
   let mergedProjects = 0;
   const changedKeys: string[] = [];
   for (const result of plan.plan.results) {
     if (result.changed) {
-      // Only a STAGED write (putProjectMeta true) may finalize the shadow
-      // below; finalizing after a rejected write would launder the live value
-      // into the last-known-good baseline. validateEnvelope already skips
-      // unsafe keys, so this backstop should never fire.
+      // Finalize the shadow only after a staged write; finalizing after a rejected one would launder the live value into the baseline. validateEnvelope already skips unsafe keys, so this is a backstop.
       if (deps.store.putProjectMeta(result.projectKey, result.merged)) {
         changedKeys.push(result.projectKey);
         mergedProjects++;
@@ -187,12 +149,7 @@ export async function importLibrary(deps: ExportImportDeps): Promise<void> {
     }
   }
   await deps.store.flush();
-  // Finalize the reconcile shadow for each changed project to the post-flush,
-  // re-stamped live value, exactly as reconcileAllProjects does. Without this the
-  // import-merged chats keep the WINNING side's foreign per-chat deviceId with an
-  // updatedAt newer than the stale shadow, so the very next window-focus poll would
-  // misclassify the just-imported state as a FOREIGN write, re-run the (idempotent)
-  // merge, and re-show the LWW warning a second time after a normal restore.
+  // Finalize the reconcile shadow to the post-flush, re-stamped live value. Otherwise the next focus poll treats the imported state as a foreign write and shows the LWW warning again.
   for (const projectKey of changedKeys) {
     const persisted = deps.store.getProjectMeta(projectKey);
     await deps.store.putSyncShadow(projectKey, {
@@ -219,12 +176,8 @@ export async function importLibrary(deps: ExportImportDeps): Promise<void> {
   );
 }
 
-// Parse the import text and build the plan against the live store. Returns a
-// structured result so the validation failure can be surfaced without throwing.
-// The migration runs on the SCRATCH (parsed) copy; readLive only READS the store.
-// skippedProjects carries validateEnvelope's dropped-entry count (invalid key,
-// non-object value, oversized document) up to the completion message, so a
-// partial import is reported honestly instead of silently importing a subset.
+// Parse the import text and build the plan against the live store, returning a structured result so validation failures surface without throwing.
+// skippedProjects carries the count of entries validateEnvelope dropped, so a partial import is reported honestly.
 type PlanResult =
   | { ok: true; plan: ImportPlan; skippedProjects: number }
   | { ok: false; error: string };
@@ -242,40 +195,21 @@ function buildPlanFromText(text: string, deps: ExportImportDeps): PlanResult {
   }
   const now = (deps.now ?? Date.now)();
   const normalized = migrateEnvelope(validation.envelope, deps.deviceId, now);
-  // Build the plan from the RECONCILED live read:
-  // the plan's per-project merge result is persisted wholesale via
-  // putProjectMeta, so a plan rooted on an unreconciled, just-landed lossy
-  // foreign sync value would carry that loss straight through the apply loop
-  // and the re-stamp would launder it into a self-write. The reconciled read
-  // restores anything a foreign wholesale-replace dropped before the file is
-  // merged on top.
+  // Build the plan from the reconciled live read: a plan rooted on an unreconciled foreign value would carry its loss through the apply loop, and the re-stamp would launder it into a self-write.
   const plan = buildImportPlan(normalized, (projectKey) =>
     deps.store.getReconciledProjectMeta(projectKey),
   );
   return { ok: true, plan, skippedProjects: validation.envelope.skippedProjects };
 }
 
-// ---- Cross-machine reconcile, run on activation and on window focus.
-// ---- Best-effort polling: there is no Memento remote-change event, so each call
-// ---- diffs the live synced value of every known project against the local-only
-// ---- shadow and reconciles additively on a detected foreign write.
+// ---- Cross-machine reconcile on activation and window focus. There is no Memento change event, so each call diffs every project's live synced value against the local shadow and merges additively on a foreign write.
 
 export async function reconcileAllProjects(deps: ExportImportDeps): Promise<void> {
   const projectKeys = deps.store.allProjectKeys();
   let totalConflicts = 0;
-  // Projects whose merge actually wrote the store: their shadow must be FINALIZED
-  // from the post-write live value (after the flush re-stamps the project), so the
-  // next poll sees the stored value equal to the shadow and reports unchanged.
+  // Projects whose merge wrote the store; their shadow is finalized from the post-flush live value so the next poll reports unchanged.
   const mergedKeys: string[] = [];
-  // Projects whose foreign-merge needs NO store write because the merged document
-  // already equals the live store value (storeChanged:false): the foreign value was
-  // a pure superset that dropped nothing, so the union restores nothing and the
-  // store is already correct. Their shadow must STILL advance to the current live
-  // value, or the next focus poll re-classifies the same live value as foreign,
-  // re-runs the (idempotent) merge, and re-fires the LWW warning toast on EVERY
-  // focus-gain because mergedKeys would be empty and the shadow never advanced. No
-  // store write is needed; the shadow simply accepts the current live value as the
-  // new baseline.
+  // Projects whose merge needed no store write because merged equals live (a pure-superset foreign write). The shadow must still advance, or every focus poll re-merges and re-fires the LWW warning.
   const acceptedKeys: string[] = [];
 
   for (const projectKey of projectKeys) {
@@ -289,33 +223,18 @@ export async function reconcileAllProjects(deps: ExportImportDeps): Promise<void
       continue;
     }
     if (outcome.kind === 'adopt' || outcome.kind === 'self-write') {
-      // No merge needed; just record/refresh the shadow so the next poll has an
-      // accurate baseline. The shadow IS the current live value here, so the next
-      // poll reports unchanged.
+      // No merge needed; refresh the shadow so the next poll reports unchanged.
       await deps.store.putSyncShadow(projectKey, outcome.shadow);
       continue;
     }
-    // foreign-merge: persist the additive merge now (deferring the shadow finalize
-    // until after the flush so the shadow records the store's re-stamped value).
-    // Gate on storeChanged (merged != the live STORE value), NOT result.changed
-    // (merged != the shadow): a foreign value that dropped a local-only record
-    // gives merged == shadow (changed:false) yet merged != live, and gating on
-    // changed would skip restoring the dropped record and lose it permanently.
+    // Persist the additive merge now and finalize the shadow after the flush. Gate on storeChanged (merged != live), not result.changed (merged != shadow): a foreign value that dropped a local-only record has merged == shadow, and skipping would lose the record permanently.
     if (outcome.storeChanged) {
-      // putProjectMeta reports whether the write was STAGED (false = the key
-      // failed the store's isSafeProjectKey gate). Finalizing the shadow after
-      // a rejected write would launder the lossy live value into the
-      // last-known-good baseline and permanently disable the additive-restore
-      // protection, so a rejected key is skipped. allProjectKeys no longer
-      // enumerates such keys; this gate is the backstop for any other path.
+      // A rejected key (failing isSafeProjectKey) is skipped: finalizing its shadow would launder the lossy live value and disable additive restore. allProjectKeys no longer lists such keys; this is a backstop.
       if (deps.store.putProjectMeta(projectKey, outcome.result.merged)) {
         mergedKeys.push(projectKey);
       }
     } else {
-      // merged already equals the live store value (a pure-superset foreign write
-      // that dropped nothing). No store write needed; just advance the shadow to
-      // the current live value so this same foreign value is not re-classified as
-      // foreign and re-merged on the next poll.
+      // merged equals live, so no write is needed; advance the shadow so this foreign value is not re-merged on the next poll.
       acceptedKeys.push(projectKey);
     }
     totalConflicts += outcome.result.folderConflicts.length;
@@ -329,8 +248,7 @@ export async function reconcileAllProjects(deps: ExportImportDeps): Promise<void
   }
   if (mergedKeys.length > 0) {
     await deps.store.flush();
-    // Finalize each merged project's shadow to the now-persisted, re-stamped live
-    // value, so the diff against the shadow on the next poll is empty.
+    // Finalize each merged project's shadow to the persisted, re-stamped value so the next poll diff is empty.
     for (const projectKey of mergedKeys) {
       const persisted = deps.store.getProjectMeta(projectKey);
       await deps.store.putSyncShadow(projectKey, {
@@ -345,7 +263,7 @@ export async function reconcileAllProjects(deps: ExportImportDeps): Promise<void
   }
 }
 
-// ---- Debounced opt-in auto-export snapshot to globalStorage with retention.
+// ---- Debounced opt-in auto-export snapshots to globalStorage, with retention.
 
 export class AutoExporter {
   private readonly deps: ExportImportDeps;
@@ -359,8 +277,7 @@ export class AutoExporter {
     this.debounceMs = deps.autoExportDebounceMs ?? AUTO_EXPORT_DEBOUNCE_MS;
   }
 
-  // Schedule a debounced snapshot. A no-op when the opt-in flag is off. Coalesces
-  // a burst of mutations into one snapshot.
+  // Schedule a debounced snapshot, coalescing a burst of mutations. No-op when the opt-in is off.
   schedule(): void {
     if (this.deps.flags.get(AUTO_EXPORT_ENABLED_KEY) !== true) {
       return;
@@ -374,9 +291,7 @@ export class AutoExporter {
     }, this.debounceMs);
   }
 
-  // Take a snapshot immediately and prune to retention. Best-effort: a write or
-  // prune failure is swallowed (the user-driven export is the authoritative
-  // backup; the snapshot is a convenience). Exposed for the dispose flush.
+  // Snapshot now and prune to retention. Best-effort: failures are swallowed because the manual export is the authoritative backup. Exposed for the dispose flush.
   async snapshotNow(): Promise<void> {
     const now = (this.deps.now ?? Date.now)();
     const envelope = buildEnvelope(collectAllProjects(this.deps.store), now);
@@ -387,13 +302,11 @@ export class AutoExporter {
       await writeTextFile(vscode.Uri.joinPath(this.snapshotsDir, name), json);
       await this.prune();
     } catch {
-      // Swallow: the snapshot is best-effort; the manual export is authoritative.
+      // Best-effort; the manual export is authoritative.
     }
   }
 
-  // Prune older snapshots beyond the retention count. The directory listing comes
-  // from vscode.workspace.fs (so node fs stays out of the lint bank) and the prune
-  // SET is computed by the pure module; the deletes happen here.
+  // Prune snapshots beyond the retention count: the pure module computes the prune set, and the listing and deletes go through exportIO.
   private async prune(): Promise<void> {
     let entries: [string, vscode.FileType][];
     try {
@@ -414,9 +327,7 @@ export class AutoExporter {
     }
   }
 
-  // Cancel any pending debounce. Called on dispose. Does NOT force a final
-  // snapshot (the snapshot is best-effort and the store's own flush handles
-  // durability of the live data; the manual export is the authoritative backup).
+  // Cancel any pending debounce on dispose. It does not force a final snapshot; the store's own flush covers live data.
   dispose(): void {
     if (this.timer !== null) {
       clearTimeout(this.timer);
@@ -452,8 +363,7 @@ export async function maybePromptAutoExport(deps: ExportImportDeps): Promise<voi
 
 // ---- Internals.
 
-// Collect every project's current document keyed by projectKey, from the store's
-// authoritative read path (pending/in-flight/persisted), for export and snapshot.
+// Collect every project's current document keyed by projectKey, from the store's authoritative read path, for export and snapshot.
 function collectAllProjects(store: MetadataStore): {
   [projectKey: string]: ProjectMeta;
 } {

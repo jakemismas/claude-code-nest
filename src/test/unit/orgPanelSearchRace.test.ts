@@ -1,30 +1,14 @@
-// vscodeStub MUST be imported first so require('vscode') resolves before
-// orgPanelWebview (and its transitive searchStore -> exportIO) imports it.
+// Import vscodeStub first so require('vscode') resolves before orgPanelWebview loads.
 import './vscodeStub';
 
 import * as assert from 'assert';
 import { ChatRecord, TokenTotals } from '../../model/types';
 
-// Regression test for the refresh-during-async-build race in
-// src/views/orgPanelWebview.ts (the content-search machinery the PRIMARY org panel
-// carried over from the retired chatsPreview POC). The content index builds in two
-// detached phases (tier-A, then a yielding body-read upgrade). A 'refresh' message
-// lands invalidateContentIndex() in the middle of the body-read window. WITHOUT the
-// generation guard, the in-flight build would write back AFTER invalidation:
-// contentIndex resurrected to a stale index and bodyIndexReady flipped back to true,
-// so a subsequent content query short-circuits on the stale index while the fresh
-// build's cleared indexedRecords makes rankRows drop every row -> zero rows for a
-// query that should match. The fix stamps each build with a generation captured at
-// ensureContentIndexBuilding time; the phases only write shared state while their
-// captured generation still matches.
-//
-// We exercise the real provider by intercepting its two module-level data
-// dependencies (chatScanner.scanChats, bodyReader.readTranscriptBodies) on the
-// cached CommonJS module objects. The compiled provider calls these as
-// chatScanner_1.scanChats(...) / bodyReader_1.readTranscriptBodies(...), i.e.
-// through the module namespace at call time, so overriding the exports redirects
-// them. readTranscriptBodies is gated so we can pause the body-read loop precisely
-// inside the phase-2 window and fire the refresh.
+// Regression test for a refresh landing during the async content index build in
+// src/views/orgPanelWebview.ts. Each build carries a generation, and a stale build
+// must not write the index back after invalidation or flip bodyIndexReady.
+// The test replaces chatScanner.scanChats and bodyReader.readTranscriptBodies on the cached
+// modules (the provider calls them through the namespace) and gates the body read to fire a refresh mid-build.
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const chatScanner = require('../../claude/chatScanner') as {
@@ -35,7 +19,7 @@ const bodyReader = require('../../claude/bodyReader') as {
   readTranscriptBodies: (filePath: string) => { role: string; text: string | null; uuid: string | null }[];
 };
 
-// Load the provider AFTER the stubbed modules are in the cache.
+// Load the provider after the stubbed modules are cached.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { OrgPanelProvider } = require('../../views/orgPanelWebview') as {
   OrgPanelProvider: new (
@@ -58,10 +42,7 @@ const realReadBodies = bodyReader.readTranscriptBodies;
 
 const extUri = { fsPath: '/ext', scheme: 'file' } as const;
 
-// Inert deps the search path never touches: the store/actions/dropDeps are only
-// used on a mutation, not during a search. getProjectKey returns undefined so the
-// section build is empty but the content search still scans (search does not gate on
-// the project key). The state store returns defaults.
+// Inert deps: search never touches the store, actions or dropDeps, and an undefined project key still scans.
 const inertStore = {
   getProjectMeta: (): unknown => ({ folders: {}, tags: {}, chats: {} }),
   flush: (): Promise<void> => Promise.resolve(),
@@ -83,9 +64,7 @@ const inertStateStore = {
   get: (): string | undefined => undefined,
   set: (): void => undefined,
 };
-// Inert read-state seam (OrgPanelReadState). getMap feeds the pure buildSections
-// during postSections; markSeen is a no-op. The search-race path never asserts on
-// read state, so an empty map is enough.
+// Inert read-state seam: an empty map is enough because these tests assert nothing on read state.
 const inertReadState = {
   getMap: (): Map<string, number> => new Map(),
   markSeen: (): void => undefined,
@@ -106,10 +85,7 @@ function makeProvider(workspacePath: string): unknown {
   );
 }
 
-// A provider variant with a real project key and a store whose getProjectMeta
-// returns the given meta, so the content-search path can resolve the SYNCED
-// ChatMeta.userArchived flag and exclude archived chats from the index (the
-// archived-in-index regression test below). Everything else is the inert wiring.
+// A provider with a real project key and a store returning the given meta, so search can exclude userArchived chats.
 function makeProviderWithMeta(workspacePath: string, meta: unknown): unknown {
   const store = { ...inertStore, getProjectMeta: (): unknown => meta };
   return new OrgPanelProvider(
@@ -304,15 +280,8 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
   });
 
   it('a refresh during the body-read window does NOT post an empty result for the query still in the box', async () => {
-    // The finding: postSearch awaits tierAReady/bodyReady but, unlike the build
-    // phases, did not re-check the build generation after the await. When a refresh
-    // fires inside the body-read window it invalidates the index (clears
-    // indexedRecords, nulls contentIndex, bumps buildGeneration); the awaited stale
-    // index then ranks to zero rows and postSearch posted { rows: [] } for the SAME
-    // query still in the search box, blanking a genuine match with no recovery. The
-    // generation guard must SKIP that stale empty post: the last searchResults post
-    // for the query must still carry the real hit (the pre-refresh tier-A reply),
-    // never a later empty one.
+    // postSearch must re-check the build generation after awaiting the index. Otherwise a refresh
+    // mid-build leaves a stale index that ranks to zero rows and blanks a real match.
     const corpus: ChatRecord[] = [
       record({ sessionId: 'a', title: 'alpha chat', lastMessageText: 'alpha body' }),
       record({ sessionId: 'a2', title: 'alpha two', lastMessageText: 'alpha body two', filePath: '/a2.jsonl' }),
@@ -339,9 +308,7 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
 
     const alphaPosts = posted.filter((m) => m.type === 'searchResults' && m.query === 'alpha');
     assert.ok(alphaPosts.length > 0, 'a searchResults post for "alpha" was made');
-    // Every post for the in-box query must be non-empty. The stale body-phase reply
-    // that would post [] after invalidation must be suppressed by the generation
-    // guard, so no empty post for "alpha" ever reaches the client.
+    // No empty post for "alpha" may reach the client after invalidation.
     for (const p of alphaPosts) {
       assert.ok(
         (p.rows ?? []).some((r) => r.sessionId === 'a'),
@@ -357,15 +324,8 @@ describe('orgPanelWebview content-search excludes user-archived chats from the i
     bodyReader.readTranscriptBodies = realReadBodies;
   });
 
-  // The finding: the host search index had NO archived filter, while buildSections
-  // excludes archived chats. archived chats got indexed (title + full body) and
-  // ranked, then the client dropped their hits when it joined to the
-  // archived-excluded rows, so archived chats consumed rank slots inside search()'s
-  // 50-hit cap and could crowd genuine live matches out. The fix filters archived
-  // chats out of scanForIndex (the sole index feeder) by the SAME synced
-  // ChatMeta.userArchived predicate buildSections uses. An archived chat must never
-  // enter indexedRecords and must never appear in a searchResults post, even when its
-  // title AND body match the query.
+  // The index must skip archived chats, as buildSections does. Otherwise they consume slots in the
+  // 50-hit cap and crowd out live matches, even when their title and body match.
   function archivedCorpusMeta(): { corpus: ChatRecord[]; meta: unknown } {
     const corpus: ChatRecord[] = [
       record({ sessionId: 'live', title: 'zebra live chat', lastMessageText: 'zebra body live', filePath: '/live.jsonl' }),

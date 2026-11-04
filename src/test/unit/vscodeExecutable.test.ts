@@ -1,3 +1,4 @@
+// Unit tests for resolving the VS Code executable inside a downloaded build.
 import * as assert from 'assert';
 import * as path from 'path';
 import { resolveVscodeExecutable } from '../integration/vscodeExecutable';

@@ -7,11 +7,8 @@ import {
 } from '../../commands/refreshScanCommands';
 import { ScannerOptions } from '../../claude/chatScanner';
 
-// refreshScanCommands is vscode-free: it takes injected ScanPrimable + RefreshScanUi
-// seams, so the progress/cancellation orchestration is unit-testable headless (no
-// vscode import). These prove the command primes the provider with the progress and
-// cancellation callbacks, surfaces a Claude-blameless error on failure, and never
-// throws out to the caller.
+// refreshScanCommands is vscode-free (injected ScanPrimable and RefreshScanUi), so these tests cover that it
+// primes the provider with progress and cancel callbacks, shows a blameless error on failure, and never throws.
 
 class FakePrimable implements ScanPrimable {
   public lastOptions: ScannerOptions | undefined;
@@ -51,8 +48,7 @@ describe('refreshScanCommands.refreshWithProgress', () => {
     let reportedDone = -1;
     let reportedTotal = -1;
     const provider = new FakePrimable((o) => {
-      // The provider would call these during its synchronous scan; here we just
-      // confirm they are present and wired through.
+      // The provider calls these during its scan; here they only need to be wired through.
       o.onProgress?.(3, 7);
       reportedDone = 3;
       reportedTotal = 7;
@@ -90,7 +86,6 @@ describe('refreshScanCommands.refreshWithProgress', () => {
     const provider = new FakePrimable(() => {
       throw new Error('scan blew up');
     });
-    // Must not reject.
     await refreshWithProgress({
       provider,
       ui: makeUi({ captureErrors: errors }),
@@ -99,7 +94,7 @@ describe('refreshScanCommands.refreshWithProgress', () => {
     assert.strictEqual(errors.length, 1);
     const msg = errors[0];
     assert.ok(msg.includes('Claude Code Nest could not finish scanning folders'));
-    // Never blames Claude: the message must not say Claude failed/broke/etc.
+    // The message must not blame Claude (failed, broke, and so on).
     assert.ok(!/Claude (failed|broke|crashed|error)/i.test(msg));
     assert.ok(msg.toLowerCase().includes('unchanged'));
   });

@@ -3,39 +3,24 @@ import { ProjectMeta } from '../store/schema';
 import { rollupByFolder, rollupByTag } from '../rollup/tokenRollup';
 import { renderRollupReport } from '../rollup/rollupReport';
 
-// The "Show Token Cost Rollup" command. It rolls up summary token totals by folder and by
-// tag and opens the report in a read-only document. tokens only, NO USD.  RENDER TARGET:
-// the lightest suitable surface is a virtual/untitled read-only document built
-// from the PURE reducer + renderer output, which avoids a webview/CSP dependency. The
-// orchestrator is vscode-thin and takes injected seams (the snapshot inputs and the
-// document open), so the headless gate covers the reducer + renderer and the command
-// stays a thin shell. The contributed command + a command-palette/view-title menu entry
-// are added in package.json, mirroring the curation-command contributions.
+// The "Show Token Cost Rollup" command: rolls up token totals by folder and tag and opens a read-only report (tokens only, no USD).
+// It takes injected seams for the snapshot and document open, so the reducer and renderer run without vscode.
 
 export const SHOW_TOKEN_ROLLUP_COMMAND = 'claudeNest.showTokenRollup';
 
 export interface TokenRollupDeps {
-  // The scanned chats' ids (the authoritative member set) and their summary token
-  // totals. extension.ts supplies these from FoldersProvider.chatRecords() (the id
-  // set) and the new FoldersProvider.tokenTotalsByChat() seam; a test supplies
-  // literals. A chat absent from the token map contributes 0 tokens but is still
-  // counted as a member.
+  // The scanned chat ids (the member set) and their summary token totals; a chat absent from the map counts 0 tokens.
   getChatIds: () => string[];
   getTokenTotals: () => Map<string, TokenTotals>;
-  // The current project's curation document (folder/tag membership + labels).
-  // extension.ts reads store.getProjectMeta(projectKey); a test supplies a literal.
-  // Returns null when no project resolves, in which case the command surfaces a
-  // notice rather than an empty report.
+  // The current project's curation document, or null when no project resolves (the command then shows a notice).
   getProjectMeta: () => ProjectMeta | null;
-  // Open the rendered report in a read-only document. extension.ts wires
-  // vscode.workspace.openTextDocument({ content }) + showTextDocument.
+  // Open the rendered report in a read-only document.
   openReport: (content: string) => void | Promise<void>;
   // Surface a non-blocking notice when there is nothing to roll up.
   showInfo: (message: string) => void;
 }
 
-// Build and show the rollup report. When no project/meta resolves or there are no
-// scanned chats, surface an info notice instead of an empty document.
+// Build and show the report, or show an info notice when no project or chats resolve.
 export async function showTokenRollup(deps: TokenRollupDeps): Promise<void> {
   const meta = deps.getProjectMeta();
   const chatIds = deps.getChatIds();

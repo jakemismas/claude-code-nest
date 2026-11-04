@@ -1,11 +1,7 @@
+// Unit tests for the transcript reader summary fields: roles, snippets, usage and touched files.
+
 import * as assert from 'assert';
 import { scanTranscript } from '../../claude/jsonlReader';
-
-// Pure-logic unit tests for the summary absorbers on the
-// tolerant transcript reader. No filesystem and no vscode import; the reader
-// operates on raw JSONL text. These cover the additive fields only; the
-// title/timestamp/PR/branch/uuid behavior is covered by jsonlReader.test.ts and
-// must stay untouched (additive contract).
 
 function jsonl(...objs: unknown[]): string {
   return objs.map((o) => JSON.stringify(o)).join('\n');

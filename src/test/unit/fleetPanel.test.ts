@@ -1,3 +1,5 @@
+// Unit tests for the fleet panel view model: stage colors, row labels and the attachable flag.
+
 import * as assert from 'assert';
 import { FleetGroup, FleetRow, FleetSections } from '../../fleet/groupModel';
 import {

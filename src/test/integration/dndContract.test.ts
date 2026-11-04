@@ -28,41 +28,17 @@ import {
 import { makeOccurrence } from '../../model/occurrence';
 import { ChatRecord } from '../../model/types';
 
-// The electron-host integration test: asserts controllers register and
-// MIME types match package.json, and also drives a real cross-tree drag and
-// assert the store mutation lands. It runs ONLY in the Extension Development Host
-// (out/test/integration via runTest.js), never in the headless `npm test` gate,
-// because the things it verifies CANNOT be reached headless:
-//   1. A real vscode.DataTransfer / DataTransferItem round-trip (the host's own
-//      types, not a fake). On a CROSS-tree drop the host does NOT deliver the
-//      source controller's custom DataTransferItem to the peer controller (it
-//      re-applies the source handleDrag items only when source view === dest
-//      view), so the cross-view payload rides the in-process dragContext stash,
-//      not the DataTransfer. This test reproduces the cross-tree drop by handing
-//      the peer controller a transfer that carries NONE of our payload values
-//      (only a host-style opaque reserved-MIME handle), so the drop MUST come from
-//      the stash or it fails - the previous version copied the source's own
-//      overwritten value into the drop transfer and so could never catch a real
-//      cross-controller delivery failure.
-//   2. The controller's node-dispatch helpers (chatIdsFromSource, resolveTarget)
-//      using `instanceof vscode.TreeItem` subclasses (FolderItem, ChatMemberItem,
-//      TagItem, ChatOccurrenceItem), which only have real prototypes in the host.
-//   3. The reserved-MIME literals equaling the value VSCode auto-derives from a
-//      view id (application/vnd.code.tree.<id>), cross-checked against the FROZEN
-//      DropTargetView literals in dropReducer.ts. The native Folders and Tags trees
-//      were RETIRED in (the org panel webview owns drag-and-drop now), so
-//      those view ids are no longer contributed in the manifest; the native
-//      controller and its reserved MIMEs are KEPT and still derive from the frozen
-//      'claudeNest.folders' / 'claudeNest.tags' target-view strings.
-//
-// The headless dropReducer / dropPayload unit tests cover the pure interpretation
-// and tolerant payload parsing; this test covers the host seam they cannot.
+// Extension Development Host test of drag-and-drop: controllers register, their MIME types match package.json,
+// and a real cross-tree drag lands its store mutation. It never runs headless because it needs:
+//   1. A real DataTransfer round-trip. On a cross-tree drop the host does not deliver the source controller's
+//      item to the peer, so the payload rides the in-process dragContext stash. The test hands the peer a
+//      transfer with only an opaque reserved-MIME handle, so the drop fails unless it comes from the stash.
+//   2. Real TreeItem prototypes for the node-dispatch helpers (chatIdsFromSource, resolveTarget).
+//   3. The reserved-MIME literals equal the value VSCode derives from a view id (application/vnd.code.tree.<id>),
+//      checked against the frozen DropTargetView literals in dropReducer.ts. The native Folders and Tags trees
+//      are no longer contributed, but the controller and its MIMEs remain.
 
-// A minimal in-memory SyncMemento for the store, mirroring the unit suite's
-// fakeMemento but kept local so this spec is self-contained (it runs in a
-// different mocha process than the unit suite). setKeysForSync is a no-op here;
-// the sync-registration behavior is unit-tested elsewhere. This is test-only and
-// exempt from the read-only chokepoint (src/test/** override in .eslintrc).
+// Minimal in-memory SyncMemento, kept local because this suite runs in a different mocha process than the unit suite.
 class MemMemento implements SyncMemento {
   private readonly map = new Map<string, unknown>();
   get<T>(key: string): T | undefined {
@@ -80,19 +56,13 @@ class MemMemento implements SyncMemento {
   }
 }
 
-// Derive the reserved MIME VSCode computes from a contributed view id, per its
-// documented rule: application/vnd.code.tree.<viewidlowercase>. Asserting the
-// code's literals equal THIS (computed from the manifest the host loaded) is the
-// package.json<->reserved-MIME contract the finding flagged as unverified.
+// Derives the reserved MIME VSCode computes from a view id: application/vnd.code.tree.<viewidlowercase>.
 function reservedMimeForViewId(viewId: string): string {
   return 'application/vnd.code.tree.' + viewId.toLowerCase();
 }
 
-// The FROZEN drop-target view ids the native controller uses. The native Folders and Tags
-// trees were retired in, so these are no longer contributed in package.json; they live on
-// as the dropReducer DropTargetView contract, and the native controller's reserved MIMEs
-// are still derived from them. The annotation pins them to the frozen union, so a change
-// to DropTargetView fails the build here.
+// Frozen drop-target view ids the native controller uses. They are no longer contributed in package.json but
+// remain the DropTargetView contract; the annotation fails the build if that union changes.
 const FROZEN_TARGET_VIEWS: { folders: DropTargetView; tags: DropTargetView } = {
   folders: 'claudeNest.folders',
   tags: 'claudeNest.tags',
@@ -122,10 +92,7 @@ function chatRecord(sessionId: string): ChatRecord {
   };
 }
 
-// Build a fresh store plus both controllers wired exactly as extension.ts wires
-// them: each controller declares its own reserved MIME and a fixed project-key
-// resolver. The providers are constructed only so a refresh has a target; the
-// drop logic reads the store directly.
+// Builds a store and both controllers as extension.ts wires them; providers exist only as refresh targets.
 function buildHarness() {
   const store = new MetadataStore(new MemMemento(), {
     deviceId: 'integration-device',
@@ -158,11 +125,8 @@ function buildHarness() {
 
 describe('drag-and-drop controller registration and MIME contract (electron host)', () => {
   it('both controllers expose a valid TreeDragAndDropController shape (native trees retired)', () => {
-    // retired the native Folders and Tags trees (the org panel webview owns drag-and-drop
-    // now), so the controllers are no longer attached via createTreeView; createTreeView
-    // on the uncontributed view ids would throw. The controllers themselves are KEPT and
-    // unit-tested, so assert the host accepts their shape: the drag and drop MIME arrays
-    // plus the handleDrag/handleDrop methods.
+    // The native trees are no longer contributed, so the controllers are not attached via createTreeView
+    // (it would throw on uncontributed ids); assert the host accepts their shape instead.
     const { foldersDnd, tagsDnd } = buildHarness();
     for (const ctrl of [foldersDnd, tagsDnd]) {
       assert.ok(Array.isArray(ctrl.dragMimeTypes), 'dragMimeTypes is an array');
@@ -184,12 +148,10 @@ describe('drag-and-drop controller registration and MIME contract (electron host
   it('each controller drops BOTH reserved MIMEs plus the shared chat MIME (peer tree is a drop target)', () => {
     const { foldersDnd, tagsDnd } = buildHarness();
     const expected = [NEST_CHAT_MIME, FOLDERS_RESERVED_MIME, TAGS_RESERVED_MIME];
-    // Sets, because the cross-view contract is about MEMBERSHIP (the peer reserved
-    // MIME must be present), not order.
+    // Compared as sets: the contract is membership, not order.
     assert.deepStrictEqual(new Set(foldersDnd.dropMimeTypes), new Set(expected));
     assert.deepStrictEqual(new Set(tagsDnd.dropMimeTypes), new Set(expected));
-    // Both peer MIMEs must be droppable on each view, or a cross-view drag is never
-    // offered the peer tree as a target.
+    // Both peer MIMEs must be droppable on each view, or a cross-view drag never offers the peer tree.
     for (const ctrl of [foldersDnd, tagsDnd]) {
       assert.ok(ctrl.dropMimeTypes.includes(FOLDERS_RESERVED_MIME));
       assert.ok(ctrl.dropMimeTypes.includes(TAGS_RESERVED_MIME));
@@ -201,7 +163,6 @@ describe('drag-and-drop controller registration and MIME contract (electron host
     const ids = FROZEN_TARGET_VIEWS;
     assert.strictEqual(FOLDERS_RESERVED_MIME, reservedMimeForViewId(ids.folders));
     assert.strictEqual(TAGS_RESERVED_MIME, reservedMimeForViewId(ids.tags));
-    // And the controllers actually carry those literals.
     const { foldersDnd, tagsDnd } = buildHarness();
     assert.ok(foldersDnd.dragMimeTypes.includes(reservedMimeForViewId(ids.folders)));
     assert.ok(tagsDnd.dragMimeTypes.includes(reservedMimeForViewId(ids.tags)));
@@ -209,23 +170,12 @@ describe('drag-and-drop controller registration and MIME contract (electron host
 });
 
 describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
-  // Reproduce the host's REAL cross-tree drop. VSCode 1.66 does NOT hand the source
-  // controller's custom DataTransferItem to the PEER controller's handleDrop: it
-  // re-applies the source handleDrag items only when the source and destination
-  // views match. On a cross-tree drop the peer controller's transfer carries none
-  // of OUR payload values - at most the host's own internal opaque reserved-MIME
-  // handle. We model that worst case here: the drop transfer carries the source
-  // reserved MIME set to a host-style opaque value that parseChatIds REJECTS (it is
-  // not our JSON id array), so the chat ids MUST come from the in-process
-  // dragContext stash that handleDrag set, or the drop is a no-op and the assertion
-  // fails. This is the carrier behavior the headless tests cannot exercise (they
-  // never build a real DataTransfer nor cross controllers), and it is what the
-  // previous copy-the-source-value version could not catch.
+  // Models the real cross-tree drop: the host does not hand the source controller's DataTransferItem to the peer,
+  // so the transfer carries only an opaque reserved-MIME value that parseChatIds rejects. The chat ids must
+  // come from the dragContext stash, or the drop is a no-op and the assertion fails.
   function crossTreeTransfer(sourceReservedMime: string): vscode.DataTransfer {
     const out = new vscode.DataTransfer();
-    // A host-internal opaque handle, NOT our chat-id JSON. parseChatIds returns []
-    // for it, so any code path that trusted this value cross-tree would silently
-    // no-op - which is exactly the failure mode the stash carrier fixes.
+    // An opaque host handle, not our chat-id JSON: parseChatIds returns [], so trusting it would silently no-op.
     out.set(
       sourceReservedMime,
       new vscode.DataTransferItem({ itemHandles: ['0'], hostInternal: true }),
@@ -235,21 +185,16 @@ describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
 
   it('a Folders chat dragged onto a Tags tag adds the tag without losing its folder home', async () => {
     const { store, foldersDnd, tagsDnd } = buildHarness();
-    // Seed: chat c1 homed in folder f1; tag t1 exists.
     store.setChatFolder(PROJECT_KEY, 'c1', 'f1');
     await store.flush();
 
-    // The dragged node is a real Folders-view ChatMemberItem (instanceof
-    // vscode.TreeItem), exercising chatIdsFromSource's instanceof dispatch. The
-    // drag stashes the chat ids in dragContext (the cross-view carrier).
+    // A real ChatMemberItem exercises the instanceof dispatch; the drag stashes the chat ids.
     const dragged = new ChatMemberItem('f1', chatRecord('c1'));
     const dragTransfer = new vscode.DataTransfer();
     foldersDnd.handleDrag([dragged], dragTransfer);
 
-    // The host hands the peer (Tags) controller a transfer with NO usable payload
-    // value: the cross-view chat ids must ride the stash, not this transfer.
+    // The peer controller gets no usable payload, so the ids must ride the stash.
     const dropTransfer = crossTreeTransfer(FOLDERS_RESERVED_MIME);
-    // The drop target is a real TagItem t1 (instanceof dispatch in resolveTarget).
     const target = new TagItem('t1', 'Tag One', false);
     await tagsDnd.handleDrop(target, dropTransfer);
     await store.flush();
@@ -261,18 +206,14 @@ describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
 
   it('a Tags occurrence dragged onto a folder moves its single home without losing its tags', async () => {
     const { store, foldersDnd, tagsDnd } = buildHarness();
-    // Seed: chat c2 tagged t1, currently unfiled.
     store.addChatTag(PROJECT_KEY, 'c2', 't1');
     await store.flush();
 
-    // The dragged node is a real Tags-view ChatOccurrenceItem; the drag stashes c2.
     const occurrence = makeOccurrence('t1', 'c2');
     const dragged = new ChatOccurrenceItem(occurrence, chatRecord('c2'));
     const dragTransfer = new vscode.DataTransfer();
     tagsDnd.handleDrag([dragged], dragTransfer);
 
-    // Cross-tree: the Folders controller gets no usable payload value; the chat id
-    // rides the stash.
     const dropTransfer = crossTreeTransfer(TAGS_RESERVED_MIME);
     const target = new FolderItem('f2', null, 'Folder Two', false);
     await foldersDnd.handleDrop(target, dropTransfer);
@@ -288,9 +229,7 @@ describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
     store.addChatTag(PROJECT_KEY, 'c3', 't1');
     await store.flush();
 
-    // A within-view drop in the SAME tree: the host preserves the full
-    // DataTransfer, so the shared chat MIME is present. Pass the drag transfer
-    // straight through (no stripping); the DataTransfer payload wins here.
+    // Within one tree the host keeps the full DataTransfer, so the payload wins; pass the drag transfer through.
     const occurrence = makeOccurrence('t1', 'c3');
     const dragged = new ChatOccurrenceItem(occurrence, chatRecord('c3'));
     const transfer = new vscode.DataTransfer();
@@ -309,12 +248,10 @@ describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
     store.addChatTag(PROJECT_KEY, 'c4', 't1');
     await store.flush();
 
-    // No handleDrag ran for this drop, so there is no Nest stash; consume any
-    // leftover stash from a prior test so this case is genuinely stash-free.
+    // No drag ran for this case; consume any stash left by a prior test.
     clearDrag();
 
-    // A DataTransfer carrying only a foreign tree's MIME: the controller finds no
-    // recognized payload and no stash, and must not mutate.
+    // Only a foreign tree's MIME and no stash: the controller must not mutate.
     const transfer = new vscode.DataTransfer();
     transfer.set(
       'application/vnd.code.tree.someotherextension',
@@ -329,10 +266,8 @@ describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
   });
 
   it('dropping a chat onto a linked-child row files it alongside (never silently unfiles)', async () => {
-    // Regression for the LinkedChildItem drop-target unfile bug: a drop on a
-    // linked-child row must resolve to the child chat's home folder, not undefined
-    // (which the reducer would map to unfile). The Folders controller is given a
-    // resolveChatHome that reports the linked child's home folder f3.
+    // A drop on a linked-child row must resolve to the child chat's home folder, not undefined (which would unfile).
+    // The Folders controller gets a resolveChatHome that reports f3.
     const store = new MetadataStore(new MemMemento(), {
       deviceId: 'integration-device',
       debounceMs: 0,
@@ -348,7 +283,6 @@ describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
       'claudeNest.folders',
       FOLDERS_RESERVED_MIME,
     );
-    // Seed: dragged chat c5 currently homed in f1.
     store.setChatFolder(PROJECT_KEY, 'c5', 'f1');
     await store.flush();
 
@@ -356,7 +290,6 @@ describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
     const dragTransfer = new vscode.DataTransfer();
     foldersDnd.handleDrag([dragged], dragTransfer);
 
-    // The drop target is a real LinkedChildItem whose underlying chat is childChat.
     const child = {
       chatId: 'childChat',
       parentChatId: 'parentChat',

@@ -10,12 +10,8 @@ import {
 } from '../../views/orgPanelModel';
 import { UNFILED_FOLDER_ID } from '../../model/folderTree';
 
-// Headless unit tests for the PURE org-panel section assembler. It imports no vscode
-// types (only plain data in/out and the pure schema shape), so this test never
-// transitively requires the vscode module. It covers section assembly, the awaiting-reply
-// heuristic (lastMessageRole === 'user' ONLY), single-home folder placement with
-// per-folder color, the synthetic Unsorted bucket, empty sections, tag chips, and the
-// sentinel contract.
+// Unit tests for the pure org panel section assembler: sections, the awaiting-reply
+// heuristic, folder placement and color, the Unsorted bucket, tag chips and the sentinel.
 
 function totals(over: Partial<TokenTotals> = {}): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, ...over };
@@ -55,8 +51,7 @@ function meta(over: Partial<ProjectMeta> = {}): ProjectMeta {
   };
 }
 
-// A token-badge stub: a simple non-zero formatter so the row carries a badge when
-// there are tokens, mirroring the real tokenBadge contract (empty for zero).
+// Stub badge formatter: empty for zero tokens, like the real one.
 function badge(r: ChatRecord): string {
   const t = r.tokenTotals;
   const sum = t.input + t.output + t.cacheCreation + t.cacheRead;
@@ -65,8 +60,7 @@ function badge(r: ChatRecord): string {
 
 describe('orgPanelModel sentinel contract', () => {
   it('the Unsorted sentinel matches the dropReducer/folderTree UNFILED sentinel', () => {
-    // The org-panel Unsorted bucket must reduce to an unfile when dropped onto, so
-    // its id must equal the folder-tree/reducer UNFILED sentinel.
+    // The Unsorted id must equal the reducer UNFILED sentinel so a drop reduces to an unfile.
     assert.strictEqual(UNSORTED_FOLDER_ID, '__unfiled__');
     assert.strictEqual(UNSORTED_FOLDER_ID, UNFILED_FOLDER_ID);
   });
@@ -75,11 +69,8 @@ describe('orgPanelModel sentinel contract', () => {
 describe('orgPanelModel Questions section (status-driven, replaces lastMessageRole heuristic)', () => {
   it('flags ONLY unread assistant-last chats that ask something (not user-last)', () => {
     const records = [
-      // user-last: no longer in Questions (superseded-by-user is status 'none')
       record({ sessionId: 'u', lastMessageRole: 'user', lastMessageText: 'Please fix this?' }),
-      // unread assistant asking: in Questions
       record({ sessionId: 'q', lastMessageRole: 'assistant', lastMessageText: 'Which do you want?' }),
-      // unread assistant NOT asking: not in Questions (it is the 'done' dot)
       record({ sessionId: 'd', lastMessageRole: 'assistant', lastMessageText: 'All done.' }),
       record({ sessionId: 'n', lastMessageRole: null }),
     ];
@@ -97,7 +88,6 @@ describe('orgPanelModel Questions section (status-driven, replaces lastMessageRo
     const records = [
       record({ sessionId: 'q', timestamp: 100, lastMessageRole: 'assistant', lastMessageText: 'Which one?' }),
     ];
-    // Seen AFTER the last activity -> read -> not a question.
     const seen = new Map<string, number>([['q', 200]]);
     const sections = buildSections(records, meta(), badge, seen);
     assert.strictEqual(sections.questions.length, 0, 'seen chat drops out of Questions');
@@ -127,8 +117,6 @@ describe('orgPanelModel row status slot (lastSeenAt-driven)', () => {
   });
 
   it("marks an UNREAD non-question assistant-last chat as status 'done' (unread dot)", () => {
-    // With an empty lastSeenAt map the assistant turn is unread; a non-question turn
-    // is the solid 'done' dot.
     const sections = buildSections(
       [record({ sessionId: 'a', lastMessageRole: 'assistant', lastMessageText: 'Done, all green.' })],
       meta(),
@@ -139,8 +127,7 @@ describe('orgPanelModel row status slot (lastSeenAt-driven)', () => {
   });
 
   it("marks a SEEN assistant-last chat as status 'none' (no fabricated unread affordance)", () => {
-    // The lastSeenAt gate: a chat seen after its last activity shows an empty slot,
-    // whether or not the assistant text asks something.
+    // A chat seen after its last activity shows no status, whether or not it asks.
     const records = [
       record({ sessionId: 'q', timestamp: 100, lastMessageRole: 'assistant', lastMessageText: 'Which one?' }),
       record({ sessionId: 'd', timestamp: 100, lastMessageRole: 'assistant', lastMessageText: 'All done.' }),
@@ -342,16 +329,13 @@ describe('orgPanelModel folder placement and color', () => {
     const child = sections.folders.find((f) => f.folderId === 'c');
     assert.strictEqual(parent && parent.depth, 0);
     assert.strictEqual(child && child.depth, 1);
-    // treeDepth equals depth when within the render cap.
     assert.strictEqual(parent && parent.treeDepth, 0);
     assert.strictEqual(child && child.treeDepth, 1);
   });
 });
 
 describe('orgPanelModel one-visible-sublevel depth clamp', () => {
-  // A four-tier legacy hierarchy: root(0) -> a(1) -> b(2) -> c(3). Rendering clamps
-  // the emitted depth at MAX_FOLDER_RENDER_DEPTH (2); the stored parentId chain is
-  // never touched and treeDepth carries the true depth.
+  // A four-tier hierarchy: the rendered depth clamps at MAX_FOLDER_RENDER_DEPTH while treeDepth keeps the true depth.
   function deepMeta(): ProjectMeta {
     return meta({
       folders: {
@@ -372,22 +356,17 @@ describe('orgPanelModel one-visible-sublevel depth clamp', () => {
     };
     assert.strictEqual(get('root').depth, 0);
     assert.strictEqual(get('a').depth, 1);
-    // b (stored depth 2) renders at 2; c (stored depth 3) is CLAMPED to 2.
     assert.strictEqual(get('b').depth, 2, 'depth-2 folder renders at 2');
     assert.strictEqual(get('c').depth, 2, 'depth-3 legacy folder is clamped to render depth 2');
-    // The true structural depth is preserved for the collapse/hide bookkeeping.
     assert.strictEqual(get('b').treeDepth, 2);
     assert.strictEqual(get('c').treeDepth, 3, 'treeDepth keeps the uncapped depth');
   });
 
   it('never modifies the stored folder records (data preserved through the clamp)', () => {
     const m = deepMeta();
-    // Snapshot the stored folders before assembling.
     const before = JSON.parse(JSON.stringify(m.folders));
     buildSections([], m, badge);
-    // The model must not mutate the meta it was handed.
     assert.deepStrictEqual(m.folders, before, 'buildSections must not mutate stored folders');
-    // parentId chain is intact: c -> b -> a -> root -> null.
     assert.strictEqual(m.folders.c.parentId, 'b');
     assert.strictEqual(m.folders.b.parentId, 'a');
     assert.strictEqual(m.folders.a.parentId, 'root');
@@ -570,8 +549,7 @@ describe('orgPanelModel archived exclusion and count', () => {
   it('excludes a userArchived chat from every visible section and counts it in archivedCount', () => {
     const records = [
       record({ sessionId: 'live' }),
-      // unread assistant-asking: WITHOUT archiving this would be in Questions, so the
-      // exclusion is genuinely exercised.
+      // Without archiving, this chat would be in Questions.
       record({ sessionId: 'gone', lastMessageRole: 'assistant', lastMessageText: 'Which one?' }),
     ];
     const m = meta({
@@ -579,8 +557,7 @@ describe('orgPanelModel archived exclusion and count', () => {
       tags: { t1: { id: 't1', label: 'bug' } },
       chats: {
         live: { folderId: 'f1', tags: ['t1'], links: [], updatedAt: 0, deviceId: 'd' },
-        // archived AND filed AND tagged AND starred AND unread-asking: it must appear
-        // in NONE of the sections/chips and be counted once instead.
+        // Archived, filed, tagged, starred and unread-asking: it appears in no section or chip and is counted once.
         gone: {
           folderId: 'f1',
           tags: ['t1'],
@@ -664,9 +641,7 @@ describe('orgPanelModel row sort', () => {
   });
 });
 
-// buildArchivedRows: the pure builder that now owns the archived-row membership + sort +
-// fallback-title logic the retired Archive tree carried. A trivial relative-time stub
-// keeps the builder deterministic (a null timestamp yields '').
+// buildArchivedRows owns archived-row membership, sort and fallback titles; a relative-time stub keeps it deterministic.
 function relStub(ts: number | null): string {
   return ts === null ? '' : String(ts);
 }
@@ -700,8 +675,7 @@ describe('orgPanelModel buildArchivedRows', () => {
       record({ sessionId: 'p-old', timestamp: 100 }),
       record({ sessionId: 'p-new', timestamp: 300 }),
     ];
-    // g2 and g1 are archived but not scanned (transcript gone); they sort after present
-    // chats, ordered by sessionId.
+    // Archived chats missing from the scan sort after present ones, by sessionId.
     const m = meta({
       chats: {
         'p-old': { folderId: null, tags: [], links: [], updatedAt: 0, deviceId: 'd', userArchived: true },

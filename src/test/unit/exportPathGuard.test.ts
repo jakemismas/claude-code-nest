@@ -1,3 +1,5 @@
+// Unit tests for the export-write path guard that keeps writes out of ~/.claude/projects.
+
 import * as assert from 'assert';
 import * as path from 'path';
 import * as os from 'os';
@@ -9,15 +11,7 @@ import {
   isUnderClaudeProjects,
 } from '../../store/exportPathGuard';
 
-// Pure-logic unit tests for the export-write path guard (the read-only invariant's
-// export half). No vscode, no filesystem. The guard rejects any write target that
-// is the ~/.claude/projects/ root or under it, so a save dialog pointed there can
-// never overwrite a Claude transcript.
-//
-// NOTE: claudeProjectsRoot()/isUnderClaudeProjects() read os.homedir() LIVE, and a
-// sibling test (claudeSettingsIO) reassigns the home dir env for its own fixtures
-// within the same mocha process. So every test reads the root FRESH (never captured
-// at module load) to stay consistent with the guard's call-time homedir.
+// The guard reads os.homedir() live, and claudeSettingsIO repoints HOME in the same process, so each test reads the root fresh.
 
 describe('exportPathGuard.isUnderClaudeProjects', () => {
   it('rejects the ~/.claude/projects root itself', () => {
@@ -60,11 +54,8 @@ describe('exportPathGuard.isUnderClaudeProjects', () => {
   });
 });
 
-// Windows NTFS is case-insensitive, so a re-cased segment resolves to the SAME
-// on-disk transcript. The earlier guard folded only the leading drive letter and
-// compared case-sensitively, so these slipped the membership test and a write
-// landed on a real transcript. The fix case-folds the whole path on win32. These
-// tests are win32-only (case behavior is platform-specific) and skip elsewhere.
+// Windows NTFS is case-insensitive, so a re-cased segment resolves to the same transcript; the guard case-folds the whole path on win32.
+// These tests run on win32 only.
 describe('exportPathGuard case-insensitive Windows membership', () => {
   const winIt = process.platform === 'win32' ? it : it.skip;
 
@@ -95,15 +86,8 @@ describe('exportPathGuard case-insensitive Windows membership', () => {
   });
 });
 
-// A symlink/NTFS junction can redirect a lexically-innocent path onto a real
-// transcript. The earlier guard never realpathed, so a junction into the projects
-// tree slipped the prefix test and the write followed the link. The fix realpaths
-// the longest existing prefix before the comparison. To make this deterministic
-// (and independent of whether the real ~/.claude/projects exists), the test
-// repoints os.homedir() at a scratch tree it builds itself (the same HOME/
-// USERPROFILE override the sibling claudeSettingsIO suite uses), creates a REAL
-// <scratch>/.claude/projects directory, then a junction (POSIX: dir symlink)
-// pointing into it, and aims a write through the junction.
+// A symlink or NTFS junction can redirect an innocent-looking path into the projects tree, so the guard realpaths the longest
+// existing prefix. The test builds its own scratch home and projects dir so it does not depend on the real one.
 describe('exportPathGuard symlink/junction resolution', () => {
   let scratch: string | null = null;
   let savedHome: string | undefined;

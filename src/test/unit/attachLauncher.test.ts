@@ -1,3 +1,5 @@
+// Unit tests for attaching to a running chat in a terminal and for building terminal options.
+
 import * as assert from 'assert';
 import {
   AttachDeps,

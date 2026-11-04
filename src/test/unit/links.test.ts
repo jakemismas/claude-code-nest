@@ -1,3 +1,5 @@
+// Unit tests for the link graph model and its composite-id grammar.
+
 import * as assert from 'assert';
 import { Link } from '../../store/schema';
 import {
@@ -16,11 +18,7 @@ import {
   parseLinkedChildId,
 } from '../../model/links';
 
-// Pure-logic unit tests for the link graph model and its composite-id grammar
-// `${parentChatId}>link>${chatId}`. No vscode import, no filesystem (unit-gate
-// rule). Covers graph build, transitive-cycle and diamond
-// detection, parent-child nesting, broken-target handling, the deterministic
-// single-parent tie-break, and unique ids.
+// Covers graph build, cycle and diamond detection, nesting, broken targets, the single-parent tie-break and unique ids.
 
 // Build a links map (source chat id -> Link[]) from a compact spec.
 function linksOf(spec: {

@@ -1,3 +1,4 @@
+// Unit tests for fleet status mapping, rollup and attachable session selection.
 import * as assert from 'assert';
 import { ChatStatus, StatusInput, attachableSessionIds, computeStatuses, isAttachable, mapStatus, rollupStatus } from '../../fleet/status';
 import { FleetEntry } from '../../fleet/types';

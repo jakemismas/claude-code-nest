@@ -1,38 +1,19 @@
 import * as fs from 'fs';
 import { extractMessageText } from './jsonlReader';
 
-// On-demand reader for a SINGLE chat's full message bodies. Strictly read-only: it reads
-// one transcript file and returns the ordered user/assistant message bodies, then the
-// caller discards them. NO provider holds the result, and the full bodies NEVER enter the
-// scan snapshot. This is the lazy body reader; the compact summary (counts, token
-// totals, last-message snippet) still rides the snapshot via jsonlReader.ts and is the
-// cheap surface for rows and hovers.  This module reads its OWN file (the single named
-// transcript) rather than going through chatScanner.scanChats, because it needs the
-// per-line message bodies the scanner deliberately discards. It stays a strict read:
-// fs.readFileSync only, no write/rename/delete, matching readChat's read-only contract.
-// It is otherwise vscode-free so the headless unit gate can cover it against a scratch
-// fixture.
+// Read-only, on-demand reader for one chat's full message bodies.
+// The scan snapshot keeps only a compact summary, so callers read bodies here and discard them.
 
-// One genuine user/assistant message body in transcript order. text is the
-// extracted prose (the same shapes extractMessageText understands: a string body,
-// {content:string}, or {content:[{type:'text',text}]}); it is null for a turn
-// with no extractable text (a pure tool_use assistant turn or a tool_result-only
-// user line). uuid is carried when present for stable ordering/identity, null
-// otherwise. The reader returns EVERY user/assistant line in order, including
-// tool_result-feedback user lines and textless assistant turns, so a consumer can
-// reconstruct the turn sequence; it does not apply the summary awaiting-reply
-// role-suppression (that is a snapshot heuristic, not a body-extraction concern).
+// text is null for a turn with no extractable prose (a pure tool_use turn or a tool_result-only
+// user line). The reader returns every user/assistant line, so callers can rebuild the turn
+// sequence; it does not apply the scanner's awaiting-reply role suppression.
 export interface ChatMessageBody {
   role: 'user' | 'assistant';
   text: string | null;
   uuid: string | null;
 }
 
-// Read one transcript file's message bodies in transcript order. Returns [] when
-// the file cannot be read at all or carries no user/assistant lines, and NEVER
-// throws: a malformed individual line is skipped, an unreadable file yields [],
-// mirroring readChat's tolerance. The result is meant to be consumed immediately
-// and discarded; nothing here caches or retains it.
+// Returns [] for an unreadable file or one with no user/assistant lines. Never throws.
 export function readTranscriptBodies(filePath: string): ChatMessageBody[] {
   let content: string;
   try {
@@ -43,10 +24,7 @@ export function readTranscriptBodies(filePath: string): ChatMessageBody[] {
   return extractBodies(content);
 }
 
-// Extract the ordered user/assistant message bodies from already-read JSONL text.
-// Split out from readTranscriptBodies so the headless suite can exercise the pure
-// extraction over an in-memory string without a fixture file. Tolerant of
-// malformed lines and unrelated types, exactly like scanTranscript.
+// Pure extraction over already-read JSONL text. Skips malformed lines and unrelated types.
 export function extractBodies(content: string): ChatMessageBody[] {
   const bodies: ChatMessageBody[] = [];
   const lines = content.split(/\r?\n/);
@@ -58,7 +36,7 @@ export function extractBodies(content: string): ChatMessageBody[] {
     try {
       obj = JSON.parse(line);
     } catch {
-      // Malformed line: tolerate and skip (never throw).
+      // Skip a malformed line.
       continue;
     }
     if (!isRecord(obj)) {

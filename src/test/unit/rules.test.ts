@@ -1,3 +1,4 @@
+// Unit tests for organize rules: compilation, matching, folder templates, unsafe patterns, and the organize and undo planners.
 import * as assert from 'assert';
 import { parseNestConfig } from '../../fleet/nestConfig';
 import {
@@ -475,7 +476,6 @@ describe('planUndo', () => {
     );
     assert.deepStrictEqual(plan.skipped, ['a']);
     assert.strictEqual(plan.actions.length, 1);
-    // Skipped chat a still carries tNew, so the tag stays.
     assert.deepStrictEqual(plan.removeTagIds, []);
   });
 
@@ -489,7 +489,6 @@ describe('planUndo', () => {
       folders,
       tags,
     );
-    // a was unstarred by the user, so it is skipped and keeps fNew.
     assert.deepStrictEqual(plan.skipped, ['a']);
     assert.deepStrictEqual(plan.removeFolderIds, []);
   });

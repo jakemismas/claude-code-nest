@@ -12,25 +12,15 @@ import {
 import { assertMintableId } from '../model/idFactory';
 import { FolderItem, ChatMemberItem } from '../views/foldersProvider';
 
-// The Folders-view commands: create (with slash-path expansion), rename, delete, and
-// assign-a-chat-to-a-folder. Every store mutation runs through MetadataStore (the synced
-// ProjectMeta), and the view is refreshed ONCE after the store flush (refresh
-// coalescing).  Slash-path expansion: typing
-// 'Work/ClientA' in the create command expands into a CHAIN of real parent-child Folder
-// records, reusing any existing segment by (parentId, name) and minting only missing
-// ones. No literal '/' is ever stored in a single Folder.name. The split happens HERE at
-// create time, not at render time, so Folder.parentId stays meaningful for the delete
-// cascade and getParent.
+// The Folders-view commands: create (with slash-path expansion), rename, delete and assign-a-chat-to-a-folder, written through MetadataStore with one view refresh.
+// Typing 'Work/ClientA' expands at create time into a chain of real Folder records, reusing existing segments by (parentId, name), so Folder.name never holds a '/'.
 
 export const CREATE_FOLDER_COMMAND = 'claudeNest.createFolder';
 export const RENAME_FOLDER_COMMAND = 'claudeNest.renameFolder';
 export const DELETE_FOLDER_COMMAND = 'claudeNest.deleteFolder';
 export const ASSIGN_CHAT_TO_FOLDER_COMMAND = 'claudeNest.assignChatToFolder';
 
-// The injectable seam for the prompts and confirmations, so the command logic can
-// be exercised without the real vscode UI. extension.ts wires the real window
-// methods; a test (integration or a future host test) can supply fakes. The pure
-// expansion/cascade logic itself already lives in the vscode-free model.
+// The injectable seam for prompts and confirmations; extension.ts wires the real window methods and tests supply fakes.
 export interface FolderCommandUi {
   prompt(options: {
     title: string;
@@ -48,27 +38,16 @@ export interface FolderCommandUi {
 
 export interface FolderCommandDeps {
   store: MetadataStore;
-  // Only refresh() is used; a structural refresher lets the wiring pass a closure
-  // that also schedules the opt-in auto-export snapshot after a mutation. The
-  // concrete FoldersProvider and the test stubs both satisfy it.
+  // Only refresh() is used; the wiring passes a closure that also schedules the opt-in auto-export snapshot.
   provider: { refresh(): void };
-  // Resolve the encoded project key ON DEMAND (mirroring scanChats), so a command
-  // invoked after Claude Code created the project dir resolves it instead of acting
-  // on a value frozen at activation. extension.ts wires this to
-  // FoldersProvider.resolveProjectKey; a test supplies a fixed closure.
+  // Resolve the project key on demand so a project created after activation still resolves.
   getProjectKey: () => string | undefined;
   ui: FolderCommandUi;
 }
 
-// Create a folder from a (possibly slash-nested) name. parentFolderItem, when supplied
-// (right-click "New Folder" on a folder row), roots the new chain under that folder.
-// presetName, when supplied (the in-panel "New folder" popover), skips the interactive
-// prompt and uses that name directly; the palette and right-click paths omit it and
-// prompt as before. Returns the leaf folder id, or null when cancelled / no project /
-// nothing creatable under the depth cap.  The "one visible sublevel" cap
-// (MAX_FOLDER_CREATE_DEPTH) is enforced here: creating under a folder already at the max
-// creatable depth is refused with a message, and a deeper slash path is clamped so it can
-// never mint past one sublevel. Existing deeper (legacy) folders are untouched.
+// Create a folder from a possibly slash-nested name. parentFolderItem roots the chain under a clicked folder; presetName skips the prompt (the in-panel popover).
+// Returns the leaf folder id, or null on cancel, no project, or nothing creatable under the depth cap.
+// MAX_FOLDER_CREATE_DEPTH limits the tree to one visible sublevel: creating under a folder at the cap is refused and a deeper path is clamped. Existing deeper folders are untouched.
 export async function createFolder(
   deps: FolderCommandDeps,
   parentFolderItem?: FolderItem,
@@ -84,12 +63,7 @@ export async function createFolder(
   const meta = store.getProjectMeta(projectKey);
   const startParentId = parentFolderItem ? parentFolderItem.folderId : null;
 
-  // Refuse to create under a parent that is already at the deepest creatable level.
-  // A new child there would sit at depth > MAX_FOLDER_CREATE_DEPTH, past the one
-  // visible sublevel. This mirrors the render clamp but stops the write at the
-  // source, so no over-deep folder is ever minted. (A legacy folder deeper than the
-  // cap can still be a parent target only if it is itself within the cap; a
-  // grandchild parent is refused.)
+  // Refuse to create under a parent already at the deepest creatable level, so no over-deep folder is minted.
   if (startParentId !== null && folderDepthOf(meta.folders, startParentId) >= MAX_FOLDER_CREATE_DEPTH) {
     ui.showError('Folders nest one level deep. Create this folder at the top level instead.');
     return null;
@@ -119,13 +93,7 @@ export async function createFolder(
     }
   }
 
-  // When created under an existing folder, root the expansion at the clicked
-  // folder's AUTHORITATIVE id (startParentId), not by recomposing and re-matching
-  // its name path. A name-path round-trip would resolve through findChildByName
-  // and could attach the new child to the FIRST same-named sibling instead of the
-  // folder the user actually clicked (sibling names are not unique: renameFolder
-  // permits a collision). Passing the id directly removes that ambiguity. maxDepth
-  // clamps a deep slash path so the chain never mints past one sublevel.
+  // Root the expansion at the clicked folder's id (startParentId) rather than re-matching its name path, which could pick the first same-named sibling since renameFolder permits collisions. maxDepth clamps a deep path.
   const result = expandFolderPath(raw, meta.folders, {
     startParentId,
     maxDepth: MAX_FOLDER_CREATE_DEPTH,
@@ -134,9 +102,7 @@ export async function createFolder(
     // The whole path was over the cap (nothing mintable). Nothing to persist.
     return null;
   }
-  // Persist every segment record. mintNew segments are new; reused ones are
-  // re-upserted idempotently (a no-op shape-wise). assertMintableId is the
-  // id-factory guard re-run at the write boundary as defense in depth.
+  // Persist every segment; reused ones are re-upserted idempotently. assertMintableId re-checks ids at the write boundary.
   for (const segment of result.chain) {
     assertMintableId(segment.folder.id, 'folder id');
     store.upsertFolder(projectKey, segment.folder);
@@ -146,10 +112,7 @@ export async function createFolder(
   return result.leafFolderId;
 }
 
-// Rename a folder. Renames only the single segment (the folder's own name); it
-// does not re-expand slashes, so typing a slash here is rejected (a rename targets
-// one node, not a re-parenting). The cascade and getParent semantics are unchanged
-// because parentId is untouched.
+// Rename a folder's own segment only; a slash is rejected because a rename targets one node, not a re-parenting.
 export async function renameFolder(
   deps: FolderCommandDeps,
   folderItem: FolderItem,
@@ -177,13 +140,7 @@ export async function renameFolder(
       if (trimmed.includes('/')) {
         return 'A rename sets one name; use New Folder to create nested folders.';
       }
-      // Reject a rename that would make this folder share (parentId, name) with a
-      // sibling. Two same-named siblings break the (parentId, name) reuse key and
-      // make a slash-path round-trip ambiguous, so the name path no longer
-      // uniquely identifies a folder. The create command roots under a parent id
-      // directly and is unaffected, but the assign-to-folder picker and any
-      // name-based lookup still rely on sibling-name uniqueness, so the guard
-      // belongs here at the source.
+      // Reject a name that collides with a sibling: the (parentId, name) reuse key and the assign picker rely on sibling-name uniqueness.
       const sibling = findChildByName(meta.folders, current.parentId, trimmed);
       if (sibling !== null && sibling.id !== current.id) {
         return 'A folder with that name already exists here.';
@@ -205,10 +162,7 @@ export async function renameFolder(
   provider.refresh();
 }
 
-// Delete a folder and every descendant folder, after a confirmation. The store's
-// deleteFolder detaches each member chat (sets folderId null) per folder; deleting
-// the descendants bottom-up via the model's cascade set unfiles every chat that
-// was homed anywhere in the subtree. Chats are never deleted.
+// Delete a folder and every descendant after confirmation, unfiling every chat homed in the subtree. Chats are never deleted.
 export async function deleteFolder(
   deps: FolderCommandDeps,
   folderItem: FolderItem,
@@ -239,9 +193,7 @@ export async function deleteFolder(
     return;
   }
 
-  // Coalesce the cascade into the store's debounced single write, then refresh
-  // once. deleteFolder unfiles the folder's own member chats; deleting every
-  // descendant id covers nested members too.
+  // Coalesce the cascade into one debounced write and refresh once; deleting every descendant id covers nested members.
   for (const id of cascade) {
     store.deleteFolder(projectKey, id);
   }
@@ -249,10 +201,7 @@ export async function deleteFolder(
   provider.refresh();
 }
 
-// Assign a chat to a folder via the context menu. Presents the folder list (plus
-// an Unfiled / "Move out of folder" choice) and sets the chat's single home. The
-// chat node may arrive as a ChatMemberItem (right-clicked in this view) or as a
-// bare sessionId (invoked from another surface).
+// Assign a chat to a folder from the context menu, with an Unfiled choice to move it out. The chat arrives as a member item or a bare sessionId.
 export async function assignChatToFolder(
   deps: FolderCommandDeps,
   target: ChatMemberItem | string,
@@ -276,9 +225,7 @@ export async function assignChatToFolder(
   provider.refresh();
 }
 
-// Build the slash path of a folder by walking its parent chain to the root. Used
-// to prefix a child create and to label folders in the assign picker. Bounded by a
-// visited set against a corrupt cyclic parent chain.
+// Build a folder's slash path by walking its parents to the root, bounded by a visited set against a cyclic chain.
 export function folderPathFor(
   folders: { [id: string]: Folder },
   folderId: string,
@@ -298,8 +245,7 @@ export function folderPathFor(
   return segments.join('/');
 }
 
-// The assign-to-folder picker items: an Unfiled choice first, then every folder by
-// its full slash path, sorted alphabetically for a stable list.
+// The assign-to-folder picker items: an Unfiled choice first, then every folder by its full slash path, sorted alphabetically.
 function folderPickItems(folders: {
   [id: string]: Folder;
 }): { label: string; description?: string; folderId: string | null }[] {

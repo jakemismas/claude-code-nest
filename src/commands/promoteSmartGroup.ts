@@ -1,25 +1,6 @@
-// promoteSmartGroup: the two explicit, idempotent promotion commands that turn a
-// read-only smart-group bucket into a real Folder or Tag. This is the ONLY write
-// path the smart groups have, and it writes ONLY synced ProjectMeta through
-// the store (never under ~/.claude/projects). Nothing here auto-files; the user
-// invokes a promote on a chosen bucket.
-//
-// Idempotency has TWO levels, both honored:
-//  - membership: store.setChatFolder is last-write and store.addChatTag dedupes,
-//    so re-running a promotion is a no-op on already-promoted chats.
-//  - GROUP IDENTITY (idempotency-on-NAME): a second promote of the SAME bucket
-//    reuses the existing folder/tag BY NAME rather than minting a duplicate.
-//    promote-to-folder reuses a top-level folder matched by name
-//    (findChildByName(folders, null, name)); promote-to-tag reuses a tag matched
-//    by label. So promoting "PR #1" twice yields one folder/tag with every member
-//    filed/tagged once, not two same-named folders/tags.
-//
-// The batch follows the deleteFolder-cascade shape: N synchronous store calls (which coalesce into one pending
-// write), ONE await store.flush(), ONE provider.refresh().
-//
-// This module imports the store and the pure id-factory/folderTree helpers; it is
-// NOT vscode-bound (no vscode import), so the orchestration is exercisable in the
-// headless unit suite with a real MetadataStore and a fake provider.
+// promoteSmartGroup: the explicit, idempotent commands that promote a read-only smart-group bucket to a real Folder or Tag.
+// They write only synced ProjectMeta through the store and file nothing automatically; a repeat promote reuses the folder or tag matched by name.
+// The batch is N synchronous store calls, one flush and one refresh; the module has no vscode import.
 
 import { MetadataStore } from '../store/metadataStore';
 import { Folder, Tag } from '../store/schema';
@@ -29,9 +10,7 @@ import { findChildByName } from '../model/folderTree';
 export const PROMOTE_GROUP_TO_FOLDER_COMMAND = 'claudeNest.promoteSmartGroupToFolder';
 export const PROMOTE_GROUP_TO_TAG_COMMAND = 'claudeNest.promoteSmartGroupToTag';
 
-// The plain description of a bucket to promote: the human name (becomes the
-// folder name / tag label) and the member chat sessionIds. The view extracts this
-// from the clicked smart-group bucket row; a test supplies it directly.
+// The bucket to promote: the human name (folder name or tag label) and member chat sessionIds.
 export interface PromotableGroup {
   name: string;
   memberChatIds: string[];
@@ -40,25 +19,19 @@ export interface PromotableGroup {
 export interface PromoteDeps {
   store: MetadataStore;
   provider: { refresh(): void };
-  // Resolve the encoded project key ON DEMAND (mirroring the other commands), so a
-  // promote invoked after Claude Code created the project dir resolves it.
+  // Resolve the project key on demand so a project created after activation still resolves.
   getProjectKey: () => string | undefined;
 }
 
-// The result of resolving-or-creating the promotion target, for the unit tests to
-// assert idempotency-on-name: created is true only when a NEW folder/tag was
-// minted; id is the (reused or new) target id.
+// The promotion target: created is true only when a new folder or tag was minted; id is the reused or new id.
 export interface PromoteResult {
   id: string;
   created: boolean;
   memberCount: number;
 }
 
-// Promote a smart-group bucket to a real top-level FOLDER, filing every member
-// chat into it. Reuses an existing top-level folder of the same name (idempotent
-// group identity); files each member with setChatFolder (last-write, so a member
-// already in the folder is a no-op). Returns null when there is no project or the
-// bucket has no members; otherwise the PromoteResult.
+// Promote a bucket to a top-level folder, filing every member into it and reusing an existing top-level folder of the same name.
+// Returns null when there is no project or the bucket has no members.
 export async function promoteGroupToFolder(
   deps: PromoteDeps,
   group: PromotableGroup,
@@ -75,9 +48,7 @@ export async function promoteGroupToFolder(
   }
 
   const meta = store.getProjectMeta(projectKey);
-  // Idempotency-on-NAME: reuse a top-level (parentId null) folder of this name.
-  // A smart-group promotion always creates a TOP-LEVEL folder, so the reuse key
-  // is (parentId=null, name), which findChildByName matches exactly.
+  // Reuse a top-level folder of this name (parentId null); findChildByName matches that key exactly.
   const existing = findChildByName(meta.folders, null, name);
   let folderId: string;
   let created: boolean;
@@ -97,9 +68,7 @@ export async function promoteGroupToFolder(
     created = true;
   }
 
-  // File every member into the folder. setChatFolder is last-write, so a chat
-  // already homed here is re-stamped to the same value (a harmless no-op on
-  // re-promotion). N synchronous calls coalesce into one pending write.
+  // File every member; setChatFolder is last-write, so a repeat promotion is a no-op. Calls coalesce into one pending write.
   for (const chatId of members) {
     store.setChatFolder(projectKey, chatId, folderId);
   }
@@ -108,10 +77,8 @@ export async function promoteGroupToFolder(
   return { id: folderId, created, memberCount: members.length };
 }
 
-// Promote a smart-group bucket to a real TAG, applying it to every member chat.
-// Reuses an existing tag of the same label (idempotent group identity); applies
-// with addChatTag (dedupes, so a member already tagged is a no-op). Returns null
-// when there is no project or the bucket has no members; otherwise the result.
+// Promote a bucket to a tag, applying it to every member and reusing an existing tag of the same label.
+// Returns null when there is no project or the bucket has no members.
 export async function promoteGroupToTag(
   deps: PromoteDeps,
   group: PromotableGroup,
@@ -128,11 +95,7 @@ export async function promoteGroupToTag(
   }
 
   const meta = store.getProjectMeta(projectKey);
-  // Idempotency-on-NAME: reuse a tag whose label equals this name. Tags carry no
-  // parent, so the reuse key is the label alone. The FIRST matching label wins;
-  // the create-tag command does not enforce label uniqueness, but a promote only
-  // ever reuses (never edits) so re-promoting a group converges on whichever tag
-  // already carries the label rather than minting another.
+  // Reuse the first tag whose label equals this name (tags have no parent and labels are not unique), so re-promoting converges on one tag.
   const existing = findTagByLabel(meta.tags, label);
   let tagId: string;
   let created: boolean;
@@ -147,8 +110,7 @@ export async function promoteGroupToTag(
     created = true;
   }
 
-  // Apply the tag to every member. addChatTag dedupes, so a member already
-  // carrying the tag is a no-op on re-promotion. N synchronous calls coalesce.
+  // addChatTag dedupes, so a repeat promotion is a no-op for tagged members.
   for (const chatId of members) {
     store.addChatTag(projectKey, chatId, tagId);
   }
@@ -157,8 +119,7 @@ export async function promoteGroupToTag(
   return { id: tagId, created, memberCount: members.length };
 }
 
-// Find a stored tag by exact label, or null. Exported for the promotion unit
-// test so the idempotency-on-label reuse rule is assertable directly.
+// Find a stored tag by exact label, or null.
 export function findTagByLabel(
   tags: { [id: string]: Tag },
   label: string,

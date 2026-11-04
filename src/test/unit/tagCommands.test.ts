@@ -12,10 +12,8 @@ import {
 } from '../../commands/tagCommands';
 import type { TagsProvider, TagItem, ChatOccurrenceItem } from '../../views/tagsProvider';
 
-// Headless unit tests for the Tags-view command orchestration. The commands depend
-// only on the injectable TagCommandUi/TagCommandDeps seams, a real MetadataStore
-// over the FakeMemento double, and a refresh-counting TagsProvider stub. No vscode
-// host. Mirrors folderCommands.test.ts.
+// Unit tests for the Tags-view command orchestration over injectable UI and deps seams, a real
+// MetadataStore on FakeMemento, and a refresh-counting TagsProvider stub. Mirrors folderCommands.test.ts.
 
 const DEVICE = 'dev-tag';
 const PK = 'c--proj-tag';
@@ -24,8 +22,7 @@ function makeStore(): MetadataStore {
   return new MetadataStore(new FakeMemento(), { deviceId: DEVICE, debounceMs: 0 });
 }
 
-// A TagsProvider stub that only counts refreshes. The commands call exactly
-// provider.refresh() once after each store flush (refresh coalescing).
+// TagsProvider stub that counts refreshes; commands refresh once after each store flush.
 function makeProvider(): { provider: TagsProvider; refreshCount: () => number } {
   let refreshes = 0;
   const stub = {
@@ -115,7 +112,7 @@ describe('createTag', () => {
     const ui = makeUi({ prompts: ['  Bug  '] });
     const id = await createTag(makeDeps(store, provider, ui, PK));
     assert.ok(id);
-    // The minted id is separator-free (the occurrence grammar depends on it).
+    // The minted id is separator-free, as the occurrence grammar requires.
     assert.ok(isMintableId(id), 'created tag id must be separator-free / mintable');
     const tag = store.getProjectMeta(PK).tags[id];
     assert.ok(tag);
@@ -169,7 +166,6 @@ describe('deleteTag', () => {
     const meta = store.getProjectMeta(PK);
     assert.ok(!('t1' in meta.tags), 'tag record removed');
     assert.ok('t2' in meta.tags, 'other tag survives');
-    // t1 stripped from both chats; t2 retained on c1.
     assert.deepStrictEqual(meta.chats.c1.tags, ['t2']);
     assert.deepStrictEqual(meta.chats.c2.tags, []);
     assert.strictEqual(refreshCount(), 1);
@@ -232,7 +228,6 @@ describe('addTagToChat', () => {
 
     const ui = makeUi({ picks: [{ tagId: 't2' }] });
     await addTagToChat(makeDeps(store, provider, ui, PK), occArg('t1', 'c1'));
-    // The picker offered only t2 (t1 is already applied).
     assert.deepStrictEqual(ui.pickCalls[0].items.map((i) => i.tagId), ['t2']);
     assert.deepStrictEqual(new Set(store.getProjectMeta(PK).chats.c1.tags), new Set(['t1', 't2']));
   });
@@ -269,7 +264,6 @@ describe('removeTagFromChat', () => {
     store.addChatTag(PK, 'c1', 't2');
     await store.flush();
 
-    // Right-click the c1 occurrence under t1: only t1 is removed.
     await removeTagFromChat(makeDeps(store, provider, makeUi({}), PK), occArg('t1', 'c1'));
     assert.deepStrictEqual(store.getProjectMeta(PK).chats.c1.tags, ['t2']);
     assert.strictEqual(refreshCount(), 1);

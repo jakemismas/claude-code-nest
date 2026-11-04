@@ -1,10 +1,8 @@
+// Unit tests for the folder-name and tag-label resolvers behind the hover card.
+
 import * as assert from 'assert';
 import { ProjectMeta } from '../../store/schema';
 import { resolveFolderName, resolveTagLabels } from '../../views/chatMeta';
-
-// Headless unit tests for the pure folder-name / tag-label resolvers that feed the
-// hover card. No vscode, no filesystem: they operate on the plain ProjectMeta
-// shape the providers already read.
 
 function meta(partial: Partial<ProjectMeta> = {}): ProjectMeta {
   return {
