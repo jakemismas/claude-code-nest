@@ -348,6 +348,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
+    this.robinViewReady = false;
+    this.lastRobinJson = '';
     const mediaRoot = vscode.Uri.joinPath(this.extensionUri, 'media');
     webviewView.webview.options = {
       enableScripts: true,
@@ -429,6 +431,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private queueLoaded = false;
   private robinGraceOver = false;
   private lastRobinJson = '';
+  // False until the webview of the current view says it is ready; earlier posts are dropped.
+  private robinViewReady = false;
 
   setRobinOptions(options: {
     animations: () => boolean;
@@ -498,7 +502,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private postRobin(): void {
-    if (this.robinDisposed || this.view === undefined || this.robinOutput === undefined) {
+    if (this.robinDisposed || !this.robinViewReady || this.view === undefined || this.robinOutput === undefined) {
       return;
     }
     const animations = this.robinAnimations();
@@ -509,7 +513,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
     this.lastRobinJson = json;
     void this.view.webview.postMessage(message);
-    // The egg counts as hatched only once a visible panel with animations on has been sent it.
+    // The egg counts as hatched only once a ready, visible panel with animations on has been sent it.
     if (message.state === 'hatch' && animations && this.robinVisible) {
       this.robinHatched.set();
     }
@@ -645,6 +649,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 
   private onMessage(msg: Inbound): void {
     if (msg.type === 'ready') {
+      this.robinViewReady = true;
+      this.lastRobinJson = '';
       this.postState();
       this.postSettings();
       this.postSections();
@@ -973,7 +979,6 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
     void this.view.webview.postMessage({ type: 'sections', sections: this.buildSectionModel() });
     this.postFleet(true);
-    this.lastRobinJson = '';
     this.postRobin();
   }
 

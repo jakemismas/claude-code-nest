@@ -170,4 +170,23 @@ describe('robin art', () => {
       }
     }
   });
+
+  it('has the webview skip an identical robin message so notes in flight survive', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'media', 'orgPanel.js'), 'utf8');
+    const start = src.indexOf('function onRobinMessage(');
+    assert.ok(start >= 0);
+    const body = src.slice(start, src.indexOf('buildRobin();', start));
+    const guard = body.indexOf('JSON.stringify(robinMsg) === JSON.stringify(next)');
+    assert.ok(guard >= 0, 'compares the new message with the current one');
+    assert.ok(guard < body.indexOf('applyRobin()'), 'returns before applyRobin');
+  });
+
+  it('colors the panel with the same palette the art file declares', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'media', 'orgPanel.css'), 'utf8');
+    for (const [key, hex] of Object.entries(art.PALETTE)) {
+      const m = new RegExp('^\\.rp-' + key + ' \\{ fill: (#[0-9A-Fa-f]{6}); \\}', 'm').exec(css);
+      assert.ok(m, 'a .rp-' + key + ' fill rule exists');
+      assert.strictEqual(m?.[1].toLowerCase(), hex.toLowerCase(), 'color ' + key);
+    }
+  });
 });

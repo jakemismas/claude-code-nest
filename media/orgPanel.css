@@ -1715,7 +1715,7 @@ body.vscode-high-contrast {
   justify-content: center;
   align-items: center;
   gap: 14px;
-  padding: 26px 16px 16px;
+  padding: 36px 16px 16px;
   flex: none;
   overflow: hidden;
 }
@@ -1774,27 +1774,27 @@ body.vscode-high-contrast {
 .rp-v { fill: #D46A86; }
 
 /* Dark panels lift the fills so the bird, branch and reactions keep their contrast. */
-html[data-theme='dark'] .rp-H, body.vscode-dark .rp-H, body.vscode-high-contrast .rp-H { fill: #8B7466; }
-html[data-theme='dark'] .rp-w, body.vscode-dark .rp-w, body.vscode-high-contrast .rp-w { fill: #B8A596; }
-html[data-theme='dark'] .rp-r, body.vscode-dark .rp-r, body.vscode-high-contrast .rp-r { fill: #EA8240; }
-html[data-theme='dark'] .rp-b, body.vscode-dark .rp-b, body.vscode-high-contrast .rp-b { fill: #E3AC2E; }
-html[data-theme='dark'] .rp-t, body.vscode-dark .rp-t, body.vscode-high-contrast .rp-t { fill: #D9AE80; }
-html[data-theme='dark'] .rp-m, body.vscode-dark .rp-m, body.vscode-high-contrast .rp-m { fill: #A87650; }
-html[data-theme='dark'] .rp-d, body.vscode-dark .rp-d, body.vscode-high-contrast .rp-d { fill: #80593A; }
-html[data-theme='dark'] .rp-g, body.vscode-dark .rp-g, body.vscode-high-contrast .rp-g { fill: #5FB06D; }
-html[data-theme='dark'] .rp-G, body.vscode-dark .rp-G, body.vscode-high-contrast .rp-G { fill: #4A9A5A; }
-html[data-theme='dark'] .rp-l, body.vscode-dark .rp-l, body.vscode-high-contrast .rp-l { fill: #8FD07E; }
-html[data-theme='dark'] .rp-x, body.vscode-dark .rp-x, body.vscode-high-contrast .rp-x { fill: #E4624C; }
-html[data-theme='dark'] .rp-s, body.vscode-dark .rp-s, body.vscode-high-contrast .rp-s { fill: #E8CF92; }
-html[data-theme='dark'] .rp-E, body.vscode-dark .rp-E, body.vscode-high-contrast .rp-E { fill: #EDDDB8; }
-html[data-theme='dark'] .rp-n, body.vscode-dark .rp-n, body.vscode-high-contrast .rp-n { fill: #EA8240; }
-html[data-theme='dark'] .rp-p, body.vscode-dark .rp-p, body.vscode-high-contrast .rp-p { fill: #B9A2F7; }
-html[data-theme='dark'] .rp-o, body.vscode-dark .rp-o, body.vscode-high-contrast .rp-o { fill: #E3AC2E; }
-html[data-theme='dark'] .rp-a, body.vscode-dark .rp-a, body.vscode-high-contrast .rp-a { fill: #4CC97E; }
-html[data-theme='dark'] .rp-y, body.vscode-dark .rp-y, body.vscode-high-contrast .rp-y { fill: #EBCB4A; }
-html[data-theme='dark'] .rp-q, body.vscode-dark .rp-q, body.vscode-high-contrast .rp-q { fill: #E3A424; }
-html[data-theme='dark'] .rp-z, body.vscode-dark .rp-z, body.vscode-high-contrast .rp-z { fill: #93B4EE; }
-html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast .rp-v { fill: #F28DA9; }
+html[data-theme='dark'] .rp-H, body.vscode-dark .rp-H, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-H { fill: #8B7466; }
+html[data-theme='dark'] .rp-w, body.vscode-dark .rp-w, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-w { fill: #B8A596; }
+html[data-theme='dark'] .rp-r, body.vscode-dark .rp-r, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-r { fill: #EA8240; }
+html[data-theme='dark'] .rp-b, body.vscode-dark .rp-b, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-b { fill: #E3AC2E; }
+html[data-theme='dark'] .rp-t, body.vscode-dark .rp-t, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-t { fill: #D9AE80; }
+html[data-theme='dark'] .rp-m, body.vscode-dark .rp-m, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-m { fill: #A87650; }
+html[data-theme='dark'] .rp-d, body.vscode-dark .rp-d, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-d { fill: #80593A; }
+html[data-theme='dark'] .rp-g, body.vscode-dark .rp-g, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-g { fill: #5FB06D; }
+html[data-theme='dark'] .rp-G, body.vscode-dark .rp-G, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-G { fill: #4A9A5A; }
+html[data-theme='dark'] .rp-l, body.vscode-dark .rp-l, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-l { fill: #8FD07E; }
+html[data-theme='dark'] .rp-x, body.vscode-dark .rp-x, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-x { fill: #E4624C; }
+html[data-theme='dark'] .rp-s, body.vscode-dark .rp-s, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-s { fill: #E8CF92; }
+html[data-theme='dark'] .rp-E, body.vscode-dark .rp-E, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-E { fill: #EDDDB8; }
+html[data-theme='dark'] .rp-n, body.vscode-dark .rp-n, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-n { fill: #EA8240; }
+html[data-theme='dark'] .rp-p, body.vscode-dark .rp-p, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-p { fill: #B9A2F7; }
+html[data-theme='dark'] .rp-o, body.vscode-dark .rp-o, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-o { fill: #E3AC2E; }
+html[data-theme='dark'] .rp-a, body.vscode-dark .rp-a, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-a { fill: #4CC97E; }
+html[data-theme='dark'] .rp-y, body.vscode-dark .rp-y, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-y { fill: #EBCB4A; }
+html[data-theme='dark'] .rp-q, body.vscode-dark .rp-q, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-q { fill: #E3A424; }
+html[data-theme='dark'] .rp-z, body.vscode-dark .rp-z, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-z { fill: #93B4EE; }
+html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast:not(.vscode-high-contrast-light) .rp-v { fill: #F28DA9; }
 
 .rp-root,
 .rp-tail,
@@ -1812,7 +1812,7 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
 
 /* The egg gets a thin shell edge so it reads on any panel color. */
 .rp-egg {
-  filter: drop-shadow(0.5px 0 0 #9C8863) drop-shadow(-0.5px 0 0 #9C8863) drop-shadow(0 0.5px 0 #9C8863) drop-shadow(0 -0.5px 0 #9C8863);
+  filter: drop-shadow(1px 0 0 #9C8863) drop-shadow(-1px 0 0 #9C8863) drop-shadow(0 1px 0 #9C8863) drop-shadow(0 -1px 0 #9C8863);
 }
 
 /* Parts and effects stay hidden until a state shows them. */
@@ -1867,7 +1867,7 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
 .nest-robin-slot[data-motion="full"][data-state="working"][data-speed="1"] .rp-head { animation-duration: 0.42s; }
 .nest-robin-slot[data-motion="full"][data-state="working"][data-speed="2"] .rp-head { animation-duration: 0.3s; }
 .nest-robin-slot[data-motion="full"][data-state="worm"] .rp-head { animation: nest-robin-gulp 1.8s step-end infinite; }
-.nest-robin-slot[data-motion="full"][data-state="worm"] .rb-fx-worm { display: inline; transform-origin: 0 50%; animation: nest-robin-worm 1.8s ease-in-out infinite; }
+.nest-robin-slot[data-motion="full"][data-state="worm"] .rb-fx-worm { display: inline; animation: nest-robin-worm 1.8s step-end infinite; }
 .nest-robin-slot[data-motion="full"][data-state="needs"] .rp-root { animation: nest-robin-hopwait 1.4s step-end infinite; }
 .nest-robin-slot[data-motion="full"][data-state="needs"] .rp-head { animation: nest-robin-tiltq 1.2s step-end infinite; }
 .nest-robin-slot[data-motion="full"][data-state="needs"] .rb-fx-q { display: inline; animation: nest-robin-qpulse 1s step-end infinite; }
@@ -1939,14 +1939,14 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
 @keyframes nest-robin-hopwait { 0% { transform: translateY(0); } 65% { transform: translateY(-2px); } 75% { transform: translateY(0); } 82% { transform: translateY(-1px); } 90% { transform: translateY(0); } }
 @keyframes nest-robin-celebrate { 0% { transform: translateY(0); } 20% { transform: translateY(-3px); } 40% { transform: translateY(0); } 55% { transform: translateY(-2px); } 70% { transform: translateY(0); } }
 @keyframes nest-robin-shake { 0% { transform: translateX(0); } 25% { transform: translateX(-1px); } 75% { transform: translateX(1px); } }
-@keyframes nest-robin-floatup { 0% { opacity: 0; transform: translate(0, 1px); } 15% { opacity: 1; transform: translate(0, 0); } 45% { transform: translate(0, -1px); } 70% { opacity: 0.7; transform: translate(1px, -2px); } 90% { opacity: 0; transform: translate(1px, -3px); } }
-@keyframes nest-robin-burst { 0% { opacity: 0; } 20% { opacity: 1; } 60% { opacity: 1; transform: translateY(-1px); } 85% { opacity: 0; } }
-@keyframes nest-robin-notepop { 0% { opacity: 0; transform: translateY(1px); } 8% { opacity: 1; transform: translateY(0); } 33% { transform: translateY(-1px); } 58% { transform: translateY(-2px); } 83% { opacity: 0.6; transform: translateY(-3px); } 99% { opacity: 0; } }
-@keyframes nest-robin-worm { 0% { opacity: 1; transform: scaleX(1); } 50% { opacity: 1; transform: scaleX(0.45); } 85% { opacity: 1; transform: scaleX(0.3); } 100% { opacity: 0.6; transform: scaleX(1); } }
+@keyframes nest-robin-floatup { 0% { opacity: 0; transform: translate(0, 1px); } 15% { opacity: 1; transform: translate(0, 0); } 45% { transform: translate(0, -1px); } 70% { opacity: 0.7; transform: translate(1px, -2px); } 90%, 100% { opacity: 0; transform: translate(1px, -3px); } }
+@keyframes nest-robin-burst { 0% { opacity: 0; } 20% { opacity: 1; } 60% { opacity: 1; transform: translateY(-1px); } 85%, 100% { opacity: 0; } }
+@keyframes nest-robin-notepop { 0% { opacity: 0; transform: translateY(1px); } 8% { opacity: 1; transform: translateY(0); } 33% { transform: translateY(-1px); } 58% { transform: translateY(-2px); } 83% { opacity: 0.6; transform: translateY(-3px); } 99%, 100% { opacity: 0; } }
+@keyframes nest-robin-worm { 0% { opacity: 1; transform: translateX(0); } 30% { transform: translateX(-1px); } 55% { transform: translateX(-2px); } 80%, 100% { opacity: 0; transform: translateX(-2px); } }
 @keyframes nest-robin-qpulse { 0% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
 @keyframes nest-robin-hatchin { 0%, 55% { opacity: 0; } 100% { opacity: 1; } }
-@keyframes nest-robin-eggwhole { 0% { opacity: 1; transform: translateX(0); } 4% { transform: translateX(-1px); } 8% { transform: translateX(1px); } 12% { transform: translateX(0); } 40% { opacity: 0; } }
-@keyframes nest-robin-eggcrack { 0% { opacity: 0; } 40% { opacity: 1; } 56% { opacity: 0; } }
+@keyframes nest-robin-eggwhole { 0% { opacity: 1; transform: translateX(0); } 4% { transform: translateX(-1px); } 8% { transform: translateX(1px); } 12% { transform: translateX(0); } 40%, 100% { opacity: 0; } }
+@keyframes nest-robin-eggcrack { 0% { opacity: 0; } 40% { opacity: 1; } 56%, 100% { opacity: 0; } }
 
 @keyframes nest-robin-flap-up { 0% { opacity: 1; } 25%, 100% { opacity: 0; } }
 @keyframes nest-robin-flap-mid { 0%, 50%, 100% { opacity: 0; } 25%, 75% { opacity: 1; } }
