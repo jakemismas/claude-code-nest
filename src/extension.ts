@@ -1176,6 +1176,7 @@ export function activate(context: vscode.ExtensionContext): void {
             name: options.name,
             shellPath: options.shellPath,
             shellArgs: [...options.shellArgs],
+            cwd: os.homedir(),
           }),
         onDidCloseTerminal: (listener) => vscode.window.onDidCloseTerminal((t) => listener(t)),
         warn: (message) => void vscode.window.showWarningMessage(message),

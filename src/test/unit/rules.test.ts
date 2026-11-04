@@ -156,7 +156,7 @@ describe('expandFolderTemplate', () => {
 });
 
 describe('unsafe regex patterns', () => {
-  const bad = ['^(a+)+$', '(a|aa)*b', '.*.*.*.*x', '(a)\\1', '(?=a)b', 'a{1,9}(b){2}', '(?<n>a)'];
+  const bad = ['^(a+)+$', '(a|aa)*b', '.*.*.*.*x', '(a)\\1', '(?=a)b', 'a{1,9}(b){2}', '(?<n>a)', '.*.*.*x', 'a*a*a*b', '[a-z]*[a-z]*[a-z]*\\d', '\\w+\\w+\\w+!', 'a.*b.*c', '^a*a*a*b', '.*a{0,19}a{0,19}b', 'a*a{0,19}a{0,19}c', '\\w*\\w*\\w*!', '^x|.*.*b'];
   for (const pattern of bad) {
     for (const key of ['name', 'ticket']) {
       it(`rejects match.${key} ${pattern}`, () => {
@@ -170,10 +170,22 @@ describe('unsafe regex patterns', () => {
     const c = compile([{ match: { name: '^T-\\d+.*(?:build|qa)$' }, folder: 'X' }]);
     assert.strictEqual(c.rules.length, 1);
     assert.ok(firstMatch(c.rules, subject({ name: 'T-12 x build' }), '/h') !== null);
-    const slow = compile([{ match: { name: 'a.*b.*c' }, folder: 'X' }]);
+    const slow = compile([{ match: { name: '^a.*b.*c' }, folder: 'X' }]);
     const start = Date.now();
     firstMatch(slow.rules, subject({ name: 'a'.repeat(100000) }), '/h');
     assert.ok(Date.now() - start < 1000);
+  });
+  it('keeps the worst accepted pattern fast on a hostile subject', () => {
+    const c = compile([{ match: { name: '.*a{0,4}b' }, folder: 'X' }]);
+    const start = Date.now();
+    firstMatch(c.rules, subject({ name: 'a'.repeat(500) }), '/h');
+    assert.ok(Date.now() - start < 200);
+  });
+  it('rejects overlapping quantifiers quickly and matches a long subject fast', () => {
+    const start = Date.now();
+    const c = compile([{ match: { name: 'a*x' }, folder: 'X' }]);
+    firstMatch(c.rules, subject({ name: 'a'.repeat(500) }), '/h');
+    assert.ok(Date.now() - start < 500);
   });
 });
 

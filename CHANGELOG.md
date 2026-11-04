@@ -48,6 +48,10 @@ to [Semantic Versioning](https://semver.org/).
   folder groups with status dots, stage pills and agent tags, an Active filter and a
   read-only Queue list.
 
+### Security
+
+- Pre-release audit hardening: the agents lookup runs from the home directory with a hard kill, the status poller has a watchdog so a hung command cannot stall it, and the regex rule check estimates worst-case cost and refuses patterns over budget.
+
 ## [0.2.0] - 2026-07-10
 
 Nest is now a single sidebar panel.

@@ -3,7 +3,7 @@
 export const FLEET_RECORD_VERSION = 1;
 
 // A session id reaches a terminal or URI only after matching this grammar.
-export const SESSION_ID_RE = /^[0-9a-fA-F-]{8,64}$/;
+export const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,63}$/;
 
 export const MAX_NAME_LEN = 200;
 export const MAX_FOLDER_LEN = 200;

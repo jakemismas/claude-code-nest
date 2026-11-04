@@ -64,7 +64,7 @@ export function attachTerminalOptions(sessionId: string, chatName: string): Atta
 }
 
 export const NOT_FOUND_WARNING =
-  'Could not run "claude attach". Check that the claude command is on your PATH.';
+  '"claude attach" exited with an error. The session may have ended, or the claude command is not on your PATH.';
 
 // Creates the terminal after the id guard. A terminal that closes with a non-zero exit
 // code, which is what a missing claude binary produces, raises one warning.

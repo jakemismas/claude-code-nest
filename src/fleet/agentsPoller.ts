@@ -6,6 +6,8 @@ import type { AgentSession, AgentsResult } from '../claude/agentsCli';
 export const POLL_VISIBLE_MS = 10_000;
 export const POLL_HIDDEN_MS = 60_000;
 export const POLL_RETRY_MS = 5 * 60_000;
+// Independent deadline so a hung runner cannot keep inFlight set forever.
+export const POLL_WATCHDOG_MS = 15_000;
 
 export interface PollerTimers {
   setTimeout(fn: () => void, ms: number): unknown;
@@ -107,11 +109,19 @@ export class AgentsPoller {
     this.clear();
     this.inFlight = true;
     let result: AgentsResult;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
     try {
-      result = await this.deps.poll();
+      const deadline = new Promise<AgentsResult>((resolve) => {
+        watchdog = setTimeout(() => resolve({ ok: false, reason: 'The claude agents command timed out.' }), POLL_WATCHDOG_MS);
+        watchdog.unref?.();
+      });
+      result = await Promise.race([this.deps.poll(), deadline]);
     } catch {
       result = { ok: false, reason: 'The claude agents command failed.' };
     } finally {
+      if (watchdog !== undefined) {
+        clearTimeout(watchdog);
+      }
       this.inFlight = false;
     }
     if (this.disposed) {

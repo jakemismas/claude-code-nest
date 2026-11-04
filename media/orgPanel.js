@@ -681,7 +681,7 @@
   }
 
   // The bottom Archived (N) row, shown only when any chat is archived. Opens the
-  // interim Archive view (the in-panel Archive overlay lands in s3b).
+  // interim Archive view.
   function renderArchivedRow() {
     if (!sections.archivedCount || sections.archivedCount <= 0) {
       return;

@@ -78,7 +78,7 @@ describe('schemaMigrate validateEnvelope (shape gate)', () => {
     );
   });
 
-  // Security fix pass (import-envelope hardening, revised in review round 2): a
+  // Import-envelope hardening: a
   // project KEY from the file is minted verbatim into a synced globalState key
   // and registered with setKeysForSync (no removal path), so the wrapper gate
   // bounds its length, charset, and count before any migration runs. A failing
