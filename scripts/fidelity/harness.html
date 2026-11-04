@@ -297,7 +297,7 @@
       });
       const rStarredIdea = row({
         sessionId: 's-10',
-        title: 'Trip itinerary — Japan',
+        title: 'Trip itinerary: Japan',
         timestamp: now - 1 * HOUR,
         tokens: '~9k tok',
         tags: ['idea'],
@@ -540,7 +540,7 @@
       // ?fleet=ticket or ?fleet=folder adds the fleet view: the host's 'fleet' message in
       // the ticket view or the any-folder view, with made-up data. The Starred and
       // Questions sections are empty there so the capture shows the fleet layout alone.
-      const fleetView = (/[?&]fleet=(ticket|folder)(&|$)/.exec(location.search) || [])[1] || null;
+      const fleetView = (/[?&]fleet=(ticket|folder|markup)(&|$)/.exec(location.search) || [])[1] || null;
       const fleetSections = Object.assign({}, sections, {
         starred: [],
         questions: [],
@@ -638,6 +638,23 @@
         ],
       };
 
+      // Titles that carry markup must render as literal text. Captured for the DOM checks only.
+      const MARKUP_DATA = {
+        orchestrator: null,
+        past: [],
+        groups: [
+          { id: 'ticket.A-110', kind: 'ticket', label: 'A-110', ticket: 'A-110', title: '<b>x</b> literal title', stage: 'In build', family: 'blue', rows: [
+            { id: 'm-101', tag: 'build', suffix: '<i>y</i> suffix', status: 'working' },
+          ] },
+        ],
+        unsorted: { id: 'unsorted', kind: 'unsorted', label: 'Unsorted', rows: [
+          { id: 'm-102', title: '<b>x</b> scratch', status: 'idle' },
+        ] },
+        queue: [
+          { key: 'A-111', title: '<b>x</b> queued', stage: 'To build', family: 'blue' },
+        ],
+      };
+
       const FOLDER_DATA = {
         orchestrator: null,
         past: [],
@@ -669,7 +686,7 @@
 
       // Builds the host's 'fleet' message from the made-up data above.
       window.__nestHarnessFleet = function (active) {
-        const data = fleetView === 'folder' ? FOLDER_DATA : TICKET_DATA;
+        const data = fleetView === 'folder' ? FOLDER_DATA : fleetView === 'markup' ? MARKUP_DATA : TICKET_DATA;
         const orch = data.orchestrator && (!active || isLive(data.orchestrator)) ? data.orchestrator : null;
         const pastRows = active ? data.past.filter(isLive) : data.past;
         const groups = data.groups.filter((g) => !active || g.rows.some(isLive));
