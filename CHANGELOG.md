@@ -17,6 +17,9 @@ to [Semantic Versioning](https://semver.org/).
 - Optional layout file `.nest/config.json` (JSON with comments, read-only) controls
   grouping, linked folders and fleet files, with a JSON schema, hot reload and an
   Open Layout File command.
+- Nest works out a live status for each chat (working, needs you, queued, done or idle)
+  from running Claude Code sessions, fleet records and an optional queue file. The panel
+  does not show it yet.
 
 ## [0.2.0] - 2026-07-10
 

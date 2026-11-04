@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { ChatRecord } from '../model/types';
 import { foldersToScan, mergeFolderScans, scanChats } from '../claude/chatScanner';
+import type { AgentSession } from '../claude/agentsCli';
+import { ChatStatus, computeStatuses } from '../fleet/status';
+import type { QueueRow } from '../fleet/queueTable';
 import { GroupBy } from '../fleet/nestConfig';
 import { EMPTY_FLEET_STATE, FleetState } from '../fleet/types';
 import { readTranscriptBodies } from '../claude/bodyReader';
@@ -10,7 +13,7 @@ import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 import { tokenBadge } from './chatTooltip';
 import { relativeTime, relativeTimeCompact } from './relativeTime';
-import { buildSections, buildArchivedRows, OrgSections, isArchived, PlacementContext } from './orgPanelModel';
+import { buildSections, buildArchivedRows, OrgSections, isArchived, PlacementContext, rowStatus } from './orgPanelModel';
 import { coerceAutoArchiveWindowDays } from '../store/autoArchivePolicy';
 import {
   SearchDoc,
@@ -350,6 +353,51 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     });
 
     webviewView.webview.html = this.renderHtml(webviewView.webview, mediaRoot);
+
+    // Tell the live-status poller whether the panel is on screen.
+    this.visibilityListener?.(webviewView.visible);
+    webviewView.onDidChangeVisibility(() => this.visibilityListener?.(webviewView.visible));
+    webviewView.onDidDispose(() => this.visibilityListener?.(false));
+  }
+
+  private visibilityListener: ((visible: boolean) => void) | undefined;
+
+  // Registers the single listener that hears when the panel becomes visible or hidden.
+  onVisibilityChange(listener: (visible: boolean) => void): void {
+    this.visibilityListener = listener;
+    listener(this.view?.visible === true);
+  }
+
+  // Live status inputs. Rendering reads them in a later change.
+  private agentSessions: readonly AgentSession[] = [];
+  private lastRecords: readonly ChatRecord[] = [];
+  private statusByChat: ReadonlyMap<string, ChatStatus> = new Map();
+  private queueRows: readonly QueueRow[] = [];
+
+  setAgentSessions(sessions: readonly AgentSession[]): void {
+    this.agentSessions = sessions;
+    this.recomputeStatuses();
+  }
+
+  setQueueRows(rows: readonly QueueRow[]): void {
+    this.queueRows = rows;
+  }
+
+  getQueueRows(): readonly QueueRow[] {
+    return this.queueRows;
+  }
+
+  getStatuses(): ReadonlyMap<string, ChatStatus> {
+    return this.statusByChat;
+  }
+
+  private recomputeStatuses(): void {
+    const seen = this.readState.getMap();
+    this.statusByChat = computeStatuses(
+      this.lastRecords.map((r) => ({ sessionId: r.sessionId, questionPending: rowStatus(r, seen) === 'question' })),
+      this.fleetState.entries,
+      this.agentSessions,
+    );
   }
 
   // The layout file's effect on the panel: linked folders to scan, the auto grouping,
@@ -363,6 +411,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     this.linkedFolders = layout.linkedFolders;
     this.groupBy = layout.groupBy;
     this.fleetState = layout.fleet;
+    this.recomputeStatuses();
   }
 
   // One scan of the workspace plus linked folders. Throws like scanChats did.
@@ -380,6 +429,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
     const scan = mergeFolderScans(parts);
     this.sourceByChat = scan.sourceByChat;
+    this.lastRecords = scan.records;
+    this.recomputeStatuses();
     return scan.records;
   }
 
