@@ -1,5 +1,6 @@
 // Debounced reload controller. vscode-free: the watcher and the clock are injected.
 import { loadFleetState } from './fleetSource';
+import { SingleFlight } from './singleFlight';
 import { EMPTY_FLEET_STATE, FleetState } from './types';
 
 export const FLEET_RELOAD_DEBOUNCE_MS = 250;
@@ -26,7 +27,11 @@ export class FleetReloader {
   private state: FleetState = EMPTY_FLEET_STATE;
   private handle: unknown = undefined;
   private disposed = false;
-  private generation = 0;
+  private readonly warnedOversized = new Set<string>();
+  private readonly flight = new SingleFlight(
+    () => this.loadOnce(),
+    () => this.disposed,
+  );
   private readonly timers: FleetTimers;
   private readonly debounceMs: number;
 
@@ -39,12 +44,18 @@ export class FleetReloader {
     return this.state;
   }
 
-  // Loads now and publishes the result.
-  async reload(): Promise<void> {
-    const gen = ++this.generation;
-    const next = await loadFleetState(this.deps.getPaths(), { warn: this.deps.warn });
-    // A newer reload or a dispose supersedes this result.
-    if (this.disposed || gen !== this.generation) {
+  // Loads now and publishes the result. Overlapping calls share one load in flight and
+  // trigger at most one follow-up load.
+  reload(): Promise<void> {
+    return this.flight.run();
+  }
+
+  private async loadOnce(): Promise<void> {
+    const next = await loadFleetState(this.deps.getPaths(), {
+      warn: this.deps.warn,
+      warnedOversized: this.warnedOversized,
+    });
+    if (this.disposed) {
       return;
     }
     this.state = next;

@@ -11,6 +11,7 @@ import {
   ParsedNestConfig,
   parseNestConfig,
 } from './nestConfig';
+import { SingleFlight } from './singleFlight';
 
 export const CONFIG_RELOAD_DEBOUNCE_MS = 150;
 
@@ -70,7 +71,10 @@ export class ConfigReloader {
   private parsed: ParsedNestConfig = { config: DEFAULT_NEST_CONFIG, problems: [] };
   private handle: unknown = undefined;
   private disposed = false;
-  private generation = 0;
+  private readonly flight = new SingleFlight(
+    () => this.loadOnce(),
+    () => this.disposed,
+  );
   private readonly timers: ConfigTimers;
   private readonly debounceMs: number;
 
@@ -83,12 +87,15 @@ export class ConfigReloader {
     return this.parsed;
   }
 
-  // Loads now and publishes the result.
-  async reload(): Promise<void> {
-    const gen = ++this.generation;
+  // Loads now and publishes the result. Overlapping calls share one load in flight and
+  // trigger at most one follow-up load.
+  reload(): Promise<void> {
+    return this.flight.run();
+  }
+
+  private async loadOnce(): Promise<void> {
     const next = await loadNestConfig(this.deps.getPath(), this.deps.warn);
-    // A newer reload or a dispose supersedes this result.
-    if (this.disposed || gen !== this.generation) {
+    if (this.disposed) {
       return;
     }
     this.parsed = next;

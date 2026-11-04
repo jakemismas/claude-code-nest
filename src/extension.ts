@@ -141,11 +141,11 @@ import { ExportOrgLayer } from './export/chatExport';
 import { writeTextFile } from './store/exportIO';
 import { FleetReloader } from './fleet/fleetReloader';
 import { fleetFilePaths } from './fleet/fleetSource';
-import { watchFile, watchFleetFilesResubscribing } from './fleet/fleetWatcher';
+import { watchFile, watchFileResubscribing, watchFleetFilesResubscribing } from './fleet/fleetWatcher';
 import { ConfigReloader, nestConfigPath } from './fleet/configSource';
 import { AgentsResult, execFileRunner, listAgentSessions } from './claude/agentsCli';
 import { AgentsPoller } from './fleet/agentsPoller';
-import { loadQueueRows } from './fleet/queueSource';
+import { QueueReloader, currentQueuePath } from './fleet/queueSource';
 import { expandLinkedFolders, resolveFleetFileEntries } from './fleet/nestConfig';
 import { GROUP_BY_OVERRIDE_KEY, effectiveGroupBy } from './fleet/groupByOverride';
 import { EMPTY_FLEET_STATE, FleetState } from './fleet/types';
@@ -1506,19 +1506,33 @@ export function activate(context: vscode.ExtensionContext): void {
       orgPanelProvider.setStageStyle({ tags: parsed.config.tags, doneStages: parsed.config.doneStages });
       fleetWatcher.refresh();
       void fleetReloader.reload();
-      void loadQueueRows(parsed.config.queue, workspacePath, {
-        trusted,
-        warn: (message) => console.warn(message),
-      }).then((rows) => orgPanelProvider.setQueueRows(rows));
+      queueWatcher.refresh();
+      void queueReloader.reload();
     },
     warn: (message) => console.warn(message),
   });
+  // The queue Markdown file is watched like the fleet and layout files; the watch
+  // follows the layout file's queue path.
+  const queueSettings = {
+    getQueue: () => configReloader.getParsed().config.queue,
+    getWorkspaceFolder: () => workspacePath,
+    isTrusted: () => vscode.workspace.isTrusted !== false,
+  };
+  const queueReloader = new QueueReloader({
+    ...queueSettings,
+    onRows: (rows) => orgPanelProvider.setQueueRows(rows),
+    warn: (message) => console.warn(message),
+  });
+  const queueWatcher = watchFileResubscribing(
+    () => currentQueuePath(queueSettings),
+    () => queueReloader.notifyFileEvent(),
+  );
   // Live session list from `claude agents --json`. It never runs in an untrusted
   // workspace, and it runs from the home directory.
   const agentsPoller = new AgentsPoller({
     poll: async (): Promise<AgentsResult> => {
       if (workspacePath === undefined || vscode.workspace.isTrusted === false) {
-        return { ok: false, reason: 'Live status is off in this workspace.' };
+        return { ok: false, reason: 'Live status is off in this workspace.', unavailable: true };
       }
       return listAgentSessions(execFileRunner, workspacePath);
     },
@@ -1531,7 +1545,13 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => agentsPoller.dispose() },
     { dispose: () => fleetReloader.dispose() },
     { dispose: () => configReloader.dispose() },
+    { dispose: () => queueReloader.dispose() },
     fleetWatcher,
+    queueWatcher,
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      fleetWatcher.refresh();
+      void fleetReloader.reload();
+    }),
     ...(configPath === undefined ? [] : [watchFile(configPath, () => configReloader.notifyFileEvent())]),
     vscode.commands.registerCommand(OPEN_LAYOUT_FILE_COMMAND, () =>
       openLayoutFile(createOpenLayoutDeps(workspacePath, context.extensionUri)),

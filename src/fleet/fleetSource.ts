@@ -12,6 +12,8 @@ export const MAX_FLEET_LINE_BYTES = 16 * 1024;
 
 export interface FleetSourceOptions {
   readonly warn?: (message: string) => void;
+  // Paths already warned about as oversized; lets a long-lived caller warn once per file.
+  readonly warnedOversized?: Set<string>;
 }
 
 // The default fleet file paths: one per workspace folder.
@@ -38,6 +40,7 @@ export function splitFleetLines(text: string, maxLineBytes = MAX_FLEET_LINE_BYTE
 async function readFleetFile(
   filePath: string,
   warn: (message: string) => void,
+  warned: Set<string>,
 ): Promise<FleetRecord[]> {
   let size: number;
   try {
@@ -51,9 +54,13 @@ async function readFleetFile(
     return [];
   }
   if (size > MAX_FLEET_FILE_BYTES) {
-    warn(`Nest skipped a fleet file larger than ${MAX_FLEET_FILE_BYTES} bytes: ${path.basename(filePath)}`);
+    if (!warned.has(filePath)) {
+      warned.add(filePath);
+      warn(`Nest skipped a fleet file larger than ${MAX_FLEET_FILE_BYTES} bytes: ${path.basename(filePath)}`);
+    }
     return [];
   }
+  warned.delete(filePath);
   let text: string;
   try {
     text = await fs.promises.readFile(filePath, 'utf8');
@@ -77,9 +84,10 @@ export async function loadFleetState(
   options: FleetSourceOptions = {},
 ): Promise<FleetState> {
   const warn = options.warn ?? (() => undefined);
+  const warned = options.warnedOversized ?? new Set<string>();
   const all: FleetRecord[] = [];
   for (const filePath of new Set(filePaths)) {
-    all.push(...(await readFleetFile(filePath, warn)));
+    all.push(...(await readFleetFile(filePath, warn, warned)));
   }
   return foldFleet(all);
 }

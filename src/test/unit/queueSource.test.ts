@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ExpandDeps } from '../../fleet/nestConfig';
-import { MAX_QUEUE_FILE_BYTES, loadQueueRows, resolveQueuePath } from '../../fleet/queueSource';
+import { MAX_QUEUE_FILE_BYTES, QueueReloader, currentQueuePath, loadQueueRows, resolveQueuePath } from '../../fleet/queueSource';
 
 let root: string;
 let ws: string;
@@ -73,5 +73,72 @@ describe('queue source', () => {
     const rows = await loadQueueRows({ ...queue, file: 'dev/big.md' }, ws, { trusted: true, deps, warn: (m) => warnings.push(m) });
     assert.deepStrictEqual(rows, []);
     assert.strictEqual(warnings.length, 1);
+  });
+});
+
+describe('queue reloader', () => {
+  class Clock {
+    private next = 1;
+    readonly pending = new Map<number, () => void>();
+    setTimeout(fn: () => void): unknown {
+      const id = this.next++;
+      this.pending.set(id, fn);
+      return id;
+    }
+    clearTimeout(h: unknown): void {
+      this.pending.delete(h as number);
+    }
+    fireAll(): void {
+      const all = [...this.pending.values()];
+      this.pending.clear();
+      all.forEach((f) => f());
+    }
+  }
+
+  it('reloads the rows when the queue file changes', async () => {
+    const dir = path.join(ws, 'dev');
+    const file = path.join(dir, 'reload-queue.md');
+    fs.writeFileSync(file, table);
+    const clock = new Clock();
+    const seen: number[] = [];
+    const reloader = new QueueReloader({
+      getQueue: () => ({ ...queue, file: 'dev/reload-queue.md' }),
+      getWorkspaceFolder: () => ws,
+      isTrusted: () => true,
+      onRows: (rows) => seen.push(rows.length),
+      expandDeps: deps,
+      timers: clock,
+    });
+    await reloader.reload();
+    fs.writeFileSync(file, table + '| T-2 | Build |\n');
+    reloader.notifyFileEvent();
+    reloader.notifyFileEvent();
+    assert.strictEqual(clock.pending.size, 1);
+    clock.fireAll();
+    await new Promise((r) => setTimeout(r, 30));
+    assert.deepStrictEqual(seen, [1, 2]);
+    reloader.dispose();
+  });
+
+  it('runs one load at a time and one follow-up', async () => {
+    let loads = 0;
+    const reloader = new QueueReloader({
+      getQueue: () => {
+        loads++;
+        return null;
+      },
+      getWorkspaceFolder: () => ws,
+      isTrusted: () => true,
+      onRows: () => undefined,
+    });
+    await Promise.all([reloader.reload(), reloader.reload(), reloader.reload()]);
+    assert.strictEqual(loads, 2);
+  });
+
+  it('reports the path to watch only when a queue is readable', () => {
+    const base = { getWorkspaceFolder: () => ws, isTrusted: () => true, expandDeps: deps };
+    assert.strictEqual(currentQueuePath({ ...base, getQueue: () => queue }), path.join(ws, 'dev', 'queue.md'));
+    assert.strictEqual(currentQueuePath({ ...base, getQueue: () => null }), undefined);
+    assert.strictEqual(currentQueuePath({ ...base, getQueue: () => queue, isTrusted: () => false }), undefined);
   });
 });
