@@ -295,7 +295,7 @@ function buildRows(items: readonly Item[], ctx: RowContext): FleetRow[] {
     return sorted.map((i) => toRow(i, ctx, []));
   }
   const inGroup = new Map(sorted.map((i) => [i.sessionId, i]));
-  const parentOf = (item: Item): string | null => {
+  const topLauncherOf = (item: Item): string | null => {
     const seenIds = new Set<string>([item.sessionId]);
     let current = item;
     let top: string | null = null;
@@ -317,7 +317,7 @@ function buildRows(items: readonly Item[], ctx: RowContext): FleetRow[] {
   const kids = new Map<string, Item[]>();
   const roots: Item[] = [];
   for (const item of sorted) {
-    const parent = parentOf(item);
+    const parent = topLauncherOf(item);
     if (parent === null) {
       roots.push(item);
     } else {

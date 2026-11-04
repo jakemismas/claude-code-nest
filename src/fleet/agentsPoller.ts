@@ -40,7 +40,7 @@ export class AgentsPoller {
   private unsettled = 0;
   private handle: unknown = undefined;
   private visible = false;
-  private failing = false;
+  private unavailable = false;
   private inFlight = false;
   private started = false;
   private disposed = false;
@@ -59,7 +59,7 @@ export class AgentsPoller {
     void this.runPoll();
   }
 
-  // A visible panel polls sooner. Becoming visible polls now unless the command is failing.
+  // A visible panel polls sooner. Becoming visible polls now unless the command is unavailable.
   setVisible(visible: boolean): void {
     if (this.disposed || this.visible === visible) {
       return;
@@ -68,7 +68,7 @@ export class AgentsPoller {
     if (!this.started || this.inFlight) {
       return;
     }
-    if (visible && !this.failing) {
+    if (visible && !this.unavailable) {
       void this.runPoll();
     } else {
       this.schedule();
@@ -96,7 +96,7 @@ export class AgentsPoller {
   }
 
   private delay(): number {
-    if (this.failing) {
+    if (this.unavailable) {
       return POLL_RETRY_MS;
     }
     return this.visible ? POLL_VISIBLE_MS : POLL_HIDDEN_MS;
@@ -157,13 +157,13 @@ export class AgentsPoller {
       return;
     }
     if (result.ok) {
-      this.failing = false;
+      this.unavailable = false;
       this.deps.onSessions(result.sessions);
     } else if (result.unavailable === true) {
-      if (!this.failing) {
+      if (!this.unavailable) {
         this.deps.log?.(`${result.reason} Nest falls back to transcripts and fleet records.`);
       }
-      this.failing = true;
+      this.unavailable = true;
       this.deps.onSessions([]);
     }
     // Any other failure keeps the last good sessions and retries at the normal cadence.

@@ -97,7 +97,7 @@ describe('AgentsPoller', () => {
     assert.deepStrictEqual(t.seen.every((s) => s.length === 0), true);
   });
 
-  it('does not poll early on becoming visible while failing', async () => {
+  it('does not poll early on becoming visible while unavailable', async () => {
     const t = make([bad]);
     t.poller.start();
     await flush();
