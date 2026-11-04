@@ -44,15 +44,18 @@ const PLANTED = ['idle', 'working', 'error', 'sleep', 'night', 'worm'];
 const LEAVES = ['needs', 'done', 'milestone', 'rotate', 'hatch'];
 const NOTES = { delays: [0, 300, 600, 900], minMs: NOTE_MIN_GAP_MS, spreadMs: NOTE_SPREAD_MS };
 
-// Every 50 ms over the first 6 s, plus a late moment that wraps the looping scenes.
-function samples(): number[] {
+// Every 50 ms up to until (6 s by default), plus a late moment that wraps the looping scenes.
+// No pose in any scene lasts less than 50 ms, so this step lands on every pose.
+function samples(until = 6000): number[] {
   const out: number[] = [];
-  for (let t = 0; t < 6000; t += 50) {
+  for (let t = 0; t < until; t += 50) {
     out.push(t);
   }
-  out.push(15000);
+  out.push(until + 9000);
   return out;
 }
+// The planted check covers the whole 14 s idle cycle, which the one-shot scenes settle into.
+const PLANTED_UNTIL = 16000;
 
 // The legs and body placement, the parts that must stay on the branch in a planted state.
 function feet(list: Placement[]): string {
@@ -127,14 +130,29 @@ describe('mascot', () => {
     for (const state of PLANTED) {
       let headMoved = false;
       const head0 = mascot.frame(state, 0, { notes: NOTES }).find((d) => d.k.startsWith('head'));
-      for (const t of samples()) {
-        const list = mascot.frame(state, t, { notes: NOTES, speed: 2 });
-        assert.strictEqual(feet(list), rest, state + ' at ' + t + ' ms');
-        const head = list.find((d) => d.k.startsWith('head'));
-        headMoved = headMoved || !head0 || !head || head.x !== head0.x || head.y !== head0.y;
+      for (const speed of state === 'working' ? [0, 1, 2] : [0]) {
+        for (const t of samples(PLANTED_UNTIL)) {
+          const list = mascot.frame(state, t, { notes: NOTES, speed });
+          assert.strictEqual(feet(list), rest, state + ' at ' + t + ' ms, speed ' + speed);
+          const head = list.find((d) => d.k.startsWith('head'));
+          headMoved = headMoved || !head0 || !head || head.x !== head0.x || head.y !== head0.y;
+        }
       }
       assert.ok(headMoved, state + ' still moves its head');
+      assert.strictEqual(feet(mascot.frame(state, 0, { still: true })), rest, state + ' still pose');
     }
+  });
+
+  it('breathes by lifting the head one pixel and swelling the chest, nothing else', () => {
+    // Idle 0 ms is the rest pose; 1.7 s is the in-breath, before any look, blink or peep.
+    const out = mascot.frame('idle', 0);
+    const inn = mascot.frame('idle', 1700);
+    const at = (list: Placement[], prefix: string): Placement | undefined => list.find((d) => d.k.startsWith(prefix));
+    assert.strictEqual(feet(inn), feet(out), 'the legs and body stay put');
+    assert.strictEqual(at(inn, 'head')?.y, (at(out, 'head')?.y ?? 0) - 1, 'the head rises one pixel');
+    assert.strictEqual(at(inn, 'head')?.x, at(out, 'head')?.x, 'the head does not move sideways');
+    assert.ok(!at(out, 'chest') && at(inn, 'chest'), 'the chest swells only on the in-breath');
+    assert.strictEqual(inn.length, out.length + 1, 'nothing else is drawn');
   });
 
   it('leaves the branch only in a hop, jump or flight', () => {
