@@ -3,6 +3,17 @@
 All notable changes to Claude Code Nest are recorded here. The format follows
 Keep a Changelog, and the project adheres to semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- Slice s5a-test-host: the integration test host resolves the VS Code executable
+  through an injectable module (`src/test/integration/vscodeExecutable.ts`) with unit
+  tests. The fidelity harness gains `--theme light|dark` and `--out` flags, writes
+  `<state>-<theme>.png` captures to `.claude-working/screens/`, and opts into dark
+  `--vscode-*` variables only for the dark theme. `.vscodeignore` now excludes
+  SPRINT-4-PLAN.md and SPRINT-5-PLAN.md.
+
 ## [0.2.0] - 2026-07-10
 
 The "One Panel" release. Sprint 3 rebuilt Nest into a SINGLE sidebar panel, reworked

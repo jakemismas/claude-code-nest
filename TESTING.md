@@ -356,8 +356,9 @@ These commands have no dedicated view; they run from the Command Palette under t
 This is a build-and-review aid, run from the repo rather than the installed extension,
 but the human gate should spot-check it against the prototype.
 
-1. From the repo root, run `npm run fidelity`. Confirm it writes the harness and
-   prototype screenshot sets under `.claude-working/fidelity/` (gitignored) at the 320px
+1. From the repo root, run `npm run fidelity`. Confirm it writes the harness captures
+   (`<state>-<theme>.png`) under `.claude-working/screens/` and the prototype captures
+   under `.claude-working/fidelity/` (both gitignored) at the 320px
    reference width, and that it FAILS LOUDLY when no headless Chrome or Edge is installed
    rather than passing silently.
 2. Open the harness captures beside `media/design/ChatSidebar.html`. Eye-compare every

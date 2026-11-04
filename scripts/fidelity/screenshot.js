@@ -1,11 +1,14 @@
 // Visual-fidelity screenshot driver (slice s3a-visual-harness, issue #79).
 //
 // Renders two pages at the design's 320px width via headless Chrome or Edge and
-// writes full-page PNGs into .claude-working/fidelity/ (gitignored):
+// writes full-page PNGs (gitignored):
 //
-//   - harness.png      the REAL org-panel asset (media/orgPanel.{css,js}) rendered
-//                      by scripts/fidelity/harness.html with synthetic mock data.
-//   - prototype.png    media/design/ChatSidebar.html, the design authority.
+//   - <state>-<theme>.png  the REAL org-panel asset (media/orgPanel.{css,js}) rendered
+//                          by scripts/fidelity/harness.html with synthetic mock data,
+//                          into .claude-working/screens/ (--out overrides). --theme
+//                          light|dark picks the theme (default light).
+//   - prototype*.png       media/design/ChatSidebar.html, the design authority, into
+//                          .claude-working/fidelity/.
 //
 // Reviewers (and the build agent) open these side by side with the committed
 // reference screenshots under media/design/reference/ and eyeball the panel
@@ -34,7 +37,43 @@ const { pathToFileURL } = require('url');
 // --- paths -----------------------------------------------------------------
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const OUT_DIR = path.join(REPO_ROOT, '.claude-working', 'fidelity');
+// Prototype reference renders stay under .claude-working/fidelity/ whatever --out is.
+const PROTOTYPE_DIR = path.join(REPO_ROOT, '.claude-working', 'fidelity');
+
+// --theme light|dark (default light) and --out <dir> (default .claude-working/screens/).
+function parseArgs(argv) {
+  const opts = { theme: 'light', out: path.join(REPO_ROOT, '.claude-working', 'screens') };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--theme' || a.startsWith('--theme=')) {
+      opts.theme = a === '--theme' ? argv[++i] : a.slice('--theme='.length);
+    } else if (a === '--out' || a.startsWith('--out=')) {
+      const v = a === '--out' ? argv[++i] : a.slice('--out='.length);
+      opts.out = path.resolve(process.cwd(), v || '');
+    } else {
+      console.error('\nUnknown argument: ' + a + '\nUsage: npm run fidelity -- [--theme light|dark] [--out <dir>]\n');
+      process.exit(1);
+    }
+  }
+  if (opts.theme !== 'light' && opts.theme !== 'dark') {
+    console.error('\n--theme must be light or dark, got: ' + opts.theme + '\n');
+    process.exit(1);
+  }
+  return opts;
+}
+
+const OPTS = parseArgs(process.argv.slice(2));
+const OUT_DIR = OPTS.out;
+const THEME = OPTS.theme;
+
+// Harness captures are named <state>-<theme>.png.
+function harnessOut(state) {
+  return path.join(OUT_DIR, state + '-' + THEME + '.png');
+}
+// The harness reads ?theme= and opts into the dark --vscode-* variables.
+function harnessUrl() {
+  return pathToFileURL(HARNESS_HTML).href + '?theme=' + THEME;
+}
 const HARNESS_HTML = path.join(__dirname, 'harness.html');
 const PROTOTYPE_HTML = path.join(REPO_ROOT, 'media', 'design', 'ChatSidebar.html');
 
@@ -556,6 +595,7 @@ async function main() {
   const browserPath = resolved.path;
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
+  fs.mkdirSync(PROTOTYPE_DIR, { recursive: true });
 
   const port = 9200 + Math.floor(Math.random() * 700);
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nest-fidelity-'));
@@ -579,8 +619,8 @@ async function main() {
     const harnessPage = await openPage(browser);
     await renderAndCapture(
       harnessPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness.png'),
+      harnessUrl(),
+      harnessOut('default'),
       async (page) => {
         // Wait for the mock to be posted AND for the script to render at least one
         // chat row, so we never screenshot an empty tree.
@@ -598,7 +638,7 @@ async function main() {
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('default')));
 
     // Page 2: the design prototype. It embeds a gzip+base64 React bundle and shows
     // a full-viewport #__bundler_thumbnail placeholder until hydration. We MUST
@@ -608,7 +648,7 @@ async function main() {
     await renderAndCapture(
       protoPage,
       pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype.png'),
+      path.join(PROTOTYPE_DIR, 'prototype.png'),
       async (page) => {
         // The bundler unpacks the embedded React app asynchronously; wait until the
         // loading node is gone and real, non-bundler content has been rendered into
@@ -671,17 +711,17 @@ async function main() {
       },
       PROTOTYPE_VIEWPORT_WIDTH,
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(PROTOTYPE_DIR, 'prototype.png')));
 
     // Page 3: the RESULTS STATE of the real panel (issue #83 AC #6). Re-render the
     // harness, type a body-only-match query into the search box, wait for the flat
     // "N RESULTS" list (the harness echoes a synthetic host searchResults reply), and
-    // capture it. This is the results-state analogue of harness.png.
+    // capture it. This is the results-state analogue of default-<theme>.png.
     const harnessResultsPage = await openPage(browser);
     await renderAndCapture(
       harnessResultsPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-results.png'),
+      harnessUrl(),
+      harnessOut('results'),
       async (page) => {
         await waitForCondition(
           page,
@@ -711,7 +751,7 @@ async function main() {
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-results.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('results')));
 
     // Page 4: the RESULTS STATE of the design prototype, the fidelity baseline the
     // results capture is judged against. Same query, driven into the prototype's own
@@ -720,7 +760,7 @@ async function main() {
     await renderAndCapture(
       protoResultsPage,
       pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-results.png'),
+      path.join(PROTOTYPE_DIR, 'prototype-results.png'),
       async (page) => {
         await waitForCondition(
           page,
@@ -773,7 +813,7 @@ async function main() {
       },
       PROTOTYPE_VIEWPORT_WIDTH,
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-results.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(PROTOTYPE_DIR, 'prototype-results.png')));
 
     // Page 6: the CHAT CONTEXT MENU (list state) of the real panel (issue #85 AC #7).
     // Re-render the harness, dispatch a contextmenu on a chat row, wait for the menu, and
@@ -782,8 +822,8 @@ async function main() {
     const harnessMenuPage = await openPage(browser);
     await renderAndCapture(
       harnessMenuPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-context-menu.png'),
+      harnessUrl(),
+      harnessOut('context-menu'),
       async (page) => {
         await waitForCondition(
           page,
@@ -824,7 +864,7 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('context-menu')),
     );
 
     // Page 7: the CREATE-TAG state of the chat context menu (issue #85 AC #2/#7). Open
@@ -833,8 +873,8 @@ async function main() {
     const harnessNewTagPage = await openPage(browser);
     await renderAndCapture(
       harnessNewTagPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-context-menu-newtag.png'),
+      harnessUrl(),
+      harnessOut('context-menu-newtag'),
       async (page) => {
         await waitForCondition(
           page,
@@ -896,7 +936,7 @@ async function main() {
     );
     console.log(
       '  wrote ' +
-        path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu-newtag.png')),
+        path.relative(REPO_ROOT, harnessOut('context-menu-newtag')),
     );
 
     // Page 8: the SETTINGS OVERLAY of the real panel (slice s3b-settings-overlay, issue
@@ -906,8 +946,8 @@ async function main() {
     const harnessSettingsPage = await openPage(browser);
     await renderAndCapture(
       harnessSettingsPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-settings.png'),
+      harnessUrl(),
+      harnessOut('settings'),
       async (page) => {
         await waitForCondition(
           page,
@@ -944,7 +984,7 @@ async function main() {
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-settings.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('settings')));
 
     // Page 9: the SETTINGS SUB-PAGE of the design prototype, the fidelity baseline the
     // settings capture is judged against. Click the gear (the ⚙ glyph) to open the
@@ -954,7 +994,7 @@ async function main() {
     await renderAndCapture(
       protoSettingsPage,
       pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-settings.png'),
+      path.join(PROTOTYPE_DIR, 'prototype-settings.png'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1013,7 +1053,7 @@ async function main() {
       },
       PROTOTYPE_VIEWPORT_WIDTH,
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-settings.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(PROTOTYPE_DIR, 'prototype-settings.png')));
 
     // Page 10: the ARCHIVE OVERLAY of the real panel (slice s3b-archive-overlay, issue #87).
     // Open the harness, click the bottom Archived (N) row to open the in-panel Archive
@@ -1023,8 +1063,8 @@ async function main() {
     const harnessArchivePage = await openPage(browser);
     await renderAndCapture(
       harnessArchivePage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-archive.png'),
+      harnessUrl(),
+      harnessOut('archive'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1061,7 +1101,7 @@ async function main() {
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-archive.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('archive')));
 
     // Page 11: the ARCHIVE SUB-PAGE of the design prototype, the fidelity baseline the
     // archive capture is judged against. Click the prototype's Archived row to open its
@@ -1070,7 +1110,7 @@ async function main() {
     await renderAndCapture(
       protoArchivePage,
       pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-archive.png'),
+      path.join(PROTOTYPE_DIR, 'prototype-archive.png'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1131,7 +1171,7 @@ async function main() {
       },
       PROTOTYPE_VIEWPORT_WIDTH,
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-archive.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(PROTOTYPE_DIR, 'prototype-archive.png')));
 
     // Page 12: the DRAG DROP-HIGHLIGHT state of the real panel (slice s3c-fidelity-sweep,
     // issue #88). The .nest-drop-over highlight only paints while a chat drag is in flight
@@ -1143,8 +1183,8 @@ async function main() {
     const harnessDropPage = await openPage(browser);
     await renderAndCapture(
       harnessDropPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-drop-highlight.png'),
+      harnessUrl(),
+      harnessOut('drop-highlight'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1200,7 +1240,7 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-drop-highlight.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('drop-highlight')),
     );
 
     // Page 13: the SORT POPOVER (open) state of the real panel (issue #88). Click the sort
@@ -1209,8 +1249,8 @@ async function main() {
     const harnessSortPage = await openPage(browser);
     await renderAndCapture(
       harnessSortPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-sort-popover.png'),
+      harnessUrl(),
+      harnessOut('sort-popover'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1246,7 +1286,7 @@ async function main() {
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-sort-popover.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('sort-popover')));
 
     // Page 14: the SORT POPOVER of the design prototype, the fidelity baseline the sort
     // capture is judged against. Click the prototype's Sort glyph to open its popover, then
@@ -1255,7 +1295,7 @@ async function main() {
     await renderAndCapture(
       protoSortPage,
       pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-sort-popover.png'),
+      path.join(PROTOTYPE_DIR, 'prototype-sort-popover.png'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1300,7 +1340,7 @@ async function main() {
       PROTOTYPE_VIEWPORT_WIDTH,
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-sort-popover.png')),
+      '  wrote ' + path.relative(REPO_ROOT, path.join(PROTOTYPE_DIR, 'prototype-sort-popover.png')),
     );
 
     // Page 15: the NEW-FOLDER POPOVER (open) state of the real panel (issue #88). Click the
@@ -1309,8 +1349,8 @@ async function main() {
     const harnessNewFolderPage = await openPage(browser);
     await renderAndCapture(
       harnessNewFolderPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-newfolder-popover.png'),
+      harnessUrl(),
+      harnessOut('newfolder-popover'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1349,7 +1389,7 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-newfolder-popover.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('newfolder-popover')),
     );
 
     // Page 16: the NEW-FOLDER POPOVER of the design prototype, the fidelity baseline the
@@ -1359,7 +1399,7 @@ async function main() {
     await renderAndCapture(
       protoNewFolderPage,
       pathToFileURL(PROTOTYPE_HTML).href,
-      path.join(OUT_DIR, 'prototype-newfolder-popover.png'),
+      path.join(PROTOTYPE_DIR, 'prototype-newfolder-popover.png'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1407,7 +1447,7 @@ async function main() {
       PROTOTYPE_VIEWPORT_WIDTH,
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'prototype-newfolder-popover.png')),
+      '  wrote ' + path.relative(REPO_ROOT, path.join(PROTOTYPE_DIR, 'prototype-newfolder-popover.png')),
     );
 
     // Page 17: the INLINE FOLDER RENAME state of the real panel (issue #88). Double-click a
@@ -1419,8 +1459,8 @@ async function main() {
     const harnessRenamePage = await openPage(browser);
     await renderAndCapture(
       harnessRenamePage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-rename.png'),
+      harnessUrl(),
+      harnessOut('rename'),
       async (page) => {
         await waitForCondition(
           page,
@@ -1461,34 +1501,34 @@ async function main() {
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-rename.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('rename')));
 
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
     console.log('Compare by eye:');
-    console.log('  harness.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
+    console.log('  default-<theme>.png (the real org-panel asset) vs media/design/reference/prototype-320.png');
     console.log('  prototype.png (freshly rendered) vs media/design/reference/prototype-320.png (drift check)');
-    console.log('  harness-results.png (real panel, filtered) vs prototype-results.png (results-state fidelity)');
-    console.log('  harness-context-menu.png (real panel, chat menu) vs the prototype context menu');
+    console.log('  results-<theme>.png (real panel, filtered) vs prototype-results.png (results-state fidelity)');
+    console.log('  context-menu-<theme>.png (real panel, chat menu) vs the prototype context menu');
     console.log(
-      '  harness-context-menu-newtag.png (real panel, create-tag state) vs the prototype new-tag menu',
+      '  context-menu-newtag-<theme>.png (real panel, create-tag state) vs the prototype new-tag menu',
     );
     console.log(
-      '  harness-settings.png (real panel, Settings overlay) vs prototype-settings.png (settings sub-page fidelity)',
+      '  settings-<theme>.png (real panel, Settings overlay) vs prototype-settings.png (settings sub-page fidelity)',
     );
     console.log(
-      '  harness-archive.png (real panel, Archive overlay) vs prototype-archive.png (archive sub-page fidelity)',
+      '  archive-<theme>.png (real panel, Archive overlay) vs prototype-archive.png (archive sub-page fidelity)',
     );
     console.log(
-      '  harness-drop-highlight.png (real panel, folder drop target) vs the prototype drop highlight',
+      '  drop-highlight-<theme>.png (real panel, folder drop target) vs the prototype drop highlight',
     );
     console.log(
-      '  harness-sort-popover.png (real panel, sort open) vs prototype-sort-popover.png (sort popover fidelity)',
+      '  sort-popover-<theme>.png (real panel, sort open) vs prototype-sort-popover.png (sort popover fidelity)',
     );
     console.log(
-      '  harness-newfolder-popover.png (real panel, new-folder open) vs prototype-newfolder-popover.png (new-folder popover fidelity)',
+      '  newfolder-popover-<theme>.png (real panel, new-folder open) vs prototype-newfolder-popover.png (new-folder popover fidelity)',
     );
     console.log(
-      '  harness-rename.png (real panel, inline folder rename) vs the prototype rename input',
+      '  rename-<theme>.png (real panel, inline folder rename) vs the prototype rename input',
     );
   } catch (err) {
     fail(

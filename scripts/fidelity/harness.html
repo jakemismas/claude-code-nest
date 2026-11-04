@@ -37,7 +37,7 @@
   the hover card), so the harness deliberately does not assert one.
 
   The palette is now HARDCODED in orgPanel.css (s3a-design-shell), so the old
-  --vscode-* shim is a no-op and has been removed; only the 320px width + panel
+  --vscode-* shim is a no-op and has been removed (light adds nothing); only the 320px width + panel
   background pin remains so the screenshot frames the panel exactly as a 320px sidebar
   would (UI-SPEC deviation 1). The Newsreader @font-face in orgPanel.css resolves its
   relative fonts/ url against ../../media/, which exists in the repo, so the harness
@@ -53,6 +53,37 @@
     width: 320px;
   }
 </style>
+<!--
+  Dark theme is opt-in via ?theme=dark (set by screenshot.js --theme dark). Light adds
+  nothing, so the frozen light baseline does not shift. The values mirror a typical
+  dark editor theme so surfaces that follow --vscode-* render dark.
+-->
+<style id="harness-dark">
+  html[data-theme="dark"], html[data-theme="dark"] body {
+    background: #252526;
+    color: #cccccc;
+    --vscode-foreground: #cccccc;
+    --vscode-descriptionForeground: #9d9d9d;
+    --vscode-icon-foreground: #c5c5c5;
+    --vscode-sideBar-background: #252526;
+    --vscode-sideBar-foreground: #cccccc;
+    --vscode-editorWidget-background: #202020;
+    --vscode-input-background: #3c3c3c;
+    --vscode-input-border: #3c3c3c;
+    --vscode-panel-border: #2b2b2b;
+    --vscode-list-hoverBackground: #2a2d2e;
+    --vscode-list-activeSelectionBackground: #04395e;
+    --vscode-list-dropBackground: #383b3d;
+    --vscode-toolbar-hoverBackground: rgba(90, 93, 94, 0.31);
+  }
+</style>
+<script>
+  (function () {
+    if (/[?&]theme=dark(&|$)/.test(location.search)) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
 <link href="../../media/orgPanel.css" rel="stylesheet" />
 </head>
 <body>
