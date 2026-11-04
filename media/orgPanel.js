@@ -3675,6 +3675,317 @@
     renderQueue();
   }
 
+  // ---- robin ----
+  // The host decides the robin's state and posts it. This block only builds the block
+  // characters, sets classes that CSS animates, and runs the note and blink timers.
+
+  const robinSlotEl = document.getElementById('robinSlot');
+  const robinLiveEl = document.getElementById('robinLive');
+  const ROBIN_STATES = ['hatch', 'rotate', 'error', 'needs', 'worm', 'done', 'milestone', 'working', 'sleep', 'night', 'idle'];
+  const ROBIN_NOTE_COLORS = ['#C2571A', '#8C6FE0', '#C99413', '#2E9E57'];
+  const ROBIN_NOTE_LINES = [' ▐▀▖', ' ▐  ', '▟█  '];
+  const ROBIN_MAX_NOTES = 6;
+  const ROBIN_BLINK_EVERY_MS = 3400;
+  const ROBIN_BLINK_MS = 170;
+  const ROBIN_FLICK_EVERY_MS = 3500;
+  const ROBIN_FLICK_MS = 500;
+  const ROBIN_MARKER_MAX = 4;
+  const reducedMotionQuery =
+    typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+  let robinEyeEl = null;
+  let robinTailEl = null;
+  let robinStillEl = null;
+  let robinNotesEl = null;
+  let robinState = 'idle';
+  let robinMsg = null;
+  let robinNoteTimers = [];
+  let robinBlinkTimer = null;
+  let robinBlinkOffTimer = null;
+  let robinFlickTimer = null;
+  let robinFlickOffTimer = null;
+  let robinNoteCount = 0;
+
+  function robinSpan(parent, text, cls) {
+    const el = document.createElement('span');
+    el.textContent = text;
+    if (cls) {
+      el.className = cls;
+    }
+    parent.appendChild(el);
+    return el;
+  }
+
+  function robinLine(parent) {
+    const line = document.createElement('span');
+    line.className = 'nest-robin-line';
+    parent.appendChild(line);
+    return line;
+  }
+
+  function robinFx(parent, cls, text) {
+    const wrap = document.createElement('span');
+    wrap.className = 'nest-robin-fx ' + cls;
+    const inner = document.createElement('span');
+    inner.className = 'nest-robin-fx-in';
+    inner.textContent = text;
+    wrap.appendChild(inner);
+    parent.appendChild(wrap);
+    return wrap;
+  }
+
+  function buildRobin() {
+    if (!robinSlotEl) {
+      return;
+    }
+    const bird = document.createElement('span');
+    bird.className = 'nest-robin-bird';
+    const root = document.createElement('span');
+    root.className = 'nest-robin-root';
+    const head = document.createElement('span');
+    head.className = 'nest-robin-head';
+    const h1 = robinLine(head);
+    robinSpan(h1, '      ▄██▖  ', 'rb-h');
+    const h2 = robinLine(head);
+    robinSpan(h2, '     ▟█', 'rb-h');
+    robinEyeEl = robinSpan(h2, '▙', 'rb-h');
+    robinSpan(h2, '██', 'rb-h');
+    robinSpan(h2, '▛', 'rb-bk');
+    robinSpan(h2, ' ', 'rb-h');
+    root.appendChild(head);
+    const b1 = robinLine(root);
+    robinSpan(b1, ' ▄▟█', 'rb-h');
+    robinSpan(b1, '██', 'rb-w');
+    robinSpan(b1, '█', 'rb-h');
+    robinSpan(b1, '██▌', 'rb-r');
+    robinSpan(b1, '  ', 'rb-h');
+    const b2 = robinLine(root);
+    robinTailEl = robinSpan(b2, '▀▀▀█', 'rb-h');
+    robinSpan(b2, '██', 'rb-w');
+    robinSpan(b2, '█', 'rb-h');
+    robinSpan(b2, '██▘', 'rb-r');
+    robinSpan(b2, '  ', 'rb-h');
+    const b3 = robinLine(root);
+    robinSpan(b3, '    ▀▜▀', 'rb-h');
+    robinSpan(b3, '▜▘', 'rb-r');
+    robinSpan(b3, '   ', 'rb-h');
+    bird.appendChild(root);
+    const branch = robinLine(bird);
+    robinSpan(branch, '   ▀▀▀▀▀▀▀', 'rb-k');
+    robinSpan(branch, '▘', 'rb-g');
+    robinSpan(branch, ' ', 'rb-k');
+    robinSlotEl.appendChild(bird);
+
+    // The egg shows over the bird while it hatches.
+    const egg = document.createElement('span');
+    egg.className = 'nest-robin-egg';
+    const whole = document.createElement('span');
+    whole.className = 'nest-robin-egg-whole';
+    for (const row of ['  ▄██▄  ', ' ▟████▙ ', ' ██████ ', ' ▜████▛ ', '  ▀▀▀▀  ']) {
+      robinSpan(robinLine(whole), row, 'rb-egg');
+    }
+    const cracked = document.createElement('span');
+    cracked.className = 'nest-robin-egg-cracked';
+    for (const row of ['  ▄█▄▄  ', ' ▟█▀██▙ ', ' █▀▄▀██ ', ' ▜████▛ ', '  ▀▀▀▀  ']) {
+      robinSpan(robinLine(cracked), row, 'rb-egg');
+    }
+    egg.appendChild(whole);
+    egg.appendChild(cracked);
+    robinSlotEl.appendChild(egg);
+
+    robinFx(robinSlotEl, 'rb-fx-q', '?');
+    robinFx(robinSlotEl, 'rb-fx-bang', '!');
+    robinFx(robinSlotEl, 'rb-fx-note rb-fx-note-a', '♪');
+    robinFx(robinSlotEl, 'rb-fx-note rb-fx-note-b', '♫');
+    robinFx(robinSlotEl, 'rb-fx-spark rb-fx-spark-a', '+');
+    robinFx(robinSlotEl, 'rb-fx-spark rb-fx-spark-b', '*');
+    robinFx(robinSlotEl, 'rb-fx-spark rb-fx-spark-c', '·');
+    robinFx(robinSlotEl, 'rb-fx-big rb-fx-big-a', '+');
+    robinFx(robinSlotEl, 'rb-fx-big rb-fx-big-b', '*');
+    robinFx(robinSlotEl, 'rb-fx-big rb-fx-big-c', '+');
+    robinFx(robinSlotEl, 'rb-fx-z rb-fx-z-a', 'z');
+    robinFx(robinSlotEl, 'rb-fx-z rb-fx-z-b', 'Z');
+    robinFx(robinSlotEl, 'rb-fx-worm', '~');
+    robinFx(robinSlotEl, 'rb-fx-moon', '☾');
+    robinStillEl = robinFx(robinSlotEl, 'rb-fx-still', '');
+    robinNotesEl = document.createElement('span');
+    robinNotesEl.className = 'nest-robin-notes';
+    robinSlotEl.appendChild(robinNotesEl);
+
+    robinSlotEl.setAttribute('data-state', 'idle');
+    robinSlotEl.setAttribute('data-motion', 'still');
+    robinSlotEl.setAttribute('data-speed', '0');
+  }
+
+  function robinStill() {
+    return !robinMsg || robinMsg.animations !== true || (reducedMotionQuery !== null && reducedMotionQuery.matches);
+  }
+
+  function clearRobinTimers() {
+    for (const t of robinNoteTimers) {
+      clearTimeout(t);
+    }
+    robinNoteTimers = [];
+    clearTimeout(robinBlinkTimer);
+    clearTimeout(robinBlinkOffTimer);
+    clearTimeout(robinFlickTimer);
+    clearTimeout(robinFlickOffTimer);
+    robinBlinkTimer = null;
+    robinBlinkOffTimer = null;
+    robinFlickTimer = null;
+    robinFlickOffTimer = null;
+  }
+
+  function setRobinEye(closed) {
+    if (robinEyeEl) {
+      robinEyeEl.textContent = closed || robinState === 'sleep' || robinState === 'night' ? '█' : '▙';
+    }
+  }
+
+  function setRobinTail(flicked) {
+    if (robinTailEl) {
+      robinTailEl.textContent = flicked ? '▝▀▀█' : '▀▀▀█';
+    }
+  }
+
+  function scheduleRobinBlink() {
+    robinBlinkTimer = setTimeout(() => {
+      setRobinEye(true);
+      robinBlinkOffTimer = setTimeout(() => setRobinEye(false), ROBIN_BLINK_MS);
+      scheduleRobinBlink();
+    }, ROBIN_BLINK_EVERY_MS);
+  }
+
+  function scheduleRobinFlick() {
+    robinFlickTimer = setTimeout(() => {
+      if (robinState === 'idle') {
+        setRobinTail(true);
+        robinFlickOffTimer = setTimeout(() => setRobinTail(false), ROBIN_FLICK_MS);
+      }
+      scheduleRobinFlick();
+    }, ROBIN_FLICK_EVERY_MS);
+  }
+
+  function spawnRobinNote() {
+    if (!robinNotesEl || robinNotesEl.childElementCount >= ROBIN_MAX_NOTES * 2) {
+      return;
+    }
+    const color = ROBIN_NOTE_COLORS[robinNoteCount % ROBIN_NOTE_COLORS.length];
+    const note = document.createElement('span');
+    note.className = 'nest-robin-note';
+    note.style.left = (4.4 + Math.random() * 3.4).toFixed(2) + 'em';
+    note.style.top = (-1.3 - (robinNoteCount % 2) * 0.6).toFixed(2) + 'em';
+    note.style.color = color;
+    robinNoteCount += 1;
+    const inner = document.createElement('span');
+    inner.className = 'nest-robin-note-in';
+    for (const row of ROBIN_NOTE_LINES) {
+      robinSpan(inner, row, 'nest-robin-line');
+    }
+    note.appendChild(inner);
+    robinNotesEl.appendChild(note);
+    setTimeout(() => note.remove(), 1800);
+  }
+
+  function scheduleRobinNote(first) {
+    const msg = robinMsg;
+    const delay = first;
+    const timer = setTimeout(function fire() {
+      if (!robinMsg || robinMsg !== msg) {
+        return;
+      }
+      spawnRobinNote();
+      const next = setTimeout(fire, msg.noteMinMs + Math.random() * msg.noteSpreadMs);
+      robinNoteTimers.push(next);
+    }, delay);
+    robinNoteTimers.push(timer);
+  }
+
+  // Starts or stops the timers to match the current message and whether the page is shown.
+  function syncRobinTimers() {
+    clearRobinTimers();
+    if (robinNotesEl) {
+      robinNotesEl.textContent = '';
+    }
+    setRobinEye(false);
+    setRobinTail(false);
+    if (!robinMsg || robinStill() || document.hidden) {
+      return;
+    }
+    scheduleRobinBlink();
+    scheduleRobinFlick();
+    if (robinState === 'working') {
+      for (let i = 0; i < robinMsg.noteBudget; i += 1) {
+        scheduleRobinNote(robinMsg.noteDelaysMs[i]);
+      }
+    }
+  }
+
+  function isValidRobinMessage(msg) {
+    return (
+      msg &&
+      msg.type === 'robin' &&
+      ROBIN_STATES.indexOf(msg.state) !== -1 &&
+      typeof msg.animations === 'boolean' &&
+      typeof msg.noteMinMs === 'number' &&
+      typeof msg.noteSpreadMs === 'number' &&
+      typeof msg.noteBudget === 'number' &&
+      Array.isArray(msg.noteDelaysMs) &&
+      typeof msg.reducedHint === 'string' &&
+      typeof msg.liveText === 'string'
+    );
+  }
+
+  function applyRobin() {
+    if (!robinSlotEl || !robinMsg) {
+      return;
+    }
+    robinSlotEl.setAttribute('data-state', robinState);
+    robinSlotEl.setAttribute('data-motion', robinStill() ? 'still' : 'full');
+    robinSlotEl.setAttribute('data-speed', String(robinMsg.speed === 1 || robinMsg.speed === 2 ? robinMsg.speed : 0));
+    if (robinStillEl) {
+      const inner = robinStillEl.firstChild;
+      if (inner) {
+        inner.textContent = robinMsg.reducedHint.slice(0, ROBIN_MARKER_MAX);
+      }
+    }
+    syncRobinTimers();
+  }
+
+  function onRobinMessage(msg) {
+    if (!isValidRobinMessage(msg)) {
+      return;
+    }
+    const changed = !robinMsg || robinMsg.state !== msg.state;
+    const next = {
+      state: msg.state,
+      speed: msg.speed,
+      animations: msg.animations,
+      noteMinMs: Math.max(500, Math.min(msg.noteMinMs, 60000)),
+      noteSpreadMs: Math.max(0, Math.min(msg.noteSpreadMs, 60000)),
+      noteBudget: Math.max(0, Math.min(Math.floor(msg.noteBudget), ROBIN_MAX_NOTES)),
+      noteDelaysMs: msg.noteDelaysMs
+        .slice(0, ROBIN_MAX_NOTES)
+        .map((n) => (typeof n === 'number' && n >= 0 && n <= 60000 ? n : 2500)),
+      reducedHint: msg.reducedHint,
+    };
+    while (next.noteDelaysMs.length < next.noteBudget) {
+      next.noteDelaysMs.push(next.noteMinMs);
+    }
+    robinMsg = next;
+    robinState = msg.state;
+    applyRobin();
+    if (changed && robinLiveEl) {
+      robinLiveEl.textContent = msg.liveText.slice(0, 60);
+    }
+  }
+
+  buildRobin();
+  document.addEventListener('visibilitychange', syncRobinTimers);
+  if (reducedMotionQuery && typeof reducedMotionQuery.addEventListener === 'function') {
+    reducedMotionQuery.addEventListener('change', applyRobin);
+  }
+
   // ---- inbound host messages ----
 
   window.addEventListener('message', (event) => {
@@ -3729,6 +4040,8 @@
       render();
     } else if (msg.type === 'fleet') {
       onFleetMessage(msg);
+    } else if (msg.type === 'robin') {
+      onRobinMessage(msg);
     } else if (msg.type === 'searchResults') {
       // Host content-search reply. Adopt the ranked ids and the
       // per-id snippet ONLY for the query still in the box; a reply for a stale query

@@ -630,6 +630,25 @@ export function activate(context: vscode.ExtensionContext): void {
     effectiveAutoArchiveDefaultDays,
   );
   refreshOrgPanel = () => orgPanelProvider.refresh();
+  // The hatch plays once per device; the flag is not in any synced key set.
+  const ROBIN_HATCHED_KEY = 'claudeNest.robin.hatched';
+  const readRobinAnimations = (): boolean =>
+    vscode.workspace.getConfiguration('claudeNest').get<boolean>('robin.animations', true) !== false;
+  orgPanelProvider.setRobinOptions({
+    animations: readRobinAnimations,
+    hatched: {
+      get: () => context.globalState.get<boolean>(ROBIN_HATCHED_KEY) === true,
+      set: () => void context.globalState.update(ROBIN_HATCHED_KEY, true),
+    },
+  });
+  context.subscriptions.push(
+    { dispose: () => orgPanelProvider.disposeRobin() },
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('claudeNest.robin.animations')) {
+        orgPanelProvider.refreshRobin();
+      }
+    }),
+  );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ORG_PANEL_VIEW, orgPanelProvider),
   );

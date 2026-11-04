@@ -8,6 +8,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The header robin reacts to live fleet state: it pecks while chats work (faster with
+  more of them, with a pixel note for each), catches a worm on a new ticket, tilts and
+  asks when a chat needs you, celebrates a finished chat or ticket, ruffles when
+  something fails, flies off and is replaced when the orchestrator rotates, sleeps when
+  nothing runs and shows a moon at night. An egg hatches the first time it runs on a
+  device. The setting `claudeNest.robin.animations` turns the motion off, and the
+  editor's reduced motion preference is respected.
 - The screenshot harness takes `--theme light|dark` and `--out <dir>`, and writes
   `<state>-<theme>.png` captures to `.claude-working/screens/` by default.
 - The integration test host finds the VS Code executable through a small injectable

@@ -71,6 +71,11 @@
     "configuration": {
       "title": "Claude Code Nest",
       "properties": {
+        "claudeNest.robin.animations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Animate the robin in the Nest header. When off, the robin shows a still pose and no notes."
+        },
         "claudeNest.archiveKeepWindowDays": {
           "type": "number",
           "default": 30,

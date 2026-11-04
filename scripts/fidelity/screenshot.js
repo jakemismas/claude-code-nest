@@ -1044,6 +1044,66 @@ async function main() {
       console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(state.name)));
     }
 
+    // The ROBIN states: the header robin in each state, captured as a clipped header strip.
+    // Each entry waits for the panel to apply the state, then lets the animation reach a
+    // recognizable moment before the capture. The still captures turn the animations off.
+    const robinStates = [
+      { state: 'idle', wait: 500 },
+      { state: 'working', wait: 1400 },
+      { state: 'needs', wait: 500 },
+      { state: 'done', wait: 330 },
+      { state: 'error', wait: 500 },
+      { state: 'sleep', wait: 500 },
+      { state: 'night', wait: 500 },
+      { state: 'worm', wait: 400 },
+      { state: 'rotate', wait: 700 },
+      { state: 'hatch', wait: 1100 },
+      { state: 'milestone', wait: 330 },
+      { state: 'needs', wait: 300, still: true },
+      { state: 'error', wait: 300, still: true },
+      { state: 'sleep', wait: 300, still: true },
+      { state: 'night', wait: 300, still: true },
+      { state: 'done', wait: 300, still: true },
+    ];
+    const robinCaptures = [];
+    for (const entry of robinStates) {
+      const name = 'robin-' + (entry.still ? 'still-' : '') + entry.state;
+      robinCaptures.push(name);
+      const robinPage = await openPage(browser);
+      await renderAndCapture(
+        robinPage,
+        harnessUrl() + '&robin=' + entry.state + (entry.still ? '&still=1' : ''),
+        harnessOut(name),
+        async (page) => {
+          await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+          await waitForCondition(
+            page,
+            "document.getElementById('robinSlot').getAttribute('data-state') === '" + entry.state + "'" +
+              " && document.getElementById('robinSlot').getAttribute('data-motion') === '" + (entry.still ? 'still' : 'full') + "'",
+            10000,
+            'the robin ' + entry.state + ' state to apply',
+          );
+          await sleep(entry.wait);
+          return await evaluate(
+            page,
+            '(function(){const r=document.querySelector(".nest-header").getBoundingClientRect();return {x:0,y:0,width:320,height:Math.ceil(r.bottom)};})()',
+          );
+        },
+      );
+      console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(name)));
+    }
+    // Every robin state must have a capture on disk for this theme.
+    const missingRobin = robinCaptures.filter((name) => {
+      try {
+        return fs.statSync(harnessOut(name)).size === 0;
+      } catch {
+        return true;
+      }
+    });
+    if (missingRobin.length > 0) {
+      throw new Error('Missing robin captures for the ' + THEME + ' theme: ' + missingRobin.join(', '));
+    }
+
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
   } catch (err) {
     fail(

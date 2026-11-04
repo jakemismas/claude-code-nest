@@ -7,6 +7,7 @@ import { FleetSections, buildFleetSections } from '../fleet/groupModel';
 import type { QueueRow } from '../fleet/queueTable';
 import { GroupBy } from '../fleet/nestConfig';
 import { EMPTY_FLEET_STATE, FleetState } from '../fleet/types';
+import { INITIAL_ROBIN_MEMORY, RobinMemory, RobinOutput, buildRobinMessage, buildRobinSignals, stepRobin } from '../fleet/robinState';
 import { DEFAULT_STAGE_STYLE, StageStyleConfig, buildFleetMessage, coerceSetActive } from './fleetPanel';
 import { readTranscriptBodies } from '../claude/bodyReader';
 import { MetadataStore } from '../store/metadataStore';
@@ -365,8 +366,14 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 
     // Tell the live-status poller whether the panel is on screen.
     this.visibilityListener?.(webviewView.visible);
-    webviewView.onDidChangeVisibility(() => this.visibilityListener?.(webviewView.visible));
-    webviewView.onDidDispose(() => this.visibilityListener?.(false));
+    webviewView.onDidChangeVisibility(() => {
+      this.visibilityListener?.(webviewView.visible);
+      this.onRobinVisibility(webviewView.visible);
+    });
+    webviewView.onDidDispose(() => {
+      this.visibilityListener?.(false);
+      this.onRobinVisibility(false);
+    });
   }
 
   private visibilityListener: ((visible: boolean) => void) | undefined;
@@ -385,19 +392,118 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 
   setAgentSessions(sessions: readonly AgentSession[]): void {
     this.agentSessions = sessions;
+    this.agentsLoaded = true;
     this.recomputeStatuses();
     this.postFleet();
+    this.stepRobin();
   }
 
   setQueueRows(rows: readonly QueueRow[]): void {
     this.queueRows = rows;
+    this.queueLoaded = true;
     this.postFleet();
+    this.stepRobin();
   }
 
   // The layout file's stage colors and finished stages, used to color stage pills.
   setStageStyle(style: StageStyleConfig): void {
     this.stageStyle = style;
     this.postFleet();
+    this.stepRobin();
+  }
+
+  // The robin's per-device inputs. The animations getter reads the setting; the hatched
+  // store keeps the one-time egg per device and is never synced.
+  private robinAnimations: () => boolean = () => true;
+  private robinHatched: { get: () => boolean; set: () => void } = { get: () => true, set: () => undefined };
+  private robinMemory: RobinMemory = INITIAL_ROBIN_MEMORY;
+  private robinOutput: RobinOutput | undefined;
+  private robinTimer: ReturnType<typeof setTimeout> | undefined;
+  private robinGrace: ReturnType<typeof setTimeout> | undefined;
+  private robinVisible = true;
+  private robinFleetLoaded = false;
+  private agentsLoaded = false;
+  private queueLoaded = false;
+  private robinGraceOver = false;
+  private lastRobinJson = '';
+
+  setRobinOptions(options: {
+    animations: () => boolean;
+    hatched: { get: () => boolean; set: () => void };
+  }): void {
+    this.robinAnimations = options.animations;
+    this.robinHatched = options.hatched;
+    // The live session poll may never answer (untrusted workspace); stop waiting for it.
+    this.robinGrace ??= setTimeout(() => {
+      this.robinGraceOver = true;
+      this.stepRobin();
+    }, 4000);
+  }
+
+  // Re-post the robin when the animations setting changes.
+  refreshRobin(): void {
+    this.lastRobinJson = '';
+    this.postRobin();
+  }
+
+  disposeRobin(): void {
+    clearTimeout(this.robinTimer);
+    clearTimeout(this.robinGrace);
+    this.robinTimer = undefined;
+  }
+
+  private onRobinVisibility(visible: boolean): void {
+    this.robinVisible = visible;
+    if (visible) {
+      this.lastRobinJson = '';
+      this.stepRobin();
+    } else {
+      clearTimeout(this.robinTimer);
+      this.robinTimer = undefined;
+    }
+  }
+
+  // Step the machine once the first real inputs are in, so existing history seeds the
+  // seen sets instead of replaying as transient states.
+  private stepRobin(): void {
+    if (!this.robinFleetLoaded || !this.queueLoaded || !(this.agentsLoaded || this.robinGraceOver)) {
+      return;
+    }
+    const now = Date.now();
+    const signals = buildRobinSignals({
+      fleet: this.fleetState,
+      statuses: this.statusByChat,
+      sessions: this.agentSessions,
+      queueRows: this.queueRows,
+      doneStages: this.stageStyle.doneStages,
+      hatchEligible: !this.robinHatched.get(),
+    });
+    const { memory, output } = stepRobin(this.robinMemory, signals, now, Math.random);
+    this.robinMemory = memory;
+    this.robinOutput = output;
+    if (output.hatchStarted) {
+      this.robinHatched.set();
+    }
+    clearTimeout(this.robinTimer);
+    this.robinTimer = undefined;
+    if (output.nextCheckAt !== null && this.robinVisible) {
+      const delay = Math.min(Math.max(output.nextCheckAt - now, 50), 2 ** 31 - 1);
+      this.robinTimer = setTimeout(() => this.stepRobin(), delay);
+    }
+    this.postRobin();
+  }
+
+  private postRobin(): void {
+    if (this.view === undefined || this.robinOutput === undefined) {
+      return;
+    }
+    const message = buildRobinMessage(this.robinOutput, this.robinAnimations());
+    const json = JSON.stringify(message);
+    if (json === this.lastRobinJson) {
+      return;
+    }
+    this.lastRobinJson = json;
+    void this.view.webview.postMessage(message);
   }
 
   // True when the live session list holds this chat as a working or needs background session.
@@ -487,7 +593,9 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     this.linkedFolders = layout.linkedFolders;
     this.groupBy = layout.groupBy;
     this.fleetState = layout.fleet;
+    this.robinFleetLoaded = true;
     this.recomputeStatuses();
+    this.stepRobin();
   }
 
   // One scan of the workspace plus linked folders. Throws like scanChats did.
@@ -507,6 +615,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     this.sourceByChat = scan.sourceByChat;
     this.lastRecords = scan.records;
     this.recomputeStatuses();
+    this.stepRobin();
     return scan.records;
   }
 
@@ -855,6 +964,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
     void this.view.webview.postMessage({ type: 'sections', sections: this.buildSectionModel() });
     this.postFleet(true);
+    this.lastRobinJson = '';
+    this.postRobin();
   }
 
   // Post the Settings overlay's state: the current auto-archive window in days and the
@@ -1285,7 +1396,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 <link href="${styleUri}" rel="stylesheet" />
 </head>
 <body>
-  <header class="nest-header"><span id="robinSlot" class="nest-robin-slot" aria-hidden="true"></span><span class="nest-wordmark">Nest</span></header>
+  <header class="nest-header"><span id="robinSlot" class="nest-robin-slot" aria-hidden="true"></span><span class="nest-wordmark">Nest</span><span id="robinLive" class="nest-sr-only" role="status" aria-live="polite"></span></header>
   <div class="nest-toolbar">
     <button id="newSession" class="nest-new-session" type="button" title="New session" aria-label="New session"><span class="nest-new-session-plus" aria-hidden="true">+</span>New session</button>
     <span class="nest-spacer"></span>
