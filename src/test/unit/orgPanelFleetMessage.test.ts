@@ -97,3 +97,135 @@ describe('org panel fleet message', () => {
     assert.strictEqual(last?.queueCount, 1);
   });
 });
+
+type RobinProvider = {
+  resolveWebviewView(view: unknown): void;
+  setQueueRows(rows: unknown): void;
+  setAgentSessions(sessions: unknown): void;
+  setLayout(layout: unknown): void;
+  setRobinOptions(options: unknown): void;
+  disposeRobin(): void;
+};
+
+function makeRobinView(visible = true): { view: unknown; posted: { type: string; state?: string }[]; dispose: () => void } {
+  const posted: { type: string; state?: string }[] = [];
+  let onDispose: (() => void) | undefined;
+  const view = {
+    webview: {
+      options: {},
+      cspSource: 'x:',
+      asWebviewUri: (u: unknown): unknown => u,
+      html: '',
+      onDidReceiveMessage: (): { dispose(): void } => ({ dispose: (): void => undefined }),
+      postMessage: (m: unknown): Thenable<boolean> => {
+        posted.push(m as { type: string });
+        return Promise.resolve(true);
+      },
+    },
+    visible,
+    onDidChangeVisibility: (): { dispose(): void } => ({ dispose: (): void => undefined }),
+    onDidDispose: (cb: () => void): { dispose(): void } => {
+      onDispose = cb;
+      return { dispose: (): void => undefined };
+    },
+  };
+  return { view, posted, dispose: () => onDispose?.() };
+}
+
+function makeRobinProvider(hatched: { get: () => boolean; set: () => void }): RobinProvider {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { EMPTY_FLEET_STATE } = require('../../fleet/types') as { EMPTY_FLEET_STATE: unknown };
+  const provider = new OrgPanelProvider(
+    { fsPath: '/ext', scheme: 'file' },
+    undefined,
+    inertStore,
+    () => undefined,
+    {},
+    {},
+    inertStateStore,
+    inertReadState,
+    undefined,
+  ) as unknown as RobinProvider;
+  provider.setRobinOptions({ animations: () => true, hatched });
+  provider.setLayout({ linkedFolders: [], groupBy: 'auto', fleet: EMPTY_FLEET_STATE });
+  provider.setQueueRows([]);
+  provider.setAgentSessions([]);
+  return provider;
+}
+
+// Records the timers the provider arms so a test can see whether the timed step re-arms.
+function withRecordedTimers(run: (armed: number[]) => void): void {
+  const realSet = global.setTimeout;
+  const realClear = global.clearTimeout;
+  const armed: number[] = [];
+  const fakes = new Set<unknown>();
+  (global as unknown as { setTimeout: unknown }).setTimeout = ((_fn: unknown, ms: number) => {
+    armed.push(ms);
+    const token = {};
+    fakes.add(token);
+    return token;
+  }) as unknown;
+  (global as unknown as { clearTimeout: unknown }).clearTimeout = ((token: unknown) => {
+    if (!fakes.has(token)) {
+      realClear(token as NodeJS.Timeout);
+    }
+  }) as unknown;
+  try {
+    run(armed);
+  } finally {
+    global.setTimeout = realSet;
+    global.clearTimeout = realClear;
+  }
+}
+
+describe('org panel robin after the view is resolved again', () => {
+  it('re-arms the timed step and posts the robin to a re-resolved view', () => {
+    withRecordedTimers((armed) => {
+      // An unhatched egg keeps a transient running, so a visible view always has a timed step.
+      const provider = makeRobinProvider({ get: () => false, set: () => undefined });
+      const first = makeRobinView();
+      provider.resolveWebviewView(first.view);
+      assert.ok(first.posted.some((m) => m.type === 'robin'), 'the first view gets the robin');
+
+      first.dispose();
+      const before = armed.length;
+      const second = makeRobinView();
+      provider.resolveWebviewView(second.view);
+      assert.ok(second.posted.some((m) => m.type === 'robin'), 'the second view gets the robin');
+      assert.ok(
+        armed.slice(before).some((ms) => ms >= 50 && ms <= 2400),
+        'the next robin step is scheduled again',
+      );
+      provider.disposeRobin();
+    });
+  });
+
+  it('keeps the egg unhatched until a visible panel with animations on is sent it', () => {
+    withRecordedTimers(() => {
+      let hatched = 0;
+      const provider = makeRobinProvider({ get: () => false, set: () => (hatched += 1) });
+      const hidden = makeRobinView(false);
+      provider.resolveWebviewView(hidden.view);
+      assert.strictEqual(hatched, 0, 'a hidden view does not consume the egg');
+      const shown = makeRobinView(true);
+      provider.resolveWebviewView(shown.view);
+      assert.strictEqual(hatched, 1, 'a visible view does');
+      provider.disposeRobin();
+    });
+  });
+
+  it('stops posting and timing after the robin is disposed', () => {
+    withRecordedTimers((armed) => {
+      const provider = makeRobinProvider({ get: () => true, set: () => undefined });
+      const view = makeRobinView();
+      provider.resolveWebviewView(view.view);
+      provider.disposeRobin();
+      const posts = view.posted.length;
+      const timers = armed.length;
+      provider.setQueueRows([{ key: 'A-1', title: 'T', stage: 'To build' }]);
+      provider.setAgentSessions([]);
+      assert.strictEqual(view.posted.filter((m) => m.type === 'robin').length, view.posted.slice(0, posts).filter((m) => m.type === 'robin').length);
+      assert.strictEqual(armed.length, timers);
+    });
+  });
+});

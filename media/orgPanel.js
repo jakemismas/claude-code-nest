@@ -3675,6 +3675,355 @@
     renderQueue();
   }
 
+  // ---- robin ----
+  // The host decides the robin's state and posts it. This block draws the pixel art from
+  // robinArt.js as square SVG rects, sets classes that CSS animates, and runs the note,
+  // blink, tail and flutter timers. Colors come from CSS classes, never from style strings.
+
+  const robinSlotEl = document.getElementById('robinSlot');
+  const robinLiveEl = document.getElementById('robinLive');
+  const ROBIN_STATES = ['hatch', 'rotate', 'error', 'needs', 'worm', 'done', 'milestone', 'working', 'sleep', 'night', 'idle'];
+  // Which branch the header shows: 'thick' or 'leafy'.
+  const ROBIN_BRANCH = 'thick';
+  const ROBIN_PIXEL_PX = 3;
+  const ROBIN_MAX_NOTES = 6;
+  const ROBIN_NOTE_LIFE_MS = 1800;
+  const ROBIN_BLINK_EVERY_MS = 3400;
+  const ROBIN_BLINK_MS = 170;
+  const ROBIN_FLICK_EVERY_MS = 3500;
+  const ROBIN_FLICK_MS = 500;
+  const ROBIN_FLUTTER_MIN_MS = 20000;
+  const ROBIN_FLUTTER_SPREAD_MS = 20000;
+  const ROBIN_FLUTTER_MS = 950;
+  const ROBIN_SVG_NS = 'http://www.w3.org/2000/svg';
+  const robinArt = window.NestRobinArt;
+  const reducedMotionQuery =
+    typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+  let robinEyeEl = null;
+  let robinNotesEl = null;
+  let robinState = 'idle';
+  let robinMsg = null;
+  // One pending note timer per lane, and the pending removals of notes already drawn.
+  let robinNoteTimers = [];
+  const robinNoteRemovals = new Set();
+  let robinBlinkTimer = null;
+  let robinBlinkOffTimer = null;
+  let robinFlickTimer = null;
+  let robinFlickOffTimer = null;
+  let robinFlutterTimer = null;
+  let robinFlutterOffTimer = null;
+  let robinNoteCount = 0;
+
+  // Own-property lookup, so a key like 'constructor' from outside never matches.
+  function robinOwn(obj, key) {
+    return typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
+  function robinSvg(name, attrs, parent) {
+    const el = document.createElementNS(ROBIN_SVG_NS, name);
+    for (const key of Object.keys(attrs || {})) {
+      el.setAttribute(key, String(attrs[key]));
+    }
+    if (parent) {
+      parent.appendChild(el);
+    }
+    return el;
+  }
+
+  function robinGroup(parent, cls, x, y) {
+    const attrs = { class: cls };
+    if (x !== undefined) {
+      attrs.transform = 'translate(' + x + ' ' + y + ')';
+    }
+    return robinSvg('g', attrs, parent);
+  }
+
+  function robinDraw(parent, rects) {
+    let first = null;
+    for (const r of rects) {
+      const rect = robinSvg('rect', { x: r.x, y: r.y, width: r.w, height: r.h, class: 'rp-' + r.c }, parent);
+      first = first || rect;
+    }
+    return first;
+  }
+
+  function robinDrawRows(parent, rows) {
+    robinDraw(parent, robinArt.runs(rows));
+  }
+
+  // A reaction glyph at its placed spot. The outer group only positions; the inner group animates.
+  function robinPlace(parent, key, cls) {
+    const p = robinArt.PLACEMENTS[key];
+    const outer = robinGroup(parent, 'rp-at', p.x, p.y);
+    const inner = robinGroup(outer, 'rp-fx ' + cls);
+    robinDrawRows(inner, robinArt.glyphRows(p.g, p.c));
+    return inner;
+  }
+
+  function buildRobin() {
+    if (!robinSlotEl || !robinArt) {
+      return;
+    }
+    const wanted = robinSlotEl.getAttribute('data-branch');
+    const branchName = robinOwn(robinArt.BRANCHES, wanted) ? wanted : ROBIN_BRANCH;
+    const svg = robinSvg(
+      'svg',
+      {
+        class: 'nest-robin-svg',
+        viewBox: '0 0 ' + robinArt.BRANCH_W + ' ' + robinArt.BRANCH_H,
+        width: robinArt.BRANCH_W * ROBIN_PIXEL_PX,
+        height: robinArt.BRANCH_H * ROBIN_PIXEL_PX,
+        'shape-rendering': 'crispEdges',
+        focusable: 'false',
+      },
+      null,
+    );
+
+    // The branch is its own layer so it stays put while the bird flies.
+    robinDrawRows(robinGroup(svg, 'rp-branch'), robinArt.BRANCHES[branchName]);
+
+    const origin = robinArt.BIRD_ORIGIN;
+    const perch = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y), 'rp-perch');
+    const root = robinGroup(perch, 'rp-root');
+    const parts = robinArt.birdParts(robinArt.BIRD);
+    const flickParts = robinArt.birdParts(robinArt.birdFrame({ flick: true }));
+    robinDraw(robinGroup(root, 'rp-tail rp-tail-rest'), parts.tail);
+    robinDraw(robinGroup(root, 'rp-tail rp-tail-flick'), flickParts.tail);
+    robinDraw(robinGroup(root, 'rp-body'), parts.body);
+    robinDraw(robinGroup(root, 'rp-wing'), parts.wing);
+    const head = robinGroup(root, 'rp-head');
+    robinDraw(head, parts.head);
+    robinEyeEl = robinDraw(head, parts.eye);
+
+    // Wing frames on the bird's own grid, shown one at a time while it flies.
+    const fly = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y - robinArt.FLIGHT_TOP), 'rp-fly');
+    const flip = robinGroup(fly, 'rp-flip');
+    for (const kind of robinArt.FLIGHT_KINDS) {
+      robinDrawRows(robinGroup(flip, 'rp-fr rp-fr-' + kind), robinArt.flightFrame(kind));
+    }
+
+    // The egg shows over the bird while it hatches.
+    const egg = robinGroup(
+      robinGroup(svg, 'rp-at', robinArt.EGG_ORIGIN.x, robinArt.EGG_ORIGIN.y),
+      'rp-egg',
+    );
+    robinDrawRows(robinGroup(egg, 'rp-egg-whole'), robinArt.EGG);
+    robinDrawRows(robinGroup(egg, 'rp-egg-cracked'), robinArt.EGG_CRACKED);
+
+    robinPlace(svg, 'question', 'rb-fx-q');
+    robinPlace(svg, 'bang', 'rb-fx-bang');
+    robinPlace(svg, 'noteA', 'rb-fx-note rb-fx-note-a');
+    robinPlace(svg, 'noteB', 'rb-fx-note rb-fx-note-b');
+    robinPlace(svg, 'sparkA', 'rb-fx-spark rb-fx-spark-a');
+    robinPlace(svg, 'sparkB', 'rb-fx-spark rb-fx-spark-b');
+    robinPlace(svg, 'sparkC', 'rb-fx-spark rb-fx-spark-c');
+    robinPlace(svg, 'bigB', 'rb-fx-big');
+    robinPlace(svg, 'zSmall', 'rb-fx-z rb-fx-z-a');
+    robinPlace(svg, 'zBig', 'rb-fx-z rb-fx-z-b');
+    robinPlace(svg, 'worm', 'rb-fx-worm');
+    robinPlace(svg, 'moon', 'rb-fx-moon');
+    for (const hint of Object.keys(robinArt.HINT_PLACEMENTS)) {
+      for (const key of robinArt.HINT_PLACEMENTS[hint]) {
+        robinPlace(svg, key, 'rb-still rb-still-' + hint);
+      }
+    }
+    robinNotesEl = robinGroup(svg, 'rp-notes');
+
+    robinSlotEl.appendChild(svg);
+    robinSlotEl.setAttribute('data-state', 'idle');
+    robinSlotEl.setAttribute('data-motion', 'still');
+    robinSlotEl.setAttribute('data-speed', '0');
+  }
+
+  function robinStill() {
+    return !robinMsg || robinMsg.animations !== true || (reducedMotionQuery !== null && reducedMotionQuery.matches);
+  }
+
+  function clearRobinTimers() {
+    for (const t of robinNoteTimers) {
+      clearTimeout(t);
+    }
+    robinNoteTimers = [];
+    for (const t of robinNoteRemovals) {
+      clearTimeout(t);
+    }
+    robinNoteRemovals.clear();
+    clearTimeout(robinBlinkTimer);
+    clearTimeout(robinBlinkOffTimer);
+    clearTimeout(robinFlickTimer);
+    clearTimeout(robinFlickOffTimer);
+    clearTimeout(robinFlutterTimer);
+    clearTimeout(robinFlutterOffTimer);
+    robinBlinkTimer = null;
+    robinBlinkOffTimer = null;
+    robinFlickTimer = null;
+    robinFlickOffTimer = null;
+    robinFlutterTimer = null;
+    robinFlutterOffTimer = null;
+  }
+
+  // The eye is the dark pixel; a blink paints it the head color. Sleep keeps it shut.
+  function setRobinEye(closed) {
+    if (robinEyeEl) {
+      const shut = closed || robinState === 'sleep' || robinState === 'night';
+      robinEyeEl.setAttribute('class', shut ? 'rp-H' : 'rp-e');
+    }
+  }
+
+  function setRobinTail(flicked) {
+    if (robinSlotEl) {
+      robinSlotEl.setAttribute('data-flick', flicked ? '1' : '0');
+    }
+  }
+
+  function setRobinFlutter(on) {
+    if (robinSlotEl) {
+      robinSlotEl.setAttribute('data-flutter', on ? '1' : '0');
+    }
+  }
+
+  function scheduleRobinBlink() {
+    robinBlinkTimer = setTimeout(() => {
+      setRobinEye(true);
+      robinBlinkOffTimer = setTimeout(() => setRobinEye(false), ROBIN_BLINK_MS);
+      scheduleRobinBlink();
+    }, ROBIN_BLINK_EVERY_MS);
+  }
+
+  function scheduleRobinFlick() {
+    robinFlickTimer = setTimeout(() => {
+      if (robinState === 'idle') {
+        setRobinTail(true);
+        robinFlickOffTimer = setTimeout(() => setRobinTail(false), ROBIN_FLICK_MS);
+      }
+      scheduleRobinFlick();
+    }, ROBIN_FLICK_EVERY_MS);
+  }
+
+  // An idle robin now and then flutters up off the branch and lands again.
+  function scheduleRobinFlutter() {
+    robinFlutterTimer = setTimeout(() => {
+      if (robinState === 'idle') {
+        setRobinFlutter(true);
+        robinFlutterOffTimer = setTimeout(() => setRobinFlutter(false), ROBIN_FLUTTER_MS);
+      }
+      scheduleRobinFlutter();
+    }, ROBIN_FLUTTER_MIN_MS + Math.random() * ROBIN_FLUTTER_SPREAD_MS);
+  }
+
+  // A note pops out above the head in the lane of the chat that made it.
+  function spawnRobinNote(lane) {
+    if (!robinNotesEl) {
+      return;
+    }
+    const colors = robinArt.NOTE_COLORS;
+    const color = colors[(lane + robinNoteCount) % colors.length];
+    robinNoteCount += 1;
+    const x = robinArt.NOTE_LANES[lane % robinArt.NOTE_LANES.length];
+    const outer = robinGroup(robinNotesEl, 'rp-at', x, robinArt.NOTE_Y);
+    robinDrawRows(robinGroup(outer, 'rp-note'), robinArt.glyphRows('note', color));
+    const removal = setTimeout(() => {
+      robinNoteRemovals.delete(removal);
+      outer.remove();
+    }, ROBIN_NOTE_LIFE_MS);
+    robinNoteRemovals.add(removal);
+  }
+
+  function scheduleRobinNote(lane, first) {
+    const msg = robinMsg;
+    robinNoteTimers[lane] = setTimeout(function fire() {
+      if (!robinMsg || robinMsg !== msg) {
+        return;
+      }
+      spawnRobinNote(lane);
+      robinNoteTimers[lane] = setTimeout(fire, msg.noteMinMs + Math.random() * msg.noteSpreadMs);
+    }, first);
+  }
+
+  // Starts or stops the timers to match the current message and whether the page is shown.
+  function syncRobinTimers() {
+    clearRobinTimers();
+    if (robinNotesEl) {
+      robinNotesEl.textContent = '';
+    }
+    setRobinEye(false);
+    setRobinTail(false);
+    setRobinFlutter(false);
+    if (!robinMsg || robinStill() || document.hidden) {
+      return;
+    }
+    scheduleRobinBlink();
+    scheduleRobinFlick();
+    scheduleRobinFlutter();
+    if (robinState === 'working') {
+      for (let i = 0; i < robinMsg.noteBudget; i += 1) {
+        scheduleRobinNote(i, robinMsg.noteDelaysMs[i]);
+      }
+    }
+  }
+
+  function isValidRobinMessage(msg) {
+    return (
+      msg &&
+      msg.type === 'robin' &&
+      ROBIN_STATES.indexOf(msg.state) !== -1 &&
+      typeof msg.animations === 'boolean' &&
+      typeof msg.noteMinMs === 'number' &&
+      typeof msg.noteSpreadMs === 'number' &&
+      typeof msg.noteBudget === 'number' &&
+      Array.isArray(msg.noteDelaysMs) &&
+      typeof msg.reducedHint === 'string' &&
+      typeof msg.liveText === 'string'
+    );
+  }
+
+  function applyRobin() {
+    if (!robinSlotEl || !robinMsg) {
+      return;
+    }
+    robinSlotEl.setAttribute('data-state', robinState);
+    robinSlotEl.setAttribute('data-motion', robinStill() ? 'still' : 'full');
+    robinSlotEl.setAttribute('data-speed', String(robinMsg.speed === 1 || robinMsg.speed === 2 ? robinMsg.speed : 0));
+    const hint = robinArt && robinOwn(robinArt.HINT_PLACEMENTS, robinMsg.reducedHint) ? robinMsg.reducedHint : '';
+    robinSlotEl.setAttribute('data-still', hint);
+    syncRobinTimers();
+  }
+
+  function onRobinMessage(msg) {
+    if (!isValidRobinMessage(msg)) {
+      return;
+    }
+    const changed = !robinMsg || robinMsg.state !== msg.state;
+    const next = {
+      state: msg.state,
+      speed: msg.speed,
+      animations: msg.animations,
+      noteMinMs: Math.max(500, Math.min(msg.noteMinMs, 60000)),
+      noteSpreadMs: Math.max(0, Math.min(msg.noteSpreadMs, 60000)),
+      noteBudget: Math.max(0, Math.min(Math.floor(msg.noteBudget), ROBIN_MAX_NOTES)),
+      noteDelaysMs: msg.noteDelaysMs
+        .slice(0, ROBIN_MAX_NOTES)
+        .map((n) => (typeof n === 'number' && n >= 0 && n <= 60000 ? n : 2500)),
+      reducedHint: msg.reducedHint,
+    };
+    while (next.noteDelaysMs.length < next.noteBudget) {
+      next.noteDelaysMs.push(next.noteMinMs);
+    }
+    robinMsg = next;
+    robinState = msg.state;
+    applyRobin();
+    if (changed && robinLiveEl) {
+      robinLiveEl.textContent = msg.liveText.slice(0, 60);
+    }
+  }
+
+  buildRobin();
+  document.addEventListener('visibilitychange', syncRobinTimers);
+  if (reducedMotionQuery && typeof reducedMotionQuery.addEventListener === 'function') {
+    reducedMotionQuery.addEventListener('change', applyRobin);
+  }
+
   // ---- inbound host messages ----
 
   window.addEventListener('message', (event) => {
@@ -3729,6 +4078,8 @@
       render();
     } else if (msg.type === 'fleet') {
       onFleetMessage(msg);
+    } else if (msg.type === 'robin') {
+      onRobinMessage(msg);
     } else if (msg.type === 'searchResults') {
       // Host content-search reply. Adopt the ranked ids and the
       // per-id snippet ONLY for the query still in the box; a reply for a stale query

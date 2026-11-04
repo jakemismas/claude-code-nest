@@ -319,4 +319,19 @@ The host posts one `fleet` message that the webview only draws. `src/views/fleet
 - Fleet, layout, queue and CLI strings reach the page through `textContent`. The webview builds no HTML from data.
 - With a fleet message, the panel draws Starred and Questions when they are not empty, then the fleet layout, then your folders. Active shows only the fleet groups that hold a working or needs chat.
 - Group open and close, new rows, the dot to check change and the stage color change are animated. Each has a `prefers-reduced-motion` rule that removes the motion.
-- The header has an empty robin slot beside the "Nest" wordmark.
+- The header shows a pixel-art robin beside the "Nest" wordmark.
+
+## Header robin
+
+`src/fleet/robinState.ts` is pure: it takes the inputs, the clock and an injected random source and returns one state. The host runs it and posts a small `robin` message (`state`, `speed`, `workingCount`, `noteBudget`, `noteDelaysMs`, `animations`, `reducedHint`, `liveText`). The webview draws the art as square SVG rects, sets data attributes that CSS animates, and runs the note, blink, tail and flutter timers.
+
+- States, highest priority first: hatch, rotate, error, needs, worm, done, milestone, working, sleep, night and idle. Hatch, rotate, error, worm, done and milestone are transient and play once (2.4, 3.2, 6, 1.8, 1.6 and 4 seconds), then the robin falls back to the next state that holds.
+- The host feeds the machine from existing inputs: fleet entries (a new launch that is not a backfill and carries a ticket, and an `end` outcome), the rotate chain, the per-chat statuses and live session states, and queue rows against `doneStages`. The first step only seeds what it has seen, so existing history never replays as a transient.
+- The robin sleeps after 10 minutes with no working or needs chat, and shows night when it sleeps between 22:00 and 06:00 local time. The host sets one timer for the next transient end or sleep point and stops it while the panel is hidden.
+- While working, each working chat gets one note slot, up to six, and a note pops out at most once every 2.5 seconds per chat at a random moment.
+- The hatch plays on the first run on a device. The flag lives in `globalState` under a key that is not registered for sync.
+- `claudeNest.robin.animations` (default on) turns every animation and note off and leaves a still robin. `prefers-reduced-motion` does the same. A still pose shows a pixel glyph for needs, error, sleep, night and done, and a hovering robin for rotate and milestone.
+- The art lives in `media/robinArt.js` as pixel grids, one character per pixel: the bird, its flight frames (wings up, level and down, on the bird's own grid), the two branches, the egg and the reaction glyphs. `media/orgPanel.js` turns the grids into SVG rects colored by CSS classes, split into branch, head, eye, tail, wing and body groups so each moves on its own. One constant in `orgPanel.js` picks the branch. The branch is a separate layer, so it stays put while the bird flies.
+- Every 2x2 pixel cell holds at most two colors, so the same grids print as terminal block characters; a unit test checks it for every frame, branch, egg and glyph.
+- Flight uses the wing frames on a path: rotate flies off and a fresh robin lands, a finished queue (milestone) flies a lap around the header, and an idle robin flutters up now and then. Each has a still pose under reduced motion, and the animations setting stops all of them.
+- The robin is `aria-hidden`. A separate polite live region announces only a change to needs or error.
