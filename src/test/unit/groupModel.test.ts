@@ -33,7 +33,7 @@ function fleet(entries: FleetEntry[], current: FleetEntry | null = null): FleetS
 }
 function build(extra: Partial<GroupModelInput>): FleetSections {
   return buildFleetSections({
-    chats: [], userFolders: [], fleet: fleet([]), statuses: new Map(), queueRows: [], groupBy: 'tickets',
+    chats: [], userFolders: [], fleet: fleet([]), statuses: new Map(), attachableIds: new Set(), queueRows: [], groupBy: 'tickets',
     workspaceRoot: '/ws', now: NOW, active: false, ...extra,
   });
 }
@@ -270,5 +270,31 @@ describe('groupModel ids', () => {
     for (const id of ['__orchestrator__', '__past_orchestrators__', '__archived__', '__queue__']) {
       assert.ok(RESERVED_SENTINELS.has(id), id);
     }
+  });
+});
+
+describe('groupModel attachable rows', () => {
+  it('marks only the rows whose session id is in the attachable set', () => {
+    const a = entry('cccc0001', { ticket: 'TKT-9', name: 'TKT-9 build' });
+    const b = entry('cccc0002', { ticket: 'TKT-9', name: 'TKT-9 qa' });
+    const out = build({
+      chats: [chat('cccc0001'), chat('cccc0002')],
+      fleet: fleet([a, b]),
+      statuses: st({ cccc0001: 'working', cccc0002: 'needs' }),
+      attachableIds: new Set(['cccc0001']),
+    });
+    const flags = Object.fromEntries(out.groups[0].rows.map((r) => [r.sessionId, r.attachable]));
+    assert.deepStrictEqual(flags, { cccc0001: true, cccc0002: false });
+  });
+
+  it('marks a fleet-only queued row and an unsorted row from the same set', () => {
+    const queued = entry('dddd0001', { ticket: 'TKT-8', name: 'TKT-8 build' });
+    const out = build({
+      chats: [chat('dddd0002')],
+      fleet: fleet([queued]),
+      attachableIds: new Set(['dddd0001', 'dddd0002']),
+    });
+    assert.strictEqual(out.groups[0].rows[0].attachable, true);
+    assert.strictEqual(out.unsorted[0].attachable, true);
   });
 });

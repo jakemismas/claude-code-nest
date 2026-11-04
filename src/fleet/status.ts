@@ -42,6 +42,17 @@ function agentDone(agent: StatusInput['agent']): boolean {
   return agent !== null && norm(agent.kind) === 'background' && BACKGROUND_DONE.has(norm(agent.state));
 }
 
+// True only for a background session that is working or needs you. A session an
+// interactive window owns, or one that is done, has nothing to attach to.
+export function isAttachable(agent: Pick<AgentSession, 'kind' | 'state'> | null): boolean {
+  return agent !== null && norm(agent.kind) === 'background' && (BACKGROUND_WORKING.has(norm(agent.state)) || BACKGROUND_NEEDS.has(norm(agent.state)));
+}
+
+// The ids of the live sessions that can be attached.
+export function attachableSessionIds(sessions: readonly AgentSession[]): Set<string> {
+  return new Set(sessions.filter((s) => isAttachable(s)).map((s) => s.sessionId));
+}
+
 export function mapStatus(input: StatusInput): ChatStatus {
   if (agentWorking(input.agent)) {
     return 'working';

@@ -38,6 +38,8 @@ export interface PanelFleetRow {
   readonly title: string;
   readonly status: ChatStatus;
   readonly statusLabel: string;
+  // A background session that is working or needs you can be opened in a terminal.
+  readonly attachable: boolean;
   // The agent or role text, else empty.
   readonly agentTag: string;
   // A closed color key for the agent tag, or empty when there is no tag.
@@ -167,6 +169,7 @@ function toPanelRow(
     title: row.title,
     status: row.status,
     statusLabel: STATUS_LABELS[row.status],
+    attachable: row.attachable,
     agentTag: row.agentTag,
     tagKind: agentTagKind(row.agentTag),
     suffix: row.suffix,

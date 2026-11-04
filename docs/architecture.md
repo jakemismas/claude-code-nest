@@ -48,6 +48,7 @@ modules.
 | `src/export/chatExport.ts` | Renders one chat as Markdown or JSON. |
 | `src/rollup/` | Token usage totals and the report built from them. |
 | `src/launch/` | Opens or starts a chat in Claude Code through its URI handler and commands. |
+| `src/launch/attachLauncher.ts` | Pure launcher for Open in terminal. Takes an injected terminal factory, checks the session id, and builds a terminal whose shell is `claude` with the arguments `attach <id>`. Imports no `vscode` and no `child_process`. |
 | `src/dnd/` | Drag-and-drop interpretation (`dropReducer`) and the adapter for webview drops. |
 | `src/commands/` | Thin command handlers (folders, tags, links, curation, export, import, preview, refresh). |
 | `src/views/orgPanelWebview.ts` | The webview host: builds the HTML shell, handles messages, pushes data. |
@@ -221,6 +222,32 @@ idle. The panel draws them as the dots described under Fleet panel.
 - ESLint restricts `child_process` imports to `src/claude/agentsCli.ts`. The test tree
   is exempt.
 
+### Open in terminal
+
+A chat whose live session is a background session in a working or needs state can be
+attached from a terminal.
+
+- `isAttachable` in `status.ts` is true only when the matched session has kind
+  `background` and a working or needs state. The status alone is not enough, because
+  needs also covers an unread question on a chat that has no background session.
+  The group model copies the result to each row as `attachable`, and the fleet message
+  passes it to the webview.
+- A click on an attachable row posts `openInTerminal`. The host shows a notification
+  with an Open in terminal button. Pressing it creates the terminal. Dismissing the
+  notification opens the chat through the URI handler like any other click. The chat
+  context menu shows Open in terminal for attachable rows only.
+- The host checks the live session list again before it offers the terminal, so a
+  stale or forged message falls back to the plain open.
+- `attachLauncher.ts` creates the terminal with `shellPath: 'claude'` and
+  `shellArgs: ['attach', id]`, named after the chat (control characters removed, 60
+  characters at most). It never calls `sendText` and never builds a shell string. It
+  uses `vscode.window.createTerminal` through an injected factory, so the
+  `child_process` restriction is unchanged.
+- In an untrusted workspace the terminal is not created and the click opens the chat
+  through the URI handler.
+- When the terminal closes with a non-zero exit code, which is what a missing `claude`
+  command produces, Nest shows one warning that names `claude`.
+
 ## Invariants
 
 Keep these true in every change.
@@ -229,8 +256,11 @@ Keep these true in every change.
    nothing else there. `exportPathGuard` rejects any such target at runtime.
 2. **No network access and no telemetry.** Nest makes no HTTP requests and
    collects nothing. Its only outward actions are opening Claude Code through the
-   `vscode://` URI handler and one local subprocess, `claude agents --json`, started
-   by `src/claude/agentsCli.ts` with a fixed command and no shell.
+   `vscode://` URI handler, one local subprocess, `claude agents --json`, started
+   by `src/claude/agentsCli.ts` with a fixed command and no shell, and the attach
+   terminal, a VS Code terminal whose shell is `claude` with the arguments
+   `attach <id>`, created by `src/launch/attachLauncher.ts` only after the session
+   id matches `^[0-9a-fA-F-]{8,64}$`.
 3. **All file writes go through two chokepoints**: `src/store/exportIO.ts` (Nest's
    own files) and `src/settings/claudeSettingsIO.ts` (Claude Code's
    `settings.json`, which asserts the exact allowed path). ESLint bans every other
@@ -283,6 +313,7 @@ The host posts one `fleet` message that the webview only draws. `src/views/fleet
 
 - The host posts `fleet` after each `sections` post, and again when live sessions, queue rows or the layout file's stage colors change. It skips a post whose text equals the last one, so the 10 second poll does not redraw an unchanged panel.
 - The webview posts `setActive` with a strict boolean when you press Active. The host recomputes the sections with the Active projection and posts them back. The Active state is not stored.
+- The webview posts `openInTerminal` with a session id that passes the safe id check and `^[0-9a-fA-F-]{8,64}$` when you click an attachable row or choose Open in terminal from its menu. The webview never creates a terminal itself; see Open in terminal under Live status.
 - The webview keeps the open state of each group and saves it with the webview `setState`. The Active projection forces live groups open without changing that state, so turning Active off restores it.
 - A stage pill takes its color from the layout file's `tags` by stage name. Otherwise stages that match `fail` are orange, `doneStages` are green, stages that match `uat`, `review` or `test` are teal, and the rest are blue. Only a `#rrggbb` color reaches a style.
 - Fleet, layout, queue and CLI strings reach the page through `textContent`. The webview builds no HTML from data.

@@ -31,6 +31,8 @@ export interface GroupModelInput {
   readonly userFolders: readonly ModelUserFolder[];
   readonly fleet: FleetState;
   readonly statuses: ReadonlyMap<string, ChatStatus>;
+  // Session ids of background sessions that can be opened in a terminal.
+  readonly attachableIds: ReadonlySet<string>;
   readonly queueRows: readonly QueueRow[];
   readonly groupBy: GroupBy;
   readonly workspaceRoot: string | null;
@@ -45,6 +47,8 @@ export interface FleetRow {
   readonly title: string;
   readonly timestamp: number | null;
   readonly status: ChatStatus;
+  // A background session is working or needs you, so Open in terminal applies.
+  readonly attachable: boolean;
   // The agent, else the role, else empty.
   readonly agentTag: string;
   readonly suffix: string;
@@ -144,6 +148,7 @@ interface Item {
   readonly archived: boolean;
   readonly entry: FleetEntry | null;
   readonly status: ChatStatus;
+  readonly attachable: boolean;
 }
 
 // Working subfolder key relative to the workspace root, '/' separated. null when unknown or
@@ -211,6 +216,7 @@ function buildItems(input: GroupModelInput): Item[] {
       archived: chat.archived,
       entry,
       status: input.statuses.get(chat.sessionId) ?? 'idle',
+      attachable: input.attachableIds.has(chat.sessionId),
     });
   }
   // A fleet entry with no transcript yet is a queued chat.
@@ -227,6 +233,7 @@ function buildItems(input: GroupModelInput): Item[] {
       archived: false,
       entry,
       status: input.statuses.get(entry.sessionId) ?? 'idle',
+      attachable: input.attachableIds.has(entry.sessionId),
     });
   }
   return items;
@@ -272,6 +279,7 @@ function toRow(item: Item, ctx: RowContext, children: readonly FleetRow[]): Flee
     title: item.name,
     timestamp: item.timestamp,
     status: item.status,
+    attachable: item.attachable,
     agentTag,
     suffix: ctx.ticket === null ? '' : chatSuffix(item.name, ctx.ticket, ctx.title, agentTag),
     ticket,

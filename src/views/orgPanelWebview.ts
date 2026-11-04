@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ChatRecord } from '../model/types';
 import { foldersToScan, mergeFolderScans, scanChats } from '../claude/chatScanner';
 import type { AgentSession } from '../claude/agentsCli';
-import { ChatStatus, computeStatuses } from '../fleet/status';
+import { ChatStatus, attachableSessionIds, computeStatuses } from '../fleet/status';
 import { FleetSections, buildFleetSections } from '../fleet/groupModel';
 import type { QueueRow } from '../fleet/queueTable';
 import { GroupBy } from '../fleet/nestConfig';
@@ -11,6 +11,7 @@ import { DEFAULT_STAGE_STYLE, StageStyleConfig, buildFleetMessage, coerceSetActi
 import { readTranscriptBodies } from '../claude/bodyReader';
 import { MetadataStore } from '../store/metadataStore';
 import { ProjectMeta, clampName, isSafeRecordId, isValidColor } from '../store/schema';
+import { OPEN_IN_TERMINAL_COMMAND } from '../launch/attachLauncher';
 import { OPEN_CHAT_COMMAND, isOpenableSessionId } from '../launch/uriLauncher';
 import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 import { tokenBadge } from './chatTooltip';
@@ -94,6 +95,9 @@ type Inbound =
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'open'; sessionId: string }
+  // Open a running background chat in a terminal. The host re-checks the live session
+  // list and falls back to a plain open when the chat is not attachable.
+  | { type: 'openInTerminal'; sessionId: string; explicit?: boolean }
   | { type: 'search'; query: string }
   | { type: 'drop'; sourceChatIds: string[]; targetKind: 'folder' | 'tag'; targetId: string | undefined }
   | { type: 'renameFolder'; folderId: string; name: string }
@@ -396,6 +400,20 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     this.postFleet();
   }
 
+  // True when the live session list holds this chat as a working or needs background session.
+  isAttachable(sessionId: string): boolean {
+    return attachableSessionIds(this.agentSessions).has(sessionId);
+  }
+
+  // The chat's display name for a terminal title, or empty when unknown.
+  getChatName(sessionId: string): string {
+    const record = this.lastRecords.find((r) => r.sessionId === sessionId);
+    if (record !== undefined && typeof record.title === 'string' && record.title.length > 0) {
+      return record.title;
+    }
+    return this.fleetState.entries.find((e) => e.sessionId === sessionId)?.name ?? '';
+  }
+
   getQueueRows(): readonly QueueRow[] {
     return this.queueRows;
   }
@@ -436,6 +454,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       userFolders: fleetModelFolders(meta),
       fleet: this.fleetState,
       statuses: this.statusByChat,
+      attachableIds: attachableSessionIds(this.agentSessions),
       queueRows: this.queueRows,
       groupBy: this.groupBy,
       workspaceRoot: this.workspacePath ?? null,
@@ -529,6 +548,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       this.refresh();
     } else if (msg.type === 'open') {
       void vscode.commands.executeCommand(OPEN_CHAT_COMMAND, msg.sessionId);
+    } else if (msg.type === 'openInTerminal') {
+      void vscode.commands.executeCommand(OPEN_IN_TERMINAL_COMMAND, msg.sessionId, msg.explicit === true);
     } else if (msg.type === 'search') {
       void this.postSearch(msg.query);
     } else if (msg.type === 'drop') {
@@ -1332,6 +1353,7 @@ function coerce(raw: unknown): Inbound | null {
   const obj = raw as {
     type?: unknown;
     sessionId?: unknown;
+    explicit?: unknown;
     query?: unknown;
     sourceChatIds?: unknown;
     targetKind?: unknown;
@@ -1367,6 +1389,11 @@ function coerce(raw: unknown): Inbound | null {
     // A tampered message carrying a multi-megabyte or garbage id is dropped
     // here, before it can grow the memento without bound.
     return { type: 'open', sessionId: obj.sessionId };
+  }
+  if (obj.type === 'openInTerminal' && isSafeRecordId(obj.sessionId) && isOpenableSessionId(obj.sessionId)) {
+    return obj.explicit === true
+      ? { type: 'openInTerminal', sessionId: obj.sessionId, explicit: true }
+      : { type: 'openInTerminal', sessionId: obj.sessionId };
   }
   if (obj.type === 'search' && typeof obj.query === 'string') {
     // Cap the transient query so a tampered message cannot feed the tokenizer a

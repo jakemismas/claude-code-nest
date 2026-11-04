@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { ChatStatus, StatusInput, computeStatuses, mapStatus, rollupStatus } from '../../fleet/status';
+import { ChatStatus, StatusInput, attachableSessionIds, computeStatuses, isAttachable, mapStatus, rollupStatus } from '../../fleet/status';
 import { FleetEntry } from '../../fleet/types';
 
 const base: StatusInput = { hasTranscript: true, questionPending: false, fleet: null, agent: null };
@@ -93,5 +93,35 @@ describe('computeStatuses', () => {
   it('lets a live session lift a fleet entry that has no transcript yet', () => {
     const map = computeStatuses([], [entry(B)], [session(B, 'running')]);
     assert.strictEqual(map.get(B), 'working');
+  });
+});
+
+describe('isAttachable', () => {
+  for (const state of ['running', 'working', 'busy', 'blocked', 'waiting', 'needs-input', 'needs_input', 'RUNNING']) {
+    it(`accepts a background ${state} session`, () => {
+      assert.strictEqual(isAttachable(agent('background', state)), true);
+    });
+  }
+  for (const state of ['done', 'stopped', 'idle', null]) {
+    it(`rejects a background ${String(state)} session`, () => {
+      assert.strictEqual(isAttachable(agent('background', state)), false);
+    });
+  }
+  it('rejects an interactive session even when busy', () => {
+    assert.strictEqual(isAttachable({ kind: 'interactive', state: 'running' }), false);
+  });
+  it('rejects a missing session', () => {
+    assert.strictEqual(isAttachable(null), false);
+  });
+  it('collects the ids of attachable sessions only', () => {
+    const session = (sessionId: string, kind: string, state: string) => ({
+      sessionId, kind, state, status: null, cwd: null, name: null, startedAt: null, pid: null,
+    });
+    const ids = attachableSessionIds([
+      session('aaaa0001', 'background', 'running'),
+      session('aaaa0002', 'background', 'done'),
+      session('aaaa0003', 'interactive', 'running'),
+    ]);
+    assert.deepStrictEqual([...ids], ['aaaa0001']);
   });
 });
