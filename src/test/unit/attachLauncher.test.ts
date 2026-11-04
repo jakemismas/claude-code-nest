@@ -7,6 +7,7 @@ import {
   TerminalHandle,
   attachInTerminal,
   attachTerminalOptions,
+  isAttachableSessionId,
   openRunningChat,
   terminalName,
 } from '../../launch/attachLauncher';
@@ -191,5 +192,12 @@ describe('attachLauncher.openRunningChat', () => {
       assert.strictEqual(h.created.length + h.offers.length + h.opened.length, 0);
       assert.strictEqual(h.warnings.length, 1);
     }
+  });
+});
+
+describe('session id first character', () => {
+  it('rejects an id that starts with a hyphen', () => {
+    assert.strictEqual(isAttachableSessionId('-cccccccc'), false);
+    assert.strictEqual(isAttachableSessionId('--------'), false);
   });
 });

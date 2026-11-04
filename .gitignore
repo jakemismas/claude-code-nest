@@ -2,6 +2,10 @@ node_modules/
 out/
 dist/
 *.vsix
+.slice-build-state.json
+.*-build-state.json
+__probe*
+.cc-review-tmp/
 *.log
 *.bak
 .claude-working/

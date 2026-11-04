@@ -107,7 +107,7 @@ function reachableCommandIds(manifest: Manifest): Set<string> {
   return reachable;
 }
 
-describe('command surfaces stay honest after the s3a view consolidation', () => {
+describe('command surfaces stay honest after the view consolidation', () => {
   it('every command README lists in its Commands section has a UI surface', () => {
     const manifest = loadManifest();
     const reachable = reachableCommandIds(manifest);
@@ -160,10 +160,10 @@ describe('command surfaces stay honest after the s3a view consolidation', () => 
     // The accepted set as of (CHANGELOG Unreleased / Removed). Groups: invoked
     // programmatically (openChat and openInTerminal ride the org panel row click and context menu; the refresh pair services
     // the kept non-view providers), panel-internal equivalents kept registered for
-    // programmatic callers (folder/tag mutation and the smart-group promotes), the s3b
+    // programmatic callers (folder/tag mutation and the smart-group promotes), the
     // interim gaps that wait for the in-panel hover card and context menu (previewChat,
     // exportChat, archiveChat of a live chat), and the curation + archived-preview
-    // commands whose Archive-tree surface was RETIRED in:
+    // commands whose Archive-tree surface was RETIRED:
     // star/unstar/restore/previewArchivedChat now route through the org panel (the row
     // star toggle, the context menu, and the in-panel Archive overlay's Restore /
     // star-unarchive / row preview) via the OrgPanelActions seams, so the standalone

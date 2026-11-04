@@ -430,7 +430,7 @@ describe('exportImport mergeProjectMeta: drops unsafe file-side MAP KEYS (path-t
   });
 });
 
-// Security fix pass round 1: restoredAt (the deliberate-restore intent marker)
+// restoredAt (the deliberate-restore intent marker)
 // travels COUPLED to the archive group through the merge, exactly like archivedAt:
 // the side that supplies userArchived supplies its timestamps. Cross-machine, this
 // is what lets a restore made on device B suppress device A's next auto-archive

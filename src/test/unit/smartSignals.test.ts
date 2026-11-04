@@ -63,7 +63,7 @@ describe('pr signal (the solid signal)', () => {
   });
 
   it('co-locates the SAME PR across mixed-completeness pr-link payloads', () => {
-    // The regression the loop-until-dry review caught: one transcript's pr-link
+    // A regression guard: one transcript's pr-link
     // carried only a url, another's carried only repo+number, for the SAME PR.
     // They must land in ONE bucket, not split, because PR is the solid signal.
     const rows = [

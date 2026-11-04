@@ -110,7 +110,7 @@ describe('ReadStateStore tolerance', () => {
   });
 });
 
-// The persistence-sink id gate (security fix pass round 3): markSeen writes the
+// The persistence-sink id gate: markSeen writes the
 // whole lastSeenAt map back to the memento, so an id that is not in the safe
 // record-id shape (the shape every real transcript-filename sessionId has) must
 // be rejected AT THE SINK. A tampered webview 'open' message or a foreign

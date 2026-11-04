@@ -3,6 +3,7 @@
 // command line), a timeout and an output cap. Output is untrusted: every field is
 // coerced, capped and stripped of control characters before it leaves this module.
 import { execFile } from 'child_process';
+import * as os from 'os';
 
 import { coerceString, isSessionId } from '../fleet/fleetRecord';
 
@@ -85,12 +86,14 @@ export function parseAgentsOutput(stdout: string): AgentSession[] {
   return sessions;
 }
 
-export const execFileRunner: AgentsRunner = (cwd) =>
+// The process runs from the home directory, never the workspace, so a binary planted in a
+// repository folder cannot be picked up by the lookup.
+export const execFileRunner: AgentsRunner = () =>
   new Promise<string>((resolve, reject) => {
     execFile(
       AGENTS_BINARY,
       [...AGENTS_ARGS],
-      { cwd, timeout: AGENTS_TIMEOUT_MS, maxBuffer: AGENTS_MAX_BUFFER, windowsHide: true, encoding: 'utf8' },
+      { cwd: os.homedir(), timeout: AGENTS_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: AGENTS_MAX_BUFFER, windowsHide: true, encoding: 'utf8' },
       (error, stdout) => {
         if (error) {
           reject(error);

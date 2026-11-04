@@ -132,7 +132,7 @@ describe('autoArchivePolicy.decideAutoArchive', () => {
   });
 });
 
-// Security fix pass round 1: a chat the user DELIBERATELY restored must not be
+// a chat the user DELIBERATELY restored must not be
 // silently re-archived by the very next pass. restoredAt (stamped by the store on
 // unarchive) counts as activity for the ARCHIVE decision only.
 describe('autoArchivePolicy.decideAutoArchive: restoredAt (deliberate restore intent)', () => {

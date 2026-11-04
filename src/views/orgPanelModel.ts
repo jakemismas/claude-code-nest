@@ -163,7 +163,7 @@ export interface OrgSections {
 // A token-badge formatter seam so the pure model stays free of the vscode-thin
 // tokenBadge import chain. The host passes tokenBadge (from chatTooltip.ts, itself
 // vscode-free) so the row's token seam (OrgChatRow.tokens, consumed by the search row
-// and the s3b hover card, NOT the visible row) matches every other surface exactly.
+// and the hover card, NOT the visible row) matches every other surface exactly.
 export type TokenBadgeFn = (record: ChatRecord) => string;
 
 // Inputs for the placement resolver. Optional: without it every unfiled chat lands in

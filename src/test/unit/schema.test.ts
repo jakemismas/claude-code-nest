@@ -642,7 +642,7 @@ describe('schema nullProtoMaps (write-path defense-in-depth backstop)', () => {
   });
 });
 
-// Security fix pass round 1: the shared free-text cap at the normalize ingest
+// the shared free-text cap at the normalize ingest
 // boundary (import / sync-merge). Over-long names are TRUNCATED, not dropped, so
 // a foreign document keeps its records while the oversized payload (which could
 // break the project's Settings Sync item) never re-enters the synced store. The
@@ -732,7 +732,7 @@ describe('schema normalize: free-text caps and restoredAt carry-through', () => 
   });
 });
 
-// Security fix pass (import-envelope hardening): reference-id gates that mirror
+// Import-envelope hardening: reference-id gates that mirror
 // the store sinks, exactly one rule at both boundaries.
 describe('schema normalize: reference-id gates (parentId, link targetChatId)', () => {
   function docWithFolder(folder: Record<string, unknown>) {
@@ -800,7 +800,7 @@ describe('schema normalize: reference-id gates (parentId, link targetChatId)', (
   });
 });
 
-// Security fix pass (import-envelope hardening): the __unknown escrow size cap.
+// Import-envelope hardening: the __unknown escrow size cap.
 // The escrow replays on every synced write; a forward-schemaVersion claim from
 // an attacker-authored import must not carry an unbounded blob onto the synced
 // surface.
@@ -899,7 +899,7 @@ describe('schema migrateProjectMeta __unknown escrow size cap', () => {
   });
 });
 
-// Security fix pass (import-envelope hardening): the project-key predicate that
+// Import-envelope hardening: the project-key predicate that
 // gates the import envelope and the store's write sink.
 describe('schema isSafeProjectKey', () => {
   it('accepts real encodeProjectKey outputs', () => {

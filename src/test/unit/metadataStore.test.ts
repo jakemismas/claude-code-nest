@@ -813,7 +813,7 @@ describe('MetadataStore curation scalar setters (star, archive, folder color)', 
   });
 });
 
-// Security fix pass round 1: an AUTOMATED archive flip (the auto-archive engine)
+// an AUTOMATED archive flip (the auto-archive engine)
 // must not refresh the per-record updatedAt/deviceId stamp. That single stamp
 // arbitrates folderId/starred and the merge's winner side, so a background pass
 // minting a fresh stamp would let automation beat an unsynced DELIBERATE user
@@ -863,7 +863,7 @@ describe('MetadataStore automated archive does not steal the per-record LWW stam
   });
 });
 
-// Security fix pass round 1: the shared free-text cap (schema.MAX_NAME_LENGTH) at
+// the shared free-text cap (schema.MAX_NAME_LENGTH) at
 // the store write sinks, so no caller can persist an unbounded string into the
 // synced document (one oversized value can break the project's Settings Sync item).
 describe('MetadataStore free-text length caps at the write sinks', () => {
@@ -1422,7 +1422,7 @@ describe('MetadataStore root-of-chain foreign reconcile (round-3 laundering fix)
   });
 });
 
-// Security fix pass (import-envelope hardening): the store-level project-key
+// Import-envelope hardening: the store-level project-key
 // gate. Every synced mutation mints 'nest.meta.v1::<projectKey>' verbatim and
 // registers it with setKeysForSync with no removal path, so an unsafe key must
 // be a no-op at the sink, covering every caller (putProjectMeta included).

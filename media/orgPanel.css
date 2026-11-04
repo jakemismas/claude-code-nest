@@ -46,8 +46,8 @@
   --nest-radius: 6px;
 }
 
-/* The Newsreader serif for later sub-page headings (Settings/Archive overlays,
-   s3b). Bundled in the VSIX and loaded from the extension's own media resources,
+/* The Newsreader serif for later sub-page headings (Settings/Archive overlays).
+   Bundled in the VSIX and loaded from the extension's own media resources,
    NEVER from the network. The url is
    relative to this stylesheet's webview URI, which resolves under the pinned media
    localResourceRoots. No heading consumes the serif in this stylesheet; the packaging
@@ -154,7 +154,7 @@ body {
   outline-offset: 1px;
 }
 
-/* The gear active tint (Settings sub-page open; the overlay lands in s3b). */
+/* The gear active tint (Settings sub-page open). */
 .nest-icon-btn.nest-active {
   color: var(--nest-accent);
   background: var(--nest-accent-soft);

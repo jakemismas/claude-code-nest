@@ -59,15 +59,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // Regex rules run on the extension host, so a pattern is limited to a shape that cannot
-// backtrack catastrophically: no quantified groups, no lookarounds or backreferences, and a
-// small number of quantifiers. The tested text is capped as well.
-const MAX_TESTED_SUBJECT_LEN = 500;
+// backtrack badly: no quantified groups, no lookarounds or backreferences and a small
+// number of quantifiers. The worst-case work is estimated as the product of every
+// quantifier's reach (an open-ended one reaches the whole subject) times the number of
+// start positions, and a pattern over the budget is refused. The tested text is short.
+const MAX_TESTED_SUBJECT_LEN = 64;
 const MAX_PATTERN_QUANTIFIERS = 3;
+const MAX_PATTERN_COST = 100000;
 const BOUNDED_QUANTIFIER = /^\{\d+(,\d*)?\}/;
+
+// True when a '|' sits outside every group, so an '^' at the start covers only one branch.
+function hasTopLevelAlternation(pattern: string): boolean {
+  let depth = 0;
+  let inClass = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '\\') {
+      i++;
+    } else if (inClass) {
+      inClass = ch !== ']';
+    } else if (ch === '[') {
+      inClass = true;
+    } else if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+    } else if (ch === '|' && depth === 0) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function unsafePatternReason(pattern: string): string | null {
   let quantifiers = 0;
+  let cost = pattern.startsWith('^') && !hasTopLevelAlternation(pattern) ? 1 : MAX_TESTED_SUBJECT_LEN + 1;
   let inClass = false;
+  // Branch count of each open group; a group with several branches multiplies the cost.
+  const branches: number[] = [];
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i];
     if (ch === '\\') {
@@ -93,14 +122,39 @@ export function unsafePatternReason(pattern: string): string | null {
         return 'uses a lookaround or named group';
       }
       i += 2;
+      branches.push(1);
+      continue;
+    }
+    if (ch === '(') {
+      branches.push(1);
+      continue;
+    }
+    if (ch === '|' && branches.length > 0) {
+      branches[branches.length - 1]++;
       continue;
     }
     let width = 0;
-    if (ch === '*' || ch === '+' || ch === '?') {
+    let reach = 0;
+    if (ch === '*' || ch === '+') {
       width = 1;
+      reach = MAX_TESTED_SUBJECT_LEN;
+    } else if (ch === '?') {
+      width = 1;
+      reach = 1;
     } else if (ch === '{') {
       const m = BOUNDED_QUANTIFIER.exec(pattern.slice(i));
       width = m === null ? 0 : m[0].length;
+      if (m !== null) {
+        const parts = m[0].slice(1, -1).split(',');
+        const upper = parts.length === 1 ? Number(parts[0]) : parts[1] === '' ? Infinity : Number(parts[1]);
+        reach = Math.min(upper, MAX_TESTED_SUBJECT_LEN);
+      }
+    }
+    if (width > 0) {
+      cost *= reach + 1;
+      if (cost > MAX_PATTERN_COST) {
+        return 'is too expensive to match: use fewer or narrower repeats, or anchor it with ^';
+      }
     }
     if (width > 0) {
       quantifiers++;
@@ -114,6 +168,13 @@ export function unsafePatternReason(pattern: string): string | null {
       continue;
     }
     if (ch === ')') {
+      const count = branches.pop() ?? 1;
+      if (count > 1) {
+        cost *= count;
+        if (cost > MAX_PATTERN_COST) {
+          return 'is too expensive to match: use fewer alternations, or anchor it with ^';
+        }
+      }
       const rest = pattern.slice(i + 1);
       if (/^[*+?]/.test(rest) || BOUNDED_QUANTIFIER.test(rest)) {
         return 'repeats a group';
