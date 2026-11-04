@@ -105,8 +105,9 @@ modules.
 | `src/ui/tagQuickPick.ts` | The tag picker shown from commands. |
 | `media/orgPanel.js` | The webview UI. Plain JavaScript, no framework. |
 | `media/orgPanel.css` | Styles for the webview. |
-| `media/robinArt.js` | The robin pixel grids that the webview and the README script both draw. |
-| `media/readme/` | README images, including the static robin illustrations. |
+| `media/mascot.js` | The header robin: its pixel art, both palettes and one scene per state. The webview and the README script both draw it. |
+| `media/readme/` | README images, including the robin hero and state sheet. |
+| `docs/mascot.md`, `docs/mascot/` | The robin style sheet: every state animated, the still poses, the icons and both palettes. |
 | `schemas/nest-config.schema.json` | JSON schema for the layout file, shipped in the extension. |
 | `src/test/integration/vscodeExecutable.ts` | Finds the VS Code executable in a downloaded build, with an injected file probe so unit tests skip the downloader. |
 
@@ -114,7 +115,7 @@ Scripts (development only):
 
 - `scripts/fidelity/` renders the panel with made-up data and screenshots it.
 - `scripts/private-words/` is the maintainer's push check.
-- `scripts/readme/robin.js` builds the README robin images from `media/robinArt.js`.
+- `scripts/readme/robin.js` builds the README robin images and the robin style sheet from `media/mascot.js`.
 - `scripts/docs-retired.test.js` checks the docs for dead links and retired surfaces.
 
 ## Data flow
@@ -421,15 +422,17 @@ The host posts one `fleet` message that the webview only draws. `src/views/fleet
 
 ## Header robin
 
-`src/fleet/robinState.ts` is pure: it takes the inputs, the clock and an injected random source and returns one state. The host runs it and posts a small `robin` message (`state`, `speed`, `workingCount`, `noteBudget`, `noteDelaysMs`, `animations`, `reducedHint`, `liveText`). The webview draws the art as square SVG rects, sets data attributes that CSS animates, and runs the note, blink and tail timers.
+`src/fleet/robinState.ts` is pure: it takes the inputs, the clock and an injected random source and returns one state. The host runs it and posts a small `robin` message (`state`, `speed`, `workingCount`, `noteBudget`, `noteDelaysMs`, `noteMinMs`, `noteSpreadMs`, `animations`, `reducedHint`, `liveText`). `media/mascot.js` draws and animates the robin. `media/orgPanel.js` only picks the theme and the motion and tells it when to draw.
 
-- States, highest priority first: hatch, rotate, error, needs, worm, done, milestone, working, sleep, night and idle. Hatch, rotate, error, worm, done and milestone are transient and play once (2.4, 3.2, 6, 1.8, 1.6 and 4 seconds), then the robin falls back to the next state that holds.
+- States, highest priority first: hatch, rotate, error, needs, worm, done, milestone, working, sleep, night and idle. Hatch, rotate, error, worm, done and milestone are transient and play once (5.3, 4.4, 6, 4, 3.5 and 4.5 seconds), then the robin falls back to the next state that holds. Each one-shot scene runs exactly as long as the host holds its state, so a jump or flight is never cut off; a unit test checks that the two agree.
 - The host feeds the machine from existing inputs: fleet entries (a new launch that is not a backfill and carries a ticket, and an `end` outcome), the rotate chain, the per-chat statuses and live session states, and queue rows against `doneStages`. The first step only seeds what it has seen, so existing history never replays as a transient.
 - The robin sleeps after 10 minutes with no working or needs chat, and shows night when it sleeps between 22:00 and 06:00 local time. The host sets one timer for the next transient end or sleep point and stops it while the panel is hidden.
-- While working, each working chat gets one note slot, up to six, and a note pops out at most once every 2.5 seconds per chat at a random moment.
+- While working, each working chat gets its own note lane, up to six, and a note leaves the beak at most once every 2.5 seconds per chat at a random moment. Three or more working chats tap faster, six or more faster still.
 - The hatch plays on the first run on a device. The flag lives in `globalState` under a key that is not registered for sync.
 - `claudeNest.robin.animations` (default on) turns every animation and note off and leaves a still robin. `prefers-reduced-motion` does the same. A still pose keeps the robin perched and shows one marker: a question mark, exclamation mark, z, moon, check, note, worm, plus or sparkle burst, or, for hatch, the cracked egg alone.
-- The art lives in `media/robinArt.js` as pixel grids, one character per pixel: the bird, its flight frames (wings up, level and down, on the bird's own grid), the two branches, the egg and the reaction glyphs. `media/orgPanel.js` turns the grids into SVG rects colored by CSS classes, split into branch, head, eye, chest, lower body, tail and legs groups so each moves on its own. The whole bird moves only in a hop, jump or flight (needs, done, milestone, rotate and hatch). Every other state moves only the head and chest: breathing lifts them one pixel over a copy of the chest's bottom row, and the error shake moves the head. The lower body, tail and legs stay still on the branch. A unit test checks the CSS, and the screenshot run checks the rendered parts. One constant in `orgPanel.js` picks the branch. The branch is a separate layer, so it stays put while the bird flies.
-- Every 2x2 pixel cell holds at most two colors, so the same grids print as terminal block characters; a unit test checks it for every frame, branch, egg and glyph.
-- Flight uses the wing frames on a path: rotate flies off and a fresh robin lands, and a finished queue (milestone) flies a lap around the header. Each has a still pose under reduced motion, and the animations setting stops all of them.
+- `media/mascot.js` holds the art as pixel rows, one character per pixel, and two palettes: one for light themes, one for dark and high contrast themes. Each state is a scene, a pure function of time that returns sprite placements (which sprite, where, how opaque). `frame(state, t, opts)` returns the placements at one moment with seeded notes, for tests and captures. `render()` draws them as square SVG rects with `fill` attributes, 3 CSS pixels per art pixel, and redraws about 30 times a second, only when a placement moved. No CSS animation runs, and no color reaches a style.
+- The whole bird leaves the branch only in a hop, jump or flight (needs, done, milestone, rotate and hatch). In every other state the legs and body stay at rest and only the head and chest move: breathing lifts the head one pixel and swells the chest, and the error squawk shakes the head and raises its hackles. A unit test samples every planted scene every 50 ms over the 14 second idle cycle at every peck speed, and the screenshot run checks the drawn legs and body against the rest pose.
+- The webview reads dark from the body theme class (`vscode-dark`, or high contrast that is not light) and watches it, so a theme change redraws at once. It stops the animation while the panel is hidden and resumes the scene where it stopped, and it skips an identical robin message so a scene in flight keeps playing.
+- Rotate flies the robin off to the right, leaves the branch empty, and lands a fresh one from the left. The header keeps 39 pixels of top padding, so the highest jump, burst and flight stay inside it, and the wordmark sits above the robin's layer.
+- `scripts/readme/robin.js` builds the README images and the robin style sheet (`docs/mascot.md`) from the same scenes. A unit test fails when they are out of date.
 - The robin is `aria-hidden`. A separate polite live region announces only a change to needs or error.
