@@ -150,6 +150,26 @@ describe('foldFleet', () => {
     assert.strictEqual(e.outcome, 'failed');
   });
 
+  it('a launch after an end clears ended and the outcome', () => {
+    const e = foldFleet([
+      rec({ at: '2026-01-01T00:00:00Z', event: 'launch', sessionId: A }),
+      rec({ at: '2026-01-01T00:01:00Z', event: 'end', sessionId: A, outcome: 'failed' }),
+      rec({ at: '2026-01-01T00:02:00Z', event: 'launch', sessionId: A }),
+    ]).entries[0];
+    assert.strictEqual(e.ended, false);
+    assert.strictEqual(e.outcome, null);
+  });
+
+  it('a launch earlier than the end leaves the session ended', () => {
+    const e = foldFleet([
+      rec({ at: '2026-01-01T00:02:00Z', event: 'end', sessionId: A, outcome: 'done' }),
+      rec({ at: '2026-01-01T00:00:00Z', event: 'launch', sessionId: A }),
+      rec({ at: '2026-01-01T00:01:00Z', event: 'launch', sessionId: A }),
+    ]).entries[0];
+    assert.strictEqual(e.ended, true);
+    assert.strictEqual(e.outcome, 'done');
+  });
+
   it('ignores events for sessions that never launched', () => {
     const state = foldFleet([rec({ event: 'rename', sessionId: A, name: 'x' }), rec({ event: 'end', sessionId: A })]);
     assert.strictEqual(state.entries.length, 0);

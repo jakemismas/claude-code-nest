@@ -107,12 +107,20 @@ describe('ConfigReloader', () => {
     await reloader.reload();
   });
 
-  it('drops a superseded in-flight reload', async () => {
+  it('keeps one load in flight and runs exactly one more for changes that arrive meanwhile', async () => {
     const file = writeConfig('sup', '{"groupBy":"date"}');
     const seen: string[] = [];
-    const reloader = new ConfigReloader({ getPath: () => file, onChange: (p) => seen.push(p.config.groupBy) });
-    await Promise.all([reloader.reload(), reloader.reload()]);
-    assert.strictEqual(seen.length, 1);
+    let loads = 0;
+    const reloader = new ConfigReloader({
+      getPath: () => {
+        loads++;
+        return file;
+      },
+      onChange: (p) => seen.push(p.config.groupBy),
+    });
+    await Promise.all([reloader.reload(), reloader.reload(), reloader.reload()]);
+    assert.strictEqual(loads, 2);
+    assert.strictEqual(seen.length, 2);
   });
 });
 

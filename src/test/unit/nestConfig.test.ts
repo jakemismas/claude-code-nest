@@ -163,6 +163,28 @@ describe('expandLinkedFolders', () => {
     assert.strictEqual(bad.problems.length, 1);
   });
 
+  it('keeps a child folder whose name starts with two dots under its parent', () => {
+    const r = isUnderProjectsRoot('/home/u/.claude/projects/..foo', fakeDeps(dirs));
+    assert.strictEqual(r, true);
+    assert.strictEqual(isUnderProjectsRoot('/home/u/.claude/projects-other', fakeDeps(dirs)), false);
+    assert.strictEqual(isUnderProjectsRoot('/home/u/.claude', fakeDeps(dirs)), false);
+  });
+
+  it('reports no cap problem when expansion yields exactly the limit, and one when more are dropped', () => {
+    const names = Array.from({ length: 51 }, (_, i) => `p${String(i).padStart(2, '0')}`);
+    const d: { [dir: string]: string[] } = { '/home/u': names };
+    for (const n of names) d[`/home/u/${n}`] = [];
+    const exact = expandLinkedFolders(names.slice(0, 50).map((n) => `/home/u/${n}`), fakeDeps(d));
+    assert.strictEqual(exact.paths.length, 50);
+    assert.deepStrictEqual(exact.problems, []);
+    const over = expandLinkedFolders(['/home/u/p*'], fakeDeps(d));
+    assert.strictEqual(over.paths.length, 50);
+    assert.strictEqual(over.problems.length, 1);
+    const exactGlob = expandLinkedFolders(['/home/u/p0*', '/home/u/p1*', '/home/u/p2*', '/home/u/p3*', '/home/u/p4*'], fakeDeps({ ...d, '/home/u': names.slice(0, 50) }));
+    assert.strictEqual(exactGlob.paths.length, 50);
+    assert.deepStrictEqual(exactGlob.problems, []);
+  });
+
   it('rejects relative paths', () => {
     const r = expandLinkedFolders(['relative/dir'], fakeDeps(dirs));
     assert.deepStrictEqual(r.paths, []);

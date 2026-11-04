@@ -51,6 +51,21 @@ describe('fleetSource', () => {
     assert.strictEqual(warnings.length, 1);
   });
 
+  it('warns once per oversized file across reloads and again after it shrinks and regrows', async () => {
+    const big = fleetFile('bigonce', launch(A) + '\n' + ' '.repeat(MAX_FLEET_FILE_BYTES));
+    const warnings: string[] = [];
+    const warned = new Set<string>();
+    const opts = { warn: (m: string) => warnings.push(m), warnedOversized: warned };
+    await loadFleetState([big], opts);
+    await loadFleetState([big], opts);
+    assert.strictEqual(warnings.length, 1);
+    fs.writeFileSync(big, launch(A) + '\n');
+    await loadFleetState([big], opts);
+    fs.writeFileSync(big, launch(A) + '\n' + ' '.repeat(MAX_FLEET_FILE_BYTES));
+    await loadFleetState([big], opts);
+    assert.strictEqual(warnings.length, 2);
+  });
+
   it('drops lines over 16 KB and keeps shorter ones', () => {
     const long = launch(A, { name: 'x'.repeat(20000) });
     const lines = splitFleetLines([long, launch(B)].join('\n'));
@@ -126,5 +141,20 @@ describe('FleetReloader', () => {
     assert.strictEqual(clock.pending.size, 0);
     await reloader.reload();
     assert.strictEqual(calls, 0);
+  });
+
+  it('runs one load at a time and one follow-up for changes that arrive meanwhile', async () => {
+    const file = fleetFile('flight', launch(A) + '\n');
+    let loads = 0;
+    const reloader = new FleetReloader({
+      getPaths: () => {
+        loads++;
+        return [file];
+      },
+      onChange: () => undefined,
+    });
+    await Promise.all([reloader.reload(), reloader.reload(), reloader.reload()]);
+    assert.strictEqual(loads, 2);
+    reloader.dispose();
   });
 });

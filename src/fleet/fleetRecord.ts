@@ -228,6 +228,11 @@ export function foldFleet(records: readonly FleetRecord[]): FleetState {
     switch (r.event) {
       case 'launch':
       case 'backfill':
+        // Records apply in time order, so a launch seen after an end is a restart.
+        if (r.event === 'launch' && e.ended) {
+          e.ended = false;
+          e.outcome = null;
+        }
         applyLaunch(e, r);
         break;
       case 'rename':

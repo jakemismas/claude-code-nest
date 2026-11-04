@@ -418,7 +418,8 @@ export function expandHome(entry: string, homedir: string): string {
 
 function isInside(child: string, parent: string): boolean {
   const rel = path.relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  const escapes = rel === '..' || rel.startsWith('..' + path.sep);
+  return rel === '' || (!escapes && !path.isAbsolute(rel));
 }
 
 // True when the path, lexically or by realpath, is the transcript root or under it.
@@ -494,6 +495,7 @@ export function expandLinkedFolders(
     return true;
   };
 
+  let capped = false;
   for (const entry of entries) {
     const expanded = expandHome(entry, deps.homedir);
     if (!path.isAbsolute(expanded)) {
@@ -509,6 +511,7 @@ export function expandLinkedFolders(
     }
     if (wildcardAt === -1) {
       if (!add(normalized)) {
+        capped = true;
         break;
       }
       continue;
@@ -521,6 +524,7 @@ export function expandLinkedFolders(
     for (const name of names) {
       if (!add(path.join(parent, name))) {
         full = true;
+        capped = true;
         break;
       }
     }
@@ -528,7 +532,7 @@ export function expandLinkedFolders(
       break;
     }
   }
-  if (folders.length >= MAX_LINKED_EXPANSION) {
+  if (capped) {
     problems.push(`Linked folder expansion is capped at ${MAX_LINKED_EXPANSION} matches.`);
   }
   return { paths: folders, problems };

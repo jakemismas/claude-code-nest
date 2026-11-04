@@ -64,3 +64,39 @@ export function watchFleetFilesResubscribing(
     },
   };
 }
+
+export interface ResubscribingFileWatcher extends vscode.Disposable {
+  // Re-reads the path and moves the watcher when it changed.
+  refresh(): void;
+}
+
+// Keeps one watcher on a path that can change (or disappear) over time.
+export function watchFileResubscribing(
+  getPath: () => string | undefined,
+  notify: () => void,
+): ResubscribingFileWatcher {
+  let currentPath: string | undefined;
+  let current: vscode.Disposable | undefined;
+  let disposed = false;
+  const refresh = (): void => {
+    if (disposed) {
+      return;
+    }
+    const next = getPath();
+    if (next === currentPath) {
+      return;
+    }
+    current?.dispose();
+    currentPath = next;
+    current = next === undefined ? undefined : watchFile(next, notify);
+  };
+  refresh();
+  return {
+    refresh,
+    dispose: () => {
+      disposed = true;
+      current?.dispose();
+      current = undefined;
+    },
+  };
+}

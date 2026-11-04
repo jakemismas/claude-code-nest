@@ -31,7 +31,7 @@ export type AgentsRunner = (cwd: string) => Promise<string>;
 
 export type AgentsResult =
   | { readonly ok: true; readonly sessions: readonly AgentSession[] }
-  | { readonly ok: false; readonly reason: string };
+  | { readonly ok: false; readonly reason: string; readonly unavailable?: boolean };
 
 function field(value: unknown): string | null {
   return coerceString(value, MAX_AGENT_FIELD) ?? null;
@@ -88,21 +88,41 @@ export function parseAgentsOutput(stdout: string): AgentSession[] {
 
 // The process runs from the home directory, never the workspace, so a binary planted in a
 // repository folder cannot be picked up by the lookup.
-export const execFileRunner: AgentsRunner = () =>
-  new Promise<string>((resolve, reject) => {
-    execFile(
-      AGENTS_BINARY,
-      [...AGENTS_ARGS],
-      { cwd: os.homedir(), timeout: AGENTS_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: AGENTS_MAX_BUFFER, windowsHide: true, encoding: 'utf8' },
-      (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(stdout);
-      },
-    );
-  });
+export interface ExecFileOptions {
+  readonly cwd: string;
+  readonly timeout: number;
+  readonly killSignal: 'SIGKILL';
+  readonly maxBuffer: number;
+  readonly windowsHide: boolean;
+  readonly encoding: 'utf8';
+}
+export type ExecFileFn = (
+  file: string,
+  args: string[],
+  options: ExecFileOptions,
+  callback: (error: Error | null, stdout: string) => void,
+) => unknown;
+
+// The exec function and home directory are injectable so a test can observe the options.
+export function createExecFileRunner(exec: ExecFileFn, homedir: () => string): AgentsRunner {
+  return () =>
+    new Promise<string>((resolve, reject) => {
+      exec(
+        AGENTS_BINARY,
+        [...AGENTS_ARGS],
+        { cwd: homedir(), timeout: AGENTS_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: AGENTS_MAX_BUFFER, windowsHide: true, encoding: 'utf8' },
+        (error, stdout) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve(stdout);
+        },
+      );
+    });
+}
+
+export const execFileRunner: AgentsRunner = createExecFileRunner(execFile as unknown as ExecFileFn, () => os.homedir());
 
 // Lists the live sessions. A failing runner becomes a failed result, never a throw.
 export async function listAgentSessions(runner: AgentsRunner, cwd: string): Promise<AgentsResult> {
@@ -110,6 +130,9 @@ export async function listAgentSessions(runner: AgentsRunner, cwd: string): Prom
     return { ok: true, sessions: parseAgentsOutput(await runner(cwd)) };
   } catch (error) {
     const code = (error as { code?: unknown } | null)?.code;
-    return { ok: false, reason: code === 'ENOENT' ? 'The claude command was not found.' : 'The claude agents command failed.' };
+    if (code === 'ENOENT') {
+      return { ok: false, reason: 'The claude command was not found.', unavailable: true };
+    }
+    return { ok: false, reason: 'The claude agents command failed.' };
   }
 }
