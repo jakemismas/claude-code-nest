@@ -397,6 +397,40 @@ function waitForEvent(page, method, timeoutMs) {
   });
 }
 
+// Runs in the page. Boxes of the robin parts in art pixels from the robin's top-left corner,
+// with the box the art gives each still part at rest. A part hidden mid-swap reads as null.
+function robinPartBoxes() {
+  const art = window.NestRobinArt;
+  const svg = document.querySelector('.nest-robin-svg');
+  if (!art || !svg) {
+    return null;
+  }
+  const s = svg.getBoundingClientRect();
+  const px = s.height / art.BRANCH_H;
+  const o = art.BIRD_ORIGIN;
+  const parts = art.birdParts(art.BIRD);
+  const expect = (list) => ({
+    left: Math.min(...list.map((r) => o.x + r.x)),
+    top: Math.min(...list.map((r) => o.y + r.y)),
+    right: Math.max(...list.map((r) => o.x + r.x + r.w)),
+    bottom: Math.max(...list.map((r) => o.y + r.y + r.h)),
+  });
+  const actual = (selector) => {
+    const el = document.querySelector(selector);
+    const r = el ? el.getBoundingClientRect() : null;
+    if (!r || r.width === 0) {
+      return null;
+    }
+    return { left: (r.left - s.left) / px, top: (r.top - s.top) / px, right: (r.right - s.left) / px, bottom: (r.bottom - s.top) / px };
+  };
+  return {
+    legs: { actual: actual('.rp-legs'), expect: expect(parts.legs) },
+    lower: { actual: actual('.rp-lower'), expect: expect(parts.lower.concat(art.chestFill(art.BIRD))) },
+    tail: { actual: actual('.rp-tail-rest'), expect: expect(parts.tail) },
+    upper: actual('.rp-upper'),
+  };
+}
+
 // Evaluate an expression in the page and return its JSON value.
 async function evaluate(page, expression) {
   const res = await page.send('Runtime.evaluate', {
@@ -1174,7 +1208,7 @@ async function main() {
       { name: 'reaction-hatch-egg', state: 'hatch', freeze: 0.3 },
       { name: 'reaction-hatch-cracked', state: 'hatch', freeze: 1.1 },
       { name: 'reaction-working', state: 'working', wait: 1400 },
-      // Breathing at its raised frame: the body is up a pixel and the feet stay on the branch.
+      // Breathing at its raised frame: the head and chest are up a pixel, the rest stays still.
       { name: 'breathe-idle', state: 'idle', freeze: 2.0 },
       { name: 'breathe-working', state: 'working', freeze: 2.0 },
       { name: 'breathe-worm', state: 'worm', freeze: 2.0 },
@@ -1183,6 +1217,7 @@ async function main() {
       // A hop and a jump take the legs along.
       { name: 'hop-needs', state: 'needs', freeze: 1.0 },
       { name: 'jump-done', state: 'done', freeze: 0.4 },
+      { name: 'shake-error', state: 'error', freeze: 0.4 },
       // Reduced-motion stills for every state not already above.
       { name: 'still-idle', state: 'idle', wait: 300, still: true },
       { name: 'still-working', state: 'working', wait: 300, still: true },
@@ -1224,23 +1259,25 @@ async function main() {
           } else {
             await sleep(entry.wait);
           }
-          // Feet check, in art pixels from the top of the robin: the legs end on row 10 (the
-          // branch) in a planted state, and the legs always touch the body.
-          const feet = await evaluate(
-            page,
-            '(function(){var s=document.querySelector(".nest-robin-svg"),l=document.querySelector(".rp-legs"),' +
-              'b=document.querySelector(".rp-root");if(!s||!l||!b)return null;var t=s.getBoundingClientRect().top,' +
-              'px=s.getBoundingClientRect().height/window.NestRobinArt.BRANCH_H;return {legsBottom:(l.getBoundingClientRect().bottom-t)/px,' +
-              'gap:(l.getBoundingClientRect().top-b.getBoundingClientRect().bottom)/px};})()',
-          );
-          if (!feet) {
-            feetFailures.push(name + ': no legs or body group');
+          // In a planted state the legs, lower body and tail sit exactly where the art puts
+          // them at rest, and the head and chest never rise far enough to leave a gap.
+          const boxes = await evaluate(page, '(' + robinPartBoxes.toString() + ')()');
+          if (!boxes || !boxes.legs.actual || !boxes.lower.actual || !boxes.upper) {
+            feetFailures.push(name + ': the robin parts are missing');
           } else {
-            if (plantedStates.includes(entry.state) && Math.abs(feet.legsBottom - 10) > 0.01) {
-              feetFailures.push(name + ': feet end at row ' + feet.legsBottom.toFixed(2) + ', not on the branch (row 10)');
+            if (plantedStates.includes(entry.state)) {
+              for (const key of ['legs', 'lower', 'tail']) {
+                const { actual, expect } = boxes[key];
+                for (const side of actual ? ['left', 'top', 'right', 'bottom'] : []) {
+                  if (Math.abs(actual[side] - expect[side]) > 0.01) {
+                    feetFailures.push(name + ': the ' + key + ' moved (' + side + ' ' + actual[side].toFixed(2) + ', rest ' + expect[side] + ')');
+                  }
+                }
+              }
             }
-            if (feet.gap > 0.01) {
-              feetFailures.push(name + ': a ' + feet.gap.toFixed(2) + ' pixel gap between body and legs');
+            const gap = boxes.lower.actual.top - boxes.upper.bottom;
+            if (gap > 0.01) {
+              feetFailures.push(name + ': a ' + gap.toFixed(2) + ' pixel gap between the chest and the lower body');
             }
           }
           return await evaluate(
@@ -1263,9 +1300,9 @@ async function main() {
       throw new Error('Missing robin captures for the ' + THEME + ' theme: ' + missingRobin.join(', '));
     }
     if (feetFailures.length > 0) {
-      throw new Error('Robin feet checks failed:\n  ' + feetFailures.join('\n  '));
+      throw new Error('Robin lower body and feet checks failed:\n  ' + feetFailures.join('\n  '));
     }
-    console.log('  robin feet checks passed');
+    console.log('  robin lower body and feet checks passed');
 
     // One contact sheet with every robin capture in a grid. It is written next to the PNGs.
     const sheetName = 'robin-contact';
