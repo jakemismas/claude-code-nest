@@ -12,6 +12,8 @@ to [Semantic Versioning](https://semver.org/).
   `<state>-<theme>.png` captures to `.claude-working/screens/` by default.
 - The integration test host finds the VS Code executable through a small injectable
   module that unit tests cover.
+- Nest reads fleet records from `dev/fleet.jsonl` in each workspace folder, read-only,
+  and refreshes the panel when the file changes.
 
 ## [0.2.0] - 2026-07-10
 

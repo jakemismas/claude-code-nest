@@ -36,6 +36,7 @@ modules.
 | `src/store/autoArchiveEngine.ts`, `autoArchivePolicy.ts` | Optional archive of chats that have been idle past a window. |
 | `src/store/deviceId.ts` | Stable per-install id used to stamp edits. |
 | `src/settings/claudeSettingsIO.ts` | Write chokepoint for Claude Code's `settings.json` (the retention setting only). |
+| `src/fleet/` | Read-only fleet input: `types`, `fleetRecord` (pure parse and fold), `fleetSource` (the only reader of `dev/fleet.jsonl`), `fleetReloader` (debounce), `fleetWatcher` (the one file that imports `vscode`). |
 | `src/search/` | Full-text index (`searchIndex`), its persistence (`searchStore`), and the vendored MiniSearch build. |
 | `src/smart/` | Signal extraction (PR, ticket, branch, fork lineage) used to suggest groups. |
 | `src/export/chatExport.ts` | Renders one chat as Markdown or JSON. |
@@ -111,6 +112,33 @@ project limits how much a sync conflict can overwrite. Every record carries an
 update time and a device id. When another machine's write is detected, Nest
 merges it field by field (last writer wins per field, union for tags and links)
 against the shadow copy. The JSON export is the authoritative backup.
+
+## Fleet record (read-only input)
+
+Nest reads `dev/fleet.jsonl` from each workspace folder and folds it into a fleet
+state. Nest never writes a fleet record.
+
+- `src/fleet/fleetSource.ts` is the only reader of `dev/fleet.jsonl`. It imports no
+  write API and uses the same read style as the chat scanner, so the lint write ban
+  needs no exception. Transcripts under `~/.claude/projects` stay with the scanner.
+- A file over 8 MB is skipped with one logged warning. A line over 16 KB is dropped.
+  A missing or unreadable file contributes nothing.
+- `fleetSource` takes a list of file paths, so more folders can be added without
+  changing the reader.
+- `fleetRecord.ts` parses one line. It returns null for non-JSON, a non-object, a
+  version other than 1, a session id that fails `^[0-9a-fA-F-]{8,64}$`, or an unknown
+  event. It strips control characters from every string, caps names and folders at
+  200 characters, tags at 40 characters (20 tags at most) and paths at 1024, then
+  folds records in time order into one entry per session. Unknown fields and unknown
+  roles are ignored.
+- The current orchestrator is the newest one that no `rotate` record names as
+  `previous` and that has not ended. Every other orchestrator is past, newest first.
+  A `backfill` record creates an entry like `launch` but is flagged so it never
+  counts as a new pickup.
+- `fleetReloader.ts` debounces watcher events by 250 ms, then reloads. The clock and
+  the watcher are injected, so unit tests use a fake clock. `fleetWatcher.ts` is
+  wired from `extension.ts` and is covered by `npm run test:integration`.
+- Nothing in the panel renders fleet data yet. The panel only refreshes on change.
 
 ## Invariants
 
