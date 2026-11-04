@@ -3875,9 +3875,15 @@
 
     const origin = robinArt.BIRD_ORIGIN;
     const perch = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y), 'rp-perch');
-    const root = robinGroup(perch, 'rp-root');
+    // Jumps and hops move rp-hop, legs included. Planted states move only rp-root, so the
+    // feet never leave the branch.
+    const hop = robinGroup(perch, 'rp-hop');
     const parts = robinArt.birdParts(robinArt.BIRD);
     const flickParts = robinArt.birdParts(robinArt.birdFrame({ flick: true }));
+    const legs = robinGroup(hop, 'rp-legs');
+    robinDraw(legs, robinArt.legStretch(robinArt.BIRD));
+    robinDraw(legs, parts.legs);
+    const root = robinGroup(hop, 'rp-root');
     robinDraw(robinGroup(root, 'rp-tail rp-tail-rest'), parts.tail);
     robinDraw(robinGroup(root, 'rp-tail rp-tail-flick'), flickParts.tail);
     robinDraw(robinGroup(root, 'rp-body'), parts.body);
