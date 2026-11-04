@@ -18,6 +18,8 @@ export interface ModelChat {
   readonly cwd: string | null;
   // The user folder the chat was filed in by hand, else null.
   readonly handFiledFolderId: string | null;
+  // You moved the chat to Unsorted by hand, so no fleet folder, ticket or auto group takes it.
+  readonly unsortedByHand?: boolean;
   readonly archived: boolean;
 }
 
@@ -146,6 +148,7 @@ interface Item {
   readonly timestamp: number | null;
   readonly cwd: string | null;
   readonly handFiledFolderId: string | null;
+  readonly unsortedByHand: boolean;
   readonly archived: boolean;
   readonly entry: FleetEntry | null;
   readonly status: ChatStatus;
@@ -214,6 +217,7 @@ function buildItems(input: GroupModelInput): Item[] {
       timestamp: itemTime(chat, entry),
       cwd: chat.cwd,
       handFiledFolderId: chat.handFiledFolderId,
+      unsortedByHand: chat.unsortedByHand === true && chat.handFiledFolderId === null,
       archived: chat.archived,
       entry,
       status: input.statuses.get(chat.sessionId) ?? 'idle',
@@ -231,6 +235,7 @@ function buildItems(input: GroupModelInput): Item[] {
       timestamp: itemTime(null, entry),
       cwd: null,
       handFiledFolderId: null,
+      unsortedByHand: false,
       archived: false,
       entry,
       status: input.statuses.get(entry.sessionId) ?? 'idle',
@@ -408,6 +413,10 @@ export function buildFleetSections(input: GroupModelInput): FleetSections {
       const list = userBuckets.get(item.handFiledFolderId) ?? [];
       list.push(item);
       userBuckets.set(item.handFiledFolderId, list);
+      continue;
+    }
+    if (item.unsortedByHand) {
+      unsorted.push(item);
       continue;
     }
     if (mode === 'tickets' && entry !== null && entry.role === 'orchestrator') {

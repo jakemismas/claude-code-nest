@@ -97,6 +97,8 @@ export interface PlacementContext {
   fleetByChat: ReadonlyMap<string, { folder: string | null; ticket: string | null }>;
   // Per chat: the name of the folder the transcript was scanned from.
   sourceByChat: ReadonlyMap<string, string>;
+  // Chats you moved to Unsorted by hand; they stay in Unsorted.
+  unsortedByHand?: ReadonlySet<string>;
 }
 
 interface AutoGroup {
@@ -134,7 +136,7 @@ export function buildSections(
   for (const record of visibleRecords) {
     const home = resolveHomeFolderId(record.sessionId, meta);
     homeByChat.set(record.sessionId, home);
-    if (placement !== undefined && home === UNSORTED_FOLDER_ID) {
+    if (placement !== undefined && home === UNSORTED_FOLDER_ID && placement.unsortedByHand?.has(record.sessionId) !== true) {
       const fleet = placement.fleetByChat.get(record.sessionId);
       const placed = resolvePlacement(
         {
@@ -586,12 +588,14 @@ function compareFolders(a: Folder, b: Folder): number {
   return byName !== 0 ? byName : a.id.localeCompare(b.id);
 }
 
-// Chats for the fleet group model: the hand-filed folder (only while it exists), the archived
-// flag, and a working directory (live session first, else the transcript's).
+// Chats for the fleet group model: the hand-filed folder (only while it exists), a move to
+// Unsorted by hand, the archived flag, and a working directory (live session first, else the
+// transcript's).
 export function fleetModelChats(
   records: readonly ChatRecord[],
   meta: ProjectMeta | undefined,
   cwdByChat: ReadonlyMap<string, string>,
+  unsortedByHand: ReadonlySet<string> = new Set(),
 ): ModelChat[] {
   return records.map((r) => {
     const home = resolveHomeFolderId(r.sessionId, meta);
@@ -601,6 +605,7 @@ export function fleetModelChats(
       timestamp: r.timestamp,
       cwd: cwdByChat.get(r.sessionId) ?? r.cwd ?? null,
       handFiledFolderId: home === UNSORTED_FOLDER_ID ? null : home,
+      unsortedByHand: home === UNSORTED_FOLDER_ID && unsortedByHand.has(r.sessionId),
       archived: isArchived(r.sessionId, meta),
     };
   });

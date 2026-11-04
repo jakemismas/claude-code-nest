@@ -12,6 +12,7 @@ import {
   Tag,
   emptyLocalProjectMeta,
   normalizeOrganizeLedger,
+  normalizeUnsortedByHand,
   OrganizeLedger,
   clampName,
   emptyProjectMeta,
@@ -275,17 +276,55 @@ export class MetadataStore {
   }
 
   // A non-null folderId must be a safe id because it references the folders map. Null (unfile) is always allowed.
-  setChatFolder(projectKey: string, chatId: string, folderId: string | null): boolean {
+  // byHand marks an unfile as your own move to Unsorted; filing the chat anywhere clears the mark.
+  setChatFolder(projectKey: string, chatId: string, folderId: string | null, byHand = false): boolean {
     if (folderId !== null && !isSafeRecordId(folderId)) {
       return false;
     }
-    return this.mutate(projectKey, (meta) => {
+    let changed = false;
+    const ok = this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
       }
       chat.folderId = folderId;
       this.stampRecord(chat);
+      changed = true;
+    });
+    if (ok && changed && (folderId !== null || byHand)) {
+      void this.setUnsortedByHand(projectKey, chatId, folderId === null);
+    }
+    return ok;
+  }
+
+  // The chats you moved to Unsorted by hand on this device.
+  getUnsortedByHand(projectKey: string): ReadonlySet<string> {
+    return new Set(Object.keys(normalizeUnsortedByHand(this.getLocalProjectMeta(projectKey).unsortedByHand)));
+  }
+
+  // Runs on the local chain, so it never interleaves with an orphan state or ledger write.
+  private setUnsortedByHand(projectKey: string, chatId: string, on: boolean): Promise<void> {
+    if (!isSafeProjectKey(projectKey) || !isSafeRecordId(chatId)) {
+      return Promise.resolve();
+    }
+    const at = this.now();
+    return this.enqueueLocalWrite(() => {
+      const local = this.getLocalProjectMeta(projectKey);
+      const marks = normalizeUnsortedByHand(local.unsortedByHand);
+      if (on === Object.prototype.hasOwnProperty.call(marks, chatId)) {
+        return Promise.resolve();
+      }
+      if (on) {
+        marks[chatId] = at;
+      } else {
+        delete marks[chatId];
+      }
+      if (Object.keys(marks).length === 0) {
+        delete local.unsortedByHand;
+      } else {
+        local.unsortedByHand = { ...marks };
+      }
+      return this.memento.update(localKeyFor(projectKey), local);
     });
   }
 
@@ -450,6 +489,13 @@ export class MetadataStore {
         const kept = this.getOrganizeLedger(projectKey);
         if (kept !== null) {
           copy.organize = kept;
+        }
+      }
+      // The same holds for the Unsorted-by-hand marks.
+      if (copy.unsortedByHand === undefined) {
+        const marks = normalizeUnsortedByHand(this.getLocalProjectMeta(projectKey).unsortedByHand);
+        if (Object.keys(marks).length > 0) {
+          copy.unsortedByHand = { ...marks };
         }
       }
       return this.memento.update(localKeyFor(projectKey), copy);
@@ -635,8 +681,14 @@ export class MetadataStore {
   }
 
   // Persists pending writes now and resolves when the chain is drained. Retry rounds are capped
-  // so a persistently failing Memento cannot hang shutdown; it never rejects.
+  // so a persistently failing Memento cannot hang shutdown; it never rejects. Local writes queued
+  // before the call (orphan state, the organize ledger, Unsorted marks) land too.
   async flush(): Promise<void> {
+    await this.flushSynced();
+    await this.localWriteChain;
+  }
+
+  private async flushSynced(): Promise<void> {
     const MAX_RETRY_ROUNDS = 5;
     let rounds = 0;
     for (;;) {

@@ -516,6 +516,8 @@ export function buildRuleSubjects(
 export interface PlanChatState {
   // The folder the chat is filed in, or null when unfiled or the folder is gone.
   readonly folderId: string | null;
+  // You moved the chat to Unsorted by hand, so a rule must leave it there.
+  readonly unsortedByHand?: boolean;
   readonly tagIds: readonly string[];
   readonly starred: boolean;
 }
@@ -588,7 +590,8 @@ export function resolveFolderPath(folders: { readonly [id: string]: Folder }, fo
 
 // Plans the backfill: for every chat, the first matching rule decides the folder, the
 // tags to add and whether to pin. A chat filed by hand (it has a folder that is not the
-// one the last Apply chose) is never planned, so a rule cannot undo a hand move.
+// one the last Apply chose, or you moved it to Unsorted) is never planned, so a rule cannot
+// undo a hand move.
 export function planOrganize(input: PlanInput): OrganizePlan {
   const moves: PlanMove[] = [];
   const problems: string[] = [];
@@ -601,7 +604,8 @@ export function planOrganize(input: PlanInput): OrganizePlan {
       continue;
     }
     matched++;
-    if (state.folderId !== null && input.applied[subject.sessionId] !== state.folderId) {
+    const handFiled = state.folderId !== null && input.applied[subject.sessionId] !== state.folderId;
+    if (handFiled || (state.folderId === null && state.unsortedByHand === true)) {
       skippedHandFiled++;
       continue;
     }

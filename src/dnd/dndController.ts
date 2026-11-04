@@ -197,7 +197,7 @@ export class NestDragAndDropController<TNode extends DraggableNode>
   private applyIntents(projectKey: string, intents: DropIntent[]): void {
     for (const intent of intents) {
       if (intent.kind === 'setFolder') {
-        this.deps.store.setChatFolder(projectKey, intent.chatId, intent.folderId);
+        this.deps.store.setChatFolder(projectKey, intent.chatId, intent.folderId, true);
       } else {
         this.deps.store.addChatTag(projectKey, intent.chatId, intent.tagId);
       }

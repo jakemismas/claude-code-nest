@@ -151,7 +151,7 @@ A regular expression in `name` or `ticket` is at most 200 characters and matches
 
 1. Open **Settings** and find **Organize**.
 2. Choose **Preview** to list every move. Preview writes nothing.
-3. Choose **Apply** to make the moves. A chat you filed by hand is never moved.
+3. Choose **Apply** to make the moves. A chat you filed by hand, or moved to Unsorted by hand, is never moved.
 4. Choose **Undo** to restore the state from before the last Apply.
 
 ### Robin

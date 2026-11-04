@@ -95,6 +95,9 @@ export interface LocalProjectMeta {
   chats: { [chatId: string]: LocalChatState };
   // The last organize Apply on this device. Never synced.
   organize?: OrganizeLedger;
+  // Chats you moved to Unsorted by hand, with when, so the fleet and organize rules leave them
+  // there. Per device, like every hand move's tie-breaker here; never synced.
+  unsortedByHand?: { [chatId: string]: number };
 }
 
 // What one organize Apply changed for one chat, so Undo can restore it. folderId is
@@ -120,6 +123,25 @@ export const MAX_LEDGER_CHATS = 20000;
 
 function ledgerIdList(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((v): v is string => isSafeRecordId(v)).slice(0, MAX_LEDGER_CHATS) : [];
+}
+
+// Lifts a stored Unsorted-by-hand map of unknown shape to safe ids and finite times, capped.
+export function normalizeUnsortedByHand(raw: unknown): { [chatId: string]: number } {
+  const out: { [chatId: string]: number } = Object.create(null) as { [chatId: string]: number };
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return out;
+  }
+  let count = 0;
+  for (const [id, at] of Object.entries(raw as Record<string, unknown>)) {
+    if (count >= MAX_LEDGER_CHATS) {
+      break;
+    }
+    if (isSafeRecordId(id) && typeof at === 'number' && Number.isFinite(at)) {
+      out[id] = at;
+      count++;
+    }
+  }
+  return out;
 }
 
 // Lifts a stored organize ledger of unknown shape to a well-formed one, or null.
