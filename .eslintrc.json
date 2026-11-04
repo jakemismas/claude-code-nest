@@ -19,8 +19,36 @@
     "no-throw-literal": "warn",
     "semi": "off",
     "@typescript-eslint/semi": "off",
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "child_process",
+            "message": "Only src/claude/agentsCli.ts may import child_process (docs/architecture.md): one fixed command through execFile, no shell."
+          },
+          {
+            "name": "node:child_process",
+            "message": "Only src/claude/agentsCli.ts may import child_process (docs/architecture.md): one fixed command through execFile, no shell."
+          }
+        ]
+      }
+    ],
+    "no-restricted-modules": [
+      "error",
+      {
+        "paths": [
+          { "name": "child_process", "message": "Only src/claude/agentsCli.ts may load child_process." },
+          { "name": "node:child_process", "message": "Only src/claude/agentsCli.ts may load child_process." }
+        ]
+      }
+    ],
     "no-restricted-syntax": [
       "error",
+      {
+        "selector": "ImportExpression[source.value=/^(node:)?child_process$/]",
+        "message": "Only src/claude/agentsCli.ts may import child_process (docs/architecture.md)."
+      },
       {
         "selector": "CallExpression[callee.property.name=/^(writeFile|writeFileSync|appendFile|appendFileSync|write|writeSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|truncate|truncateSync|ftruncate|ftruncateSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|copyFile|copyFileSync|cp|cpSync|createWriteStream|chmod|chmodSync|chown|chownSync|symlink|symlinkSync|link|linkSync|utimes|utimesSync|open|openSync)$/]",
         "message": "Read-only chokepoint (docs/architecture.md): member-call write-capable fs calls (fs.writeFileSync(...)) are banned outside the sanctioned settings-IO module (src/settings/claudeSettingsIO.ts) and the export-IO module (src/store/exportIO.ts). Nothing may ever write under ~/.claude/projects/. If you genuinely need to write Claude's settings.json, do it there behind the path-asserting chokepoint; otherwise this is a read-only surface."
@@ -74,6 +102,13 @@
   "ignorePatterns": ["out", "dist", "node_modules", "**/*.d.ts", ".vscode-test"],
   "overrides": [
     {
+      "files": ["src/claude/agentsCli.ts"],
+      "rules": {
+        "no-restricted-imports": "off",
+        "no-restricted-modules": "off"
+      }
+    },
+    {
       "files": ["src/settings/claudeSettingsIO.ts"],
       "rules": {
         "no-restricted-syntax": "off"
@@ -88,6 +123,8 @@
     {
       "files": ["src/test/**/*.ts"],
       "rules": {
+        "no-restricted-imports": "off",
+        "no-restricted-modules": "off",
         "no-restricted-syntax": "off"
       }
     }

@@ -422,7 +422,7 @@ function buildRow(
 //     is also 'none'.
 // timestamp===null (no timestamped line) is treated as unread so a brand-new chat
 // with an assistant-last turn still surfaces until the user opens it.
-function rowStatus(record: ChatRecord, lastSeenAt: ReadonlyMap<string, number>): RowStatus {
+export function rowStatus(record: ChatRecord, lastSeenAt: ReadonlyMap<string, number>): RowStatus {
   if (record.lastMessageRole !== 'assistant') {
     return 'none';
   }

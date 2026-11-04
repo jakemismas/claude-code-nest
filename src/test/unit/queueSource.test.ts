@@ -1,0 +1,77 @@
+import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { ExpandDeps } from '../../fleet/nestConfig';
+import { MAX_QUEUE_FILE_BYTES, loadQueueRows, resolveQueuePath } from '../../fleet/queueSource';
+
+let root: string;
+let ws: string;
+let deps: ExpandDeps;
+const queue = { file: 'dev/queue.md', keyColumn: 'Ticket', stageColumn: 'Stage' };
+const table = '| Ticket | Stage |\n|---|---|\n| T-1 | Build |\n';
+
+before(() => {
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nest-queue-')));
+  ws = path.join(root, 'ws');
+  fs.mkdirSync(path.join(ws, 'dev'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'home', '.claude', 'projects'), { recursive: true });
+  deps = {
+    homedir: path.join(root, 'home'),
+    projectsRoot: path.join(root, 'home', '.claude', 'projects'),
+    isDirectory: (p) => fs.existsSync(p) && fs.statSync(p).isDirectory(),
+    isFile: (p) => fs.existsSync(p) && fs.statSync(p).isFile(),
+    listDir: (p) => fs.readdirSync(p),
+    realpath: (p) => {
+      try {
+        return fs.realpathSync(p);
+      } catch {
+        return null;
+      }
+    },
+  };
+});
+after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+describe('queue source', () => {
+  it('resolves a relative path against the workspace folder', () => {
+    assert.strictEqual(resolveQueuePath('dev/queue.md', ws, deps), path.join(ws, 'dev', 'queue.md'));
+  });
+
+  it('expands ~ against the home folder', () => {
+    assert.strictEqual(resolveQueuePath('~/q.md', ws, deps), path.join(deps.homedir, 'q.md'));
+  });
+
+  it('drops a path inside the transcript directory', () => {
+    assert.strictEqual(resolveQueuePath('~/.claude/projects/x/q.md', ws, deps), null);
+  });
+
+  it('drops a symlink that resolves into the transcript directory', () => {
+    fs.symlinkSync(deps.projectsRoot, path.join(ws, 'link'));
+    assert.strictEqual(resolveQueuePath('link/q.md', ws, deps), null);
+  });
+
+  it('reads and parses the table', async () => {
+    fs.writeFileSync(path.join(ws, 'dev', 'queue.md'), table);
+    const rows = await loadQueueRows(queue, ws, { trusted: true, deps });
+    assert.deepStrictEqual(rows, [{ key: 'T-1', stage: 'Build', title: null }]);
+  });
+
+  it('returns nothing for a missing file, no setting or no workspace', async () => {
+    assert.deepStrictEqual(await loadQueueRows({ ...queue, file: 'nope.md' }, ws, { trusted: true, deps }), []);
+    assert.deepStrictEqual(await loadQueueRows(null, ws, { trusted: true, deps }), []);
+    assert.deepStrictEqual(await loadQueueRows(queue, undefined, { trusted: true, deps }), []);
+  });
+
+  it('ignores the queue in an untrusted workspace', async () => {
+    assert.deepStrictEqual(await loadQueueRows(queue, ws, { trusted: false, deps }), []);
+  });
+
+  it('skips a file over 256 KB with one warning', async () => {
+    fs.writeFileSync(path.join(ws, 'dev', 'big.md'), table + 'x'.repeat(MAX_QUEUE_FILE_BYTES));
+    const warnings: string[] = [];
+    const rows = await loadQueueRows({ ...queue, file: 'dev/big.md' }, ws, { trusted: true, deps, warn: (m) => warnings.push(m) });
+    assert.deepStrictEqual(rows, []);
+    assert.strictEqual(warnings.length, 1);
+  });
+});

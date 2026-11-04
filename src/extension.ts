@@ -141,6 +141,9 @@ import { FleetReloader } from './fleet/fleetReloader';
 import { fleetFilePaths } from './fleet/fleetSource';
 import { watchFile, watchFleetFilesResubscribing } from './fleet/fleetWatcher';
 import { ConfigReloader, nestConfigPath } from './fleet/configSource';
+import { AgentsResult, execFileRunner, listAgentSessions } from './claude/agentsCli';
+import { AgentsPoller } from './fleet/agentsPoller';
+import { loadQueueRows } from './fleet/queueSource';
 import { expandLinkedFolders, resolveFleetFileEntries } from './fleet/nestConfig';
 import { OPEN_LAYOUT_FILE_COMMAND, openLayoutFile } from './commands/openLayoutFile';
 import { createOpenLayoutDeps } from './commands/openLayoutFileHost';
@@ -1437,10 +1440,29 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       fleetWatcher.refresh();
       void fleetReloader.reload();
+      void loadQueueRows(parsed.config.queue, workspacePath, {
+        trusted,
+        warn: (message) => console.warn(message),
+      }).then((rows) => orgPanelProvider.setQueueRows(rows));
     },
     warn: (message) => console.warn(message),
   });
+  // Live session list from `claude agents --json`. It never runs in an untrusted
+  // workspace, and it runs with the workspace folder as its working directory.
+  const agentsPoller = new AgentsPoller({
+    poll: async (): Promise<AgentsResult> => {
+      if (workspacePath === undefined || vscode.workspace.isTrusted === false) {
+        return { ok: false, reason: 'Live status is off in this workspace.' };
+      }
+      return listAgentSessions(execFileRunner, workspacePath);
+    },
+    onSessions: (sessions) => orgPanelProvider.setAgentSessions(sessions),
+    log: (message) => console.warn(message),
+  });
+  orgPanelProvider.onVisibilityChange((visible) => agentsPoller.setVisible(visible));
+  agentsPoller.start();
   context.subscriptions.push(
+    { dispose: () => agentsPoller.dispose() },
     { dispose: () => fleetReloader.dispose() },
     { dispose: () => configReloader.dispose() },
     fleetWatcher,
@@ -1450,7 +1472,12 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
   if (typeof vscode.workspace.onDidGrantWorkspaceTrust === 'function') {
-    context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => void configReloader.reload()));
+    context.subscriptions.push(
+      vscode.workspace.onDidGrantWorkspaceTrust(() => {
+        void configReloader.reload();
+        agentsPoller.retryNow();
+      }),
+    );
   }
   void configReloader.reload();
 }

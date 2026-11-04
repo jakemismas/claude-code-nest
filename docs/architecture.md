@@ -38,6 +38,8 @@ modules.
 | `src/settings/claudeSettingsIO.ts` | Write chokepoint for Claude Code's `settings.json` (the retention setting only). |
 | `src/fleet/` | Read-only fleet input: `types`, `fleetRecord` (pure parse and fold), `fleetSource` (the only reader of `dev/fleet.jsonl`), `fleetReloader` (debounce), `fleetWatcher` (the one file that imports `vscode`). |
 | `src/fleet/` (layout file) | `nestConfig` (pure parse and validate), `configSource` (the only reader of `.nest/config.json`, with a debounced reloader), `placement` (pure group precedence). |
+| `src/claude/agentsCli.ts` | The only module that imports `child_process`. Runs `claude agents --json` through `execFile` and parses the output. |
+| `src/fleet/` (live status) | `status` (pure status mapping and rollup), `queueTable` (pure Markdown table parser), `queueSource` (the only reader of the queue file), `agentsPoller` (poll scheduler with an injected clock and runner). |
 | `src/commands/openLayoutFile.ts` | Opens the layout file in the editor. Writes nothing. |
 | `schemas/nest-config.schema.json` | JSON schema for the layout file, shipped in the extension. |
 | `src/search/` | Full-text index (`searchIndex`), its persistence (`searchStore`), and the vendored MiniSearch build. |
@@ -182,6 +184,42 @@ never writes, creates, renames or deletes it. You edit it in the editor.
 - Unit tests cover parsing, coercion, expansion, precedence and the reloader with a
   fake clock. The hot reload and the command run in `npm run test:integration`.
 
+## Live status
+
+Each chat gets one status: `working`, `needs`, `queued`, `done` or `idle`. A group
+shows the most urgent status of its chats, in the order needs, working, queued, done,
+idle. Nothing in the panel renders these statuses yet.
+
+- `src/claude/agentsCli.ts` runs `claude agents --json` with `execFile`, a fixed binary
+  name, fixed arguments, no shell, a 5 second timeout and a 4 MB output cap. The
+  runner is injected, so unit tests never start a process. The parser accepts an array
+  of objects, keeps `sessionId`, `kind`, `state`, `status`, `cwd`, `name`, `startedAt`
+  and `pid` after coercion, drops any entry whose session id fails
+  `^[0-9a-fA-F-]{8,64}$`, and returns an empty list for anything else.
+- The command runs with the first workspace folder as its working directory. It does
+  not run in an untrusted workspace: Nest treats the command as missing and logs once.
+- `status.ts` is pure. An interactive session with `status: busy`, or a background
+  session in state `running`, `working` or `busy`, is working. A background session in
+  state `blocked`, `waiting`, `needs-input` or `needs_input`, or an unread assistant
+  question, needs you. A session in state `done` or `stopped`, or a fleet `end`, is
+  done. A fleet `launch` with no live session and no transcript yet is queued. Anything
+  else is idle. Only sessions whose id matches a chat or fleet entry in the panel
+  affect status.
+- `agentsPoller.ts` polls every 10 seconds while the panel is visible and every 60
+  seconds otherwise. It never runs two polls at once and stops on dispose. When the
+  command is missing or fails, Nest logs once, shows no message, derives status from
+  transcripts and fleet records only, and retries every 5 minutes.
+- `queueTable.ts` reads the first Markdown table whose header has the configured key
+  and stage columns. It keeps row order, caps rows at 500 and cells at 200
+  characters, and returns an empty list when the table or columns are missing.
+- `queueSource.ts` is the only reader of the queue file named by `queue.file` in
+  `.nest/config.json`. It resolves `~` and relative paths against the first workspace
+  folder, skips a file over 256 KB, drops a path that resolves into
+  `~/.claude/projects` (by path or realpath), and is ignored in an untrusted
+  workspace. Nest never writes the queue.
+- ESLint restricts `child_process` imports to `src/claude/agentsCli.ts`. The test tree
+  is exempt.
+
 ## Invariants
 
 Keep these true in every change.
@@ -189,8 +227,9 @@ Keep these true in every change.
 1. **Nest never writes under `~/.claude/projects`.** It reads transcripts and
    nothing else there. `exportPathGuard` rejects any such target at runtime.
 2. **No network access and no telemetry.** Nest makes no HTTP requests and
-   collects nothing. Its only outward action is opening Claude Code through the
-   `vscode://` URI handler.
+   collects nothing. Its only outward actions are opening Claude Code through the
+   `vscode://` URI handler and one local subprocess, `claude agents --json`, started
+   by `src/claude/agentsCli.ts` with a fixed command and no shell.
 3. **All file writes go through two chokepoints**: `src/store/exportIO.ts` (Nest's
    own files) and `src/settings/claudeSettingsIO.ts` (Claude Code's
    `settings.json`, which asserts the exact allowed path). ESLint bans every other

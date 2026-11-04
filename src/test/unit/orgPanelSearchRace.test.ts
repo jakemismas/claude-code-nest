@@ -180,7 +180,7 @@ function makeView(): {
     },
   };
   return {
-    view: { webview },
+    view: { webview, visible: true, onDidChangeVisibility: (): { dispose(): void } => ({ dispose: (): void => undefined }), onDidDispose: (): { dispose(): void } => ({ dispose: (): void => undefined }) },
     posted,
     send: (msg: unknown): void => {
       if (handler === undefined) {

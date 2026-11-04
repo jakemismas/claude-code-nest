@@ -364,7 +364,7 @@ export function defaultExpandDeps(): ExpandDeps {
   };
 }
 
-function expandHome(entry: string, homedir: string): string {
+export function expandHome(entry: string, homedir: string): string {
   if (entry === '~') {
     return homedir;
   }
