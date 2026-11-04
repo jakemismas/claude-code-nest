@@ -1,5 +1,8 @@
 {
-  "spec": "out/test/unit/**/*.test.js",
+  "spec": [
+    "out/test/unit/**/*.test.js",
+    "scripts/**/*.test.js"
+  ],
   "timeout": 10000,
   "ui": "bdd"
 }
