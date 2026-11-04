@@ -53,6 +53,7 @@ modules.
 | `src/fleet/fleetSource.ts` | The only reader of `dev/fleet.jsonl`. |
 | `src/fleet/fleetReloader.ts` | Debounced fleet reload, one load at a time. |
 | `src/fleet/fleetWatcher.ts` | File watcher shells for the fleet, layout and queue files. The one fleet file that imports `vscode`. |
+| `src/fleet/watchBase.ts` | Picks where to watch a file whose folder may not exist yet: the nearest existing folder. |
 | `src/fleet/singleFlight.ts` | Runs a task one at a time and collapses overlapping requests into one follow-up run. |
 | `src/fleet/nestConfig.ts` | Pure parse and validation of the layout file. |
 | `src/fleet/configSource.ts` | The only reader of `.nest/config.json`, with a debounced reloader. |
@@ -205,6 +206,11 @@ state. Nest never writes a fleet record.
   causes exactly one follow-up reload, so a stalled filesystem call never stacks up
   loads. The clock and the watcher are injected, so unit tests use a fake clock. `fleetWatcher.ts` is
   wired from `extension.ts` and is covered by `npm run test:integration`.
+- A file watcher on a missing folder never fires. When a watched file's folder does not
+  exist yet (no `dev/` before the first fleet record, no `.nest/` before the layout file),
+  `fleetWatcher.ts` watches the nearest existing folder for the next missing one, moves
+  down as folders appear, and reloads once more a second later to catch a write that lands
+  while the new watcher starts.
 - The panel renders the fleet record through the fleet message described under Fleet panel.
 
 ## Layout file (.nest/config.json)
