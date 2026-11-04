@@ -2061,17 +2061,13 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
 /* Flight. The wing frames flip on the bird's own grid while the whole bird follows a path.
    Paths stay inside the header at the narrowest panel width (260px). */
 .nest-robin-slot[data-motion="full"][data-state="rotate"] .rp-fly,
-.nest-robin-slot[data-motion="full"][data-state="milestone"] .rp-fly,
-.nest-robin-slot[data-motion="full"][data-state="idle"][data-flutter="1"] .rp-fly { display: inline; }
+.nest-robin-slot[data-motion="full"][data-state="milestone"] .rp-fly { display: inline; }
 .nest-robin-slot[data-motion="full"][data-state="rotate"] .rp-fr-up,
-.nest-robin-slot[data-motion="full"][data-state="milestone"] .rp-fr-up,
-.nest-robin-slot[data-motion="full"][data-state="idle"][data-flutter="1"] .rp-fr-up { animation: nest-robin-flap-up 0.32s step-end infinite; }
+.nest-robin-slot[data-motion="full"][data-state="milestone"] .rp-fr-up { animation: nest-robin-flap-up 0.32s step-end infinite; }
 .nest-robin-slot[data-motion="full"][data-state="rotate"] .rp-fr-mid,
-.nest-robin-slot[data-motion="full"][data-state="milestone"] .rp-fr-mid,
-.nest-robin-slot[data-motion="full"][data-state="idle"][data-flutter="1"] .rp-fr-mid { animation: nest-robin-flap-mid 0.32s step-end infinite; }
+.nest-robin-slot[data-motion="full"][data-state="milestone"] .rp-fr-mid { animation: nest-robin-flap-mid 0.32s step-end infinite; }
 .nest-robin-slot[data-motion="full"][data-state="rotate"] .rp-fr-down,
-.nest-robin-slot[data-motion="full"][data-state="milestone"] .rp-fr-down,
-.nest-robin-slot[data-motion="full"][data-state="idle"][data-flutter="1"] .rp-fr-down { animation: nest-robin-flap-down 0.32s step-end infinite; }
+.nest-robin-slot[data-motion="full"][data-state="milestone"] .rp-fr-down { animation: nest-robin-flap-down 0.32s step-end infinite; }
 
 /* Rotate: the robin flies off to the right and a fresh one lands from the left. */
 .nest-robin-slot[data-motion="full"][data-state="rotate"] .rp-perch { animation: nest-robin-perch-rotate 3.2s linear 1 both; }
@@ -2092,10 +2088,6 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
 .nest-robin-slot[data-motion="full"][data-state="milestone"] .rb-fx-spark-b { animation-delay: 3.2s; }
 .nest-robin-slot[data-motion="full"][data-state="milestone"] .rb-fx-spark-c,
 .nest-robin-slot[data-motion="full"][data-state="milestone"] .rb-fx-big { animation-delay: 3.4s; }
-
-/* Idle flutter: now and then the robin hops up off the branch and lands in the same spot. */
-.nest-robin-slot[data-motion="full"][data-state="idle"][data-flutter="1"] .rp-perch { animation: nest-robin-perch-flutter 0.95s linear 1 both; }
-.nest-robin-slot[data-motion="full"][data-state="idle"][data-flutter="1"] .rp-fly { animation: nest-robin-path-flutter 0.95s linear 1 both; }
 
 @keyframes nest-robin-breathe { 0% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
 @keyframes nest-robin-look { 0% { transform: translate(0, 0); } 76% { transform: translate(1px, 0); } 88% { transform: translate(0, 0); } }
@@ -2150,17 +2142,6 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
   75%, 100% { opacity: 0; transform: translate(0, 0); }
 }
 @keyframes nest-robin-flip-lap { 0% { transform: scaleX(1); } 36% { transform: scaleX(-1); } 66% { transform: scaleX(1); } }
-
-@keyframes nest-robin-perch-flutter { 0%, 4.9% { opacity: 1; } 5%, 94.9% { opacity: 0; } 95%, 100% { opacity: 1; } }
-@keyframes nest-robin-path-flutter {
-  0%, 4.9% { opacity: 0; transform: translate(0, 0); }
-  5% { opacity: 1; transform: translate(0, 0); }
-  30% { transform: translate(1px, -2px); }
-  50% { transform: translate(2px, -2px); }
-  75% { transform: translate(1px, -1px); }
-  94.9% { opacity: 1; transform: translate(0, 0); }
-  95%, 100% { opacity: 0; transform: translate(0, 0); }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .nest-robin-slot *,

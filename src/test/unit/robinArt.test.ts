@@ -156,6 +156,33 @@ describe('robin art', () => {
     }
   });
 
+  it('keeps the feet planted in every state that is not a jump, hop or flight', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'media', 'orgPanel.css'), 'utf8');
+    const planted = ['idle', 'working', 'error', 'sleep', 'night', 'worm'];
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '').split('}').map((r) => r.trim());
+    const whole = /\.rp-(perch|hop|legs|at)\b/;
+    for (const rule of rules) {
+      const brace = rule.indexOf('{');
+      if (brace < 0 || rule.startsWith('@keyframes')) {
+        continue;
+      }
+      const selector = rule.slice(0, brace);
+      const decl = rule.slice(brace + 1);
+      const moves = /(^|[\s;])(animation|transform)\s*:/.test(decl);
+      for (const sel of selector.split(',')) {
+        if (!moves || !whole.test(sel)) {
+          continue;
+        }
+        if (/\.rp-legs\b/.test(sel)) {
+          assert.fail('the legs never animate: ' + sel.trim());
+        }
+        const state = /\[data-state="([a-z]+)"\]/.exec(sel);
+        assert.ok(state, 'a rule that moves the whole bird names its state: ' + sel.trim());
+        assert.ok(!planted.includes(state[1]), state[1] + ' moves the whole bird: ' + sel.trim());
+      }
+    }
+  });
+
   it('draws the legs in the panel outside the body group', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'media', 'orgPanel.js'), 'utf8');
     const start = src.indexOf('function buildRobin(');

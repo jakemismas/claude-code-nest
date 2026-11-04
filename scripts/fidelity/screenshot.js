@@ -1163,7 +1163,6 @@ async function main() {
       { name: 'flight-rotate-landing', state: 'rotate', freeze: 2.5 },
       { name: 'flight-lap', state: 'milestone', freeze: 1.7 },
       { name: 'flight-lap-return', state: 'milestone', freeze: 2.4 },
-      { name: 'flight-flutter', state: 'idle', wait: 450, flutter: true },
       // Each reaction state at a frame where its glyphs show.
       { name: 'reaction-needs', state: 'needs', freeze: 0.3 },
       { name: 'reaction-error', state: 'error', freeze: 0.3 },
@@ -1211,9 +1210,6 @@ async function main() {
           if (entry.freeze !== undefined) {
             await waitForCondition(page, 'window.__nestHarnessFrozen === true', 10000, 'the animations to freeze');
           } else {
-            if (entry.flutter) {
-              await evaluate(page, "document.getElementById('robinSlot').setAttribute('data-flutter','1')");
-            }
             await sleep(entry.wait);
           }
           return await evaluate(
