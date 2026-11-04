@@ -7,14 +7,14 @@
 // just the path separators (verified against the live ~/.claude/projects listing:
 // e.g. "Notes+ Github" on disk is "Notes--Github" -- both the '+' and the space
 // collapse to hyphens). Examples:
-//   c:\Users\JakeMismas\Documents\Claude Code - Nest
-//   -> c--Users-JakeMismas-Documents-Claude-Code---Nest
-//   c:\Users\JakeMismas\Notes+ Github
-//   -> c--Users-JakeMismas-Notes--Github
+//   c:\Users\User\Documents\sample-app
+//   -> c--Users-User-Documents-sample-app
+//   c:\Users\User\Notes+ Github
+//   -> c--Users-User-Notes--Github
 //
 // Matching against the real on-disk directories is tolerant: the drive letter
-// on disk is inconsistently cased (both C--Users-JakeMismas and
-// c--Users-JakeMismas-* exist on one machine), so the resolver matches the
+// on disk is inconsistently cased (both C--Users-User and
+// c--Users-User-* exist on one machine), so the resolver matches the
 // leading drive-letter segment case-insensitively, or falls through to a cwd
 // scan across all project dirs. The transcript cwd field is the self-verify
 // anchor: re-encoding a transcript cwd must reproduce the directory name.

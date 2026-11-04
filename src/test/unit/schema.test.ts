@@ -22,8 +22,8 @@ const NOW = 1_700_000_000_000;
 describe('schema key encoding', () => {
   it('builds the versioned per-project key', () => {
     assert.strictEqual(
-      metaKeyFor('c--Users-JakeMismas-Documents-Claude-Code---Nest'),
-      'nest.meta.v1::c--Users-JakeMismas-Documents-Claude-Code---Nest',
+      metaKeyFor('c--Users-User-Documents-sample-app'),
+      'nest.meta.v1::c--Users-User-Documents-sample-app',
     );
   });
 
@@ -35,7 +35,7 @@ describe('schema key encoding', () => {
   });
 
   it('round-trips a project key through the meta key', () => {
-    const projectKey = 'c--Users-JakeMismas-proj';
+    const projectKey = 'c--Users-User-proj';
     assert.strictEqual(projectKeyFromMetaKey(metaKeyFor(projectKey)), projectKey);
   });
 
@@ -904,7 +904,7 @@ describe('schema migrateProjectMeta __unknown escrow size cap', () => {
 describe('schema isSafeProjectKey', () => {
   it('accepts real encodeProjectKey outputs', () => {
     assert.strictEqual(
-      isSafeProjectKey('c--Users-JakeMismas-Documents-Claude-Code---Nest'),
+      isSafeProjectKey('c--Users-User-Documents-sample-app'),
       true,
     );
     assert.strictEqual(isSafeProjectKey('c--proj'), true);

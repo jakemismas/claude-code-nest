@@ -12,7 +12,7 @@ import {
 // High-priority unit tests for the four PURE smart-group signal functions. Each
 // signal is a pure function of plain SmartSignalsInput rows; none imports vscode
 // or fs, so this suite runs headless (unit-gate rule). The fork-lineage signal is
-// exercised on synthetic SHARED and DIVERGENT leading-uuid prefixes per the plan.
+// exercised on synthetic SHARED and DIVERGENT leading-uuid prefixes.
 
 function row(partial: Partial<SmartSignalsInput> & { sessionId: string }): SmartSignalsInput {
   return {
