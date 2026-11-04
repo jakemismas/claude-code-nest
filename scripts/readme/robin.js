@@ -45,8 +45,8 @@ function bird(peck) {
     `<g class="tail-rest">${rects(rest.tail, o.x, o.y)}</g>` +
     `<g class="tail-flick">${rects(flick.tail, o.x, o.y)}</g>` +
     rects(rest.legs, o.x, o.y) +
-    rects(rest.body, o.x, o.y) +
-    rects(rest.wing, o.x, o.y) +
+    rects(rest.lower, o.x, o.y) +
+    rects(rest.chest, o.x, o.y) +
     `<g class="${peck ? 'peck' : 'head'}">${rects(rest.head, o.x, o.y)}` +
     `<g class="eye">${rects(rest.eye, o.x, o.y)}</g></g>`
   );

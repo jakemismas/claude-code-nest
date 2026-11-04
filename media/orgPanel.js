@@ -3870,20 +3870,20 @@
 
     const origin = robinArt.BIRD_ORIGIN;
     const perch = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y), 'rp-perch');
-    // Jumps and hops move rp-hop, legs included. Planted states move only rp-root, so the
-    // feet never leave the branch.
+    // Jumps and hops move rp-hop, the whole bird. Planted states move only rp-upper (head and
+    // chest), so the lower body, tail and legs never leave the branch.
     const hop = robinGroup(perch, 'rp-hop');
     const parts = robinArt.birdParts(robinArt.BIRD);
     const flickParts = robinArt.birdParts(robinArt.birdFrame({ flick: true }));
-    const legs = robinGroup(hop, 'rp-legs');
-    robinDraw(legs, robinArt.legStretch(robinArt.BIRD));
-    robinDraw(legs, parts.legs);
-    const root = robinGroup(hop, 'rp-root');
-    robinDraw(robinGroup(root, 'rp-tail rp-tail-rest'), parts.tail);
-    robinDraw(robinGroup(root, 'rp-tail rp-tail-flick'), flickParts.tail);
-    robinDraw(robinGroup(root, 'rp-body'), parts.body);
-    robinDraw(robinGroup(root, 'rp-wing'), parts.wing);
-    const head = robinGroup(root, 'rp-head');
+    robinDraw(robinGroup(hop, 'rp-legs'), parts.legs);
+    const lower = robinGroup(hop, 'rp-lower');
+    robinDraw(lower, robinArt.chestFill(robinArt.BIRD));
+    robinDraw(lower, parts.lower);
+    robinDraw(robinGroup(hop, 'rp-tail rp-tail-rest'), parts.tail);
+    robinDraw(robinGroup(hop, 'rp-tail rp-tail-flick'), flickParts.tail);
+    const upper = robinGroup(hop, 'rp-upper');
+    robinDraw(robinGroup(upper, 'rp-chest'), parts.chest);
+    const head = robinGroup(upper, 'rp-head');
     robinDraw(head, parts.head);
     robinEyeEl = robinDraw(head, parts.eye);
 
