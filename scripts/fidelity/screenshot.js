@@ -550,7 +550,7 @@ async function main() {
         await waitForCondition(
           page,
           "(function(){var h=document.querySelector('#list .nest-section-label');" +
-            "return !!h && /RESULTS/.test(h.textContent) && document.querySelectorAll('#list .nest-row-snippet').length > 0;})()",
+            "return !!h && /RESULTS?/.test(h.textContent) && document.querySelectorAll('#list .nest-row-snippet').length > 0;})()",
           10000,
           'harness results state to render',
         );
