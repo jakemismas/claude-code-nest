@@ -92,7 +92,7 @@ Each chat and group shows a dot. A group shows the most urgent status of its cha
 
 - **Needs you**: a session waits for input, or the last reply asks a question.
 - **Working**: a session is running.
-- **Queued**: the fleet record shows a launch with no live session yet.
+- **Queued**: the fleet record shows a launch, but there is no live session and no transcript yet.
 - **Done**: the session ended.
 - **Idle**: none of the above.
 
@@ -110,6 +110,8 @@ When a chat is a working or waiting background session, clicking it offers **Ope
 ### Organize rules
 
 Rules in the layout file file existing chats into your folders and tags. The first rule that matches a chat wins. A `match` takes `role`, `agent`, `ticket` (`true` or a regular expression), `name` (a regular expression) and `cwd` (a glob). A rule sets `folder` (a template with `{ticket}`, `{title}`, `{agent}`, `{role}` and `{subfolder}`), `tags` and `pin`.
+
+A regular expression in `name` or `ticket` is at most 200 characters and matches case-insensitively. Nest refuses a pattern that could run slowly: one with backreferences, lookarounds, named groups, a repeated group or more than three repeats. A leading or trailing `.*` is ignored because it never changes the result. Nest tests the first 64 characters of a name or ticket, or the last 64 when the pattern ends with `$` and has no `^`. A refused pattern turns off only its own rule, and Settings shows why.
 
 1. Open **Settings** and find **Organize**.
 2. Choose **Preview** to list every move. Preview writes nothing.

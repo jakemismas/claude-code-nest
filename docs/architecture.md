@@ -141,7 +141,7 @@ state. Nest never writes a fleet record.
 - `fleetSource` takes a list of file paths, so more folders can be added without
   changing the reader.
 - `fleetRecord.ts` parses one line. It returns null for non-JSON, a non-object, a
-  version other than 1, a session id that fails `^[0-9a-fA-F-]{8,64}$`, or an unknown
+  version other than 1, a session id that fails `^[0-9a-fA-F][0-9a-fA-F-]{7,63}$`, or an unknown
   event. It strips control characters from every string, caps names and folders at
   200 characters, tags at 40 characters (20 tags at most) and paths at 1024, then
   folds records in time order into one entry per session. Unknown fields and unknown
@@ -230,7 +230,7 @@ idle. The panel draws them as the dots described under Fleet panel.
   runner is injected, so unit tests never start a process. The parser accepts an array
   of objects, keeps `sessionId`, `kind`, `state`, `status`, `cwd`, `name`, `startedAt`
   and `pid` after coercion, drops any entry whose session id fails
-  `^[0-9a-fA-F-]{8,64}$`, and returns an empty list for anything else.
+  `^[0-9a-fA-F][0-9a-fA-F-]{7,63}$`, and returns an empty list for anything else.
 - The command runs with the home directory as its working directory, and a hard
   SIGKILL ends it at the timeout. It does not run in an untrusted workspace: the
   poller reports live status as off and does not start the process.
@@ -294,7 +294,7 @@ Keep these true in every change.
    by `src/claude/agentsCli.ts` with a fixed command and no shell, and the attach
    terminal, a VS Code terminal whose shell is `claude` with the arguments
    `attach <id>`, created by `src/launch/attachLauncher.ts` only after the session
-   id matches `^[0-9a-fA-F-]{8,64}$`.
+   id matches `^[0-9a-fA-F][0-9a-fA-F-]{7,63}$`.
 3. **All file writes go through two chokepoints**: `src/store/exportIO.ts` (Nest's
    own files) and `src/settings/claudeSettingsIO.ts` (Claude Code's
    `settings.json`, which asserts the exact allowed path). ESLint bans every other
@@ -347,7 +347,7 @@ The host posts one `fleet` message that the webview only draws. `src/views/fleet
 
 - The host posts `fleet` after each `sections` post, and again when live sessions, queue rows or the layout file's stage colors change. It skips a post whose text equals the last one, so the 10 second poll does not redraw an unchanged panel.
 - The webview posts `setActive` with a strict boolean when you press Active. The host recomputes the sections with the Active projection and posts them back. The Active state is not stored.
-- The webview posts `openInTerminal` with a session id that passes the safe id check and `^[0-9a-fA-F-]{8,64}$` when you click an attachable row or choose Open in terminal from its menu. The webview never creates a terminal itself; see Open in terminal under Live status.
+- The webview posts `openInTerminal` with a session id that passes the safe id check and `^[0-9a-fA-F][0-9a-fA-F-]{7,63}$` when you click an attachable row or choose Open in terminal from its menu. The webview never creates a terminal itself; see Open in terminal under Live status.
 - The webview keeps the open state of each group and saves it with the webview `setState`. The Active projection forces live groups open without changing that state, so turning Active off restores it.
 - A stage pill takes its color from the layout file's `tags` by stage name. Otherwise stages that match `fail` are orange, `doneStages` are green, stages that match `uat`, `review` or `test` are teal, and the rest are blue. Only a `#rrggbb` color reaches a style.
 - Fleet, layout, queue and CLI strings reach the page through `textContent`. The webview builds no HTML from data.
