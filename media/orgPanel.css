@@ -479,12 +479,15 @@ body {
 }
 
 .nest-folder-chevron {
-  width: 10px;
+  width: 12px;
+  height: 12px;
   flex: 0 0 auto;
-  font-size: 9px;
-  color: var(--nest-text-secondary);
-  text-align: center;
+  display: inline-flex;
   cursor: pointer;
+}
+
+.nest-folder-chevron.is-open .nest-fleet-chev {
+  transform: rotate(90deg);
 }
 
 .nest-folder-glyph {
@@ -824,7 +827,8 @@ body {
 
 .nest-row-title-text {
   flex: 1;
-  min-width: 0;
+  /* Tags and the breadcrumb give way first so the title stays readable. */
+  min-width: 11ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -833,7 +837,8 @@ body {
 
 /* Folder breadcrumb (search results and Questions), muted. */
 .nest-row-breadcrumb {
-  flex: 0 0 auto;
+  flex: 0 100 auto;
+  min-width: 0;
   font-size: 10.5px;
   color: var(--nest-text-breadcrumb);
   white-space: nowrap;
@@ -848,7 +853,7 @@ body {
 .nest-row-tags {
   display: flex;
   align-items: center;
-  flex: 0 1 auto;
+  flex: 0 100 auto;
   min-width: 0;
   max-width: 45%;
   overflow: hidden;
@@ -1490,6 +1495,12 @@ body {
   color: var(--vscode-editorWarning-foreground, #A8641B);
 }
 
+html[data-theme='dark'] .nest-organize-problems,
+body.vscode-dark .nest-organize-problems,
+body.vscode-high-contrast .nest-organize-problems {
+  color: var(--vscode-editorWarning-foreground, #E3A45A);
+}
+
 .nest-organize-problems li + li {
   margin-top: 3px;
 }
@@ -1522,12 +1533,21 @@ body {
 
 .nest-organize-move-detail {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   margin-top: 3px;
   font-size: 11.5px;
   color: var(--nest-text-muted);
+}
+
+.nest-organize-route,
+.nest-organize-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  max-width: 100%;
 }
 
 .nest-organize-to {
@@ -1790,7 +1810,7 @@ body {
   border-radius: 6px;
   border: 1px solid var(--nest-border-input);
   background: var(--nest-surface);
-  color: var(--nest-text-secondary);
+  color: var(--nest-text);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
@@ -1869,6 +1889,7 @@ body.vscode-dark,
 body.vscode-high-contrast {
   --nf-wordmark: #E07B3C;
   --nf-branch: #6F6A62;
+  --nf-working: #3DBB6C;
   --nf-done: #6CC58C;
   --nf-idle: #8C867D;
 
@@ -2149,11 +2170,12 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
 @keyframes nest-robin-path-rotate {
   0%, 11.9% { opacity: 0; transform: translate(0, 0); }
   12% { opacity: 1; transform: translate(0, 0); }
-  20% { transform: translate(8px, -2px); }
-  34% { opacity: 1; transform: translate(40px, -2px); }
-  42% { opacity: 0; transform: translate(40px, -2px); }
-  50% { opacity: 0; transform: translate(-14px, -2px); }
-  56% { opacity: 1; transform: translate(-14px, -2px); }
+  18% { transform: translate(6px, -5px); }
+  24% { transform: translate(20px, -11px); }
+  34% { opacity: 1; transform: translate(40px, -11px); }
+  42% { opacity: 0; transform: translate(40px, -11px); }
+  50% { opacity: 0; transform: translate(-14px, -4px); }
+  56% { opacity: 1; transform: translate(-14px, -4px); }
   72% { transform: translate(-4px, -2px); }
   86% { transform: translate(0, -1px); }
   89.9% { opacity: 1; transform: translate(0, 0); }
@@ -2164,11 +2186,12 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
 @keyframes nest-robin-path-lap {
   0%, 3.9% { opacity: 0; transform: translate(0, 0); }
   4% { opacity: 1; transform: translate(0, 0); }
-  12% { transform: translate(6px, -2px); }
-  28% { transform: translate(40px, -2px); }
-  34% { transform: translate(40px, -1px); }
-  42% { transform: translate(36px, 3px); }
-  58% { transform: translate(-10px, 3px); }
+  10% { transform: translate(6px, -5px); }
+  18% { transform: translate(20px, -11px); }
+  28% { transform: translate(40px, -11px); }
+  34% { transform: translate(40px, -11px); }
+  48% { transform: translate(14px, -11px); }
+  58% { transform: translate(-10px, -4px); }
   64% { transform: translate(-14px, 2px); }
   72% { transform: translate(-6px, -1px); }
   74.9% { opacity: 1; transform: translate(0, 0); }
@@ -2307,7 +2330,7 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
   }
   50% {
     box-shadow: 0 0 0 5px rgba(46, 158, 87, 0);
-    opacity: 0.45;
+    opacity: 0.8;
   }
 }
 
