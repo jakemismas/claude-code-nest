@@ -44,7 +44,7 @@ export const MAX_NOTES = 6;
 export const FAST_AT = 3;
 export const FASTER_AT = 6;
 
-const MAX_SEEN = 2000;
+export const MAX_SEEN = 2000;
 
 export interface RobinSignals {
   // Chats whose status is working right now.
@@ -63,6 +63,8 @@ export interface RobinSignals {
   readonly doneTickets: readonly string[];
   // Every queue row's ticket is in a finished stage (false for an empty queue).
   readonly queueAllDone: boolean;
+  // The queue has no rows right now (a momentary gap must not re-arm the milestone).
+  readonly queueEmpty: boolean;
   // The egg has not hatched on this device yet.
   readonly hatchEligible: boolean;
 }
@@ -111,13 +113,26 @@ export interface RobinOutput {
   readonly nextCheckAt: number | null;
 }
 
+// Remembers ids. Past the cap it drops only ids the current signals no longer carry, so an
+// id that is still present never leaves the set and replays as new.
 function addSeen(list: readonly string[], ids: readonly string[]): string[] {
   const set = new Set(list);
   for (const id of ids) {
     set.add(id);
   }
   const out = [...set];
-  return out.length > MAX_SEEN ? out.slice(out.length - MAX_SEEN) : out;
+  if (out.length <= MAX_SEEN) {
+    return out;
+  }
+  const current = new Set(ids);
+  let excess = out.length - MAX_SEEN;
+  return out.filter((id) => {
+    if (excess > 0 && !current.has(id)) {
+      excess -= 1;
+      return false;
+    }
+    return true;
+  });
 }
 
 function fresh(seen: readonly string[], ids: readonly string[]): string[] {
@@ -208,7 +223,7 @@ export function stepRobin(
     seenFailed: addSeen(memory.seenFailed, signals.failedIds),
     seenRotate: signals.rotateKey ?? memory.seenRotate,
     seenDoneTickets: addSeen(memory.seenDoneTickets, signals.doneTickets),
-    milestoneHeld: signals.queueAllDone,
+    milestoneHeld: signals.queueEmpty ? memory.milestoneHeld : signals.queueAllDone,
     transients,
     lastBusyAt,
     noteDelaysMs: noteDelays,
@@ -252,18 +267,18 @@ export function stepRobin(
   };
 }
 
-// The static marker a still pose shows for each state.
+// The pixel glyph a still pose shows for each state.
 export const STILL_MARKERS: Readonly<Record<RobinState, string>> = {
-  hatch: '',
-  rotate: '',
-  error: '!',
-  needs: '?',
-  worm: '',
-  done: '✓',
-  milestone: '✓',
-  working: '',
+  hatch: 'egg',
+  rotate: 'plus',
+  error: 'bang',
+  needs: 'question',
+  worm: 'worm',
+  done: 'check',
+  milestone: 'burst',
+  working: 'note',
   sleep: 'z',
-  night: '☾',
+  night: 'moon',
   idle: '',
 };
 
@@ -288,7 +303,7 @@ export interface RobinMessage {
   readonly noteMinMs: number;
   readonly noteSpreadMs: number;
   readonly animations: boolean;
-  // The marker a reduced-motion or animations-off pose shows.
+  // The glyph name a reduced-motion or animations-off pose shows.
   readonly reducedHint: string;
   readonly liveText: string;
 }
@@ -376,6 +391,7 @@ export function buildRobinSignals(input: RobinInputs): RobinSignals {
     failedIds,
     rotateKey: current !== null && input.fleet.pastOrchestrators.length > 0 ? current.sessionId : null,
     doneTickets: [...doneTickets],
+    queueEmpty: input.queueRows.length === 0,
     queueAllDone: input.queueRows.length > 0 && input.queueRows.every((row) => isDone(row.stage)),
     hatchEligible: input.hatchEligible,
   };

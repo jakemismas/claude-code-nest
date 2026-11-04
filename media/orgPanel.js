@@ -3676,142 +3676,161 @@
   }
 
   // ---- robin ----
-  // The host decides the robin's state and posts it. This block only builds the block
-  // characters, sets classes that CSS animates, and runs the note and blink timers.
+  // The host decides the robin's state and posts it. This block draws the pixel art from
+  // robinArt.js as square SVG rects, sets classes that CSS animates, and runs the note,
+  // blink, tail and flutter timers. Colors come from CSS classes, never from style strings.
 
   const robinSlotEl = document.getElementById('robinSlot');
   const robinLiveEl = document.getElementById('robinLive');
   const ROBIN_STATES = ['hatch', 'rotate', 'error', 'needs', 'worm', 'done', 'milestone', 'working', 'sleep', 'night', 'idle'];
-  const ROBIN_NOTE_COLORS = ['#C2571A', '#8C6FE0', '#C99413', '#2E9E57'];
-  const ROBIN_NOTE_LINES = [' ▐▀▖', ' ▐  ', '▟█  '];
+  // Which branch the header shows: 'thick' or 'leafy'.
+  const ROBIN_BRANCH = 'thick';
+  const ROBIN_PIXEL_PX = 3;
   const ROBIN_MAX_NOTES = 6;
+  const ROBIN_NOTE_LIFE_MS = 1800;
   const ROBIN_BLINK_EVERY_MS = 3400;
   const ROBIN_BLINK_MS = 170;
   const ROBIN_FLICK_EVERY_MS = 3500;
   const ROBIN_FLICK_MS = 500;
-  const ROBIN_MARKER_MAX = 4;
+  const ROBIN_FLUTTER_MIN_MS = 20000;
+  const ROBIN_FLUTTER_SPREAD_MS = 20000;
+  const ROBIN_FLUTTER_MS = 950;
+  const ROBIN_SVG_NS = 'http://www.w3.org/2000/svg';
+  const robinArt = window.NestRobinArt;
   const reducedMotionQuery =
     typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
 
   let robinEyeEl = null;
-  let robinTailEl = null;
-  let robinStillEl = null;
   let robinNotesEl = null;
   let robinState = 'idle';
   let robinMsg = null;
+  // One pending note timer per lane, and the pending removals of notes already drawn.
   let robinNoteTimers = [];
+  const robinNoteRemovals = new Set();
   let robinBlinkTimer = null;
   let robinBlinkOffTimer = null;
   let robinFlickTimer = null;
   let robinFlickOffTimer = null;
+  let robinFlutterTimer = null;
+  let robinFlutterOffTimer = null;
   let robinNoteCount = 0;
 
-  function robinSpan(parent, text, cls) {
-    const el = document.createElement('span');
-    el.textContent = text;
-    if (cls) {
-      el.className = cls;
+  // Own-property lookup, so a key like 'constructor' from outside never matches.
+  function robinOwn(obj, key) {
+    return typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
+  function robinSvg(name, attrs, parent) {
+    const el = document.createElementNS(ROBIN_SVG_NS, name);
+    for (const key of Object.keys(attrs || {})) {
+      el.setAttribute(key, String(attrs[key]));
     }
-    parent.appendChild(el);
+    if (parent) {
+      parent.appendChild(el);
+    }
     return el;
   }
 
-  function robinLine(parent) {
-    const line = document.createElement('span');
-    line.className = 'nest-robin-line';
-    parent.appendChild(line);
-    return line;
+  function robinGroup(parent, cls, x, y) {
+    const attrs = { class: cls };
+    if (x !== undefined) {
+      attrs.transform = 'translate(' + x + ' ' + y + ')';
+    }
+    return robinSvg('g', attrs, parent);
   }
 
-  function robinFx(parent, cls, text) {
-    const wrap = document.createElement('span');
-    wrap.className = 'nest-robin-fx ' + cls;
-    const inner = document.createElement('span');
-    inner.className = 'nest-robin-fx-in';
-    inner.textContent = text;
-    wrap.appendChild(inner);
-    parent.appendChild(wrap);
-    return wrap;
+  function robinDraw(parent, rects) {
+    let first = null;
+    for (const r of rects) {
+      const rect = robinSvg('rect', { x: r.x, y: r.y, width: r.w, height: r.h, class: 'rp-' + r.c }, parent);
+      first = first || rect;
+    }
+    return first;
+  }
+
+  function robinDrawRows(parent, rows) {
+    robinDraw(parent, robinArt.runs(rows));
+  }
+
+  // A reaction glyph at its placed spot. The outer group only positions; the inner group animates.
+  function robinPlace(parent, key, cls) {
+    const p = robinArt.PLACEMENTS[key];
+    const outer = robinGroup(parent, 'rp-at', p.x, p.y);
+    const inner = robinGroup(outer, 'rp-fx ' + cls);
+    robinDrawRows(inner, robinArt.glyphRows(p.g, p.c));
+    return inner;
   }
 
   function buildRobin() {
-    if (!robinSlotEl) {
+    if (!robinSlotEl || !robinArt) {
       return;
     }
-    const bird = document.createElement('span');
-    bird.className = 'nest-robin-bird';
-    const root = document.createElement('span');
-    root.className = 'nest-robin-root';
-    const head = document.createElement('span');
-    head.className = 'nest-robin-head';
-    const h1 = robinLine(head);
-    robinSpan(h1, '      ▄██▖  ', 'rb-h');
-    const h2 = robinLine(head);
-    robinSpan(h2, '     ▟█', 'rb-h');
-    robinEyeEl = robinSpan(h2, '▙', 'rb-h');
-    robinSpan(h2, '██', 'rb-h');
-    robinSpan(h2, '▛', 'rb-bk');
-    robinSpan(h2, ' ', 'rb-h');
-    root.appendChild(head);
-    const b1 = robinLine(root);
-    robinSpan(b1, ' ▄▟█', 'rb-h');
-    robinSpan(b1, '██', 'rb-w');
-    robinSpan(b1, '█', 'rb-h');
-    robinSpan(b1, '██▌', 'rb-r');
-    robinSpan(b1, '  ', 'rb-h');
-    const b2 = robinLine(root);
-    robinTailEl = robinSpan(b2, '▀▀▀█', 'rb-h');
-    robinSpan(b2, '██', 'rb-w');
-    robinSpan(b2, '█', 'rb-h');
-    robinSpan(b2, '██▘', 'rb-r');
-    robinSpan(b2, '  ', 'rb-h');
-    const b3 = robinLine(root);
-    robinSpan(b3, '    ▀▜▀', 'rb-h');
-    robinSpan(b3, '▜▘', 'rb-r');
-    robinSpan(b3, '   ', 'rb-h');
-    bird.appendChild(root);
-    const branch = robinLine(bird);
-    robinSpan(branch, '   ▀▀▀▀▀▀▀', 'rb-k');
-    robinSpan(branch, '▘', 'rb-g');
-    robinSpan(branch, ' ', 'rb-k');
-    robinSlotEl.appendChild(bird);
+    const wanted = robinSlotEl.getAttribute('data-branch');
+    const branchName = robinOwn(robinArt.BRANCHES, wanted) ? wanted : ROBIN_BRANCH;
+    const svg = robinSvg(
+      'svg',
+      {
+        class: 'nest-robin-svg',
+        viewBox: '0 0 ' + robinArt.BRANCH_W + ' ' + robinArt.BRANCH_H,
+        width: robinArt.BRANCH_W * ROBIN_PIXEL_PX,
+        height: robinArt.BRANCH_H * ROBIN_PIXEL_PX,
+        'shape-rendering': 'crispEdges',
+        focusable: 'false',
+      },
+      null,
+    );
+
+    // The branch is its own layer so it stays put while the bird flies.
+    robinDrawRows(robinGroup(svg, 'rp-branch'), robinArt.BRANCHES[branchName]);
+
+    const origin = robinArt.BIRD_ORIGIN;
+    const perch = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y), 'rp-perch');
+    const root = robinGroup(perch, 'rp-root');
+    const parts = robinArt.birdParts(robinArt.BIRD);
+    const flickParts = robinArt.birdParts(robinArt.birdFrame({ flick: true }));
+    robinDraw(robinGroup(root, 'rp-tail rp-tail-rest'), parts.tail);
+    robinDraw(robinGroup(root, 'rp-tail rp-tail-flick'), flickParts.tail);
+    robinDraw(robinGroup(root, 'rp-body'), parts.body);
+    robinDraw(robinGroup(root, 'rp-wing'), parts.wing);
+    const head = robinGroup(root, 'rp-head');
+    robinDraw(head, parts.head);
+    robinEyeEl = robinDraw(head, parts.eye);
+
+    // Wing frames on the bird's own grid, shown one at a time while it flies.
+    const fly = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y - robinArt.FLIGHT_TOP), 'rp-fly');
+    const flip = robinGroup(fly, 'rp-flip');
+    for (const kind of robinArt.FLIGHT_KINDS) {
+      robinDrawRows(robinGroup(flip, 'rp-fr rp-fr-' + kind), robinArt.flightFrame(kind));
+    }
 
     // The egg shows over the bird while it hatches.
-    const egg = document.createElement('span');
-    egg.className = 'nest-robin-egg';
-    const whole = document.createElement('span');
-    whole.className = 'nest-robin-egg-whole';
-    for (const row of ['  ▄██▄  ', ' ▟████▙ ', ' ██████ ', ' ▜████▛ ', '  ▀▀▀▀  ']) {
-      robinSpan(robinLine(whole), row, 'rb-egg');
-    }
-    const cracked = document.createElement('span');
-    cracked.className = 'nest-robin-egg-cracked';
-    for (const row of ['  ▄█▄▄  ', ' ▟█▀██▙ ', ' █▀▄▀██ ', ' ▜████▛ ', '  ▀▀▀▀  ']) {
-      robinSpan(robinLine(cracked), row, 'rb-egg');
-    }
-    egg.appendChild(whole);
-    egg.appendChild(cracked);
-    robinSlotEl.appendChild(egg);
+    const egg = robinGroup(
+      robinGroup(svg, 'rp-at', robinArt.EGG_ORIGIN.x, robinArt.EGG_ORIGIN.y),
+      'rp-egg',
+    );
+    robinDrawRows(robinGroup(egg, 'rp-egg-whole'), robinArt.EGG);
+    robinDrawRows(robinGroup(egg, 'rp-egg-cracked'), robinArt.EGG_CRACKED);
 
-    robinFx(robinSlotEl, 'rb-fx-q', '?');
-    robinFx(robinSlotEl, 'rb-fx-bang', '!');
-    robinFx(robinSlotEl, 'rb-fx-note rb-fx-note-a', '♪');
-    robinFx(robinSlotEl, 'rb-fx-note rb-fx-note-b', '♫');
-    robinFx(robinSlotEl, 'rb-fx-spark rb-fx-spark-a', '+');
-    robinFx(robinSlotEl, 'rb-fx-spark rb-fx-spark-b', '*');
-    robinFx(robinSlotEl, 'rb-fx-spark rb-fx-spark-c', '·');
-    robinFx(robinSlotEl, 'rb-fx-big rb-fx-big-a', '+');
-    robinFx(robinSlotEl, 'rb-fx-big rb-fx-big-b', '*');
-    robinFx(robinSlotEl, 'rb-fx-big rb-fx-big-c', '+');
-    robinFx(robinSlotEl, 'rb-fx-z rb-fx-z-a', 'z');
-    robinFx(robinSlotEl, 'rb-fx-z rb-fx-z-b', 'Z');
-    robinFx(robinSlotEl, 'rb-fx-worm', '~');
-    robinFx(robinSlotEl, 'rb-fx-moon', '☾');
-    robinStillEl = robinFx(robinSlotEl, 'rb-fx-still', '');
-    robinNotesEl = document.createElement('span');
-    robinNotesEl.className = 'nest-robin-notes';
-    robinSlotEl.appendChild(robinNotesEl);
+    robinPlace(svg, 'question', 'rb-fx-q');
+    robinPlace(svg, 'bang', 'rb-fx-bang');
+    robinPlace(svg, 'noteA', 'rb-fx-note rb-fx-note-a');
+    robinPlace(svg, 'noteB', 'rb-fx-note rb-fx-note-b');
+    robinPlace(svg, 'sparkA', 'rb-fx-spark rb-fx-spark-a');
+    robinPlace(svg, 'sparkB', 'rb-fx-spark rb-fx-spark-b');
+    robinPlace(svg, 'sparkC', 'rb-fx-spark rb-fx-spark-c');
+    robinPlace(svg, 'bigB', 'rb-fx-big');
+    robinPlace(svg, 'zSmall', 'rb-fx-z rb-fx-z-a');
+    robinPlace(svg, 'zBig', 'rb-fx-z rb-fx-z-b');
+    robinPlace(svg, 'worm', 'rb-fx-worm');
+    robinPlace(svg, 'moon', 'rb-fx-moon');
+    for (const hint of Object.keys(robinArt.HINT_PLACEMENTS)) {
+      for (const key of robinArt.HINT_PLACEMENTS[hint]) {
+        robinPlace(svg, key, 'rb-still rb-still-' + hint);
+      }
+    }
+    robinNotesEl = robinGroup(svg, 'rp-notes');
 
+    robinSlotEl.appendChild(svg);
     robinSlotEl.setAttribute('data-state', 'idle');
     robinSlotEl.setAttribute('data-motion', 'still');
     robinSlotEl.setAttribute('data-speed', '0');
@@ -3826,25 +3845,41 @@
       clearTimeout(t);
     }
     robinNoteTimers = [];
+    for (const t of robinNoteRemovals) {
+      clearTimeout(t);
+    }
+    robinNoteRemovals.clear();
     clearTimeout(robinBlinkTimer);
     clearTimeout(robinBlinkOffTimer);
     clearTimeout(robinFlickTimer);
     clearTimeout(robinFlickOffTimer);
+    clearTimeout(robinFlutterTimer);
+    clearTimeout(robinFlutterOffTimer);
     robinBlinkTimer = null;
     robinBlinkOffTimer = null;
     robinFlickTimer = null;
     robinFlickOffTimer = null;
+    robinFlutterTimer = null;
+    robinFlutterOffTimer = null;
   }
 
+  // The eye is the dark pixel; a blink paints it the head color. Sleep keeps it shut.
   function setRobinEye(closed) {
     if (robinEyeEl) {
-      robinEyeEl.textContent = closed || robinState === 'sleep' || robinState === 'night' ? '█' : '▙';
+      const shut = closed || robinState === 'sleep' || robinState === 'night';
+      robinEyeEl.setAttribute('class', shut ? 'rp-H' : 'rp-e');
     }
   }
 
   function setRobinTail(flicked) {
-    if (robinTailEl) {
-      robinTailEl.textContent = flicked ? '▝▀▀█' : '▀▀▀█';
+    if (robinSlotEl) {
+      robinSlotEl.setAttribute('data-flick', flicked ? '1' : '0');
+    }
+  }
+
+  function setRobinFlutter(on) {
+    if (robinSlotEl) {
+      robinSlotEl.setAttribute('data-flutter', on ? '1' : '0');
     }
   }
 
@@ -3866,39 +3901,44 @@
     }, ROBIN_FLICK_EVERY_MS);
   }
 
-  function spawnRobinNote() {
-    if (!robinNotesEl || robinNotesEl.childElementCount >= ROBIN_MAX_NOTES * 2) {
-      return;
-    }
-    const color = ROBIN_NOTE_COLORS[robinNoteCount % ROBIN_NOTE_COLORS.length];
-    const note = document.createElement('span');
-    note.className = 'nest-robin-note';
-    note.style.left = (4.4 + Math.random() * 3.4).toFixed(2) + 'em';
-    note.style.top = (-1.3 - (robinNoteCount % 2) * 0.6).toFixed(2) + 'em';
-    note.style.color = color;
-    robinNoteCount += 1;
-    const inner = document.createElement('span');
-    inner.className = 'nest-robin-note-in';
-    for (const row of ROBIN_NOTE_LINES) {
-      robinSpan(inner, row, 'nest-robin-line');
-    }
-    note.appendChild(inner);
-    robinNotesEl.appendChild(note);
-    setTimeout(() => note.remove(), 1800);
+  // An idle robin now and then flutters up off the branch and lands again.
+  function scheduleRobinFlutter() {
+    robinFlutterTimer = setTimeout(() => {
+      if (robinState === 'idle') {
+        setRobinFlutter(true);
+        robinFlutterOffTimer = setTimeout(() => setRobinFlutter(false), ROBIN_FLUTTER_MS);
+      }
+      scheduleRobinFlutter();
+    }, ROBIN_FLUTTER_MIN_MS + Math.random() * ROBIN_FLUTTER_SPREAD_MS);
   }
 
-  function scheduleRobinNote(first) {
+  // A note pops out above the head in the lane of the chat that made it.
+  function spawnRobinNote(lane) {
+    if (!robinNotesEl) {
+      return;
+    }
+    const colors = robinArt.NOTE_COLORS;
+    const color = colors[(lane + robinNoteCount) % colors.length];
+    robinNoteCount += 1;
+    const x = robinArt.NOTE_LANES[lane % robinArt.NOTE_LANES.length];
+    const outer = robinGroup(robinNotesEl, 'rp-at', x, robinArt.NOTE_Y);
+    robinDrawRows(robinGroup(outer, 'rp-note'), robinArt.glyphRows('note', color));
+    const removal = setTimeout(() => {
+      robinNoteRemovals.delete(removal);
+      outer.remove();
+    }, ROBIN_NOTE_LIFE_MS);
+    robinNoteRemovals.add(removal);
+  }
+
+  function scheduleRobinNote(lane, first) {
     const msg = robinMsg;
-    const delay = first;
-    const timer = setTimeout(function fire() {
+    robinNoteTimers[lane] = setTimeout(function fire() {
       if (!robinMsg || robinMsg !== msg) {
         return;
       }
-      spawnRobinNote();
-      const next = setTimeout(fire, msg.noteMinMs + Math.random() * msg.noteSpreadMs);
-      robinNoteTimers.push(next);
-    }, delay);
-    robinNoteTimers.push(timer);
+      spawnRobinNote(lane);
+      robinNoteTimers[lane] = setTimeout(fire, msg.noteMinMs + Math.random() * msg.noteSpreadMs);
+    }, first);
   }
 
   // Starts or stops the timers to match the current message and whether the page is shown.
@@ -3909,14 +3949,16 @@
     }
     setRobinEye(false);
     setRobinTail(false);
+    setRobinFlutter(false);
     if (!robinMsg || robinStill() || document.hidden) {
       return;
     }
     scheduleRobinBlink();
     scheduleRobinFlick();
+    scheduleRobinFlutter();
     if (robinState === 'working') {
       for (let i = 0; i < robinMsg.noteBudget; i += 1) {
-        scheduleRobinNote(robinMsg.noteDelaysMs[i]);
+        scheduleRobinNote(i, robinMsg.noteDelaysMs[i]);
       }
     }
   }
@@ -3943,12 +3985,8 @@
     robinSlotEl.setAttribute('data-state', robinState);
     robinSlotEl.setAttribute('data-motion', robinStill() ? 'still' : 'full');
     robinSlotEl.setAttribute('data-speed', String(robinMsg.speed === 1 || robinMsg.speed === 2 ? robinMsg.speed : 0));
-    if (robinStillEl) {
-      const inner = robinStillEl.firstChild;
-      if (inner) {
-        inner.textContent = robinMsg.reducedHint.slice(0, ROBIN_MARKER_MAX);
-      }
-    }
+    const hint = robinArt && robinOwn(robinArt.HINT_PLACEMENTS, robinMsg.reducedHint) ? robinMsg.reducedHint : '';
+    robinSlotEl.setAttribute('data-still', hint);
     syncRobinTimers();
   }
 

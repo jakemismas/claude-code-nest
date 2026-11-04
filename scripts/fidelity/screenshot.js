@@ -1044,35 +1044,73 @@ async function main() {
       console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(state.name)));
     }
 
-    // The ROBIN states: the header robin in each state, captured as a clipped header strip.
-    // Each entry waits for the panel to apply the state, then lets the animation reach a
-    // recognizable moment before the capture. The still captures turn the animations off.
+    // The ROBIN captures: the header robin, clipped to a header strip. Each entry waits for
+    // the panel to apply the state. A freeze time pauses every animation at that moment so
+    // the frame is exact; entries without one wait a fixed time. Still captures turn the
+    // animations setting off. The first block keeps the original names.
     const robinStates = [
-      { state: 'idle', wait: 500 },
-      { state: 'working', wait: 1400 },
-      { state: 'needs', wait: 500 },
-      { state: 'done', wait: 330 },
-      { state: 'error', wait: 500 },
-      { state: 'sleep', wait: 500 },
-      { state: 'night', wait: 500 },
-      { state: 'worm', wait: 400 },
-      { state: 'rotate', wait: 700 },
-      { state: 'hatch', wait: 1100 },
-      { state: 'milestone', wait: 330 },
-      { state: 'needs', wait: 300, still: true },
-      { state: 'error', wait: 300, still: true },
-      { state: 'sleep', wait: 300, still: true },
-      { state: 'night', wait: 300, still: true },
-      { state: 'done', wait: 300, still: true },
+      { name: 'idle', state: 'idle', wait: 500 },
+      { name: 'working', state: 'working', wait: 1400 },
+      { name: 'needs', state: 'needs', wait: 500 },
+      { name: 'done', state: 'done', wait: 330 },
+      { name: 'error', state: 'error', wait: 500 },
+      { name: 'sleep', state: 'sleep', wait: 500 },
+      { name: 'night', state: 'night', wait: 500 },
+      { name: 'worm', state: 'worm', wait: 400 },
+      { name: 'rotate', state: 'rotate', wait: 700 },
+      { name: 'hatch', state: 'hatch', wait: 1100 },
+      { name: 'milestone', state: 'milestone', wait: 330 },
+      { name: 'still-needs', state: 'needs', wait: 300, still: true },
+      { name: 'still-error', state: 'error', wait: 300, still: true },
+      { name: 'still-sleep', state: 'sleep', wait: 300, still: true },
+      { name: 'still-night', state: 'night', wait: 300, still: true },
+      { name: 'still-done', state: 'done', wait: 300, still: true },
+      // The perch on each branch.
+      { name: 'idle-thick', state: 'idle', wait: 300, branch: 'thick' },
+      { name: 'idle-leafy', state: 'idle', wait: 300, branch: 'leafy' },
+      // Each wing frame and two moments mid-flight (the flap runs every 0.32 s).
+      { name: 'wing-up', state: 'rotate', freeze: 0.68 },
+      { name: 'wing-mid', state: 'rotate', freeze: 0.76 },
+      { name: 'wing-down', state: 'rotate', freeze: 0.84 },
+      { name: 'flight-rotate', state: 'rotate', freeze: 1.12 },
+      { name: 'flight-rotate-landing', state: 'rotate', freeze: 2.5 },
+      { name: 'flight-lap', state: 'milestone', freeze: 1.7 },
+      { name: 'flight-lap-return', state: 'milestone', freeze: 2.4 },
+      { name: 'flight-flutter', state: 'idle', wait: 450, flutter: true },
+      // Each reaction state at a frame where its glyphs show.
+      { name: 'reaction-needs', state: 'needs', freeze: 0.3 },
+      { name: 'reaction-error', state: 'error', freeze: 0.3 },
+      { name: 'reaction-done', state: 'done', freeze: 0.55 },
+      { name: 'reaction-sleep', state: 'sleep', freeze: 1.0 },
+      { name: 'reaction-night', state: 'night', freeze: 1.0 },
+      { name: 'reaction-worm', state: 'worm', freeze: 0.9 },
+      { name: 'reaction-milestone', state: 'milestone', freeze: 3.4 },
+      { name: 'reaction-hatch-egg', state: 'hatch', freeze: 0.3 },
+      { name: 'reaction-hatch-cracked', state: 'hatch', freeze: 1.1 },
+      { name: 'reaction-working', state: 'working', wait: 1400 },
+      // Reduced-motion stills for every state not already above.
+      { name: 'still-idle', state: 'idle', wait: 300, still: true },
+      { name: 'still-working', state: 'working', wait: 300, still: true },
+      { name: 'still-worm', state: 'worm', wait: 300, still: true },
+      { name: 'still-hatch', state: 'hatch', wait: 300, still: true },
+      { name: 'still-rotate', state: 'rotate', wait: 300, still: true },
+      { name: 'still-milestone', state: 'milestone', wait: 300, still: true },
     ];
     const robinCaptures = [];
     for (const entry of robinStates) {
-      const name = 'robin-' + (entry.still ? 'still-' : '') + entry.state;
+      const name = 'robin-' + entry.name;
       robinCaptures.push(name);
       const robinPage = await openPage(browser);
+      let robinUrl = harnessUrl() + '&robin=' + entry.state + (entry.still ? '&still=1' : '');
+      if (entry.branch) {
+        robinUrl += '&branch=' + entry.branch;
+      }
+      if (entry.freeze !== undefined) {
+        robinUrl += '&freeze=' + entry.freeze;
+      }
       await renderAndCapture(
         robinPage,
-        harnessUrl() + '&robin=' + entry.state + (entry.still ? '&still=1' : ''),
+        robinUrl,
         harnessOut(name),
         async (page) => {
           await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
@@ -1083,7 +1121,14 @@ async function main() {
             10000,
             'the robin ' + entry.state + ' state to apply',
           );
-          await sleep(entry.wait);
+          if (entry.freeze !== undefined) {
+            await waitForCondition(page, 'window.__nestHarnessFrozen === true', 10000, 'the animations to freeze');
+          } else {
+            if (entry.flutter) {
+              await evaluate(page, "document.getElementById('robinSlot').setAttribute('data-flutter','1')");
+            }
+            await sleep(entry.wait);
+          }
           return await evaluate(
             page,
             '(function(){const r=document.querySelector(".nest-header").getBoundingClientRect();return {x:0,y:0,width:320,height:Math.ceil(r.bottom)};})()',
@@ -1092,7 +1137,7 @@ async function main() {
       );
       console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(name)));
     }
-    // Every robin state must have a capture on disk for this theme.
+    // Every robin capture must be on disk for this theme.
     const missingRobin = robinCaptures.filter((name) => {
       try {
         return fs.statSync(harnessOut(name)).size === 0;
@@ -1103,6 +1148,39 @@ async function main() {
     if (missingRobin.length > 0) {
       throw new Error('Missing robin captures for the ' + THEME + ' theme: ' + missingRobin.join(', '));
     }
+
+    // One contact sheet with every robin capture in a grid. It is written next to the PNGs.
+    const sheetName = 'robin-contact';
+    const sheetHtml = path.join(OUT_DIR, sheetName + '-' + THEME + '.html');
+    const cells = robinCaptures
+      .map(
+        (name) =>
+          '<figure><img src="' + pathToFileURL(harnessOut(name)).href + '" width="320"><figcaption>' +
+          name.replace(/^robin-/, '') + '</figcaption></figure>',
+      )
+      .join('');
+    fs.writeFileSync(
+      sheetHtml,
+      '<!doctype html><meta charset="utf-8"><style>body{margin:0;padding:12px;background:' +
+        (THEME === 'dark' ? '#1e1e1e' : '#ffffff') + ';color:' + (THEME === 'dark' ? '#ccc' : '#333') +
+        ';font:12px sans-serif;display:grid;grid-template-columns:repeat(4,320px);gap:10px}figure{margin:0}' +
+        'img{display:block;border:1px solid #8884}</style>' + cells,
+    );
+    const sheetPage = await openPage(browser);
+    await renderAndCapture(
+      sheetPage,
+      pathToFileURL(sheetHtml).href,
+      harnessOut(sheetName),
+      async (page) => {
+        await waitForCondition(page, 'Array.from(document.images).every((i) => i.complete)', 10000, 'the contact sheet images');
+        return await evaluate(
+          page,
+          '(function(){return {x:0,y:0,width:1400,height:document.documentElement.scrollHeight};})()',
+        );
+      },
+      1400,
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(sheetName)));
 
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
   } catch (err) {

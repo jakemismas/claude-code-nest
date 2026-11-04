@@ -13,7 +13,11 @@ to [Semantic Versioning](https://semver.org/).
   asks when a chat needs you, celebrates a finished chat or ticket, ruffles when
   something fails, flies off and is replaced when the orchestrator rotates, sleeps when
   nothing runs and shows a moon at night. An egg hatches the first time it runs on a
-  device. The setting `claudeNest.robin.animations` turns the motion off, and the
+  device. It is drawn with square pixels on a branch of its own (thick or leafy), flaps
+  through three wing frames when it flies, takes a victory lap when every queued ticket
+  is done, and flutters off the branch now and then while idle. Reactions (notes,
+  question, exclamation, z, sparkles, moon, worm, check) are pixel glyphs, not font
+  characters. The setting `claudeNest.robin.animations` turns the motion off, and the
   editor's reduced motion preference is respected.
 - The screenshot harness takes `--theme light|dark` and `--out <dir>`, and writes
   `<state>-<theme>.png` captures to `.claude-working/screens/` by default.

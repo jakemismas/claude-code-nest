@@ -217,6 +217,16 @@
   </script>
 
   <!-- The real, shipped panel script. Renders the mock posted below. -->
+  <script>
+    (function () {
+      // ?branch=leafy picks the other branch for the robin captures.
+      const m = /[?&]branch=([a-z]+)(&|$)/.exec(location.search);
+      if (m) {
+        document.getElementById('robinSlot').setAttribute('data-branch', m[1]);
+      }
+    })();
+  </script>
+  <script src="../../media/robinArt.js"></script>
   <script src="../../media/orgPanel.js"></script>
 
   <!--
@@ -656,7 +666,7 @@
       const robinState = (/[?&]robin=([a-z]+)(&|$)/.exec(location.search) || [])[1] || null;
       if (robinState) {
         const still = /[?&]still=1(&|$)/.test(location.search);
-        const markers = { error: '!', needs: '?', done: '\u2713', milestone: '\u2713', sleep: 'z', night: '\u263E' };
+        const markers = { error: 'bang', needs: 'question', done: 'check', milestone: 'burst', sleep: 'z', night: 'moon', working: 'note', worm: 'worm', hatch: 'egg', rotate: 'plus' };
         const working = robinState === 'working';
         window.postMessage({
           type: 'robin',
@@ -671,6 +681,18 @@
           reducedHint: markers[robinState] || '',
           liveText: robinState === 'needs' ? 'A chat needs you' : robinState === 'error' ? 'A chat failed' : '',
         }, '*');
+      }
+
+      // &freeze=<seconds> pauses every animation at that time so a capture shows an exact moment.
+      const freeze = (/[?&]freeze=([0-9.]+)(&|$)/.exec(location.search) || [])[1];
+      if (robinState && freeze) {
+        setTimeout(() => {
+          for (const a of document.getAnimations()) {
+            a.pause();
+            a.currentTime = parseFloat(freeze) * 1000;
+          }
+          window.__nestHarnessFrozen = true;
+        }, 100);
       }
 
       // Signal to the screenshot driver that the mock has been posted so it can wait

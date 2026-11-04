@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import {
   INITIAL_ROBIN_MEMORY,
+  MAX_SEEN,
   NOTE_MIN_GAP_MS,
   NOTE_SPREAD_MS,
   RobinMemory,
@@ -9,6 +10,8 @@ import {
   TRANSIENT_MS,
   buildRobinMessage,
   buildRobinSignals,
+  STILL_MARKERS,
+  ROBIN_STATES,
   isNightHour,
   noteDelayMs,
   speedFor,
@@ -25,6 +28,7 @@ const quiet: RobinSignals = {
   rotateKey: null,
   doneTickets: [],
   queueAllDone: false,
+  queueEmpty: false,
   hatchEligible: false,
 };
 const rnd = () => 0;
@@ -99,6 +103,24 @@ describe('stepRobin states', () => {
     assert.strictEqual(hit.output.state, 'milestone');
     const later = step(hit.memory, { queueAllDone: true }, NOON + 1 + (TRANSIENT_MS.milestone ?? 0));
     assert.strictEqual(later.output.state, 'idle');
+  });
+
+  it('holds the milestone through an empty queue so it does not replay', () => {
+    const hit = step(seed({ queueAllDone: false }), { queueAllDone: true }, NOON + 1);
+    const gap = step(hit.memory, { queueEmpty: true }, NOON + 10000);
+    const back = step(gap.memory, { queueAllDone: true }, NOON + 11000);
+    assert.strictEqual(back.output.state, 'idle');
+  });
+
+  it('never replays a transient for ids that are still present past the memory cap', () => {
+    const ids = Array.from({ length: MAX_SEEN + 500 }, (_, i) => 'id-' + i);
+    const all = { launchIds: ids, doneIds: ids, failedIds: ids, doneTickets: ids };
+    let memory = seed(all);
+    for (let i = 1; i <= 3; i++) {
+      const out = step(memory, all, NOON + i * 10000);
+      assert.strictEqual(out.output.state, 'idle', 'step ' + i);
+      memory = out.memory;
+    }
   });
 
   it('does not play milestone when the queue is already finished on first load', () => {
@@ -233,14 +255,23 @@ describe('robin notes', () => {
   });
 });
 
+describe('still markers', () => {
+  it('gives every state except idle its own still marker, with milestone distinct from done', () => {
+    for (const state of ROBIN_STATES) {
+      assert.strictEqual(STILL_MARKERS[state] !== '', state !== 'idle', state);
+    }
+    assert.notStrictEqual(STILL_MARKERS.milestone, STILL_MARKERS.done);
+  });
+});
+
 describe('robin message', () => {
   it('carries the still marker and the live text only for needs and error', () => {
     const m = seed();
     const needs = buildRobinMessage(step(m, { needs: true }, NOON + 1).output, true);
-    assert.strictEqual(needs.reducedHint, '?');
+    assert.strictEqual(needs.reducedHint, 'question');
     assert.strictEqual(needs.liveText, 'A chat needs you');
     const error = buildRobinMessage(step(m, { failedIds: ['x'] }, NOON + 1).output, true);
-    assert.strictEqual(error.reducedHint, '!');
+    assert.strictEqual(error.reducedHint, 'bang');
     assert.strictEqual(error.liveText, 'A chat failed');
     const idle = buildRobinMessage(step(m, {}, NOON + 1).output, true);
     assert.strictEqual(idle.liveText, '');

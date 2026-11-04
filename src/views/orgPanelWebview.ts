@@ -366,6 +366,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 
     // Tell the live-status poller whether the panel is on screen.
     this.visibilityListener?.(webviewView.visible);
+    // Clears the hidden flag an earlier dispose set.
+    this.onRobinVisibility(webviewView.visible);
     webviewView.onDidChangeVisibility(() => {
       this.visibilityListener?.(webviewView.visible);
       this.onRobinVisibility(webviewView.visible);
@@ -421,6 +423,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private robinTimer: ReturnType<typeof setTimeout> | undefined;
   private robinGrace: ReturnType<typeof setTimeout> | undefined;
   private robinVisible = true;
+  private robinDisposed = false;
   private robinFleetLoaded = false;
   private agentsLoaded = false;
   private queueLoaded = false;
@@ -442,11 +445,15 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 
   // Re-post the robin when the animations setting changes.
   refreshRobin(): void {
+    if (this.robinDisposed) {
+      return;
+    }
     this.lastRobinJson = '';
     this.postRobin();
   }
 
   disposeRobin(): void {
+    this.robinDisposed = true;
     clearTimeout(this.robinTimer);
     clearTimeout(this.robinGrace);
     this.robinTimer = undefined;
@@ -466,7 +473,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   // Step the machine once the first real inputs are in, so existing history seeds the
   // seen sets instead of replaying as transient states.
   private stepRobin(): void {
-    if (!this.robinFleetLoaded || !this.queueLoaded || !(this.agentsLoaded || this.robinGraceOver)) {
+    if (this.robinDisposed || !this.robinFleetLoaded || !this.queueLoaded || !(this.agentsLoaded || this.robinGraceOver)) {
       return;
     }
     const now = Date.now();
@@ -481,9 +488,6 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     const { memory, output } = stepRobin(this.robinMemory, signals, now, Math.random);
     this.robinMemory = memory;
     this.robinOutput = output;
-    if (output.hatchStarted) {
-      this.robinHatched.set();
-    }
     clearTimeout(this.robinTimer);
     this.robinTimer = undefined;
     if (output.nextCheckAt !== null && this.robinVisible) {
@@ -494,16 +498,21 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private postRobin(): void {
-    if (this.view === undefined || this.robinOutput === undefined) {
+    if (this.robinDisposed || this.view === undefined || this.robinOutput === undefined) {
       return;
     }
-    const message = buildRobinMessage(this.robinOutput, this.robinAnimations());
+    const animations = this.robinAnimations();
+    const message = buildRobinMessage(this.robinOutput, animations);
     const json = JSON.stringify(message);
     if (json === this.lastRobinJson) {
       return;
     }
     this.lastRobinJson = json;
     void this.view.webview.postMessage(message);
+    // The egg counts as hatched only once a visible panel with animations on has been sent it.
+    if (message.state === 'hatch' && animations && this.robinVisible) {
+      this.robinHatched.set();
+    }
   }
 
   // True when the live session list holds this chat as a working or needs background session.
@@ -1372,6 +1381,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private renderHtml(webview: vscode.Webview, mediaRoot: vscode.Uri): string {
     const nonce = makeNonce();
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'orgPanel.js'));
+    const artUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'robinArt.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'orgPanel.css'));
     const cspSource = webview.cspSource;
     const csp = [
@@ -1424,6 +1434,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   <div id="queueList" class="nest-queue" role="list" aria-label="Queue" hidden></div>
   <div id="chips" class="nest-chips" role="group" aria-label="Tag filters"></div>
   <div id="list" class="nest-tree" role="tree" aria-label="Organized chats" tabindex="0"></div>
+  <script nonce="${nonce}" src="${artUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
