@@ -63,7 +63,7 @@ describe('stepRobin states', () => {
     assert.strictEqual(step(seed(), { needs: true }, NOON + 1).output.state, 'needs');
   });
 
-  it('plays worm for a new launch, then falls back after 1.8 s', () => {
+  it('plays worm for a new launch, then falls back when its scene ends', () => {
     const m = seed({ launchIds: ['a'] });
     const first = step(m, { launchIds: ['a', 'b'] }, NOON + 100);
     assert.strictEqual(first.output.state, 'worm');
@@ -200,13 +200,78 @@ describe('stepRobin priority', () => {
   it('working beats sleep', () => {
     assert.strictEqual(step(base, { workingCount: 1 }, NOON + SLEEP_AFTER_MS * 2).output.state, 'working');
   });
-  it('a lower transient resumes after a higher one ends', () => {
+  it('drops a one-shot that a higher state outranks instead of showing it late', () => {
     const first = step(base, { failedIds: ['x'], doneIds: ['d'] }, now);
     assert.strictEqual(first.output.state, 'error');
     const later = step(first.memory, { failedIds: ['x'], doneIds: ['d'] }, now + (TRANSIENT_MS.done ?? 0));
     assert.strictEqual(later.output.state, 'error');
     const end = step(later.memory, { failedIds: ['x'], doneIds: ['d'] }, now + (TRANSIENT_MS.error ?? 0));
     assert.strictEqual(end.output.state, 'idle');
+  });
+});
+
+// Steps every 50 ms through the given phases and returns each state with the time it began.
+function timeline(memory: RobinMemory, phases: [number, Partial<RobinSignals>][], start: number): string[] {
+  const out: string[] = [];
+  let m = memory;
+  let t = start;
+  let last = '';
+  for (const [until, signals] of phases) {
+    for (; t <= start + until; t += 50) {
+      const r = step(m, signals, t);
+      m = r.memory;
+      if (r.output.state !== last) {
+        out.push(t - start + ':' + r.output.state);
+        last = r.output.state;
+      }
+    }
+  }
+  return out;
+}
+
+describe('stepRobin one-shot scenes', () => {
+  const done = TRANSIENT_MS.done ?? 0;
+  const milestone = TRANSIENT_MS.milestone ?? 0;
+  const worm = TRANSIENT_MS.worm ?? 0;
+
+  it('plays done and then the whole milestone when the last ticket finishes', () => {
+    const m = seed({ doneTickets: [], queueAllDone: false });
+    const states = timeline(m, [[done + milestone + 1000, { doneTickets: ['T-1'], queueAllDone: true }]], NOON);
+    assert.deepStrictEqual(states, ['0:done', done + ':milestone', done + milestone + ':idle']);
+  });
+
+  it('queues a one-shot that starts while another plays, and asks to step when it begins', () => {
+    const first = step(seed({ launchIds: ['a'] }), { launchIds: ['a', 'b'] }, NOON);
+    const queued = step(first.memory, { launchIds: ['a', 'b'], doneIds: ['d'] }, NOON + 1000);
+    assert.strictEqual(queued.output.state, 'worm');
+    assert.strictEqual(queued.output.nextCheckAt, NOON + worm);
+    const states = timeline(queued.memory, [[worm + done, { launchIds: ['a', 'b'], doneIds: ['d'] }]], NOON + 1000);
+    assert.deepStrictEqual(states, ['0:worm', worm - 1000 + ':done', worm + done - 1000 + ':idle']);
+  });
+
+  it('drops a done that needs interrupts, so it never replays part way through', () => {
+    const m = seed({ doneIds: [] });
+    const states = timeline(
+      m,
+      [
+        [500, { doneIds: ['d'] }],
+        [2500, { doneIds: ['d'], needs: true }],
+        [done + 3000, { doneIds: ['d'] }],
+      ],
+      NOON,
+    );
+    assert.deepStrictEqual(states, ['0:done', '550:needs', '2550:idle']);
+  });
+
+  it('keeps one of each kind, so a burst of finished chats plays done once', () => {
+    let m = seed({ doneIds: [] });
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      ids.push('d' + i);
+      m = step(m, { doneIds: [...ids] }, NOON + i * 200).memory;
+    }
+    assert.strictEqual(m.transients.filter((t) => t.state === 'done').length, 1);
+    assert.strictEqual(step(m, { doneIds: ids }, NOON + done).output.state, 'idle');
   });
 });
 

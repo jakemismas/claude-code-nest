@@ -7,8 +7,9 @@ Organize your Claude Code chat history in VS Code: folders, tags, stars, search 
 
 <p align="center">
   <picture>
+    <source media="(prefers-color-scheme: dark)" type="image/svg+xml" srcset="media/readme/robin-dark.svg">
     <source type="image/svg+xml" srcset="media/readme/robin.svg">
-    <img src="media/readme/robin.png" alt="A pixel-art robin singing on a branch" width="192">
+    <img src="media/readme/robin.png" alt="A pixel-art robin working on a branch, then singing when the work is done" width="204">
   </picture>
 </p>
 
@@ -155,14 +156,17 @@ A regular expression in `name` or `ticket` is at most 200 characters and matches
 
 ### Robin
 
-The header robin reacts to the fleet. It pecks while chats work, with a pixel note for each one, asks when a chat needs you, celebrates finished work, ruffles when something fails, flies off when the orchestrator rotates, and sleeps when nothing runs.
+The header robin reacts to the fleet. It taps along while chats work and sings a pixel note for each one, hops under a question mark when a chat needs you, jumps and sings when work finishes, squawks when something fails, catches a worm when a new chat starts, flies off when the orchestrator rotates, and sleeps when nothing runs.
 
 <p align="center">
   <picture>
+    <source media="(prefers-color-scheme: dark)" type="image/svg+xml" srcset="media/readme/robin-states-dark.svg">
     <source type="image/svg+xml" srcset="media/readme/robin-states.svg">
-    <img src="media/readme/robin-states.png" alt="The robin in six states: idle, working, needs you, done, sleeping and error" width="480">
+    <img src="media/readme/robin-states.png" alt="The robin in 11 states: idle, working, needs you, done, error, sleeping, night, new chat, new orchestrator, first run and queue done" width="680">
   </picture>
 </p>
+
+The [robin style sheet](docs/mascot.md) shows every state animated, the still poses, the icons and both palettes.
 
 To stop all motion, turn off **Robin animations** in Settings, or set `claudeNest.robin.animations` to `false`. The editor's reduced motion preference is also respected, and the robin pauses while the panel is hidden.
 

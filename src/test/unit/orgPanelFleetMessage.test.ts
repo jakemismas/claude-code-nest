@@ -2,6 +2,7 @@
 import './vscodeStub';
 
 import * as assert from 'assert';
+import { TRANSIENT_MS } from '../../fleet/robinState';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { OrgPanelProvider } = require('../../views/orgPanelWebview') as {
@@ -206,7 +207,7 @@ describe('org panel robin after the view is resolved again', () => {
       second.ready();
       assert.ok(second.posted.some((m) => m.type === 'robin'), 'the second view gets the robin');
       assert.ok(
-        armed.slice(before).some((ms) => ms >= 50 && ms <= 2400),
+        armed.slice(before).some((ms) => ms >= 50 && ms <= (TRANSIENT_MS.hatch ?? 0)),
         'the next robin step is scheduled again',
       );
       provider.disposeRobin();

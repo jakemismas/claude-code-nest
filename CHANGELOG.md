@@ -30,13 +30,19 @@ to [Semantic Versioning](https://semver.org/).
   lists every move and writes nothing, Apply never moves a chat you filed by hand, and
   Undo restores the state before the last Apply.
 - Settings gains Group chats by, Layout file, Organize and Robin animations.
-- The header robin reacts to the fleet: it pecks while chats work
-  (faster with more of them, with a pixel note for each), asks when one needs
-  you, celebrates finished work, ruffles on a failure, flies when the orchestrator
-  rotates and sleeps when nothing runs. It is drawn in square pixels, keeps its feet
-  on the branch unless it hops, jumps or flies, pauses while the panel is hidden, and
-  stays still with `claudeNest.robin.animations` off or with the editor's reduced
-  motion preference.
+- The header robin reacts to the fleet: it taps along while chats work (faster with
+  more of them) and sings a pixel note for each, hops when one needs you, jumps and
+  sings when work finishes, squawks on a failure, catches a worm for a new chat, flies
+  when the orchestrator rotates and sleeps when nothing runs. It is drawn in square
+  pixels with light and dark palettes, keeps its feet on the branch unless it hops,
+  jumps or flies, pauses while the panel is hidden, and stays still with
+  `claudeNest.robin.animations` off or with the editor's reduced motion preference.
+- A robin style sheet, `docs/mascot.md`, shows every state animated, the still poses,
+  the icons and both palettes.
+
+### Changed
+
+- The listing icon and the Activity Bar icon show the robin.
 
 ### Security
 
@@ -50,7 +56,8 @@ to [Semantic Versioning](https://semver.org/).
 
 - The screenshot harness takes `--theme light|dark` and `--out <dir>`.
 - Integration tests run from deep checkout paths.
-- `node scripts/readme/robin.js` redraws the README robin from the panel's pixel art.
+- `node scripts/readme/robin.js` redraws the README robin and the robin style sheet from
+  the panel's art, and a unit test fails when they are out of date.
 
 ## [0.2.0] - 2026-07-10
 

@@ -397,37 +397,39 @@ function waitForEvent(page, method, timeoutMs) {
   });
 }
 
-// Runs in the page. Boxes of the robin parts in art pixels from the robin's top-left corner,
-// with the box the art gives each still part at rest. A part hidden mid-swap reads as null.
+// Runs in the page. Boxes of the drawn legs, body and head in art pixels from the robin's top-left
+// corner, with the boxes frame() gives the legs and body at rest. A part not drawn reads as null.
 function robinPartBoxes() {
-  const art = window.NestRobinArt;
+  const m = window.NestMascot;
   const svg = document.querySelector('.nest-robin-svg');
-  if (!art || !svg) {
+  if (!m || !svg) {
     return null;
   }
   const s = svg.getBoundingClientRect();
-  const px = s.height / art.BRANCH_H;
-  const o = art.BIRD_ORIGIN;
-  const parts = art.birdParts(art.BIRD);
-  const expect = (list) => ({
-    left: Math.min(...list.map((r) => o.x + r.x)),
-    top: Math.min(...list.map((r) => o.y + r.y)),
-    right: Math.max(...list.map((r) => o.x + r.x + r.w)),
-    bottom: Math.max(...list.map((r) => o.y + r.y + r.h)),
-  });
-  const actual = (selector) => {
-    const el = document.querySelector(selector);
+  const px = s.height / m.H;
+  const drawn = (selector) => {
+    const el = svg.querySelector(selector);
     const r = el ? el.getBoundingClientRect() : null;
     if (!r || r.width === 0) {
       return null;
     }
     return { left: (r.left - s.left) / px, top: (r.top - s.top) / px, right: (r.right - s.left) / px, bottom: (r.bottom - s.top) / px };
   };
+  const atRest = (test) => {
+    const d = m.frame('idle', 0).find((p) => test(p.k));
+    const cells = [];
+    d.rows.forEach((row, y) => [...row].forEach((c, x) => c !== '.' && cells.push([d.x + x, d.y + y])));
+    return {
+      left: Math.min(...cells.map((c) => c[0])),
+      top: Math.min(...cells.map((c) => c[1])),
+      right: Math.max(...cells.map((c) => c[0])) + 1,
+      bottom: Math.max(...cells.map((c) => c[1])) + 1,
+    };
+  };
   return {
-    legs: { actual: actual('.rp-legs'), expect: expect(parts.legs) },
-    lower: { actual: actual('.rp-lower'), expect: expect(parts.lower.concat(art.chestFill(art.BIRD))) },
-    tail: { actual: actual('.rp-tail-rest'), expect: expect(parts.tail) },
-    upper: actual('.rp-upper'),
+    legs: { actual: drawn('[data-k="legs"]'), expect: atRest((k) => k === 'legs') },
+    body: { actual: drawn('[data-k^="body"]'), expect: atRest((k) => k.startsWith('body')) },
+    head: drawn('[data-k^="head"]'),
   };
 }
 
@@ -1165,67 +1167,36 @@ async function main() {
     }
     console.log('  fleet DOM checks passed');
 
-    // The ROBIN captures: the header robin, clipped to a header strip. Each entry waits for
-    // the panel to apply the state. A freeze time pauses every animation at that moment so
-    // the frame is exact; entries without one wait a fixed time. Still captures turn the
-    // animations setting off. The first block keeps the original names.
-    const robinStates = [
-      { name: 'idle', state: 'idle', wait: 500 },
-      { name: 'working', state: 'working', wait: 1400 },
-      { name: 'needs', state: 'needs', wait: 500 },
-      { name: 'done', state: 'done', wait: 330 },
-      { name: 'error', state: 'error', wait: 500 },
-      { name: 'sleep', state: 'sleep', wait: 500 },
-      { name: 'night', state: 'night', wait: 500 },
-      { name: 'worm', state: 'worm', wait: 400 },
-      { name: 'rotate', state: 'rotate', wait: 700 },
-      { name: 'hatch', state: 'hatch', wait: 1100 },
-      { name: 'milestone', state: 'milestone', wait: 330 },
-      { name: 'still-needs', state: 'needs', wait: 300, still: true },
-      { name: 'still-error', state: 'error', wait: 300, still: true },
-      { name: 'still-sleep', state: 'sleep', wait: 300, still: true },
-      { name: 'still-night', state: 'night', wait: 300, still: true },
-      { name: 'still-done', state: 'done', wait: 300, still: true },
-      // The perch on each branch.
-      { name: 'idle-thick', state: 'idle', wait: 300, branch: 'thick' },
-      { name: 'idle-leafy', state: 'idle', wait: 300, branch: 'leafy' },
-      // Each wing frame and two moments mid-flight (the flap runs every 0.32 s).
-      { name: 'wing-up', state: 'rotate', freeze: 0.68 },
-      { name: 'wing-mid', state: 'rotate', freeze: 0.76 },
-      { name: 'wing-down', state: 'rotate', freeze: 0.84 },
-      { name: 'flight-rotate', state: 'rotate', freeze: 1.12 },
-      { name: 'flight-rotate-landing', state: 'rotate', freeze: 2.5 },
-      { name: 'flight-lap', state: 'milestone', freeze: 1.7 },
-      { name: 'flight-lap-return', state: 'milestone', freeze: 2.4 },
-      // Each reaction state at a frame where its glyphs show.
-      { name: 'reaction-needs', state: 'needs', freeze: 0.3 },
-      { name: 'reaction-error', state: 'error', freeze: 0.3 },
-      { name: 'reaction-done', state: 'done', freeze: 0.55 },
-      { name: 'reaction-sleep', state: 'sleep', freeze: 1.0 },
-      { name: 'reaction-night', state: 'night', freeze: 1.0 },
-      { name: 'reaction-worm', state: 'worm', freeze: 0.9 },
-      { name: 'reaction-milestone', state: 'milestone', freeze: 3.4 },
-      { name: 'reaction-hatch-egg', state: 'hatch', freeze: 0.3 },
-      { name: 'reaction-hatch-cracked', state: 'hatch', freeze: 1.1 },
-      { name: 'reaction-working', state: 'working', wait: 1400 },
-      // Breathing at its raised frame: the head and chest are up a pixel, the rest stays still.
-      { name: 'breathe-idle', state: 'idle', freeze: 2.0 },
-      { name: 'breathe-working', state: 'working', freeze: 2.0 },
-      { name: 'breathe-worm', state: 'worm', freeze: 2.0 },
-      { name: 'breathe-sleep', state: 'sleep', freeze: 2.0 },
-      { name: 'breathe-night', state: 'night', freeze: 3.0 },
-      // A hop and a jump take the legs along.
-      { name: 'hop-needs', state: 'needs', freeze: 1.0 },
-      { name: 'jump-done', state: 'done', freeze: 0.4 },
-      { name: 'shake-error', state: 'error', freeze: 0.4 },
-      // Reduced-motion stills for every state not already above.
-      { name: 'still-idle', state: 'idle', wait: 300, still: true },
-      { name: 'still-working', state: 'working', wait: 300, still: true },
-      { name: 'still-worm', state: 'worm', wait: 300, still: true },
-      { name: 'still-hatch', state: 'hatch', wait: 300, still: true },
-      { name: 'still-rotate', state: 'rotate', wait: 300, still: true },
-      { name: 'still-milestone', state: 'milestone', wait: 300, still: true },
-    ];
+    // The ROBIN captures: the header robin, clipped to a header strip. Each entry waits for the
+    // panel to apply the state. A freeze time (seconds) draws that exact moment of the scene with
+    // seeded notes; entries without one run live for a fixed wait. Still captures turn the
+    // animations setting off.
+    const live = ['idle', 'working', 'needs', 'done', 'error', 'sleep', 'night', 'worm', 'rotate', 'hatch', 'milestone'];
+    const moments = {
+      idle: [['rest', 0], ['breathe', 1.7], ['look', 2.5], ['blink', 3.55], ['peep', 6.05], ['yawn', 10.3], ['peck', 11.55]],
+      working: [['tap', 0.3], ['peck', 0.55], ['notes', 1.0], ['notes-high', 2.0]],
+      needs: [['chirp', 0.05], ['cock', 0.6], ['crouch', 1.1], ['hop', 1.2], ['land', 1.45]],
+      done: [['crouch', 0.1], ['rise', 0.25], ['top', 0.37], ['land', 0.6], ['check', 0.95], ['sing', 1.4], ['sing-late', 2.3]],
+      error: [['squawk', 0.2], ['squawk-2', 0.33], ['calm', 1.3]],
+      sleep: [['zs', 0.6], ['snore', 1.8]],
+      night: [['zs', 0.6], ['stars', 2.0]],
+      worm: [['arrive', 0.25], ['windup', 0.9], ['strike', 1.05], ['slurp', 1.6], ['gulp', 2.4], ['content', 3.0]],
+      rotate: [['crouch', 0.12], ['takeoff', 0.35], ['flight', 0.65], ['away', 1.1], ['empty', 1.8], ['return', 2.5], ['approach', 3.0], ['land', 3.32], ['settle', 3.8]],
+      hatch: [['egg', 0.3], ['wobble', 0.75], ['crack', 2.0], ['poke', 2.75], ['burst', 3.35], ['air', 3.6], ['land', 4.0], ['peep', 4.3]],
+      milestone: [['hop', 0.3], ['crouch', 0.85], ['high', 1.3], ['burst', 1.5], ['sparkles', 2.0], ['sing', 2.6]],
+    };
+    const robinStates = [];
+    for (const state of live) {
+      robinStates.push({ name: state, state, wait: 600 });
+    }
+    for (const state of live) {
+      robinStates.push({ name: 'still-' + state, state, wait: 200, still: true });
+    }
+    for (const state of live) {
+      for (const [moment, freeze] of moments[state]) {
+        robinStates.push({ name: state + '-' + moment, state, freeze });
+      }
+    }
     const robinCaptures = [];
     // States where both feet stay on the branch; the rest hop, jump or fly.
     const plantedStates = ['idle', 'working', 'error', 'sleep', 'night', 'worm'];
@@ -1235,9 +1206,6 @@ async function main() {
       robinCaptures.push(name);
       const robinPage = await openPage(browser);
       let robinUrl = harnessUrl() + '&robin=' + entry.state + (entry.still ? '&still=1' : '');
-      if (entry.branch) {
-        robinUrl += '&branch=' + entry.branch;
-      }
       if (entry.freeze !== undefined) {
         robinUrl += '&freeze=' + entry.freeze;
       }
@@ -1255,29 +1223,29 @@ async function main() {
             'the robin ' + entry.state + ' state to apply',
           );
           if (entry.freeze !== undefined) {
-            await waitForCondition(page, 'window.__nestHarnessFrozen === true', 10000, 'the animations to freeze');
+            await waitForCondition(page, 'window.__nestHarnessFrozen === true', 10000, 'the frozen frame');
           } else {
             await sleep(entry.wait);
           }
-          // In a planted state the legs, lower body and tail sit exactly where the art puts
-          // them at rest, and the head and chest never rise far enough to leave a gap.
+          // In a planted state the legs and body sit exactly where the art puts them at rest, and
+          // in every state the head never rises far enough to leave a gap above the body.
           const boxes = await evaluate(page, '(' + robinPartBoxes.toString() + ')()');
-          if (!boxes || !boxes.legs.actual || !boxes.lower.actual || !boxes.upper) {
+          const planted = plantedStates.includes(entry.state);
+          if (!boxes) {
+            feetFailures.push(name + ': the robin is not drawn');
+          } else if (planted && (!boxes.legs.actual || !boxes.body.actual || !boxes.head)) {
             feetFailures.push(name + ': the robin parts are missing');
           } else {
-            if (plantedStates.includes(entry.state)) {
-              for (const key of ['legs', 'lower', 'tail']) {
-                const { actual, expect } = boxes[key];
-                for (const side of actual ? ['left', 'top', 'right', 'bottom'] : []) {
-                  if (Math.abs(actual[side] - expect[side]) > 0.01) {
-                    feetFailures.push(name + ': the ' + key + ' moved (' + side + ' ' + actual[side].toFixed(2) + ', rest ' + expect[side] + ')');
-                  }
+            for (const key of planted ? ['legs', 'body'] : []) {
+              const { actual, expect } = boxes[key];
+              for (const side of ['left', 'top', 'right', 'bottom']) {
+                if (Math.abs(actual[side] - expect[side]) > 0.01) {
+                  feetFailures.push(name + ': the ' + key + ' moved (' + side + ' ' + actual[side].toFixed(2) + ', rest ' + expect[side] + ')');
                 }
               }
             }
-            const gap = boxes.lower.actual.top - boxes.upper.bottom;
-            if (gap > 0.01) {
-              feetFailures.push(name + ': a ' + gap.toFixed(2) + ' pixel gap between the chest and the lower body');
+            if (boxes.head && boxes.body.actual && boxes.body.actual.top - boxes.head.bottom > 0.01) {
+              feetFailures.push(name + ': a ' + (boxes.body.actual.top - boxes.head.bottom).toFixed(2) + ' pixel gap under the head');
             }
           }
           return await evaluate(
@@ -1303,6 +1271,34 @@ async function main() {
       throw new Error('Robin lower body and feet checks failed:\n  ' + feetFailures.join('\n  '));
     }
     console.log('  robin lower body and feet checks passed');
+
+    // The robin follows a theme change and a reduced motion change without a reload. The light
+    // run starts light, so each body class VS Code sets must pick its palette on the spot.
+    if (THEME === 'light') {
+      const themePage = await openPage(browser);
+      await renderAndCapture(themePage, harnessUrl() + '&robin=idle', path.join(OUT_DIR, 'robin-switch-check.png'), async (page) => {
+        await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'full'", 10000, 'the robin to animate');
+        const uses = (palette) =>
+          "Array.from(document.querySelectorAll('#robinSlot rect')).some((r) => r.getAttribute('fill') === window.NestMascot." + palette + ".H)";
+        const cases = [
+          ['vscode-dark', 'DARK'],
+          ['vscode-high-contrast', 'DARK'],
+          ['vscode-high-contrast vscode-high-contrast-light', 'LIGHT'],
+          ['vscode-light', 'LIGHT'],
+        ];
+        for (const [cls, palette] of cases) {
+          await evaluate(page, "document.body.className = '" + cls + "'");
+          await waitForCondition(page, uses(palette) + ' && !' + uses(palette === 'DARK' ? 'LIGHT' : 'DARK'), 3000, 'the ' + palette.toLowerCase() + ' robin for ' + cls);
+        }
+        await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'still'", 3000, 'the robin to go still for reduced motion');
+        await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'full'", 3000, 'the robin to move again');
+        return null;
+      });
+      console.log('  robin theme and reduced motion switch checks passed');
+    }
 
     // One contact sheet with every robin capture in a grid. It is written next to the PNGs.
     const sheetName = 'robin-contact';
@@ -1336,6 +1332,39 @@ async function main() {
       1400,
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(sheetName)));
+
+    // The ACTIVITY BAR icon, drawn the way VS Code draws a contributed icon: the SVG is a mask
+    // filled with the bar's foreground color, so it must read as one color at 24 px. The colors
+    // are the default themes' Activity Bar colors; each row shows the active and inactive icon.
+    const iconSvg = fs.readFileSync(path.join(REPO_ROOT, 'media', 'nest.svg'), 'utf8');
+    const iconUrl = 'data:image/svg+xml;base64,' + Buffer.from(iconSvg).toString('base64');
+    const bars =
+      THEME === 'dark'
+        ? [['Dark Modern', '#181818', '#D7D7D7', '#868686', '#0078D4'], ['High Contrast', '#000000', '#FFFFFF', '#FFFFFF', '#F38518']]
+        : [['Light Modern', '#F8F8F8', '#1F1F1F', '#616161', '#005FB8'], ['High Contrast Light', '#FFFFFF', '#292929', '#292929', '#B5200D']];
+    const barRows = bars
+      .map(
+        ([label, bg, fg, idle, accent]) =>
+          '<div class="row" style="background:' + bg + ';color:' + fg + '">' +
+          '<span class="cell" style="border-left:2px solid ' + accent + '"><i style="background:' + fg + '"></i></span>' +
+          '<span class="cell"><i style="background:' + idle + '"></i></span>' +
+          '<span class="cell big"><i style="background:' + fg + '"></i></span>' +
+          '<span class="label">' + label + '</span></div>',
+      )
+      .join('');
+    const barHtml = path.join(OUT_DIR, 'activitybar-' + THEME + '.html');
+    fs.writeFileSync(
+      barHtml,
+      '<!doctype html><meta charset="utf-8"><style>body{margin:0;font:12px sans-serif}' +
+        '.row{display:flex;align-items:center;height:96px}.cell{display:flex;align-items:center;justify-content:center;width:48px;height:48px;box-sizing:border-box}' +
+        '.cell i{display:block;width:24px;height:24px;-webkit-mask:url(' + iconUrl + ') no-repeat 50% 50%;-webkit-mask-size:24px}' +
+        '.cell.big{width:120px;height:96px}.cell.big i{width:96px;height:96px;-webkit-mask-size:96px}.label{padding-left:12px}</style>' + barRows,
+    );
+    const barPage = await openPage(browser);
+    await renderAndCapture(barPage, pathToFileURL(barHtml).href, harnessOut('activitybar'), async (page) => {
+      return await evaluate(page, '(function(){return {x:0,y:0,width:320,height:document.body.scrollHeight};})()');
+    });
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('activitybar')));
 
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
   } catch (err) {

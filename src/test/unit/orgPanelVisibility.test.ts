@@ -87,15 +87,14 @@ describe('org panel visibility message', () => {
 describe('webview visibility handler', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'media', 'orgPanel.js'), 'utf8');
 
-  it('dispatches visibility messages and stops robin timers while hidden', () => {
+  it('dispatches visibility messages and stops the robin while hidden', () => {
     assert.ok(source.includes("msg.type === 'visibility'"));
     assert.ok(/typeof msg\.visible !== 'boolean'/.test(source));
-    assert.ok(/document\.hidden \|\| robinPanelHidden\) \{\s*return;/.test(source));
+    assert.ok(/robinPanelHidden \|\| document\.hidden\) \{\s*stopRobin\(\);\s*return;/.test(source));
   });
 
-  it('pauses and resumes the running animations', () => {
-    assert.ok(source.includes('getAnimations({ subtree: true })'));
-    assert.ok(source.includes('a.pause()'));
-    assert.ok(source.includes('a.play()'));
+  it('resumes the scene where it stopped instead of replaying it', () => {
+    assert.ok(source.includes('robinResumeAt = robinHandle.elapsed();'));
+    assert.ok(source.includes('startAt: robinState === robinDrawnState ? robinResumeAt : 0'));
   });
 });

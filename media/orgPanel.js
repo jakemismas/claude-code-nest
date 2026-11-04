@@ -3764,287 +3764,84 @@
   }
 
   // ---- robin ----
-  // The host decides the robin's state and posts it. This block draws the pixel art from
-  // robinArt.js as square SVG rects, sets classes that CSS animates, and runs the note,
-  // blink and tail timers. Colors come from CSS classes, never from style strings.
+  // The host decides the robin's state and posts it; mascot.js draws and animates it. This block
+  // picks the theme and motion, redraws only when something the drawing shows changed, and stops
+  // the animation while the panel is hidden.
 
   const robinSlotEl = document.getElementById('robinSlot');
   const robinLiveEl = document.getElementById('robinLive');
   const ROBIN_STATES = ['hatch', 'rotate', 'error', 'needs', 'worm', 'done', 'milestone', 'working', 'sleep', 'night', 'idle'];
-  // Which branch the header shows: 'thick' or 'leafy'.
-  const ROBIN_BRANCH = 'thick';
   const ROBIN_PIXEL_PX = 3;
   const ROBIN_MAX_NOTES = 6;
-  const ROBIN_NOTE_LIFE_MS = 1800;
-  const ROBIN_BLINK_EVERY_MS = 3400;
-  const ROBIN_BLINK_MS = 170;
-  const ROBIN_FLICK_EVERY_MS = 3500;
-  const ROBIN_FLICK_MS = 500;
-  const ROBIN_SVG_NS = 'http://www.w3.org/2000/svg';
-  const robinArt = window.NestRobinArt;
+  const mascot = window.NestMascot;
   const reducedMotionQuery =
     typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
 
-  let robinEyeEl = null;
-  let robinNotesEl = null;
   let robinState = 'idle';
   let robinMsg = null;
-  // One pending note timer per lane, and the pending removals of notes already drawn.
-  let robinNoteTimers = [];
-  const robinNoteRemovals = new Set();
-  let robinBlinkTimer = null;
-  let robinBlinkOffTimer = null;
-  let robinFlickTimer = null;
-  let robinFlickOffTimer = null;
-  let robinNoteCount = 0;
+  let robinHandle = null;
+  let robinDrawnKey = null;
+  let robinDrawnState = null;
+  // Where the last drawing of robinDrawnState stopped, so a redraw resumes the scene, not replays it.
+  let robinResumeAt = 0;
   // Set by the host when the sidebar view is collapsed or switched away, which does not flip document.hidden.
   let robinPanelHidden = false;
-
-  // Own-property lookup, so a key like 'constructor' from outside never matches.
-  function robinOwn(obj, key) {
-    return typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key);
-  }
-
-  function robinSvg(name, attrs, parent) {
-    const el = document.createElementNS(ROBIN_SVG_NS, name);
-    for (const key of Object.keys(attrs || {})) {
-      el.setAttribute(key, String(attrs[key]));
-    }
-    if (parent) {
-      parent.appendChild(el);
-    }
-    return el;
-  }
-
-  function robinGroup(parent, cls, x, y) {
-    const attrs = { class: cls };
-    if (x !== undefined) {
-      attrs.transform = 'translate(' + x + ' ' + y + ')';
-    }
-    return robinSvg('g', attrs, parent);
-  }
-
-  function robinDraw(parent, rects) {
-    let first = null;
-    for (const r of rects) {
-      const rect = robinSvg('rect', { x: r.x, y: r.y, width: r.w, height: r.h, class: 'rp-' + r.c }, parent);
-      first = first || rect;
-    }
-    return first;
-  }
-
-  function robinDrawRows(parent, rows) {
-    robinDraw(parent, robinArt.runs(rows));
-  }
-
-  // A reaction glyph at its placed spot. The outer group only positions; the inner group animates.
-  function robinPlace(parent, key, cls) {
-    const p = robinArt.PLACEMENTS[key];
-    const outer = robinGroup(parent, 'rp-at', p.x, p.y);
-    const inner = robinGroup(outer, 'rp-fx ' + cls);
-    robinDrawRows(inner, robinArt.glyphRows(p.g, p.c));
-    return inner;
-  }
-
-  function buildRobin() {
-    if (!robinSlotEl || !robinArt) {
-      return;
-    }
-    const wanted = robinSlotEl.getAttribute('data-branch');
-    const branchName = robinOwn(robinArt.BRANCHES, wanted) ? wanted : ROBIN_BRANCH;
-    const svg = robinSvg(
-      'svg',
-      {
-        class: 'nest-robin-svg',
-        viewBox: '0 0 ' + robinArt.BRANCH_W + ' ' + robinArt.BRANCH_H,
-        width: robinArt.BRANCH_W * ROBIN_PIXEL_PX,
-        height: robinArt.BRANCH_H * ROBIN_PIXEL_PX,
-        'shape-rendering': 'crispEdges',
-        focusable: 'false',
-      },
-      null,
-    );
-
-    // The branch is its own layer so it stays put while the bird flies.
-    robinDrawRows(robinGroup(svg, 'rp-branch'), robinArt.BRANCHES[branchName]);
-
-    const origin = robinArt.BIRD_ORIGIN;
-    const perch = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y), 'rp-perch');
-    // Jumps and hops move rp-hop, the whole bird. Planted states move only rp-upper (head and
-    // chest), so the lower body, tail and legs never leave the branch.
-    const hop = robinGroup(perch, 'rp-hop');
-    const parts = robinArt.birdParts(robinArt.BIRD);
-    const flickParts = robinArt.birdParts(robinArt.birdFrame({ flick: true }));
-    robinDraw(robinGroup(hop, 'rp-legs'), parts.legs);
-    const lower = robinGroup(hop, 'rp-lower');
-    robinDraw(lower, robinArt.chestFill(robinArt.BIRD));
-    robinDraw(lower, parts.lower);
-    robinDraw(robinGroup(hop, 'rp-tail rp-tail-rest'), parts.tail);
-    robinDraw(robinGroup(hop, 'rp-tail rp-tail-flick'), flickParts.tail);
-    const upper = robinGroup(hop, 'rp-upper');
-    robinDraw(robinGroup(upper, 'rp-chest'), parts.chest);
-    const head = robinGroup(upper, 'rp-head');
-    robinDraw(head, parts.head);
-    robinEyeEl = robinDraw(head, parts.eye);
-
-    // Wing frames on the bird's own grid, shown one at a time while it flies.
-    const fly = robinGroup(robinGroup(svg, 'rp-at', origin.x, origin.y - robinArt.FLIGHT_TOP), 'rp-fly');
-    const flip = robinGroup(fly, 'rp-flip');
-    for (const kind of robinArt.FLIGHT_KINDS) {
-      robinDrawRows(robinGroup(flip, 'rp-fr rp-fr-' + kind), robinArt.flightFrame(kind));
-    }
-
-    // The egg shows over the bird while it hatches.
-    const egg = robinGroup(
-      robinGroup(svg, 'rp-at', robinArt.EGG_ORIGIN.x, robinArt.EGG_ORIGIN.y),
-      'rp-egg',
-    );
-    robinDrawRows(robinGroup(egg, 'rp-egg-whole'), robinArt.EGG);
-    robinDrawRows(robinGroup(egg, 'rp-egg-cracked'), robinArt.EGG_CRACKED);
-
-    robinPlace(svg, 'question', 'rb-fx-q');
-    robinPlace(svg, 'bang', 'rb-fx-bang');
-    robinPlace(svg, 'noteA', 'rb-fx-note rb-fx-note-a');
-    robinPlace(svg, 'noteB', 'rb-fx-note rb-fx-note-b');
-    robinPlace(svg, 'sparkA', 'rb-fx-spark rb-fx-spark-a');
-    robinPlace(svg, 'sparkB', 'rb-fx-spark rb-fx-spark-b');
-    robinPlace(svg, 'sparkC', 'rb-fx-spark rb-fx-spark-c');
-    robinPlace(svg, 'bigB', 'rb-fx-big');
-    robinPlace(svg, 'zSmall', 'rb-fx-z rb-fx-z-a');
-    robinPlace(svg, 'zBig', 'rb-fx-z rb-fx-z-b');
-    robinPlace(svg, 'worm', 'rb-fx-worm');
-    robinPlace(svg, 'moon', 'rb-fx-moon');
-    for (const hint of Object.keys(robinArt.HINT_PLACEMENTS)) {
-      for (const key of robinArt.HINT_PLACEMENTS[hint]) {
-        robinPlace(svg, key, 'rb-still rb-still-' + hint);
-      }
-    }
-    robinNotesEl = robinGroup(svg, 'rp-notes');
-
-    robinSlotEl.appendChild(svg);
-    robinSlotEl.setAttribute('data-state', 'idle');
-    robinSlotEl.setAttribute('data-motion', 'still');
-    robinSlotEl.setAttribute('data-speed', '0');
-  }
 
   function robinStill() {
     return !robinMsg || robinMsg.animations !== true || (reducedMotionQuery !== null && reducedMotionQuery.matches);
   }
 
-  function clearRobinTimers() {
-    for (const t of robinNoteTimers) {
-      clearTimeout(t);
-    }
-    robinNoteTimers = [];
-    for (const t of robinNoteRemovals) {
-      clearTimeout(t);
-    }
-    robinNoteRemovals.clear();
-    clearTimeout(robinBlinkTimer);
-    clearTimeout(robinBlinkOffTimer);
-    clearTimeout(robinFlickTimer);
-    clearTimeout(robinFlickOffTimer);
-    robinBlinkTimer = null;
-    robinBlinkOffTimer = null;
-    robinFlickTimer = null;
-    robinFlickOffTimer = null;
+  // Dark themes and high contrast dark use the dark palette; high contrast light keeps the light one.
+  function robinDark() {
+    const cls = document.body.classList;
+    return (
+      cls.contains('vscode-dark') ||
+      (cls.contains('vscode-high-contrast') && !cls.contains('vscode-high-contrast-light')) ||
+      document.documentElement.getAttribute('data-theme') === 'dark'
+    );
   }
 
-  // The eye is the dark pixel; a blink paints it the head color. Sleep keeps it shut.
-  function setRobinEye(closed) {
-    if (robinEyeEl) {
-      const shut = closed || robinState === 'sleep' || robinState === 'night';
-      robinEyeEl.setAttribute('class', shut ? 'rp-H' : 'rp-e');
+  function stopRobin() {
+    if (robinHandle) {
+      robinResumeAt = robinHandle.elapsed();
+      robinHandle.stop();
+      robinHandle = null;
     }
   }
 
-  function setRobinTail(flicked) {
-    if (robinSlotEl) {
-      robinSlotEl.setAttribute('data-flick', flicked ? '1' : '0');
-    }
-  }
-
-  function scheduleRobinBlink() {
-    robinBlinkTimer = setTimeout(() => {
-      setRobinEye(true);
-      robinBlinkOffTimer = setTimeout(() => setRobinEye(false), ROBIN_BLINK_MS);
-      scheduleRobinBlink();
-    }, ROBIN_BLINK_EVERY_MS);
-  }
-
-  function scheduleRobinFlick() {
-    robinFlickTimer = setTimeout(() => {
-      if (robinState === 'idle') {
-        setRobinTail(true);
-        robinFlickOffTimer = setTimeout(() => setRobinTail(false), ROBIN_FLICK_MS);
-      }
-      scheduleRobinFlick();
-    }, ROBIN_FLICK_EVERY_MS);
-  }
-
-  // A note pops out above the head in the lane of the chat that made it.
-  function spawnRobinNote(lane) {
-    if (!robinNotesEl) {
+  function drawRobin() {
+    if (!robinSlotEl || !mascot) {
       return;
     }
-    const colors = robinArt.NOTE_COLORS;
-    const color = colors[(lane + robinNoteCount) % colors.length];
-    robinNoteCount += 1;
-    const x = robinArt.NOTE_LANES[lane % robinArt.NOTE_LANES.length];
-    const outer = robinGroup(robinNotesEl, 'rp-at', x, robinArt.NOTE_Y);
-    robinDrawRows(robinGroup(outer, 'rp-note'), robinArt.glyphRows('note', color));
-    const removal = setTimeout(() => {
-      robinNoteRemovals.delete(removal);
-      outer.remove();
-    }, ROBIN_NOTE_LIFE_MS);
-    robinNoteRemovals.add(removal);
-  }
-
-  function scheduleRobinNote(lane, first) {
-    const msg = robinMsg;
-    robinNoteTimers[lane] = setTimeout(function fire() {
-      if (!robinMsg || robinMsg !== msg) {
-        return;
-      }
-      spawnRobinNote(lane);
-      robinNoteTimers[lane] = setTimeout(fire, msg.noteMinMs + Math.random() * msg.noteSpreadMs);
-    }, first);
-  }
-
-  // Pauses or resumes every running CSS animation under the robin to match visibility.
-  function syncRobinPlayback() {
-    if (!robinSlotEl || typeof robinSlotEl.getAnimations !== 'function') {
+    const still = robinStill();
+    robinSlotEl.setAttribute('data-state', robinState);
+    robinSlotEl.setAttribute('data-motion', still ? 'still' : 'full');
+    if (robinPanelHidden || document.hidden) {
+      stopRobin();
       return;
     }
-    const hidden = robinPanelHidden || document.hidden;
-    for (const a of robinSlotEl.getAnimations({ subtree: true })) {
-      if (hidden) {
-        a.pause();
-      } else if (a.playState === 'paused') {
-        a.play();
-      }
-    }
-  }
-
-  // Starts or stops the timers to match the current message and whether the page is shown.
-  function syncRobinTimers() {
-    clearRobinTimers();
-    if (robinNotesEl) {
-      robinNotesEl.textContent = '';
-    }
-    setRobinEye(false);
-    setRobinTail(false);
-    syncRobinPlayback();
-    if (!robinMsg || robinStill() || document.hidden || robinPanelHidden) {
+    const dark = robinDark();
+    const key = JSON.stringify([robinMsg, robinState, still, dark]);
+    if (key === robinDrawnKey && robinHandle) {
       return;
     }
-    scheduleRobinBlink();
-    scheduleRobinFlick();
-    if (robinState === 'working') {
-      for (let i = 0; i < robinMsg.noteBudget; i += 1) {
-        scheduleRobinNote(i, robinMsg.noteDelaysMs[i]);
-      }
+    stopRobin();
+    const msg = robinMsg || { speed: 0, workingCount: 0, noteBudget: 0, noteDelaysMs: [], noteMinMs: 0, noteSpreadMs: 0 };
+    robinHandle = mascot.render(robinSlotEl, robinState, {
+      dark,
+      still,
+      scale: ROBIN_PIXEL_PX,
+      speed: msg.speed,
+      workingCount: msg.workingCount,
+      notes: { delays: msg.noteDelaysMs.slice(0, msg.noteBudget), minMs: msg.noteMinMs, spreadMs: msg.noteSpreadMs },
+      startAt: robinState === robinDrawnState ? robinResumeAt : 0,
+    });
+    const svg = robinSlotEl.firstElementChild;
+    if (svg) {
+      svg.setAttribute('class', 'nest-robin-svg');
     }
+    robinDrawnKey = key;
+    robinDrawnState = robinState;
   }
 
   function isValidRobinMessage(msg) {
@@ -4062,24 +3859,12 @@
     );
   }
 
-  function applyRobin() {
-    if (!robinSlotEl || !robinMsg) {
-      return;
-    }
-    robinSlotEl.setAttribute('data-state', robinState);
-    robinSlotEl.setAttribute('data-motion', robinStill() ? 'still' : 'full');
-    robinSlotEl.setAttribute('data-speed', String(robinMsg.speed === 1 || robinMsg.speed === 2 ? robinMsg.speed : 0));
-    const hint = robinArt && robinOwn(robinArt.HINT_PLACEMENTS, robinMsg.reducedHint) ? robinMsg.reducedHint : '';
-    robinSlotEl.setAttribute('data-still', hint);
-    syncRobinTimers();
-  }
-
   function onRobinVisibilityMessage(msg) {
     if (!msg || msg.type !== 'visibility' || typeof msg.visible !== 'boolean') {
       return;
     }
     robinPanelHidden = !msg.visible;
-    syncRobinTimers();
+    drawRobin();
   }
 
   function onRobinMessage(msg) {
@@ -4089,7 +3874,8 @@
     const changed = !robinMsg || robinMsg.state !== msg.state;
     const next = {
       state: msg.state,
-      speed: msg.speed,
+      speed: msg.speed === 1 || msg.speed === 2 ? msg.speed : 0,
+      workingCount: typeof msg.workingCount === 'number' ? Math.max(0, Math.min(Math.floor(msg.workingCount), ROBIN_MAX_NOTES)) : 0,
       animations: msg.animations,
       noteMinMs: Math.max(500, Math.min(msg.noteMinMs, 60000)),
       noteSpreadMs: Math.max(0, Math.min(msg.noteSpreadMs, 60000)),
@@ -4097,27 +3883,37 @@
       noteDelaysMs: msg.noteDelaysMs
         .slice(0, ROBIN_MAX_NOTES)
         .map((n) => (typeof n === 'number' && n >= 0 && n <= 60000 ? n : 2500)),
-      reducedHint: msg.reducedHint,
     };
     while (next.noteDelaysMs.length < next.noteBudget) {
       next.noteDelaysMs.push(next.noteMinMs);
     }
-    // The host may resend an identical message; restarting timers would wipe notes in flight.
+    // The host may resend an identical message; redrawing would restart the scene and wipe notes in flight.
     if (robinMsg && JSON.stringify(robinMsg) === JSON.stringify(next)) {
       return;
     }
     robinMsg = next;
     robinState = msg.state;
-    applyRobin();
+    // A new state starts its scene from the beginning, even if it last showed before the panel hid.
+    if (changed) {
+      robinDrawnState = null;
+      robinResumeAt = 0;
+    }
+    drawRobin();
     if (changed && robinLiveEl) {
       robinLiveEl.textContent = msg.liveText.slice(0, 60);
     }
   }
 
-  buildRobin();
-  document.addEventListener('visibilitychange', syncRobinTimers);
+  drawRobin();
+  document.addEventListener('visibilitychange', drawRobin);
   if (reducedMotionQuery && typeof reducedMotionQuery.addEventListener === 'function') {
-    reducedMotionQuery.addEventListener('change', applyRobin);
+    reducedMotionQuery.addEventListener('change', drawRobin);
+  }
+  // VS Code swaps the body theme class in place when the user changes the color theme.
+  if (typeof MutationObserver === 'function') {
+    const themeWatch = new MutationObserver(drawRobin);
+    themeWatch.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
   // ---- inbound host messages ----
