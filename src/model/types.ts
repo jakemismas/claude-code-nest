@@ -35,6 +35,8 @@ export interface ChatRecord {
   prUrl: string | null;
   prRepository: string | null;
   gitBranch: string | null;
+  // Working directory recorded in the transcript; absent or null when none was recorded.
+  cwd?: string | null;
   leadingMessageUuids: string[];
   // Compact summary, carried on the ONE shared record so other features (token
   // badge, hover preview, search, awaiting-reply heuristic, files-touched) read it
@@ -80,6 +82,8 @@ export interface TranscriptScan {
   // Almost always "HEAD" in this data; null when no line carried one. The first
   // non-empty value wins (a session's branch rarely changes mid-transcript).
   gitBranch: string | null;
+  // Working directory: the first non-empty cwd on a user/assistant line.
+  cwd?: string | null;
   // Fork-lineage signal (best-effort, often empty): the LEADING sequence of
   // user/assistant message uuids in transcript order. Two transcripts share a
   // fork lineage when their leading uuid sequences share a common prefix. Capped

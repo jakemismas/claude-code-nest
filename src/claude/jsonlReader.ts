@@ -73,6 +73,7 @@ export function scanTranscript(content: string): TranscriptScan {
     prUrl: null,
     prRepository: null,
     gitBranch: null,
+    cwd: null,
     leadingMessageUuids: [],
     messageCount: 0,
     firstMessageText: null,
@@ -129,6 +130,7 @@ export function scanTranscript(content: string): TranscriptScan {
         absorbTimestamp(scan, obj);
         absorbSlug(scan, obj);
         absorbGitBranch(scan, obj);
+        absorbCwd(scan, obj);
         absorbLeadingUuid(scan, obj);
         absorbMessageCount(scan);
         absorbFirstMessage(scan, obj, type);
@@ -182,6 +184,13 @@ function absorbPrLink(scan: TranscriptScan, obj: Record<string, unknown>): void 
 function absorbGitBranch(scan: TranscriptScan, obj: Record<string, unknown>): void {
   if (scan.gitBranch === null && typeof obj.gitBranch === 'string' && obj.gitBranch.length > 0) {
     scan.gitBranch = obj.gitBranch;
+  }
+}
+
+// Absorb the working directory: the first non-empty cwd on a user/assistant line.
+function absorbCwd(scan: TranscriptScan, obj: Record<string, unknown>): void {
+  if (scan.cwd === null && typeof obj.cwd === 'string' && obj.cwd.length > 0) {
+    scan.cwd = obj.cwd;
   }
 }
 

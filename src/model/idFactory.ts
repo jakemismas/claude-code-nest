@@ -23,7 +23,8 @@ export const RESERVED_SEPARATORS = [':', '#', '>'] as const;
 // mintable. A real folder id must never collide with one of these, or a synthetic bucket
 // and a real folder would share a composite-id prefix. '__unfiled__' is the Folders-view
 // Unfiled bucket; '__untagged__' is the Tags-view Untagged bucket; the four '__smart_*__'
-// ids are the Smart Groups-view signal groups. All are separator-free by construction, so
+// ids are the Smart Groups-view signal groups; the four fleet panel ids name the pinned
+// orchestrator, the past orchestrators, the archived row and the queue. All are separator-free by construction, so
 // they cannot collide on the separator rule alone; this set is the second guard that
 // keeps the factory from ever minting one.
 export const RESERVED_SENTINELS = new Set<string>([
@@ -33,6 +34,10 @@ export const RESERVED_SENTINELS = new Set<string>([
   '__smart_ticket__',
   '__smart_branch__',
   '__smart_fork__',
+  '__orchestrator__',
+  '__past_orchestrators__',
+  '__archived__',
+  '__queue__',
 ]);
 
 // True when a candidate id is free of every reserved separator. The check covers

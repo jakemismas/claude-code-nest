@@ -148,6 +148,7 @@ describe('chatScanner.scanChats', () => {
     assert.strictEqual(signal.prUrl, 'https://github.com/jakemismas/nest/pull/42');
     assert.strictEqual(signal.prRepository, 'jakemismas/nest');
     assert.strictEqual(signal.gitBranch, 'slice/smart-groups');
+    assert.strictEqual(signal.cwd, 'c:\\Users\\Tester\\proj');
     assert.deepStrictEqual(signal.leadingMessageUuids, ['uuid-aaaa', 'uuid-bbbb']);
   });
 

@@ -3,6 +3,7 @@ import { ChatRecord } from '../model/types';
 import { foldersToScan, mergeFolderScans, scanChats } from '../claude/chatScanner';
 import type { AgentSession } from '../claude/agentsCli';
 import { ChatStatus, computeStatuses } from '../fleet/status';
+import { FleetSections, buildFleetSections } from '../fleet/groupModel';
 import type { QueueRow } from '../fleet/queueTable';
 import { GroupBy } from '../fleet/nestConfig';
 import { EMPTY_FLEET_STATE, FleetState } from '../fleet/types';
@@ -13,7 +14,7 @@ import { OPEN_CHAT_COMMAND } from '../launch/uriLauncher';
 import { PREVIEW_ARCHIVED_CHAT_COMMAND } from '../commands/previewChatCommand';
 import { tokenBadge } from './chatTooltip';
 import { relativeTime, relativeTimeCompact } from './relativeTime';
-import { buildSections, buildArchivedRows, OrgSections, isArchived, PlacementContext, rowStatus } from './orgPanelModel';
+import { buildSections, buildArchivedRows, OrgSections, isArchived, PlacementContext, rowStatus, fleetModelChats, fleetModelFolders } from './orgPanelModel';
 import { coerceAutoArchiveWindowDays } from '../store/autoArchivePolicy';
 import {
   SearchDoc,
@@ -385,6 +386,31 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
 
   getQueueRows(): readonly QueueRow[] {
     return this.queueRows;
+  }
+
+  // The fleet sections for the current records, fleet state, statuses and queue. Read by
+  // the panel renderer; nothing posts them yet.
+  getFleetSections(active: boolean): FleetSections {
+    const projectKey = this.getProjectKey();
+    const meta: ProjectMeta | undefined =
+      projectKey !== undefined ? this.store.getProjectMeta(projectKey) : undefined;
+    const cwdByChat = new Map<string, string>();
+    for (const session of this.agentSessions) {
+      if (session.cwd !== null) {
+        cwdByChat.set(session.sessionId, session.cwd);
+      }
+    }
+    return buildFleetSections({
+      chats: fleetModelChats(this.lastRecords, meta, cwdByChat),
+      userFolders: fleetModelFolders(meta),
+      fleet: this.fleetState,
+      statuses: this.statusByChat,
+      queueRows: this.queueRows,
+      groupBy: this.groupBy,
+      workspaceRoot: this.workspacePath ?? null,
+      now: Date.now(),
+      active,
+    });
   }
 
   getStatuses(): ReadonlyMap<string, ChatStatus> {
