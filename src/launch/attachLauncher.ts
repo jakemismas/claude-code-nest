@@ -41,7 +41,11 @@ export interface OpenRunningDeps extends AttachDeps {
   offer(message: string, button: string): PromiseLike<boolean>;
   // The URI open that every other chat uses.
   openChat(sessionId: string): unknown;
+  // Shows a plain information message.
+  inform(message: string): void;
 }
+
+export const NOT_RUNNING_MESSAGE = 'This chat is no longer running. Opening it in Claude Code.';
 
 export type OpenRunningResult = 'attached' | 'opened' | 'refused';
 
@@ -103,6 +107,10 @@ export async function openRunningChat(
     return 'refused';
   }
   if (!deps.isTrusted() || !deps.isAttachable(sessionId)) {
+    // An explicit terminal choice on a chat that has stopped is told why it opens elsewhere.
+    if (explicit && deps.isTrusted()) {
+      deps.inform(NOT_RUNNING_MESSAGE);
+    }
     await deps.openChat(sessionId);
     return 'opened';
   }

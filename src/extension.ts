@@ -175,6 +175,18 @@ let activeStore: MetadataStore | undefined;
 // snapshot at shutdown.
 let activeAutoExporter: AutoExporter | undefined;
 
+// Test-only seam: lets an integration test mark a made-up session id as attachable.
+let attachableOverride: ((sessionId: string) => boolean) | null = null;
+export function setAttachableOverrideForTests(fn: ((sessionId: string) => boolean) | null): void {
+  attachableOverride = fn;
+}
+
+// Test-only seam: the live org panel provider, so an integration test can attach a fake view.
+let orgPanelProviderForTests: OrgPanelProvider | undefined;
+export function getOrgPanelProviderForTests(): OrgPanelProvider | undefined {
+  return orgPanelProviderForTests;
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
@@ -643,6 +655,7 @@ export function activate(context: vscode.ExtensionContext): void {
     effectiveAutoArchiveDefaultDays,
   );
   refreshOrgPanel = () => orgPanelProvider.refresh();
+  orgPanelProviderForTests = orgPanelProvider;
   // The hatch plays once per device; the flag is not in any synced key set.
   const ROBIN_HATCHED_KEY = 'claudeNest.robin.hatched';
   const readRobinAnimations = (): boolean =>
@@ -1180,7 +1193,9 @@ export function activate(context: vscode.ExtensionContext): void {
           }),
         onDidCloseTerminal: (listener) => vscode.window.onDidCloseTerminal((t) => listener(t)),
         warn: (message) => void vscode.window.showWarningMessage(message),
-        isAttachable: (id) => orgPanelProvider.isAttachable(id),
+        isAttachable: (id) =>
+          attachableOverride !== null ? attachableOverride(id) : orgPanelProvider.isAttachable(id),
+        inform: (message) => void vscode.window.showInformationMessage(message),
         isTrusted: () => vscode.workspace.isTrusted !== false,
         chatName: (id) => orgPanelProvider.getChatName(id),
         offer: async (message, button) => (await vscode.window.showInformationMessage(message, button)) === button,

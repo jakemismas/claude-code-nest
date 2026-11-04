@@ -4035,6 +4035,8 @@
   let robinFlutterTimer = null;
   let robinFlutterOffTimer = null;
   let robinNoteCount = 0;
+  // Set by the host when the sidebar view is collapsed or switched away, which does not flip document.hidden.
+  let robinPanelHidden = false;
 
   // Own-property lookup, so a key like 'constructor' from outside never matches.
   function robinOwn(obj, key) {
@@ -4262,6 +4264,21 @@
     }, first);
   }
 
+  // Pauses or resumes every running CSS animation under the robin to match visibility.
+  function syncRobinPlayback() {
+    if (!robinSlotEl || typeof robinSlotEl.getAnimations !== 'function') {
+      return;
+    }
+    const hidden = robinPanelHidden || document.hidden;
+    for (const a of robinSlotEl.getAnimations({ subtree: true })) {
+      if (hidden) {
+        a.pause();
+      } else if (a.playState === 'paused') {
+        a.play();
+      }
+    }
+  }
+
   // Starts or stops the timers to match the current message and whether the page is shown.
   function syncRobinTimers() {
     clearRobinTimers();
@@ -4271,7 +4288,8 @@
     setRobinEye(false);
     setRobinTail(false);
     setRobinFlutter(false);
-    if (!robinMsg || robinStill() || document.hidden) {
+    syncRobinPlayback();
+    if (!robinMsg || robinStill() || document.hidden || robinPanelHidden) {
       return;
     }
     scheduleRobinBlink();
@@ -4308,6 +4326,14 @@
     robinSlotEl.setAttribute('data-speed', String(robinMsg.speed === 1 || robinMsg.speed === 2 ? robinMsg.speed : 0));
     const hint = robinArt && robinOwn(robinArt.HINT_PLACEMENTS, robinMsg.reducedHint) ? robinMsg.reducedHint : '';
     robinSlotEl.setAttribute('data-still', hint);
+    syncRobinTimers();
+  }
+
+  function onRobinVisibilityMessage(msg) {
+    if (!msg || msg.type !== 'visibility' || typeof msg.visible !== 'boolean') {
+      return;
+    }
+    robinPanelHidden = !msg.visible;
     syncRobinTimers();
   }
 
@@ -4405,6 +4431,8 @@
       onFleetMessage(msg);
     } else if (msg.type === 'robin') {
       onRobinMessage(msg);
+    } else if (msg.type === 'visibility') {
+      onRobinVisibilityMessage(msg);
     } else if (msg.type === 'searchResults') {
       // Host content-search reply. Adopt the ranked ids and the
       // per-id snippet ONLY for the query still in the box; a reply for a stale query

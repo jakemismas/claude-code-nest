@@ -264,7 +264,23 @@ describe('groupModel ids', () => {
       assert.ok(!/[:#>]/.test(g.id), g.id);
       assert.ok(!RESERVED_SENTINELS.has(g.id));
     }
-    assert.strictEqual(groupId('ticket', 'A:B#C>D'), 'ticket.A-B-C-D');
+    assert.strictEqual(groupId('ticket', 'A:B#C>D'), 'ticket.A%3AB%23C%3ED');
+  });
+  it('keeps folder names that differ only by a forbidden character apart', () => {
+    assert.notStrictEqual(groupId('folder', 'a:b'), groupId('folder', 'a-b'));
+    assert.notStrictEqual(groupId('folder', 'a%3Ab'), groupId('folder', 'a:b'));
+    const a = entry('5555aaaa', { folder: 'a:b' });
+    const b = entry('5555bbbb', { folder: 'a-b' });
+    const out = build({ chats: [chat('5555aaaa'), chat('5555bbbb')], fleet: fleet([a, b]) });
+    assert.strictEqual(out.groups.length, 2);
+  });
+  it('groups ticket keys case-insensitively and shows the first spelling', () => {
+    const a = entry('6666aaaa', { ticket: 'TKT-1', name: 'a' });
+    const b = entry('6666bbbb', { ticket: 'tkt-1', name: 'b' });
+    const out = build({ chats: [chat('6666aaaa'), chat('6666bbbb')], fleet: fleet([a, b]) });
+    assert.strictEqual(out.groups.length, 1);
+    assert.strictEqual(out.groups[0].ticket, 'TKT-1');
+    assert.strictEqual(out.groups[0].rows.length, 2);
   });
   it('reserves the fleet panel sentinels', () => {
     for (const id of ['__orchestrator__', '__past_orchestrators__', '__archived__', '__queue__']) {

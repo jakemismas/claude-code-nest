@@ -310,6 +310,28 @@ const DEFAULT_SECTIONS_VISIBLE: SectionsVisible = {
   unsorted: true,
 };
 
+// Writes where the effective value comes from, so a workspace value does not mask the switch.
+export function robinConfigTarget(
+  inspected: { workspaceFolderValue?: unknown; workspaceValue?: unknown } | undefined,
+): vscode.ConfigurationTarget {
+  if (inspected?.workspaceFolderValue !== undefined) {
+    return vscode.ConfigurationTarget.WorkspaceFolder;
+  }
+  if (inspected?.workspaceValue !== undefined) {
+    return vscode.ConfigurationTarget.Workspace;
+  }
+  return vscode.ConfigurationTarget.Global;
+}
+
+export interface VisibilityMessage {
+  readonly type: 'visibility';
+  readonly visible: boolean;
+}
+
+export function buildVisibilityMessage(visible: boolean): VisibilityMessage {
+  return { type: 'visibility', visible: visible === true };
+}
+
 export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
 
@@ -398,6 +420,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     webviewView.onDidChangeVisibility(() => {
       this.visibilityListener?.(webviewView.visible);
       this.onRobinVisibility(webviewView.visible);
+      this.postVisibility();
     });
     webviewView.onDidDispose(() => {
       this.visibilityListener?.(false);
@@ -487,6 +510,15 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     clearTimeout(this.robinTimer);
     clearTimeout(this.robinGrace);
     this.robinTimer = undefined;
+  }
+
+  // Tells the webview whether the view is on screen; a collapsed sidebar view does not flip
+  // document.hidden, so the webview cannot learn this on its own.
+  private postVisibility(): void {
+    if (this.robinDisposed || !this.robinViewReady || this.view === undefined) {
+      return;
+    }
+    void this.view.webview.postMessage(buildVisibilityMessage(this.robinVisible));
   }
 
   private onRobinVisibility(visible: boolean): void {
@@ -707,6 +739,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     if (msg.type === 'ready') {
       this.robinViewReady = true;
       this.lastRobinJson = '';
+      this.postVisibility();
       this.postState();
       this.postSettings();
       this.postSections();
@@ -789,9 +822,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       void this.runOrganize('undo');
     } else if (msg.type === 'setRobinAnimations') {
       // The configuration listener in the host re-posts the robin and the settings state.
-      void vscode.workspace
-        .getConfiguration('claudeNest')
-        .update('robin.animations', msg.on, vscode.ConfigurationTarget.Global);
+      const config = vscode.workspace.getConfiguration('claudeNest');
+      void config.update('robin.animations', msg.on, robinConfigTarget(config.inspect<boolean>('robin.animations')));
     }
   }
 
