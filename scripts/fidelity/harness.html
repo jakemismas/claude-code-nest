@@ -483,6 +483,60 @@
         },
         '*',
       );
+      // ?organize=preview|empty|problems|applied posts the Organize section's report with
+      // made-up moves, so the Settings capture shows each state of that section.
+      const organizeView = (/[?&]organize=(preview|empty|problems|applied)(&|$)/.exec(location.search) || [])[1] || null;
+      if (organizeView) {
+        const base = {
+          type: 'organize',
+          kind: 'preview',
+          message: '',
+          moves: [],
+          moreMoves: 0,
+          matched: 0,
+          skippedHandFiled: 0,
+          rulesActive: 2,
+          problems: [],
+          canUndo: false,
+          undoCount: 0,
+          skippedOnUndo: 0,
+        };
+        const reports = {
+          preview: Object.assign({}, base, {
+            message: '4 chats would change.',
+            moves: [
+              { sessionId: 's-01', title: 'Review the rate limiter changes', from: null, to: 'QA', createsFolder: true, tags: ['qa'], pin: false },
+              { sessionId: 's-02', title: 'T-204 Build the export dialog', from: null, to: 'Tickets/T-204', createsFolder: false, tags: [], pin: false },
+              { sessionId: 's-03', title: 'Spike: queue backoff with a very long title that has to truncate', from: 'Scratch', to: 'Spikes', createsFolder: false, tags: ['spike', 'research'], pin: true },
+              { sessionId: 's-04', title: 'Triage the flaky test', from: null, to: null, createsFolder: false, tags: ['triage'], pin: false },
+            ],
+            matched: 6,
+            skippedHandFiled: 2,
+            canUndo: true,
+            undoCount: 3,
+          }),
+          empty: Object.assign({}, base, {
+            message: 'Nothing to move. Every chat the rules match is already in place.',
+            matched: 5,
+          }),
+          problems: Object.assign({}, base, {
+            message: 'No active rules. Add rules to the layout file.',
+            rulesActive: 0,
+            problems: [
+              'rules[0] has an invalid regular expression in match.name; the rule is off.',
+              'rules[2] has an unknown match key "colour"; the rule is off.',
+            ],
+          }),
+          applied: Object.assign({}, base, {
+            kind: 'applied',
+            message: '4 chats organized.',
+            canUndo: true,
+            undoCount: 4,
+          }),
+        };
+        window.__nestHarnessOrganize = reports[organizeView];
+        window.postMessage(reports[organizeView], '*');
+      }
       // ?fleet=ticket or ?fleet=folder adds the fleet view: the host's 'fleet' message in
       // the ticket view or the any-folder view, with made-up data. The Starred and
       // Questions sections are empty there so the capture shows the fleet layout alone.

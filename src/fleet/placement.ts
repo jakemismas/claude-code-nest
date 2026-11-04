@@ -1,6 +1,6 @@
 // Pure placement resolver. Decides which panel group a chat belongs to. Precedence,
 // highest first: the folder a user filed by hand, the folder a fleet organize record
-// names, a matching rule (none until rules ship), then the auto grouping chosen by
+// names, a rule group (rules file chats through Apply, so this stays empty), then the auto grouping chosen by
 // groupBy. vscode-free and clock-free: the caller passes the current time.
 import { GroupBy } from './nestConfig';
 
@@ -9,7 +9,8 @@ export interface PlacementInput {
   readonly handFiledFolderId: string | null;
   // The folder name from the newest fleet organize record, else null.
   readonly fleetFolder: string | null;
-  // A group name from a matching rule, else null. Always null until rules ship.
+  // A virtual group name from a rule, else null. Organize rules file chats through Apply
+  // into your folders instead, so callers pass null.
   readonly ruleGroup?: string | null;
   readonly ticket: string | null;
   // The name of the folder the chat was scanned from.

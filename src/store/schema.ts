@@ -136,6 +136,74 @@ export interface LocalChatState {
 export interface LocalProjectMeta {
   schemaVersion: number;
   chats: { [chatId: string]: LocalChatState };
+  // The last organize Apply on this device. Never synced.
+  organize?: OrganizeLedger;
+}
+
+// What one organize Apply changed for one chat, so Undo can restore it. folderId is
+// the folder Apply put the chat in, or null when Apply left the folder alone.
+export interface OrganizeLedgerEntry {
+  folderId: string | null;
+  priorFolderId: string | null;
+  tagsAdded: string[];
+  pinned: boolean;
+}
+
+// The per-device organize record. snapshot holds the last Apply only. applied remembers,
+// for every chat a rule filed and Undo has not reverted, the folder the rule chose; a
+// chat whose folder still equals it was not filed by hand.
+export interface OrganizeLedger {
+  at: number;
+  createdFolderIds: string[];
+  createdTagIds: string[];
+  snapshot: { [chatId: string]: OrganizeLedgerEntry };
+  applied: { [chatId: string]: string };
+}
+
+export const MAX_LEDGER_CHATS = 20000;
+
+function ledgerIdList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((v): v is string => isSafeRecordId(v)).slice(0, MAX_LEDGER_CHATS) : [];
+}
+
+// Lifts a stored organize ledger of unknown shape to a well-formed one, or null.
+export function normalizeOrganizeLedger(raw: unknown): OrganizeLedger | null {
+  if (!isObject(raw)) {
+    return null;
+  }
+  const snapshot: { [chatId: string]: OrganizeLedgerEntry } = Object.create(null) as {
+    [chatId: string]: OrganizeLedgerEntry;
+  };
+  const rawSnapshot = isObject(raw.snapshot) ? raw.snapshot : {};
+  let count = 0;
+  for (const [chatId, value] of Object.entries(rawSnapshot)) {
+    if (!isSafeRecordId(chatId) || !isObject(value) || count >= MAX_LEDGER_CHATS) {
+      continue;
+    }
+    snapshot[chatId] = {
+      folderId: isSafeRecordId(value.folderId) ? value.folderId : null,
+      priorFolderId: isSafeRecordId(value.priorFolderId) ? value.priorFolderId : null,
+      tagsAdded: ledgerIdList(value.tagsAdded),
+      pinned: value.pinned === true,
+    };
+    count++;
+  }
+  const applied: { [chatId: string]: string } = Object.create(null) as { [chatId: string]: string };
+  const rawApplied = isObject(raw.applied) ? raw.applied : {};
+  count = 0;
+  for (const [chatId, folderId] of Object.entries(rawApplied)) {
+    if (isSafeRecordId(chatId) && isSafeRecordId(folderId) && count < MAX_LEDGER_CHATS) {
+      applied[chatId] = folderId;
+      count++;
+    }
+  }
+  return {
+    at: typeof raw.at === 'number' && Number.isFinite(raw.at) ? raw.at : 0,
+    createdFolderIds: ledgerIdList(raw.createdFolderIds),
+    createdTagIds: ledgerIdList(raw.createdTagIds),
+    snapshot,
+    applied,
+  };
 }
 
 // The only color shape this schema accepts: a 6-digit hex triplet (#rrggbb),

@@ -728,6 +728,49 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('settings')));
 
+    // The ORGANIZE section of the Settings overlay: the Preview list with Apply and Undo
+    // enabled, the empty result, rule problems, and the state after an Apply. The harness
+    // posts the made-up report when the URL carries ?organize=<state>.
+    const organizeStates = [
+      { name: 'organize-preview', mode: 'preview', ready: "document.querySelectorAll('.nest-organize-move').length === 4" },
+      { name: 'organize-empty', mode: 'empty', ready: "!!document.querySelector('.nest-organize-status') && document.querySelector('.nest-organize-status').textContent.indexOf('Nothing to move') === 0" },
+      { name: 'organize-problems', mode: 'problems', ready: "document.querySelectorAll('.nest-organize-problems li').length === 2" },
+      { name: 'organize-applied', mode: 'applied', ready: "!!document.querySelector('.nest-organize-status') && document.querySelector('.nest-organize-status').textContent.indexOf('organized') > 0" },
+    ];
+    for (const state of organizeStates) {
+      const organizePage = await openPage(browser);
+      await renderAndCapture(
+        organizePage,
+        harnessUrl() + '&organize=' + state.mode,
+        harnessOut(state.name),
+        async (page) => {
+          await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+          await waitForCondition(
+            page,
+            "document.querySelectorAll('#list .nest-row').length > 0",
+            10000,
+            'harness sectioned rows to render',
+          );
+          const opened = await evaluate(
+            page,
+            "(function(){var g=document.getElementById('settings');if(!g)return 'no-gear';g.click();return 'ok';})()",
+          );
+          if (opened !== 'ok') {
+            throw new Error('Could not open the harness Settings overlay: ' + opened);
+          }
+          await waitForCondition(page, "!!document.querySelector('.nest-settings-overlay')", 10000, 'harness Settings overlay');
+          // The overlay is built after the report arrived; paint it from the report.
+          await evaluate(
+            page,
+            "(function(){window.postMessage(window.__nestHarnessOrganize,'*');return 'ok';})()",
+          );
+          await waitForCondition(page, state.ready, 10000, 'the ' + state.name + ' state to render');
+          await sleep(150);
+        },
+      );
+      console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(state.name)));
+    }
+
     // the ARCHIVE OVERLAY of the real panel. Open the harness, click the bottom
     // Archived (N) row to open the in-panel Archive sub-page, wait for its gray-glow
     // search box and the archived rows (the harness echoes a synthetic archivedRows
