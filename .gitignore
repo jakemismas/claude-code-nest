@@ -18,3 +18,7 @@ src/__lintprobe/
 .claude/settings.local.json
 .vscode/
 media/focus-glow-demo.html
+.claude/sprint/
+# Suite session hooks wait for the owner's decision; kept local until then.
+.claude/settings.json
+.slice-build-state.json

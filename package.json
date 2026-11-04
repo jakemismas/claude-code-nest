@@ -408,7 +408,8 @@
     "test": "mocha",
     "test:integration": "node ./out/test/integration/runTest.js",
     "fidelity": "node ./scripts/fidelity/screenshot.js",
-    "package": "vsce package --no-dependencies -o nest-build-check.vsix"
+    "package": "vsce package --no-dependencies -o nest-build-check.vsix",
+    "check:private": "node scripts/private-words/check.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",
