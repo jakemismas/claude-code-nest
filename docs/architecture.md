@@ -25,46 +25,96 @@ modules.
 | `src/claude/chatScanner.ts` | The only code that lists transcript files. Scans `*.jsonl` read-only. |
 | `src/claude/bodyReader.ts` | Reads one chat's messages on demand and discards them. |
 | `src/claude/projectKeyResolver.ts` | Maps a workspace folder to the project directory name Claude Code uses. |
-| `src/model/` | Pure data types and helpers: id minting (`idFactory`), `folderTree`, `occurrence`, `untagged`, `links`, `questionHeuristic`, `types`. |
+| `src/claude/agentsCli.ts` | The only module that imports `child_process`. Runs `claude agents --json` through `execFile` and parses the output. |
+| `src/model/types.ts` | Chat record and token total types shared by the pure modules. |
+| `src/model/idFactory.ts` | Mints folder, tag and link ids and reserves the sentinel ids. |
+| `src/model/folderTree.ts` | Folder tree helpers: paths, depth, ancestors, cycle checks. |
+| `src/model/occurrence.ts` | Tracks where a chat appears across folders, tags and smart groups. |
+| `src/model/untagged.ts` | Computes the effective tags of a chat and the untagged set. |
+| `src/model/links.ts` | Link resolution between chats, including linked children. |
+| `src/model/questionHeuristic.ts` | Decides whether the last assistant turn reads as a question. |
 | `src/store/metadataStore.ts` | Synced per-project metadata document and the per-device local document. |
-| `src/store/schema.ts`, `schemaMigrate.ts` | Document shape, migration, and the per-field last-writer-wins merge. |
-| `src/store/reconcile.ts`, `reconcileSync.ts` | Re-attach orphaned records, and merge changes written by another machine. |
-| `src/store/exportImport.ts`, `autoExport.ts` | Build, validate and merge the JSON backup, plus the optional automatic snapshot. |
+| `src/store/schema.ts` | Document shape, validation, clamping and the per-field last-writer-wins merge. |
+| `src/store/schemaMigrate.ts` | Upgrades older stored documents to the current schema version. |
+| `src/store/reconcile.ts` | Decides how orphaned records re-attach after a fresh scan. |
+| `src/store/reconcileSync.ts` | Merges changes written by another machine against the shadow copy. |
+| `src/store/exportImport.ts` | Builds, validates and merges the JSON backup. |
+| `src/store/autoExport.ts` | Retention policy for the optional automatic snapshot. |
 | `src/store/exportIO.ts` | Write chokepoint for Nest's own files (global storage and user-chosen export paths). |
 | `src/store/exportPathGuard.ts` | Refuses any target under `~/.claude/projects`. |
-| `src/store/archiveBodyStore.ts`, `archiveRetention.ts` | Nest's own copy of archived chat bodies, and how long to keep them. |
-| `src/store/autoArchiveEngine.ts`, `autoArchivePolicy.ts` | Optional archive of chats that have been idle past a window. |
+| `src/store/archiveBodyStore.ts` | Nest's own copy of archived chat bodies. |
+| `src/store/archiveRetention.ts` | How long archived bodies are kept. |
+| `src/store/autoArchiveEngine.ts` | Applies the idle-chat archive policy. |
+| `src/store/autoArchivePolicy.ts` | Decides which chats have been idle past the archive window. |
 | `src/store/deviceId.ts` | Stable per-install id used to stamp edits. |
 | `src/settings/claudeSettingsIO.ts` | Write chokepoint for Claude Code's `settings.json` (the retention setting only). |
-| `src/fleet/` | Read-only fleet input: `types`, `fleetRecord` (pure parse and fold), `fleetSource` (the only reader of `dev/fleet.jsonl`), `fleetReloader` (debounce), `fleetWatcher` (the one file that imports `vscode`). |
-| `src/fleet/` (layout file) | `nestConfig` (pure parse and validate), `configSource` (the only reader of `.nest/config.json`, with a debounced reloader), `placement` (pure group precedence). |
-| `src/claude/agentsCli.ts` | The only module that imports `child_process`. Runs `claude agents --json` through `execFile` and parses the output. |
-| `src/fleet/` (group model) | `groupModel` (pure: turns chats, fleet state, statuses, the queue and the group-by mode into panel sections), `suffix` (pure: the short text after a chat row's agent tag). |
-| `src/fleet/` (live status) | `status` (pure status mapping and rollup), `queueTable` (pure Markdown table parser), `queueSource` (the only reader of the queue file), `agentsPoller` (poll scheduler with an injected clock and runner). |
-| `src/fleet/robinState.ts` | Pure state machine for the header robin: inputs, clock and random source in, one state out. |
-| `src/views/fleetPanel.ts` | Pure: turns the group model's sections into the display-ready groups and rows the webview draws. |
-| `src/commands/openLayoutFile.ts`, `src/commands/openLayoutFileHost.ts` | `openLayoutFile` opens the layout file in the editor and writes nothing. `openLayoutFileHost` wires it to the host editor APIs. |
 | `src/fleet/types.ts` | Fleet record version, event names, field limits and the session id grammar, with the record types. |
-| `media/readme/robin.svg` | Static robin illustration shown in the README. |
+| `src/fleet/fleetRecord.ts` | Pure parse of one fleet line and fold of records into fleet state. |
+| `src/fleet/fleetSource.ts` | The only reader of `dev/fleet.jsonl`. |
+| `src/fleet/fleetReloader.ts` | Debounced fleet reload, one load at a time. |
+| `src/fleet/fleetWatcher.ts` | File watcher shells for the fleet, layout and queue files. The one fleet file that imports `vscode`. |
+| `src/fleet/singleFlight.ts` | Runs a task one at a time and collapses overlapping requests into one follow-up run. |
+| `src/fleet/nestConfig.ts` | Pure parse and validation of the layout file. |
+| `src/fleet/configSource.ts` | The only reader of `.nest/config.json`, with a debounced reloader. |
+| `src/fleet/placement.ts` | Pure group precedence for a chat. |
+| `src/fleet/groupByOverride.ts` | Pure key, coercion and inbound gate for the per-workspace Group chats by override. |
+| `src/fleet/groupModel.ts` | Pure: turns chats, fleet state, statuses, the queue and the group-by mode into panel sections. |
+| `src/fleet/suffix.ts` | Pure: the short text after a chat row's agent tag. |
+| `src/fleet/status.ts` | Pure status mapping, rollup and the attachable check. |
+| `src/fleet/queueTable.ts` | Pure Markdown table parser for the queue. |
+| `src/fleet/queueSource.ts` | The only reader of the queue file, with a debounced reloader that the extension watches. |
+| `src/fleet/agentsPoller.ts` | Poll scheduler for the live session list, with an injected clock and runner. |
+| `src/fleet/robinState.ts` | Pure state machine for the header robin: inputs, clock and random source in, one state out. |
 | `src/fleet/rules.ts` | Pure organize rules: compile, first-match, folder templates, the Preview plan, the hand-filed guard and the Undo plan. |
 | `src/commands/organizeCommands.ts` | Preview, Apply and Undo. Imports no `vscode`. Writes only through the metadata store, after the reconcile barrier. |
-| `schemas/nest-config.schema.json` | JSON schema for the layout file, shipped in the extension. |
-| `src/search/` | Full-text index (`searchIndex`), its persistence (`searchStore`), and the vendored MiniSearch build. |
-| `src/smart/` | Signal extraction (PR, ticket, branch, fork lineage) used to suggest groups. |
+| `src/commands/openLayoutFile.ts` | Opens the layout file in the editor and writes nothing. |
+| `src/commands/openLayoutFileHost.ts` | Wires `openLayoutFile` to the host editor APIs. |
+| `src/commands/folderCommands.ts` | Create, rename, recolor and delete folders. |
+| `src/commands/tagCommands.ts` | Create, rename, recolor and delete tags. |
+| `src/commands/taggingCommands.ts` | Add and remove tags on chats. |
+| `src/commands/linkCommands.ts` | Create and remove links between chats. |
+| `src/commands/curationCommands.ts` | Star, archive and restore chats. |
+| `src/commands/exportChatCommands.ts` | Export one chat to Markdown or JSON. |
+| `src/commands/exportImportCommands.ts` | Backup export, import and automatic snapshot commands. |
+| `src/commands/previewChatCommand.ts` | Previews a chat or an archived body. |
+| `src/commands/promoteSmartGroup.ts` | Turns a smart-group bucket into a real folder or tag. |
+| `src/commands/refreshScanCommands.ts` | The cancellable Refresh scan. |
+| `src/commands/tokenRollupCommand.ts` | Shows the token usage report. |
+| `src/search/searchIndex.ts` | Full-text index over chats. |
+| `src/search/searchStore.ts` | Persists the search index in global storage. |
+| `src/search/vendor/` | The vendored MiniSearch build. |
+| `src/smart/smartGroupEngine.ts` | Combines the signals into suggested groups. |
+| `src/smart/signals/` | One extractor each for PR, ticket, branch and fork lineage, plus the shared bucket shape. |
 | `src/export/chatExport.ts` | Renders one chat as Markdown or JSON. |
-| `src/rollup/` | Token usage totals and the report built from them. |
-| `src/launch/` | Opens or starts a chat in Claude Code through its URI handler and commands. |
+| `src/rollup/tokenRollup.ts`, `rollupReport.ts` | Token usage totals by folder and tag, and the report built from them. |
+| `src/launch/uriLauncher.ts` | Opens or resumes a chat through the Claude Code URI handler. |
+| `src/launch/newSessionLauncher.ts` | Starts a new Claude Code chat. |
 | `src/launch/attachLauncher.ts` | Pure launcher for Open in terminal. Takes an injected terminal factory, checks the session id, and builds a terminal whose shell is `claude` with the arguments `attach <id>`. Imports no `vscode` and no `child_process`. |
-| `src/dnd/` | Drag-and-drop interpretation (`dropReducer`) and the adapter for webview drops. |
-| `src/commands/` | Thin command handlers (folders, tags, links, curation, export, import, preview, refresh). |
+| `src/dnd/dropReducer.ts` | Pure interpretation of a drop into store mutations. |
+| `src/dnd/dropPayload.ts` | Pure recovery of dragged chat ids from drag data. |
+| `src/dnd/dragContext.ts` | In-process carrier for a drag between views. |
+| `src/dnd/dndController.ts` | Tree view drag-and-drop controller. |
+| `src/dnd/webviewDropAdapter.ts` | Adapter that applies webview drops through the reducer. |
 | `src/views/orgPanelWebview.ts` | The webview host: builds the HTML shell, handles messages, pushes data. |
 | `src/views/orgPanelModel.ts` | Pure functions that turn records and metadata into the rows the panel draws. |
-| `src/views/` (other files) | Panel helpers (`readState`, `chatMeta`, `chatTooltip`, `relativeTime`, `tabFocusMatch`) and service providers for folders and tags. |
+| `src/views/orgPanelInteractions.ts`, `orgPanelCollapse.ts` | Pure kernels for panel interactions and the collapse-one-level control. |
+| `src/views/fleetPanel.ts` | Pure: turns the group model's sections into the display-ready groups and rows the webview draws. |
+| `src/views/readState.ts`, `chatMeta.ts`, `chatTooltip.ts`, `relativeTime.ts`, `tabFocusMatch.ts` | Panel helpers: unread markers, per-chat metadata, tooltips, relative times and matching open editor tabs to chats. |
+| `src/views/foldersProvider.ts`, `tagsProvider.ts`, `linkDecoration.ts` | Tree providers for folders and tags, and link decorations. |
 | `src/ui/tagQuickPick.ts` | The tag picker shown from commands. |
-| `media/orgPanel.js`, `media/orgPanel.css` | The webview UI. Plain JavaScript, no framework. |
+| `media/orgPanel.js` | The webview UI. Plain JavaScript, no framework. |
+| `media/orgPanel.css` | Styles for the webview. |
+| `media/robinArt.js` | The robin pixel grids that the webview and the README script both draw. |
+| `media/readme/` | README images, including the static robin illustrations. |
+| `schemas/nest-config.schema.json` | JSON schema for the layout file, shipped in the extension. |
 | `src/test/integration/vscodeExecutable.ts` | Finds the VS Code executable in a downloaded build, with an injected file probe so unit tests skip the downloader. |
-| `scripts/fidelity/` | Screenshot harness (development only). |
-| `scripts/private-words/` | Maintainer's push check (development only). |
+
+Scripts (development only):
+
+- `scripts/fidelity/` renders the panel with made-up data and screenshots it.
+- `scripts/private-words/` is the maintainer's push check.
+- `scripts/readme/robin.js` builds the README robin images from `media/robinArt.js`.
+- `scripts/docs-retired.test.js` checks the docs for dead links and retired surfaces.
 
 ## Data flow
 
@@ -150,8 +200,10 @@ state. Nest never writes a fleet record.
   `previous` and that has not ended. Every other orchestrator is past, newest first.
   A `backfill` record creates an entry like `launch` but is flagged so it never
   counts as a new pickup.
-- `fleetReloader.ts` debounces watcher events by 250 ms, then reloads. The clock and
-  the watcher are injected, so unit tests use a fake clock. `fleetWatcher.ts` is
+- `fleetReloader.ts` debounces watcher events by 250 ms, then reloads. Reloads run
+  one at a time through `singleFlight.ts`: a request that arrives during a reload
+  causes exactly one follow-up reload, so a stalled filesystem call never stacks up
+  loads. The clock and the watcher are injected, so unit tests use a fake clock. `fleetWatcher.ts` is
   wired from `extension.ts` and is covered by `npm run test:integration`.
 - The panel renders the fleet record through the fleet message described under Fleet panel.
 
@@ -178,8 +230,8 @@ never writes, creates, renames or deletes it. You edit it in the editor.
   path, one scan per folder, merged by session id (the workspace copy wins).
   Metadata stays under the window's project key. The `dev/fleet.jsonl` file of each
   linked folder and every `fleet.files` entry feed the same `fleetSource` list.
-- The reloader debounces watcher events by 150 ms, then reloads. The clock and the
-  watcher are injected. On a reload, `extension.ts` recomputes linked folders and
+- The reloader debounces watcher events by 150 ms, then reloads one at a time with
+  one follow-up, like the fleet reloader. The clock and the watcher are injected. On a reload, `extension.ts` recomputes linked folders and
   fleet paths, re-creates the fleet watchers only when the resolved path list
   changed, reloads fleet state and refreshes the panel.
 - `placement.ts` picks a chat's group in this order: a folder you filed it in by
@@ -242,9 +294,11 @@ idle. The panel draws them as the dots described under Fleet panel.
   else is idle. Only sessions whose id matches a chat or fleet entry in the panel
   affect status.
 - `agentsPoller.ts` polls every 10 seconds while the panel is visible and every 60
-  seconds otherwise. It never runs two polls at once and stops on dispose. When the
-  command is missing or fails, Nest logs once, shows no message, derives status from
-  transcripts and fleet records only, and retries every 5 minutes.
+  seconds otherwise. It never runs two polls at once and stops on dispose. A transient
+  failure (a timeout or a non-zero exit) keeps the last good
+  sessions and retries at the normal cadence. When the `claude` binary is missing, or
+  the workspace is untrusted, Nest logs once, shows no message, derives status from
+  transcripts and fleet records only, and backs off to one retry every 5 minutes.
 - `queueTable.ts` reads the first Markdown table whose header has the configured key
   and stage columns. It keeps row order, caps rows at 500 and cells at 200
   characters, and returns an empty list when the table or columns are missing.
@@ -252,7 +306,9 @@ idle. The panel draws them as the dots described under Fleet panel.
   `.nest/config.json`. It resolves `~` and relative paths against the first workspace
   folder, skips a file over 256 KB, drops a path that resolves into
   `~/.claude/projects` (by path or realpath), and is ignored in an untrusted
-  workspace. Nest never writes the queue.
+  workspace. Nest never writes the queue. The extension watches the file, and a
+  create, change or delete reloads it after a 250 ms debounce, one load at a time with
+  one follow-up. A change to `queue.file` in the layout file moves the watch.
 - ESLint restricts `child_process` imports to `src/claude/agentsCli.ts`. The test tree
   is exempt.
 
