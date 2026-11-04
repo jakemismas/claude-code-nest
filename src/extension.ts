@@ -146,6 +146,8 @@ import { AgentsResult, execFileRunner, listAgentSessions } from './claude/agents
 import { AgentsPoller } from './fleet/agentsPoller';
 import { loadQueueRows } from './fleet/queueSource';
 import { expandLinkedFolders, resolveFleetFileEntries } from './fleet/nestConfig';
+import { GROUP_BY_OVERRIDE_KEY, effectiveGroupBy } from './fleet/groupByOverride';
+import { EMPTY_FLEET_STATE, FleetState } from './fleet/types';
 import { OPEN_LAYOUT_FILE_COMMAND, openLayoutFile } from './commands/openLayoutFile';
 import { createOpenLayoutDeps } from './commands/openLayoutFileHost';
 import { resolveFolderName, resolveStarred, resolveTagLabels } from './views/chatMeta';
@@ -1452,15 +1454,24 @@ export function activate(context: vscode.ExtensionContext): void {
     ...fleetFilePaths([...workspaceFolderPaths(), ...linkedFolders]),
     ...extraFleetFiles,
   ];
+  let lastFleetState: FleetState = EMPTY_FLEET_STATE;
+  const applyLayout = (): void => {
+    orgPanelProvider.setLayout({
+      linkedFolders,
+      groupBy: effectiveGroupBy(
+        orgPanelStateStore.get(GROUP_BY_OVERRIDE_KEY),
+        configReloader.getParsed().config.groupBy,
+      ),
+      fleet: lastFleetState,
+    });
+    refreshOrgPanel();
+  };
+  orgPanelProvider.onGroupByOverrideChange(applyLayout);
   const fleetReloader = new FleetReloader({
     getPaths: computeFleetPaths,
     onChange: (state) => {
-      orgPanelProvider.setLayout({
-        linkedFolders,
-        groupBy: configReloader.getParsed().config.groupBy,
-        fleet: state,
-      });
-      refreshOrgPanel();
+      lastFleetState = state;
+      applyLayout();
     },
     warn: (message) => console.warn(message),
   });

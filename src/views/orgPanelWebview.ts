@@ -6,6 +6,8 @@ import { ChatStatus, attachableSessionIds, computeStatuses } from '../fleet/stat
 import { FleetSections, buildFleetSections } from '../fleet/groupModel';
 import type { QueueRow } from '../fleet/queueTable';
 import { GroupBy } from '../fleet/nestConfig';
+import { OPEN_LAYOUT_FILE_COMMAND } from '../commands/openLayoutFile';
+import { GROUP_BY_OVERRIDE_KEY, coerceGroupByOverride, coerceSettingsInbound } from '../fleet/groupByOverride';
 import { EMPTY_FLEET_STATE, FleetState } from '../fleet/types';
 import { INITIAL_ROBIN_MEMORY, RobinMemory, RobinOutput, buildRobinMessage, buildRobinSignals, stepRobin } from '../fleet/robinState';
 import { DEFAULT_STAGE_STYLE, StageStyleConfig, buildFleetMessage, coerceSetActive } from './fleetPanel';
@@ -149,6 +151,10 @@ type Inbound =
   // Active projection and posts them back; nothing is persisted.
   | { type: 'setActive'; active: boolean }
   | { type: 'setAutoArchiveWindow'; days: number }
+  // Group-by override (enum-checked at coerce; auto clears it) and the robin animations toggle.
+  | { type: 'setGroupBy'; mode: GroupBy }
+  | { type: 'setRobinAnimations'; on: boolean }
+  | { type: 'openLayoutFile' }
   | {
       type: 'setSectionsVisible';
       starred?: boolean;
@@ -454,6 +460,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     }
     this.lastRobinJson = '';
     this.postRobin();
+    this.postSettings();
   }
 
   disposeRobin(): void {
@@ -602,6 +609,13 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private fleetState: FleetState = EMPTY_FLEET_STATE;
   private sourceByChat: ReadonlyMap<string, string> = new Map();
 
+  private groupByOverrideListener: (() => void) | undefined;
+
+  // The host re-applies the layout when the per-workspace override changes.
+  onGroupByOverrideChange(listener: () => void): void {
+    this.groupByOverrideListener = listener;
+  }
+
   setLayout(layout: { linkedFolders: readonly string[]; groupBy: GroupBy; fleet: FleetState }): void {
     this.linkedFolders = layout.linkedFolders;
     this.groupBy = layout.groupBy;
@@ -719,6 +733,17 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       this.onSetAutoArchiveWindow(msg.days);
     } else if (msg.type === 'setSectionsVisible') {
       this.onSetSectionsVisible(msg);
+    } else if (msg.type === 'setGroupBy') {
+      this.stateStore.set(GROUP_BY_OVERRIDE_KEY, msg.mode);
+      this.postSettings();
+      this.groupByOverrideListener?.();
+    } else if (msg.type === 'openLayoutFile') {
+      void vscode.commands.executeCommand(OPEN_LAYOUT_FILE_COMMAND);
+    } else if (msg.type === 'setRobinAnimations') {
+      // The configuration listener in the host re-posts the robin and the settings state.
+      void vscode.workspace
+        .getConfiguration('claudeNest')
+        .update('robin.animations', msg.on, vscode.ConfigurationTarget.Global);
     }
   }
 
@@ -994,6 +1019,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       type: 'settings',
       autoArchiveWindowDays: this.readAutoArchiveWindowDays(),
       sectionsVisible: this.readSectionsVisible(),
+      groupByOverride: coerceGroupByOverride(this.stateStore.get(GROUP_BY_OVERRIDE_KEY)) ?? 'auto',
+      robinAnimations: this.robinAnimations(),
     });
   }
 
@@ -1477,6 +1504,10 @@ function coerce(raw: unknown): Inbound | null {
   if (typeof raw !== 'object' || raw === null) {
     return null;
   }
+  const settingsMsg = coerceSettingsInbound(raw);
+  if (settingsMsg !== null) {
+    return settingsMsg;
+  }
   const obj = raw as {
     type?: unknown;
     sessionId?: unknown;
@@ -1503,6 +1534,9 @@ function coerce(raw: unknown): Inbound | null {
   };
   if (obj.type === 'ready') {
     return { type: 'ready' };
+  }
+  if (obj.type === 'openLayoutFile') {
+    return { type: 'openLayoutFile' };
   }
   if (obj.type === 'refresh') {
     return { type: 'refresh' };

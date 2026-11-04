@@ -8,6 +8,10 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Settings gains a Group chats by control (auto, tickets, folders, date), an Open
+  layout file row and a Robin animations toggle. The grouping choice is stored per
+  workspace and takes precedence over the layout file's `groupBy`. Choosing auto
+  returns to the layout file's value.
 - The header robin reacts to live fleet state: it pecks while chats work (faster with
   more of them, with a pixel note for each), catches a worm on a new ticket, tilts and
   asks when a chat needs you, celebrates a finished chat or ticket, ruffles when

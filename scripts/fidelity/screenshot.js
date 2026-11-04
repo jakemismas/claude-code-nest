@@ -719,9 +719,9 @@ async function main() {
           page,
           "(function(){var o=document.querySelector('.nest-settings-overlay');" +
             "return !!o && !!o.querySelector('.nest-settings-select') && " +
-            "o.querySelectorAll('.nest-switch').length === 4;})()",
+            "o.querySelectorAll('.nest-switch').length === 5 && o.querySelectorAll('.nest-seg-opt').length === 4;})()",
           10000,
-          'harness Settings overlay to render with the select and four switches',
+          'harness Settings overlay to render with the select, group-by control and five switches',
         );
         await sleep(150);
       },
