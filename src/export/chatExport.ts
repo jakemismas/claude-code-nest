@@ -1,25 +1,11 @@
 import { ChatRecord } from '../model/types';
 import { ChatMessageBody } from '../claude/bodyReader';
 
-// PURE, vscode-free formatters for the per-chat export. Two renderers: renderMarkdown
-// (YAML front-matter org layer + a readable body) and renderJson (a single
-// round-trippable JSON document). Both take only plain data (a ChatRecord plus its
-// resolved org layer plus the ordered bodies from bodyReader), so they stay in the
-// headless unit gate and the command layer wraps the write through exportIO. Nothing here
-// touches the filesystem or vscode.  FRONT-MATTER ESCAPING: the export front-matter
-// carries user/transcript-derived strings (title, tags, folder name). A title containing
-// a colon, a quote, a newline, or a leading '---' must not break the document or inject a
-// second front-matter block. The JSON formatter gets this for free via JSON.stringify;
-// the Markdown front-matter does NOT, so every scalar is emitted as a DOUBLE-QUOTED YAML
-// string with its backslashes, quotes, and control characters escaped (yamlQuote), and
-// the closing fence is the only '---' a parser can find at column 0 inside the block.
-// chatTooltip.ts solves the markdown-injection twin with escapeMarkdown; this is the YAML
-// twin.
+// Pure formatters for the per-chat export: renderMarkdown (YAML front matter plus body) and renderJson.
+// They take plain data only, so they run without vscode or the filesystem.
+// Every front-matter scalar is double-quoted and escaped (yamlQuote) so a title cannot inject a second block.
 
-// The resolved org layer for one exported chat: the plain folder name (null when
-// unfiled), the full tag label set, the starred flag, and the link target chat ids.
-// The command layer resolves these from ProjectMeta (chatMeta resolvers) before
-// calling a formatter, so the formatter stays vscode-free and store-free.
+// The resolved org layer for one exported chat (folder name, tags, star, link ids), built by the caller so formatters stay store-free.
 export interface ExportOrgLayer {
   folder: string | null;
   tags: readonly string[];
@@ -27,8 +13,7 @@ export interface ExportOrgLayer {
   links: readonly string[];
 }
 
-// The token total summary the export header carries: the four trusted summary counts plus
-// their sum. tokens only, NO USD.
+// Token totals in the export header: the four summary counts plus their sum (tokens only, no USD).
 interface ExportTokenSummary {
   total: number;
   input: number;
@@ -66,10 +51,8 @@ export interface ChatExportJson {
 
 const EXPORT_VERSION = 1;
 
-// Render one chat to Markdown: a YAML front-matter block carrying the org layer and
-// token total, then the chat title as a heading, then the ordered turns as labelled
-// paragraphs. A textless turn renders a compact placeholder (mirrors the preview
-// formatter) so the turn sequence stays honest without dumping tool payloads.
+// Render one chat to Markdown: YAML front matter, the title heading, then labelled turns.
+// A textless turn becomes a placeholder so the sequence stays honest without tool payloads.
 export function renderMarkdown(
   record: ChatRecord,
   org: ExportOrgLayer,
@@ -78,9 +61,7 @@ export function renderMarkdown(
   const tokens = tokenSummary(record);
   const lines: string[] = [];
 
-  // YAML front-matter. Every scalar is double-quoted-and-escaped so no value can
-  // break the block or inject a second '---'. Sequences (tags, links, models) are
-  // rendered as quoted flow arrays for the same reason.
+  // Quote and escape every scalar so no value can break the block or inject a second '---'.
   lines.push('---');
   lines.push('title: ' + yamlQuote(record.title));
   lines.push('sessionId: ' + yamlQuote(record.sessionId));
@@ -100,15 +81,12 @@ export function renderMarkdown(
   lines.push('---');
   lines.push('');
 
-  // Body. The title heading is escaped for markdown so it cannot render as markup
-  // (mirrors chatTooltip.escapeMarkdown intent). A '#' prefix plus the escaped title.
+  // Escape the title so transcript text cannot render as markup.
   lines.push('# ' + escapeMarkdownInline(record.title));
   lines.push('');
 
   if (bodies.length === 0) {
-    // No-body case: the front-matter still carries the full org layer; the body section
-    // states the transcript had no readable messages rather than rendering an empty
-    // document.
+    // Say the transcript had no readable messages rather than emit an empty body.
     lines.push('_No readable messages in this transcript._');
     lines.push('');
   } else {
@@ -127,8 +105,7 @@ export function renderMarkdown(
   return lines.join('\n').trimEnd() + '\n';
 }
 
-// Render one chat to a single round-trippable JSON document. JSON.stringify handles
-// all string escaping, so a title with a colon/quote/newline is safe by construction.
+// Render one chat to a round-trippable JSON document; JSON.stringify handles all escaping.
 export function renderJson(
   record: ChatRecord,
   org: ExportOrgLayer,
@@ -171,8 +148,7 @@ function roleHeading(role: 'user' | 'assistant'): string {
   return role === 'user' ? 'You' : 'Claude';
 }
 
-// Render a number for YAML, defaulting a non-finite value to 0 so the block stays
-// valid. Used for counts and token totals (always integers here).
+// Render a number for YAML, mapping a non-finite value to 0 so the block stays valid.
 function yamlNumber(value: number): string {
   return Number.isFinite(value) ? String(value) : '0';
 }
@@ -182,9 +158,7 @@ function yamlNumberOrNull(value: number | null): string {
   return value === null || !Number.isFinite(value) ? 'null' : String(value);
 }
 
-// Render a string array as a YAML flow sequence of double-quoted, escaped scalars,
-// e.g. ["a", "b"]. An empty array renders as []. Each element is escaped so no tag
-// or link id can break the block.
+// Render a string array as a YAML flow sequence of escaped scalars, for example ["a", "b"].
 function yamlFlowArray(values: readonly string[]): string {
   if (values.length === 0) {
     return '[]';
@@ -192,11 +166,7 @@ function yamlFlowArray(values: readonly string[]): string {
   return '[' + values.map((v) => yamlQuote(v)).join(', ') + ']';
 }
 
-// Double-quote-and-escape a string for YAML. A double-quoted YAML scalar escapes the
-// backslash and the double-quote with a backslash, and control characters (newline,
-// carriage return, tab) with their YAML escapes, so a value containing a colon, a
-// quote, a newline, or a leading '---' is contained entirely on its own quoted line
-// and cannot terminate the front-matter block or inject a second one.
+// Double-quote a string for YAML, escaping backslash, quote and control characters so a value stays on one line.
 function yamlQuote(value: string): string {
   let out = '"';
   for (const ch of value) {

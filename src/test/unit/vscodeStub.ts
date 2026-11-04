@@ -1,18 +1,6 @@
-// A minimal headless stub of the `vscode` module, installed into the Node require
-// cache so the vscode-importing command/IO modules (exportImportCommands,
-// exportIO) can be loaded and EXERCISED under the plain mocha unit runner (no
-// vscode host). Only the narrow surface those modules touch is implemented:
-// window message toasts, the open dialog, Uri, and a workspace.fs.readFile backed
-// by an in-memory file map. Every interaction is recorded on the exported
-// `vscodeHarness` so tests can script responses and assert what was shown.
-//
-// This exists so the ORCHESTRATION functions (reconcileAllProjects, importLibrary)
-// can be tested as they actually run -- including the post-flush shadow-finalize
-// ordering whose regression a hand-replay of the steps could not catch -- rather
-// than only re-playing their internals by hand.
-//
-// Import this module BEFORE requiring any module that imports 'vscode'. The
-// install is idempotent and happens at import time.
+// Minimal headless stub of the `vscode` module, installed into the Node require cache so modules that import
+// vscode (exportImportCommands, exportIO) run under the plain mocha runner. Every interaction is recorded on
+// `vscodeHarness` so tests can script responses and assert what was shown. Import it before any vscode importer.
 
 interface FakeUri {
   fsPath: string;
@@ -26,38 +14,29 @@ interface ShownMessage {
 }
 
 class VscodeHarness {
-  // Recorded toasts, in order, across all three severities.
+  // Recorded toasts, in order, across all severities.
   readonly messages: ShownMessage[] = [];
 
-  // Scripted response for the next showOpenDialog call. When set to a path the
-  // dialog "returns" that single Uri; when null/undefined it returns undefined
-  // (the user cancelled).
+  // Scripted response for the next showOpenDialog: a path returns that Uri, null or undefined means cancelled.
   openDialogResult: string | null | undefined = undefined;
 
-  // In-memory file contents keyed by fsPath, served by workspace.fs.readFile.
   readonly files = new Map<string, string>();
 
-  // Force readFile to reject (simulate an unreadable file), keyed by fsPath.
   readonly readErrors = new Set<string>();
 
-  // Recorded workspace.fs.writeFile calls, in order, with the decoded content.
-  // Lets a test count snapshot writes (debounce/coalesce) and inspect payloads.
+  // Recorded writeFile calls with decoded content, so tests can count snapshot writes.
   readonly writes: { path: string; content: string }[] = [];
 
-  // Force writeFile to reject (simulate a write failure), keyed by fsPath. Used to
-  // prove the auto-export best-effort swallow does not throw.
+  // Forces writeFile to reject, keyed by fsPath.
   readonly writeErrors = new Set<string>();
 
-  // Recorded workspace.fs.createDirectory and delete calls, in order.
   readonly createdDirs: string[] = [];
   readonly deletes: string[] = [];
 
-  // Force delete to reject (simulate a prune delete failure), keyed by fsPath.
-  // Used to prove the auto-export prune swallows an individual delete failure.
+  // Forces delete to reject, keyed by fsPath.
   readonly deleteErrors = new Set<string>();
 
-  // Scripted directory listings for workspace.fs.readDirectory, keyed by dir
-  // fsPath. Absent dirs list as empty (matching the default stub).
+  // Scripted directory listings keyed by dir fsPath; absent dirs list as empty.
   readonly dirEntries = new Map<string, [string, number][]>();
 
   reset(): void {
@@ -97,10 +76,7 @@ function makeUri(fsPath: string): FakeUri {
 
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 
-// Minimal TreeView/Webview primitives so a provider module (foldersProvider,
-// archiveProvider, chatTooltip) that extends/constructs these can be require()d
-// under the headless runner. Only the construction surface those modules touch is
-// implemented.
+// Minimal TreeView and Webview primitives so provider modules can be required headless.
 const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
 
 class TreeItem {
@@ -130,9 +106,7 @@ class ThemeIcon {
   }
 }
 
-// Minimal ThemeColor so a provider module (linkDecoration, reached transitively by
-// foldersProvider) that constructs a themed icon color can be require()d under the
-// headless runner. Only the construction surface is implemented.
+// Minimal ThemeColor so providers that build themed icon colors can be required headless.
 class ThemeColor {
   id: string;
   constructor(id: string) {
@@ -230,10 +204,8 @@ const fakeVscode = {
   },
 };
 
-// Install the stub into the module loader so `require('vscode')` resolves to it.
-// Idempotent: only patches once even if imported by several test files. Use the
-// CommonJS require('module') object (whose _load is a writable own property), NOT
-// an ESM `import * as` namespace, which is a frozen getter-only object.
+// Patch the module loader once so require('vscode') resolves to the stub. Use the CommonJS module object,
+// whose _load is writable; an ESM namespace import is frozen.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const moduleAny = require('module') as {
   _load?: (request: string, parent: unknown, isMain: boolean) => unknown;

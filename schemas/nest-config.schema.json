@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nest-config.schema.json",
+  "title": "Claude Code Nest layout file",
+  "description": "Settings Nest reads from .nest/config.json. Nest never writes this file.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "The schema this file follows."
+    },
+    "groupBy": {
+      "type": "string",
+      "enum": ["auto", "tickets", "folders", "date"],
+      "default": "auto",
+      "description": "How chats you have not filed, or moved to Unsorted, by hand are grouped."
+    },
+    "rules": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Ordered organize rules. The first rule that matches a chat decides its folder, tags and pin. Use Preview, then Apply, in Settings.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "match": {
+            "type": "object",
+            "description": "Every condition must hold.",
+            "properties": {
+              "role": { "type": "string", "maxLength": 200 },
+              "agent": { "type": "string", "maxLength": 200 },
+              "ticket": {
+                "description": "true for any ticket, or a regular expression. false is not accepted and turns the rule off.",
+                "oneOf": [{ "const": true }, { "type": "string", "maxLength": 200 }]
+              },
+              "name": { "type": "string", "maxLength": 200, "description": "A regular expression." },
+              "cwd": { "type": "string", "maxLength": 200, "description": "A glob where * matches any run of characters." }
+            },
+            "additionalProperties": false
+          },
+          "folder": {
+            "type": "string",
+            "description": "A folder name. Fields: {ticket}, {title}, {agent}, {role}, {subfolder}. One slash makes a sublevel."
+          },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "pin": { "type": "boolean" }
+        },
+        "required": ["match"],
+        "additionalProperties": true
+      }
+    },
+    "tags": {
+      "type": "object",
+      "description": "Tag name to hex color.",
+      "maxProperties": 100,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+      }
+    },
+    "linkedFolders": {
+      "type": "array",
+      "maxItems": 50,
+      "description": "Other folders whose chats and fleet records appear here. Use an absolute path or a path that starts with ~. A * is allowed in the last segment only.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "queue": {
+      "type": "object",
+      "description": "A Markdown table that lists queued work.",
+      "properties": {
+        "file": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "keyColumn": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "stageColumn": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "titleColumn": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "required": ["file", "keyColumn", "stageColumn"],
+      "additionalProperties": false
+    },
+    "fleet": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "maxItems": 50,
+          "description": "Extra fleet record files to read.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "doneStages": {
+      "type": "array",
+      "maxItems": 50,
+      "default": ["Done"],
+      "description": "Queue stage names that count as done.",
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    }
+  },
+  "additionalProperties": true
+}

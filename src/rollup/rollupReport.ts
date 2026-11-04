@@ -1,14 +1,9 @@
 import { RollupResult } from './tokenRollup';
 
-// PURE, vscode-free renderer for the token-cost rollup report. The command layer builds
-// the by-folder and by-tag RollupResults from the reducer and hands them here; this
-// returns the plain-text report the command opens in a read-only document. vscode-free so
-// the headless gate covers the exact wording, including the multi-tag-can-exceed-library
-// note that keeps the tag rollup from reading as a bug.
+// Pure renderer for the token-cost rollup report; returns the plain text the command opens.
+// The tag section notes that tag totals can exceed the library total, so it does not read as a bug.
 
-// Render the full rollup report: a by-folder section (a true partition) and a by-tag
-// section (intentionally not a partition). The tag section carries the explicit note
-// that tokens-by-tag can exceed the library total when chats are multi-tagged.
+// Render the report: by-folder (a partition) and by-tag (not a partition, with an explicit note).
 export function renderRollupReport(byFolder: RollupResult, byTag: RollupResult): string {
   const lines: string[] = [];
   lines.push('Claude Code Nest: token cost rollup');
@@ -26,10 +21,7 @@ export function renderRollupReport(byFolder: RollupResult, byTag: RollupResult):
   lines.push('By tag (each chat counted once per each of its tags):');
   appendBuckets(lines, byTag);
   lines.push('');
-  // The intentional non-partition note. A multi-tag chat's tokens add to EVERY one of
-  // its tag buckets, so the tag buckets can sum to MORE than the library total. This
-  // is by design (a chat's cost is attributable to each of its tags); the note keeps
-  // the surface from reading as a double-count bug.
+  // A multi-tag chat counts toward every tag, so tag buckets can sum past the library total; say so.
   lines.push(
     'Note: a chat with multiple tags adds its full token total to each of its tag ' +
       'buckets, so the by-tag totals can exceed the library total. That is by design, ' +
@@ -59,8 +51,7 @@ function appendBuckets(lines: string[], result: RollupResult): void {
   }
 }
 
-// Format a token count with thousands separators for readability (the report is a
-// plain-text document, not a compact badge, so it shows the full integer).
+// Format with thousands separators; the report shows full integers.
 function formatTokens(total: number): string {
   return total.toLocaleString('en-US');
 }

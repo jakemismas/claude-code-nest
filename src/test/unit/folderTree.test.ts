@@ -1,3 +1,5 @@
+// Unit tests for the folder tree model: slash-path expansion, single-home invariant, tree assembly and composite ids.
+
 import * as assert from 'assert';
 import { Folder } from '../../store/schema';
 import {
@@ -19,11 +21,6 @@ import {
   resolveChatHomeFolderId,
   splitFolderPath,
 } from '../../model/folderTree';
-
-// Pure-logic unit tests for the folder tree model: slash-path expansion
-// (interpretation (b): a slash name becomes a CHAIN of real parent-child Folder
-// records), the single-home invariant, tree assembly from flat records, and the
-// composite-id grammar. No vscode import, no filesystem.
 
 // A deterministic id minter so expansion output is assertable.
 function counterMint(): () => string {
@@ -447,10 +444,10 @@ describe('buildChatHomeIndex + resolveChatHomeFolderId (the pure getParent rule)
     assert.strictEqual(index.size, 5);
   });
 
-  it('resolveChatHomeFolderId returns the indexed owner, else the hint, else the Unfiled sentinel', () => {
+  it('resolveChatHomeFolderId returns the indexed home, else the hint, else the Unfiled sentinel', () => {
     const tree = assembleFolderTree({ folders, chatHomes: { c1: 'C' } });
     const index = buildChatHomeIndex(tree);
-    // Known chat: the indexed owner wins over any hint.
+    // Known chat: the indexed home wins over any hint.
     assert.strictEqual(resolveChatHomeFolderId(index, 'c1', 'IGNORED'), 'C');
     // Unknown chat with a hint (the member node's own folderId): the hint is used.
     assert.strictEqual(resolveChatHomeFolderId(index, 'cX', 'W'), 'W');

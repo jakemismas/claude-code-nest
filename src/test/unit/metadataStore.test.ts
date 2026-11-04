@@ -1,12 +1,10 @@
+// Unit tests for MetadataStore over FakeMemento: staging, flush, merge guards and write-sink gates.
+
 import * as assert from 'assert';
 import { MetadataStore } from '../../store/metadataStore';
 import { metaKeyFor } from '../../store/schema';
 import { shadowKeyFor } from '../../store/reconcileSync';
 import { FakeMemento } from './fakeMemento';
-
-// Pure-logic unit tests for the MetadataStore against the FakeMemento double. The
-// store depends only on the structural SyncMemento seam, so these run headless
-// with no vscode import.
 
 const DEVICE = 'dev-A';
 
@@ -176,8 +174,7 @@ describe('MetadataStore sync registration (per-project keys, refresh-on-new-key)
     assert.strictEqual(mem.syncRegistrations.length, 0);
   });
 
-  // The fit-patch-required assertion: when a NEW project key first appears, the
-  // store calls setKeysForSync with the UNION of all known meta keys.
+  // A NEW project key triggers setKeysForSync with the union of all known meta keys.
   it('refreshes setKeysForSync with the UNION when a new project key appears', () => {
     const mem = new FakeMemento();
     const store = makeStore(mem);
@@ -362,9 +359,7 @@ describe('MetadataStore mutation during an in-flight write (no silent data loss)
 });
 
 describe('MetadataStore survives a rejected memento.update (no session-wide loss)', () => {
-  // Reproduces the wedge: a single rejected memento.update must not poison the
-  // serialized write chain. Before the fix, one transient rejection left the
-  // chain permanently rejected, so every later write silently never persisted.
+  // A single rejected memento.update must not poison the serialized write chain.
   it('a transient rejection does not wedge the chain; a later write to a DIFFERENT project still persists', async () => {
     const mem = new FakeMemento();
     let failNext = true;
@@ -548,14 +543,8 @@ describe('MetadataStore returns defensive copies on read', () => {
 });
 
 describe('MetadataStore local orphan-state writes are serialized (no concurrent read-modify-write loss)', () => {
-  // Reproduces the latent data-loss case the synced path was hardened against but
-  // the local path was not: setLocalChatState does a read-modify-write of the
-  // whole local document. Under a real async memento.update, two overlapping
-  // calls (the second issued before the first awaits) each used to read the live
-  // document before the other's write landed, so the second whole-document put
-  // overwrote the first chat's state. The fix serializes both calls' entire
-  // read-modify-write through one chain so the second reads what the first
-  // persisted.
+  // setLocalChatState does a read-modify-write of the whole local document, so two overlapping calls must serialize
+  // through one chain, or the second overwrites the first chat state.
 
   // An async memento whose update lands on a later microtask/macrotask turn,
   // mimicking context.globalState.update (which does not resolve synchronously).
@@ -813,11 +802,8 @@ describe('MetadataStore curation scalar setters (star, archive, folder color)', 
   });
 });
 
-// Security fix pass round 1: an AUTOMATED archive flip (the auto-archive engine)
-// must not refresh the per-record updatedAt/deviceId stamp. That single stamp
-// arbitrates folderId/starred and the merge's winner side, so a background pass
-// minting a fresh stamp would let automation beat an unsynced DELIBERATE user
-// edit (e.g. revert a folder move made on another device) in the per-record LWW.
+// An automated archive flip must not refresh the per-record stamp: that stamp arbitrates the merge winner, so a background
+// pass must not beat an unsynced deliberate user edit.
 describe('MetadataStore automated archive does not steal the per-record LWW stamp', () => {
   it('automated archive on an EXISTING record keeps the last user stamp', async () => {
     const clock = clockFrom(1000);
@@ -863,9 +849,8 @@ describe('MetadataStore automated archive does not steal the per-record LWW stam
   });
 });
 
-// Security fix pass round 1: the shared free-text cap (schema.MAX_NAME_LENGTH) at
-// the store write sinks, so no caller can persist an unbounded string into the
-// synced document (one oversized value can break the project's Settings Sync item).
+// Free-text values are capped at schema.MAX_NAME_LENGTH at the write sinks, so no caller can persist an unbounded string
+// into the synced document.
 describe('MetadataStore free-text length caps at the write sinks', () => {
   it('upsertFolder truncates an over-long name to MAX_NAME_LENGTH', async () => {
     const mem = new FakeMemento();
@@ -1060,13 +1045,9 @@ describe('MetadataStore record-id sink gating (prototype-pollution backstop)', (
   });
 });
 
-describe('MetadataStore drain-path foreign-write guard (round-2 check-then-act fix)', () => {
-  // A foreign Settings Sync value can land in the Memento BETWEEN a mutation
-  // being staged and the drain's memento.update, with no change event. A blind
-  // overwrite would destroy the foreign document before any reconcile read it,
-  // and the next poll would classify the result as a self-write (laundering).
-  // The drain must detect the mismatch against its recorded belief and divert
-  // to the additive merge.
+describe('MetadataStore drain-path foreign-write guard', () => {
+  // A foreign Settings Sync value can land in the Memento between staging and the drain update, with no change event.
+  // A blind overwrite would destroy it, so the drain detects the mismatch against its recorded belief and diverts to the additive merge.
 
   it('merges (never clobbers) a foreign value that lands between staging and the drain', async () => {
     const clock = clockFrom(10_000);
@@ -1181,13 +1162,9 @@ describe('MetadataStore drain-path foreign-write guard (round-2 check-then-act f
   });
 });
 
-describe('MetadataStore root-of-chain foreign reconcile (round-3 laundering fix)', () => {
-  // The round-2 guard only covers a foreign value landing AFTER a chain roots.
-  // If the foreign value lands BEFORE the root read, the chain roots ON it,
-  // mutate re-stamps the project with this device's id, and the drain's belief
-  // diff stays quiet: the lossy foreign document is laundered into a self-write
-  // and local-only records are dropped for good. Every new chain must therefore
-  // root on the RECONCILED base (diffed against lastAdopted / the sync shadow).
+describe('MetadataStore root-of-chain foreign reconcile', () => {
+  // The drain guard only covers a foreign value landing after a chain roots. A foreign value landing before the root read would be
+  // laundered into a self-write, so every new chain roots on the reconciled base (diffed against lastAdopted and the sync shadow).
 
   type PersistedDoc = {
     folders: Record<string, { name?: string }>;
@@ -1257,11 +1234,8 @@ describe('MetadataStore root-of-chain foreign reconcile (round-3 laundering fix)
   });
 
   it('a foreign doc made ONLY of no-stamp automated archive flips is still detected (project-level signal at the root)', async () => {
-    // The exact finding scenario: another device auto-archive pass flips
-    // EXISTING records without refreshing their stamps (the round-1 fix), so the
-    // foreign doc carries ZERO fresh chat-level foreign stamps; only the
-    // project-level deviceId marks it. It also lacks a local-only record. The
-    // root reconcile must catch it by the project stamp BEFORE mutate erases it.
+    // Another device auto-archive pass flips existing records without refreshing stamps, so only the project-level deviceId marks the
+    // foreign doc, and it lacks a local-only record. The root reconcile must catch it by the project stamp before mutate erases it.
     const clock = clockFrom(60_000);
     const mem = new FakeMemento();
     const store = makeStore(mem, { now: clock.now });
@@ -1422,10 +1396,8 @@ describe('MetadataStore root-of-chain foreign reconcile (round-3 laundering fix)
   });
 });
 
-// Security fix pass (import-envelope hardening): the store-level project-key
-// gate. Every synced mutation mints 'nest.meta.v1::<projectKey>' verbatim and
-// registers it with setKeysForSync with no removal path, so an unsafe key must
-// be a no-op at the sink, covering every caller (putProjectMeta included).
+// Project-key gate: every synced mutation mints a key verbatim and registers it with no removal path,
+// so an unsafe key must be a no-op at the sink for every caller, putProjectMeta included.
 describe('MetadataStore project-key gate (synced-surface pollution)', () => {
   const HOSTILE_KEYS = [
     'x'.repeat(100000),
@@ -1457,13 +1429,13 @@ describe('MetadataStore project-key gate (synced-surface pollution)', () => {
   it('still accepts a legitimate encodeProjectKey-shaped key unchanged', async () => {
     const mem = new FakeMemento();
     const store = makeStore(mem);
-    store.upsertTag('c--Users-JakeMismas-Documents-Claude-Code---Nest', {
+    store.upsertTag('c--Users-User-Documents-sample-app', {
       id: 't',
       label: 'x',
     });
     await store.flush();
     assert.ok(
-      mem.get(metaKeyFor('c--Users-JakeMismas-Documents-Claude-Code---Nest')) !==
+      mem.get(metaKeyFor('c--Users-User-Documents-sample-app')) !==
         undefined,
     );
   });

@@ -1,12 +1,10 @@
+// Unit tests for the hover-card builder and the row token badge.
+
 import * as assert from 'assert';
 import { ChatRecord, TokenTotals } from '../../model/types';
 import { buildChatTooltip, tokenBadge } from '../../views/chatTooltip';
 
-// Headless unit tests for the PURE hover-card builder and the row token badge. No vscode
-// import and no filesystem: buildChatTooltip takes a plain ChatRecord plus a plain folder
-// name and tag-label list and returns markdown, so the provider's vscode.MarkdownString
-// wrapping is the only vscode contact and stays out of this gate (mirrors occurrence.ts /
-// dropReducer.ts vscode-free builders).
+// buildChatTooltip is vscode-free: it takes plain data and returns markdown.
 
 function tokens(partial: Partial<TokenTotals> = {}): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, ...partial };
@@ -69,11 +67,8 @@ describe('chatTooltip: full record', () => {
   });
 
   it('separates the metadata fields with CommonMark hard breaks so they do not run together', () => {
-    // Finding 1: a single-newline soft join collapses to one paragraph in the
-    // hover renderer (markdown-it breaks:false), running every field onto one
-    // line. The builder must emit a HARD break (two trailing spaces + newline)
-    // between fields. Assert the rendered shape, not just substring presence: each
-    // non-final field line ends with the two-space hard-break marker.
+    // A single-newline soft join collapses to one paragraph in the hover renderer, so the builder
+    // must emit a hard break (two trailing spaces and a newline) between fields.
     const rec = record({
       tokenTotals: tokens({ input: 5000 }),
       models: ['claude-opus-4-8'],

@@ -1,36 +1,6 @@
-// Export/import core: the ADDITIVE per-project merge and its collision identity
-// rule, the export serialization helper, and the import plan that the command
-// module applies via the store. PURE and vscode-free (unit-gate rule): no
-// filesystem, no vscode. The command module owns the file read/write (via
-// vscode.workspace.fs, NOT node fs, so it never trips the read-only lint bank)
-// and the store calls; this module takes plain data and returns plain results.
-//
-// Rules this module follows:
-// - Import validates and migrates a scratch copy BEFORE touching the live store,
-//   then merges additively per project and NEVER deletes a project absent from
-//   the file (a project in the store but not in the import is untouched; line 205).
-// - The ADDITIVE per-project merge with the pinned COLLISION IDENTITY RULE:
-//     * folders and tags UNION by id (same id = same record); on a same-id
-//       conflict the document-level higher updatedAt wins (LWW, consistent with
-//       the reconcile rule, applied per RECORD-source not per scalar field).
-//     * chat tags UNION (set union of tag ids).
-//     * chat links UNION, deduped on the exact (targetChatId, kind) pair, matching
-//       the store's addLink dedupe.
-//     * chat folderId is the LWW scalar arbitrated by ChatMeta.updatedAt (there is
-//       NO per-scalar-field stamp; per-RECORD updatedAt arbitrates folderId).
-//     * chat starred and the (userArchived, archivedAt) pair are LWW scalars
-//       arbitrated by the SAME per-record ChatMeta.updatedAt, but as
-//       TWO INDEPENDENT groups: starred is orthogonal to the archive pair, so the
-//       stamp-winner wins a group only when it SET that group, otherwise the
-//       loser's independently-set group is carried (not dropped). archivedAt
-//       travels COUPLED to userArchived (the side that supplies the flag supplies
-//       its timestamp), and a tie keeps live.
-//     * Folder.color is an LWW field arbitrated by the document-level updatedAt
-//       (folders have no per-record stamp), via foldersEqual/cloneFolder.
-// - Tags/links unions are additive and stamp-independent.
-// - The merged document is written via store.putProjectMeta, which re-stamps the
-//   project and preserves __unknown; this module does NOT bump SCHEMA_VERSION or
-//   invent a per-field stamp.
+// Export and import core: the additive per-project merge, the export helper and the import plan.
+// Pure and vscode-free: the command module owns file IO and store writes.
+// Import never deletes a project absent from the file.
 
 import {
   ChatMeta,
@@ -43,39 +13,23 @@ import {
 } from './schema';
 import { NormalizedEnvelope } from './schemaMigrate';
 
-// One project's merge result: the project key and the merged document to persist
-// via store.putProjectMeta. Carries whether the merge actually changed anything
-// (so the command module can skip a no-op write) and the collisions it resolved
-// (a same-scalar folderId conflict where one side lost), for the honest LWW
-// warning surface.
+// One project's merge result: the merged document, whether it changed, and the folder conflicts resolved.
 export interface ProjectMergeResult {
   projectKey: string;
   merged: ProjectMeta;
   changed: boolean;
-  // Chats where BOTH sides set a DIFFERENT non-null folderId, i.e. a genuine
-  // same-scalar-field conflict resolved by LWW (the older side lost its home).
-  // The irreducible conflict case, surfaced to the user.
+  // Chats where both sides set a different non-null folderId and the older side lost.
   folderConflicts: string[];
 }
 
-// The plan an import produces: one merge result per project PRESENT in the import
-// file. A project in the live store but ABSENT from the file does not appear here
-// and is therefore never touched (the never-delete-absent rule). The command
-// module persists each result via store.putProjectMeta and reports the summary.
+// One merge result per project present in the import file; absent projects are never touched.
 export interface ImportPlan {
   results: ProjectMergeResult[];
-  // Total folder-conflict count across all projects, for the LWW warning.
   totalFolderConflicts: number;
 }
 
-// Build the import plan: for each project in the migrated envelope, merge it
-// additively onto the live store's current document for that project key. The
-// caller supplies a reader for the live document (the store's getProjectMeta) so
-// this stays pure and the live read is injected.
-//
-// readLive returns the live ProjectMeta for a key (an empty document when the
-// project has never been stored). A project in the store but not in the envelope
-// is NOT enumerated here, so it is never merged and never deleted.
+// Builds the import plan by merging each envelope project onto the live document from readLive.
+// Projects absent from the envelope are never touched.
 export function buildImportPlan(
   envelope: NormalizedEnvelope,
   readLive: (projectKey: string) => ProjectMeta,
@@ -91,33 +45,23 @@ export function buildImportPlan(
   return { results, totalFolderConflicts };
 }
 
-// The ADDITIVE per-project merge. `live` is the store's current document, `file`
-// is the imported document. The result is a new ProjectMeta; neither input is
-// mutated. The collision identity rule is applied here exactly.
+// Additive per-project merge of the file document onto live. Neither input is mutated.
 export function mergeProjectMeta(
   projectKey: string,
   live: ProjectMeta,
   file: ProjectMeta,
 ): ProjectMergeResult {
-  // Start from a deep copy of the live document so the result is independent of
-  // both inputs and putProjectMeta can re-stamp it freely. The JSON round-trip
-  // re-attaches Object.prototype to the three id-keyed maps; rebuild them with a
-  // null prototype so the defense-in-depth backstop holds for the merged document
-  // (the per-key isSafeRecordId gates below are the primary protection).
+  // Deep copy so the result is independent of both inputs. The JSON round-trip restores Object.prototype
+  // on the id-keyed maps, so rebuild them with a null prototype.
   const merged: ProjectMeta = nullProtoMaps(
     JSON.parse(JSON.stringify(live)) as ProjectMeta,
   );
 
   let changed = false;
 
-  // ---- Folders: union by id; same-id conflict -> higher document updatedAt wins.
+  // Folders: union by id; on conflict the higher document updatedAt wins.
   for (const [folderId, fileFolder] of Object.entries(file.folders)) {
-    // SKIP any file-side key that fails the record-id check, the same way the
-    // normalize boundary drops it. A merge re-keys merged.folders[folderId] with
-    // this raw key verbatim, so an untrusted '../../x' or prototype-name key would
-    // otherwise re-enter the document on import/reconcile and reach the downstream
-    // path sink. The normalize pass already gates a migrated import, but
-    // mergeProjectMeta is also called directly (and is public), so it must gate too.
+    // Skip keys that fail the record-id check: the merge re-keys with the raw key, and mergeProjectMeta is public.
     if (!isSafeRecordId(folderId)) {
       continue;
     }
@@ -127,19 +71,16 @@ export function mergeProjectMeta(
       changed = true;
       continue;
     }
-    // Same id present on both sides. If the records differ, the side from the
-    // document with the higher updatedAt wins (document-level LWW: there is no
-    // per-folder stamp, so the project's updatedAt arbitrates). A tie keeps live.
+    // Same id on both sides: the higher document updatedAt wins (there is no per-folder stamp). A tie keeps live.
     if (!foldersEqual(liveFolder, fileFolder) && file.updatedAt > live.updatedAt) {
       merged.folders[folderId] = cloneFolder(fileFolder);
       changed = true;
     }
   }
 
-  // ---- Tags: union by id; same-id conflict -> higher document updatedAt wins.
+  // Tags: union by id; on conflict the higher document updatedAt wins.
   for (const [tagId, fileTag] of Object.entries(file.tags)) {
-    // SKIP an unsafe file-side key (see the folders loop note); the merge re-keys
-    // merged.tags[tagId] with it verbatim otherwise.
+    // Skip an unsafe key, as in the folders loop.
     if (!isSafeRecordId(tagId)) {
       continue;
     }
@@ -155,19 +96,10 @@ export function mergeProjectMeta(
     }
   }
 
-  // ---- Chats: union by id. For a chat present on both sides:
-  //   tags  -> set union (additive, stamp-independent)
-  //   links -> union deduped on (targetChatId, kind) (matches addLink)
-  //   folderId -> LWW scalar by ChatMeta.updatedAt (the only per-record scalar
-  //               arbitrated by a stamp); a genuine differing-non-null conflict is
-  //               recorded as a folderConflict.
+  // Chats: union by id. Tags union, links dedupe on (targetChatId, kind), folderId is LWW by updatedAt.
   const folderConflicts: string[] = [];
   for (const [chatId, fileChat] of Object.entries(file.chats)) {
-    // SKIP an unsafe file-side chat KEY. This is the CRITICAL boundary: a chat key
-    // flows verbatim to the archive body-file path (archiveBodyStore.bodyFileUri),
-    // where Uri.joinPath collapses '..' and escapes globalStorage. A key like
-    // '../../../../Users/victim/evil' must never re-enter the merged document and
-    // reach readArchivedBody (auto-fired on every Archive-view refresh).
+    // Skip an unsafe chat key: it reaches the archive body path, where '..' would escape globalStorage.
     if (!isSafeRecordId(chatId)) {
       continue;
     }
@@ -189,7 +121,6 @@ export function mergeProjectMeta(
       }
     }
 
-    // links: union deduped on the exact (targetChatId, kind) pair.
     const linkKeys = new Set(liveChat.links.map(linkKey));
     const mergedLinks = liveChat.links.map(cloneLink);
     for (const l of fileChat.links) {
@@ -200,10 +131,8 @@ export function mergeProjectMeta(
       }
     }
 
-    // folderId: LWW scalar by per-record updatedAt. A tie keeps live (local-wins
-    // bias, consistent with the sync model). A genuine conflict is where BOTH set
-    // a DIFFERENT non-null home; that is the irreducible same-scalar floor, so
-    // record it for the honest warning.
+    // folderId: the newer record wins and a tie keeps live. Both sides setting different non-null
+    // folders is a conflict, recorded for the warning.
     let mergedFolderId = liveChat.folderId;
     if (fileChat.folderId !== liveChat.folderId) {
       if (
@@ -217,41 +146,16 @@ export function mergeProjectMeta(
       }
     }
 
-    // The merged chat's stamp is the MAX of the two record stamps, so a later
-    // reconcile/merge sees the freshest known time for the record. deviceId
-    // follows the winning stamp's side (informational; the project re-stamp by
-    // putProjectMeta sets the authoritative project-level stamp/device).
-    //
-    // The remaining per-record SCALARS are arbitrated by the SAME single useFile
-    // boolean as deviceId (one per-record updatedAt stamp, NO per-scalar stamp;
-    // a tie (useFile === false) keeps the live side, local-wins bias consistent
-    // with folderId's tie rule). BUT starred is an INDEPENDENT user toggle from
-    // the archive pair, and the two share one record stamp. If we copied all
-    // three only from the single stamp-winner, a side that last touched ONLY one
-    // group would carry just its own scalar and the OTHER group's
-    // independently-set value on the loser would be silently dropped (e.g. star
-    // on machine A, archive on machine B later -> the merge keeps the archive and
-    // loses the star). So each INDEPENDENT group falls back to the loser when the
-    // stamp-winner has not set it: arbitrate starred on its own, and the
-    // (userArchived, archivedAt) pair on its own. Within the archive pair
-    // archivedAt stays COUPLED to userArchived (the side that supplies the flag
-    // supplies its timestamp) so the timestamp can never desynchronize from the
-    // flag. folderId stays on its own comparison above so it can record the
-    // conflict floor; these scalars need no conflict array (when both sides set
-    // an independent group the stamp-winner takes it, LWW, no surfaced floor).
+    // The merged stamp is the max of both. The scalar groups below follow the stamp-winner, with a tie
+    // keeping live. starred and the archive pair are independent toggles sharing one stamp, so each
+    // falls back to the loser when the winner never set it (star on one machine, archive on another
+    // keeps both). archivedAt stays coupled to userArchived.
     const useFile = fileChat.updatedAt > liveChat.updatedAt;
     const winner = useFile ? fileChat : liveChat;
     const loser = useFile ? liveChat : fileChat;
-    // EQUAL record stamps need a DEVICE-INDEPENDENT tie-break for the two
-    // independent scalar groups below. Automated archive flips deliberately do
-    // not refresh updatedAt, so two devices that
-    // auto-archive the same chat before sync delivers either flip hold records
-    // with IDENTICAL stamps but DIVERGENT groups; the plain local-wins tie
-    // (useFile === false on both machines) then keeps each device's OWN value
-    // forever and the synced content never converges (equal-stamp archive
-    // ping-pong, security audit narrow verify). The content-based tie-breaks
-    // below resolve identically on both machines because they compare only
-    // VALUES, never which side is live or file.
+    // Equal stamps need a device-independent tie-break. Automated archive flips do not refresh updatedAt,
+    // so two devices can hold identical stamps with divergent groups and never converge. The tie-breaks
+    // below compare values only, never which side is live.
     const stampsEqual = fileChat.updatedAt === liveChat.updatedAt;
     const mergedChat: ChatMeta = {
       folderId: mergedFolderId,
@@ -260,11 +164,8 @@ export function mergeProjectMeta(
       updatedAt: Math.max(liveChat.updatedAt, fileChat.updatedAt),
       deviceId: useFile ? fileChat.deviceId : liveChat.deviceId,
     };
-    // starred: stamp-winner wins when it set the flag; otherwise carry the
-    // loser's independently-set flag rather than dropping it. On an equal-stamp
-    // conflict (both sides set it, values differ) starred=true wins on BOTH
-    // machines: deterministic, and the protective intent (starring exempts a
-    // chat from auto-archive) is the safer side to keep.
+    // starred: the stamp-winner wins when it set the flag, else carry the loser's. On equal stamps true
+    // wins on both machines, since starring exempts a chat from auto-archive.
     let starred = winner.starred !== undefined ? winner.starred : loser.starred;
     if (
       stampsEqual &&
@@ -277,24 +178,16 @@ export function mergeProjectMeta(
     if (starred !== undefined) {
       mergedChat.starred = starred;
     }
-    // archive group (userArchived + its coupled archivedAt/restoredAt): the
-    // stamp-winner wins the WHOLE group when it set userArchived; otherwise carry
-    // the loser's whole group. archivedAt AND restoredAt always travel with the
-    // side that supplied userArchived (archiving stamps archivedAt and clears
-    // restoredAt; restoring stamps restoredAt and clears archivedAt), so the
-    // deliberate-restore intent marker crosses machines with the flag it explains
-    // and the auto-archive policy on the other machine sees it.
+    // Archive group: the stamp-winner takes the whole group when it set userArchived, else the loser's.
+    // archivedAt and restoredAt travel with the flag so the restore marker reaches the other machine.
     let archiveSide =
       winner.userArchived !== undefined
         ? winner
         : loser.userArchived !== undefined
           ? loser
           : undefined;
-    // Equal-stamp conflict on the archive group: pick the side with the LATER
-    // archive activity (max of archivedAt/restoredAt, i.e. the more recent
-    // archive or restore event), falling back to a stable lexicographic compare
-    // of the serialized group so even same-millisecond events resolve to ONE
-    // value on both machines.
+    // Equal stamps: pick the side with the later archive or restore event, then compare the serialized
+    // group, so both machines resolve to one value.
     if (
       stampsEqual &&
       fileChat.userArchived !== undefined &&
@@ -327,9 +220,7 @@ export function mergeProjectMeta(
     }
   }
 
-  // Carry the forward-compat escrow additively: prefer the document with the
-  // higher version's __unknown, else union the two so neither side's
-  // newer-build fields are stripped on the merge.
+  // Keep forward-compat __unknown fields from both sides, preferring the higher version.
   const mergedUnknown = mergeUnknown(live, file);
   if (mergedUnknown !== undefined) {
     if (JSON.stringify(mergedUnknown) !== JSON.stringify(live.__unknown)) {
@@ -337,8 +228,7 @@ export function mergeProjectMeta(
     }
     merged.__unknown = mergedUnknown;
   }
-  // Keep the higher schemaVersion so a merge with a forward-version file does not
-  // advertise the document as our older shape (mirrors migrateProjectMeta).
+  // Keep the higher schemaVersion so merging a newer file does not downgrade the document.
   if (file.schemaVersion > merged.schemaVersion) {
     merged.schemaVersion = file.schemaVersion;
     changed = true;
@@ -356,9 +246,7 @@ function mergeUnknown(
   if (liveU === undefined && fileU === undefined) {
     return undefined;
   }
-  // Prefer the higher-version document's escrow as the base, then fold in any
-  // keys the other side has that the base lacks (additive, no clobber of a
-  // present key on the higher-version base).
+  // Use the higher-version escrow as the base, then add keys only the other side has.
   const baseFromFile = file.schemaVersion >= live.schemaVersion;
   const base = baseFromFile ? fileU : liveU;
   const other = baseFromFile ? liveU : fileU;
@@ -381,10 +269,7 @@ function linkKey(l: Link): string {
 
 function cloneFolder(f: Folder): Folder {
   const out: Folder = { id: f.id, name: f.name, parentId: f.parentId, order: f.order };
-  // color is a curation scalar: copy it through, else a color-only edit is lost
-  // on a merge that picks the file folder. Coupled with foldersEqual including
-  // color (a color-only diff must read as NOT equal) and normalizeFolder carrying
-  // it; without all three a color-only change is a silent no-op.
+  // Copy color through so a color-only edit survives a merge that picks the file folder.
   if (f.color !== undefined) {
     out.color = f.color;
   }
@@ -411,8 +296,7 @@ function cloneChat(c: ChatMeta): ChatMeta {
     updatedAt: c.updatedAt,
     deviceId: c.deviceId,
   };
-  // Carry the optional curation scalars through a file-only-chat clone, else a
-  // brand-new imported/merged chat loses its starred/archive state.
+  // Carry the optional scalars so a new imported chat keeps its starred and archive state.
   if (c.starred !== undefined) {
     out.starred = c.starred;
   }

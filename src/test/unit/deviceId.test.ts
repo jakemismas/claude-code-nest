@@ -1,3 +1,5 @@
+// Unit tests for the per-install device id store.
+
 import * as assert from 'assert';
 import {
   DEVICE_ID_KEY,
@@ -6,9 +8,7 @@ import {
   getOrCreateDeviceId,
 } from '../../store/deviceId';
 
-// Pure-logic unit tests for the per-install device id. The persistence is an
-// injected getter/setter seam (no vscode import), exactly as in production where
-// extension.ts supplies the globalState binding.
+// Persistence is an injected getter and setter, so there is no vscode import.
 
 class FakeStore implements DeviceIdStore {
   private readonly map = new Map<string, string>();

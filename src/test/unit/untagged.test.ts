@@ -10,11 +10,8 @@ import {
 } from '../../model/untagged';
 import { parseTagOccurrenceId } from '../../model/occurrence';
 
-// Pure-logic unit tests for the Untagged bucket and the many-to-many tag-tree
-// assembly. No vscode import, no filesystem. These prove:
-// Untagged membership equals the EFFECTIVE empty-tag set (empty OR all-dangling),
-// tree-wide composite-id uniqueness over a 50x8 synthetic set, and the single
-// owning tag per occurrence.
+// Unit tests for the Untagged bucket and many-to-many tag-tree assembly: Untagged equals the effective
+// empty-tag set (empty or all-dangling), composite ids are unique over a 50x8 set, and each has one owning tag.
 
 function tagsByIdFrom(list: Tag[]): { [id: string]: Tag } {
   const map: { [id: string]: Tag } = {};
@@ -42,9 +39,7 @@ describe('effectiveTagIds / isUntagged (membership == effective empty-tag set)',
   });
 
   it('a chat whose EVERY tag id is dangling is Untagged (effective set empty)', () => {
-    // The dangling-tag-id case the accepted patch mandates: a chat that references
-    // only deleted/unknown tag ids falls into Untagged, mirroring how a dangling
-    // folderId routes to Unfiled.
+    // A chat that references only unknown tag ids falls into Untagged, like a dangling folderId into Unfiled.
     assert.strictEqual(isUntagged(tags, ['gone1', 'gone2']), true);
   });
 
@@ -67,11 +62,9 @@ describe('assembleTagsTree (many-to-many membership)', () => {
       chatTags: { c1: ['t1', 't2'], c2: ['t2'], c3: [] },
     });
     const byTag = new Map(tree.tags.map((n) => [n.id, n.occurrences.map((o) => o.chatId)]));
-    // c1 appears under BOTH t1 and t2.
     assert.deepStrictEqual(byTag.get('t1'), ['c1']);
     assert.deepStrictEqual(new Set(byTag.get('t2')), new Set(['c1', 'c2']));
     assert.deepStrictEqual(byTag.get('t3'), []);
-    // c3 (empty tags) is Untagged.
     assert.deepStrictEqual(tree.untagged.occurrences.map((o) => o.chatId), ['c3']);
   });
 
@@ -98,8 +91,7 @@ describe('assembleTagsTree (many-to-many membership)', () => {
 
   it('an occurrence under each tag resolves to EXACTLY one owning tag (single parent)', () => {
     const tree = assembleTagsTree({ tags, chatTags: { c1: ['t1', 't2'] } });
-    // The same chat under t1 and t2 yields two occurrences, EACH owned by exactly
-    // one tag (the tag it renders under), recovered from its composite id.
+    // The same chat under t1 and t2 yields two occurrences, each owned by the tag it renders under.
     const all = tree.tags.flatMap((n) => n.occurrences.map((o) => ({ owner: n.id, occ: o })));
     const c1 = all.filter((x) => x.occ.chatId === 'c1');
     assert.strictEqual(c1.length, 2, 'c1 has two occurrences (one per tag)');
@@ -108,13 +100,11 @@ describe('assembleTagsTree (many-to-many membership)', () => {
       assert.ok(parsed);
       assert.strictEqual(parsed.tagId, owner, 'occurrence id parent == its rendering tag (one parent)');
     }
-    // The two owners are distinct tags.
     assert.notStrictEqual(c1[0].owner, c1[1].owner);
   });
 
   it('keeps the Untagged membership in lockstep with the empty effective set per chat', () => {
-    // The "Untagged membership equals the empty-tags set" acceptance, asserted
-    // against the RESOLVED set: a chat is in Untagged iff isUntagged() is true.
+    // A chat is in Untagged iff isUntagged() is true.
     const chatTags: { [id: string]: string[] } = {
       a: ['t1'],
       b: [],
@@ -134,9 +124,7 @@ describe('assembleTagsTree (many-to-many membership)', () => {
 
 describe('tree-wide composite-id uniqueness over a 50-by-8 synthetic set', () => {
   it('every occurrence id (real-tag and Untagged) is unique across the whole tree', () => {
-    // 50 chats, 8 tags. Each chat is assigned a deterministic, varying subset of
-    // tags (including some with zero tags, which land in Untagged) so the tree has
-    // many-to-many membership AND a populated Untagged bucket.
+    // 50 chats and 8 tags with varying subsets (some empty) give many-to-many membership and a populated Untagged.
     const tags = tagsByIdFrom(
       Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, label: `Tag ${i}` })),
     );
@@ -144,8 +132,6 @@ describe('tree-wide composite-id uniqueness over a 50-by-8 synthetic set', () =>
     for (let c = 0; c < 50; c++) {
       const chatId = `chat-${c}`;
       const assigned: string[] = [];
-      // Every 7th chat gets NO tags (forced Untagged); otherwise assign tags whose
-      // index shares a factor with the chat index, giving a spread of subset sizes.
       if (c % 7 !== 0) {
         for (let t = 0; t < 8; t++) {
           if ((c + t) % 3 === 0) {
@@ -158,7 +144,6 @@ describe('tree-wide composite-id uniqueness over a 50-by-8 synthetic set', () =>
 
     const tree = assembleTagsTree({ tags, chatTags });
 
-    // Collect EVERY occurrence id across real tags and Untagged.
     const ids: string[] = [];
     for (const node of tree.tags) {
       for (const occ of node.occurrences) {
@@ -169,19 +154,16 @@ describe('tree-wide composite-id uniqueness over a 50-by-8 synthetic set', () =>
       ids.push(occ.id);
     }
 
-    // Tree-wide uniqueness: no id repeats.
     assert.strictEqual(new Set(ids).size, ids.length, 'a composite occurrence id repeated tree-wide');
 
-    // Every chat is placed at least once (none dropped): the union of all chatIds
-    // across occurrences equals the full chat set.
+    // Every chat is placed at least once.
     const placedChatIds = new Set([
       ...tree.tags.flatMap((n) => n.occurrences.map((o) => o.chatId)),
       ...tree.untagged.occurrences.map((o) => o.chatId),
     ]);
     assert.strictEqual(placedChatIds.size, 50, 'every chat appears somewhere');
 
-    // Each id round-trips back to its (owning tag, chat), and the owner matches the
-    // node it lives under (single owning parent for every occurrence).
+    // Each id round-trips to its owning tag and chat, and the owner matches the node it sits under.
     for (const node of [...tree.tags, tree.untagged]) {
       for (const occ of node.occurrences) {
         const parsed = parseTagOccurrenceId(occ.id);
@@ -191,8 +173,7 @@ describe('tree-wide composite-id uniqueness over a 50-by-8 synthetic set', () =>
       }
     }
 
-    // A spot check that a multi-tag chat genuinely has multiple distinct-id
-    // occurrences sharing one chatId (the shared-record / distinct-wrapper rule).
+    // A multi-tag chat has several occurrences with distinct ids and one shared chatId.
     const multiTagChat = Object.keys(chatTags).find((id) => chatTags[id].length >= 2);
     assert.ok(multiTagChat, 'the synthetic set should contain a multi-tag chat');
     const occurrencesOfMulti = ids.filter((id) => id.endsWith(':' + multiTagChat));

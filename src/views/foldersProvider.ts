@@ -33,33 +33,15 @@ import { ProjectMeta } from '../store/schema';
 import { buildChatTooltip, tokenBadge } from './chatTooltip';
 import { resolveFolderName, resolveStarred, resolveTagLabels } from './chatMeta';
 
-// The claudeNest.folders tree: the single-home folder hierarchy. Folder nodes are
-// collapsible; each chat appears under EXACTLY one folder (its ChatMeta.folderId,
-// or the synthetic Unfiled bucket) as a leaf chat-member node whose id is the
-// composite `${folderId}#${chatId}`.
-//
-// Rules this module follows:
-// - Composite ids: a folder node id is the separator-free folder id (or the
-//   '__unfiled__' sentinel); a chat-member node id is `${folderId}#${chatId}`,
-//   unique tree-wide because a chat has exactly one home.
-// - Memoize node objects by id across refreshes: returning a fresh object with
-//   the same id on every getChildren breaks reveal/selection. A refresh rebuilds
-//   the assembly but reuses the existing node object for an unchanged id.
-// - getParent returns EXACTLY one parent: a chat-member node's parent is its one
-//   owning folder; a folder node's parent is its parent folder (undefined for a
-//   root or the Unfiled bucket). reveal-by-chat targets THIS view (the chat's
-//   single home).
-// - getChildren(undefined) returns [] when there are no sessions; never throws
-//   out of getChildren (a failed scan renders empty). The viewsWelcome
-//   contribution shows the no-sessions message.
+// The claudeNest.folders tree. Each chat appears under exactly one folder (or the Unfiled
+// bucket) as `${folderId}#${chatId}`, unique tree-wide. Node objects are memoized by id
+// because a fresh object per getChildren breaks reveal and selection. getChildren never
+// throws: a failed scan renders empty.
 
-// The kinds of node the Folders tree renders.
 export type FolderTreeNode = FolderItem | ChatMemberItem | LinkedChildItem;
 
-// A folder row (a real stored folder or the synthetic Unfiled bucket).
 export class FolderItem extends vscode.TreeItem {
-  // The folder's plain name, retained for cheap memoization comparison (TreeItem
-  // types label as a possibly-rich union, so a dedicated field is clearer).
+  // Plain name for the reuse check, since TreeItem.label is a union type.
   public readonly folderName: string;
 
   constructor(
@@ -72,26 +54,17 @@ export class FolderItem extends vscode.TreeItem {
     this.folderName = label;
     this.id = folderId;
     this.iconPath = new vscode.ThemeIcon(synthetic ? 'inbox' : 'folder');
-    // contextValue drives the per-row menu: real folders get rename/delete; the
-    // synthetic Unfiled bucket gets neither.
+    // Real folders get rename and delete; the Unfiled bucket gets neither.
     this.contextValue = synthetic ? 'claudeNest.unfiled' : 'claudeNest.folder';
   }
 }
 
-// A chat occurrence under a folder. Its id is the composite `${folderId}#${chatId}`. It
-// becomes COLLAPSIBLE (rather than a leaf) when the chat is the designated parent of one
-// or more linked children: getChildren then returns those linkedChild nodes. hasLinks
-// records whether it has children so the memoization predicate rebuilds the item when its
-// collapsible state must flip.
+// A chat under a folder. Collapsible when it is the designated parent of linked children;
+// hasLinks lets the reuse check rebuild the item when that flips.
 export class ChatMemberItem extends vscode.TreeItem {
-  // The folder name and tag-label signature the hover card was built from, used by
-  // the provider's reuse check so a re-file or tag edit rebuilds the node and its
-  // tooltip. Set by the provider right after construction (kept off the readonly
-  // constructor list so the memoization owns them).
+  // What the hover card was built from, so the reuse check rebuilds on a re-file or tag edit.
   public cardFolderName: string | null | undefined = undefined;
   public cardTagsSignature = '';
-  // The starred flag the row icon was built from, used by the provider's reuse
-  // check so a star toggle rebuilds the node and re-renders its badge.
   public cardStarred = false;
 
   constructor(
@@ -110,16 +83,9 @@ export class ChatMemberItem extends vscode.TreeItem {
     );
     this.id = chatNodeId(folderId, record.sessionId);
     this.description = chatRowDescription(record);
-    // The rich hover card (folder, age,
-    // ~tokens, full tag set, snippet). folderName/tags are resolved by the provider
-    // from the meta it already reads in ensureSnapshot; buildChatTooltip stays
-    // vscode-free and the provider wraps the markdown here.
     this.tooltip = new vscode.MarkdownString(buildChatTooltip(record, folderName, tags));
     this.contextValue = 'claudeNest.chat';
-    // A starred chat swaps the chat icon for the star so the curation state is
-    // visible here too, not only after the chat is archived (matching the Archive
-    // and flat views). ThemeIcon cannot composite glyphs, so the star replaces the
-    // default comment-discussion icon.
+    // ThemeIcon cannot composite glyphs, so the star replaces the chat icon.
     this.iconPath = new vscode.ThemeIcon(starred ? 'star-full' : 'comment-discussion');
     this.command = {
       command: OPEN_CHAT_COMMAND,
@@ -129,14 +95,8 @@ export class ChatMemberItem extends vscode.TreeItem {
   }
 }
 
-// A linked child occurrence nested beneath its one DESIGNATED parent chat-member
-// node. Its id is the composite `${parentChatId}>link>${chatId}` (links.ts grammar).
-// It carries the LinkedChild model node (parent chat id, child chat id, depth,
-// broken flag) and the resolved target ChatRecord (undefined when broken). It is
-// collapsible only when it is expandable AND itself a designated parent of further
-// linked children; a broken or depth-capped child is a leaf. The visual decoration
-// (git-branch icon, muted broken rendering, open command) is applied by
-// linkDecoration.decorateLinkedChild so this class stays a thin id/state shell.
+// A linked child nested under its designated parent chat, id `${parentChatId}>link>${chatId}`.
+// record is undefined when broken. A broken or depth-capped child is a leaf.
 export class LinkedChildItem extends vscode.TreeItem {
   constructor(
     public readonly child: LinkedChild,
@@ -158,35 +118,20 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
   private readonly emitter = new vscode.EventEmitter<FolderTreeNode | undefined | void>();
   readonly onDidChangeTreeData = this.emitter.event;
 
-  // A transient per-rebuild scan-options overlay (onProgress/shouldCancel) used by
-  // the next ensureSnapshot ONLY. Set by primeSnapshot under a progress-wrapped
-  // scan, then cleared, so the passive getChildren/getParent path scans with the
-  // plain options and never carries a stale progress callback.
+  // Progress and cancel hooks for one primed scan only, so passive reads never carry a stale callback.
   private scanOverlay: ScannerOptions | null = null;
 
-  // Memoized node objects by tree-wide-unique id (folder id, or `${folderId}#${chatId}`).
-  // Reused across refreshes so VSCode's reference-keyed element cache keeps reveal
-  // and selection stable.
+  // Memoized nodes by id; see the header.
   private readonly nodesById = new Map<string, FolderTreeNode>();
 
-  // The latest assembled tree, kept so getParent and getChildren read a single
-  // consistent snapshot per refresh cycle rather than re-scanning per call.
+  // One snapshot per refresh cycle, so getParent and getChildren do not re-scan.
   private assembled: AssembledTree | null = null;
-  // sessionId -> ChatRecord for the latest scan, so a chat-member node can render
-  // its title/time and getChildren can build member items.
   private recordsById = new Map<string, ChatRecord>();
-  // The latest project curation document for the current snapshot, retained so a
-  // chat-member node can resolve its folder name and full tag set for the rich
-  // hover card without a second store read. Null until the first ensureSnapshot.
+  // Kept so hover cards resolve folder and tags without a second store read.
   private currentMeta: ProjectMeta | null = null;
-  // chatId -> owning folderId for the current snapshot, the inverse used by
-  // getParent to recover a chat's single home.
+  // chatId to owning folderId, used by getParent.
   private homeByChatId = new Map<string, string>();
-  // The link forest for the current snapshot: parent chat id -> its direct linked
-  // children, plus the designated-parent inverse. Built in ensureSnapshot from the
-  // stored links and the scanned chat-id set, consumed at render time (the
-  // assembleFolderTree result still carries only folders+chatHomes; links are
-  // overlaid here, not folded into the folder assembly).
+  // Links are overlaid at render time; they are not part of the folder assembly.
   private linkForest: LinkForest = {
     childrenByParent: new Map(),
     designatedParentByChild: new Map(),
@@ -198,13 +143,8 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     private readonly options: ScannerOptions = {},
   ) {}
 
-  // Resolve the encoded project key (the on-disk projects directory name) for the
-  // active workspace ON DEMAND, mirroring scanChats: resolveDir is re-run every
-  // call so the view recovers once Claude Code creates the project dir, without a
-  // window reload. Returns undefined when there is no workspace or no dir yet.
-  // The Folders-view commands share this same lazy resolution (folderCommands.ts
-  // FolderCommandDeps.getProjectKey) so create/rename/delete/assign stop reporting
-  // "no project resolved" once the dir appears.
+  // Resolved on every call so the view and its commands recover once Claude Code creates
+  // the project dir, without a window reload.
   resolveProjectKey(): string | undefined {
     if (this.workspacePath === undefined) {
       return undefined;
@@ -212,18 +152,13 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return resolveDir(this.workspacePath, this.options) ?? undefined;
   }
 
-  // Fire a refresh. A targeted node refreshes that subtree; undefined refreshes
-  // the whole tree. The snapshot is rebuilt lazily on the next getChildren.
+  // The snapshot is rebuilt lazily on the next getChildren.
   refresh(node?: FolderTreeNode): void {
     this.assembled = null;
     this.emitter.fire(node);
   }
 
-  // ScanPrimable: prime the snapshot under an explicit progress-wrapped scan
-  // (refreshScanCommands.refreshWithProgress). Set the one-shot scan overlay, force
-  // a fresh ensureSnapshot (which scans with the overlay's progress/cancel
-  // callbacks), clear the overlay, then fire the change event so the passive
-  // getChildren reads the primed snapshot WITHOUT rescanning under progress.
+  // Scans once under the given progress options, then fires so getChildren reads the result.
   primeSnapshot(scanOptions: ScannerOptions): void {
     this.scanOverlay = scanOptions;
     this.assembled = null;
@@ -245,21 +180,16 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
       return [];
     }
     if (element === undefined) {
-      // Top level: real root folders, then the Unfiled bucket last.
       const roots = tree.roots.map((node) => this.folderItemFor(node));
       roots.push(this.folderItemFor(tree.unfiled));
       return roots;
     }
     if (element instanceof ChatMemberItem) {
-      // A chat-member node: its linked children (depth 1), if any. The visited set
-      // for the path is just this chat (it is the root of its link subtree).
+      // This chat is the root of its link subtree, so the path is just itself.
       return this.linkedChildrenOf(element.record.sessionId, new Set([element.record.sessionId]), 0);
     }
     if (element instanceof LinkedChildItem) {
-      // A linked-child node: recurse into ITS linked children, unless it is broken,
-      // depth-capped, or already on the path (canExpandChild). The visited set is the
-      // ancestor chat-id path reconstructed from the single-parent forest plus this
-      // child, so a transitive cycle or diamond is pruned.
+      // The path is rebuilt from the single-parent forest so cycles and diamonds are pruned.
       if (element.record === undefined) {
         return [];
       }
@@ -271,7 +201,6 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
       visited.add(element.child.chatId);
       return this.linkedChildrenOf(element.child.chatId, visited, element.child.depth);
     }
-    // A folder row: its child folders followed by its directly-homed chats.
     const node = this.findFolderNode(element.folderId);
     if (node === null) {
       return [];
@@ -288,26 +217,17 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return children;
   }
 
-  // getParent returns the SINGLE parent of a node. A chat member's parent is its one
-  // owning folder; a folder's parent is its parent folder, or undefined for a root or the
-  // Unfiled bucket. The Folders view is the reveal target for a chat (its single home).
+  // Each node has one parent, which makes this view the reveal target for a chat.
   getParent(element: FolderTreeNode): FolderTreeNode | undefined {
     this.ensureSnapshot();
     if (element instanceof LinkedChildItem) {
-      // A linked child's single parent is the PARENT CHAT-MEMBER occurrence (the parent
-      // chat where it nests), NOT a folder. Recover the parent chat id from the composite
-      // id by splitting on the FIRST '>' (parseLinkedChildId), then resolve that parent
-      // chat's member node in its own folder home. This mirrors
-      // occurrence.ts/folderTree.ts first-separator recovery's one-parent-per-node rule.
-      // element.child.id is the same composite the TreeItem.id carries, but is typed
-      // string (TreeItem.id is string | undefined), so parse that one.
+      // The parent is the parent chat's member node, not a folder. child.id is parsed
+      // because TreeItem.id is typed string | undefined.
       const parsed = parseLinkedChildId(element.child.id);
       const parentChatId = parsed ? parsed.parentChatId : element.child.parentChatId;
       return this.memberNodeForChat(parentChatId);
     }
     if (element instanceof ChatMemberItem) {
-      // Delegate the single-home resolution (chatId -> owning folder id, with the
-      // member node's own folderId as the fallback hint) to the pure model.
       const owner = resolveChatHomeFolderId(
         this.homeByChatId,
         element.record.sessionId,
@@ -316,7 +236,6 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
       const node = this.findFolderNode(owner);
       return node ? this.folderItemFor(node) : undefined;
     }
-    // A folder item: parent folder, if any.
     if (element.parentFolderId === null) {
       return undefined;
     }
@@ -324,10 +243,8 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return parent ? this.folderItemFor(parent) : undefined;
   }
 
-  // Expose the current scanned chat records (sessionId -> title/timestamp) for the
-  // link commands' target pick list. Ensures a fresh snapshot first so the list
-  // reflects the latest scan. Returns a NEW map so a caller cannot mutate the
-  // provider's internal record cache.
+  // Title and timestamp per chat for the link target pick list. Returns a copy so callers
+  // cannot mutate the record cache.
   chatRecords(): Map<string, { title: string; timestamp: number | null }> {
     this.ensureSnapshot();
     const out = new Map<string, { title: string; timestamp: number | null }>();
@@ -337,13 +254,7 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return out;
   }
 
-  // Expose the current scanned chats' summary token totals (sessionId -> TokenTotals) for
-  // the rollup. chatRecords above projects the record down to {title, timestamp} and
-  // DROPS tokenTotals, so the rollup needs this narrow seam; it surfaces only the bounded
-  // summary token reductions that already ride the scan snapshot (never a body). Ensures a
-  // fresh snapshot first and returns a NEW map so a caller cannot mutate the provider's
-  // internal record cache. The pure tokenRollup reducer consumes this plain map plus the
-  // ProjectMeta membership and never reads the provider.
+  // Token totals per chat for the rollup, which chatRecords omits. Returns a copy.
   tokenTotalsByChat(): Map<string, TokenTotals> {
     this.ensureSnapshot();
     const out = new Map<string, TokenTotals>();
@@ -353,8 +264,7 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return out;
   }
 
-  // Resolve the composite id of a chat to its memoized member node, for reveal.
-  // Returns undefined when the chat is not currently homed/known.
+  // The memoized member node for a chat, for reveal; undefined when the chat is unknown.
   memberNodeForChat(chatId: string): ChatMemberItem | undefined {
     this.ensureSnapshot();
     const folderId = this.homeByChatId.get(chatId);
@@ -365,19 +275,12 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return this.chatMemberItemFor(folderId, record);
   }
 
-  // ---- Snapshot + memoization internals ----
-
-  // Build (or reuse) the current snapshot: scan the chats, read the stored folder
-  // hierarchy and chat homes, and assemble the single-home tree. Returns null only
-  // when there is no workspace/project (the empty state). Never throws.
+  // Returns null only when there is no workspace or project dir. Scan errors yield an empty list.
   private ensureSnapshot(): AssembledTree | null {
     if (this.assembled !== null) {
       return this.assembled;
     }
-    // Resolve the project key lazily on each rebuild (refresh() clears assembled),
-    // so a brand-new workspace that gets its dir created later recovers on the next
-    // refresh instead of staying empty until a window reload (the flat view already
-    // does this via scanChats -> resolveDir).
+    // Resolved per rebuild so a project dir created later is picked up on the next refresh.
     const projectKey = this.resolveProjectKey();
     if (this.workspacePath === undefined || projectKey === undefined) {
       return null;
@@ -400,18 +303,11 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
 
     const tree = assembleFolderTree({ folders: meta.folders, chatHomes });
 
-    // Rebuild the chatId -> owning folderId inverse for getParent via the pure
-    // model. A chat routed to Unfiled maps to the Unfiled sentinel so reveal still
-    // resolves a parent. The single-home resolution itself is unit-tested in the
-    // vscode-free model (buildChatHomeIndex); the provider only consumes it.
+    // Unfiled chats map to the Unfiled sentinel so reveal still resolves a parent.
     this.homeByChatId = buildChatHomeIndex(tree);
 
-    // Build the link forest from the stored links and the scanned chat-id set. A
-    // target chat id absent from the scanned set is BROKEN (rendered muted). The
-    // forest carries each child's single designated parent (smallest source chat
-    // id), so a child nests under exactly one parent every render. assembleFolderTree
-    // is deliberately NOT extended to carry links: folder home and link parentage are
-    // orthogonal, and the link overlay is consumed here at render time.
+    // A target absent from the scanned set is broken. The forest gives each child one
+    // designated parent (smallest source chat id), so it nests once per render.
     this.linkForest = buildLinkForest({
       links: linksFromChats(meta.chats),
       knownChatIds: new Set(this.recordsById.keys()),
@@ -437,15 +333,10 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
 
   private chatMemberItemFor(folderId: string, record: ChatRecord): ChatMemberItem {
     const id = chatNodeId(folderId, record.sessionId);
-    // Whether this chat is the designated parent of any linked children decides its
-    // collapsible state, so it is part of the reuse identity: a cached leaf must
-    // rebuild into a collapsible node (and vice versa) when its link children appear
-    // or disappear, or the twistie would not update.
+    // Part of the reuse identity: a cached leaf must rebuild when link children appear or
+    // vanish, or the twistie would not update.
     const hasLinks = hasLinkedChildren(this.linkForest, record.sessionId);
-    // The hover card resolves the chat's folder name and full tag set from the
-    // current meta. These feed the tooltip, so a curation change (re-file, tag
-    // edit) must rebuild the node; tagsSignature captures the resolved labels for
-    // that reuse check.
+    // These feed the tooltip, so the reuse check compares them to rebuild on a curation change.
     const meta = this.currentMeta ?? undefined;
     const folderName = resolveFolderName(meta, record.sessionId);
     const tags = resolveTagLabels(meta, record.sessionId);
@@ -470,13 +361,8 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return item;
   }
 
-  // Build the linkedChild nodes directly beneath a parent chat id, applying the
-  // visited-set cycle/diamond prune and the depth cap via the pure model
-  // (links.childrenOf). currentDepth is the parent's depth (0 for a chat-member
-  // root, the child's depth for a nested linkedChild). visited is the chat-id path
-  // from the root down to and including the parent, so a transitive cycle or a
-  // diamond's second path is pruned. Each surviving child is memoized by its
-  // composite id and decorated (branch icon, or muted when broken).
+  // visited is the chat-id path from the root through the parent; childrenOf uses it and
+  // currentDepth (0 at a chat member) to prune cycles and apply the depth cap.
   private linkedChildrenOf(
     parentChatId: string,
     visited: Set<string>,
@@ -490,12 +376,9 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return out;
   }
 
-  // Reconstruct the chat-id path from a link-forest ROOT down to (but not including)
-  // a given child chat id, by walking the single-parent inverse upward. Because each
-  // child has exactly one designated parent, the ancestor path is unique and
-  // deterministic, so the visited set a linkedChild expands with does not depend on
-  // how VSCode happened to request the node. Bounded by a local guard set so a
-  // corrupt store that somehow produced a parent-cycle in the inverse cannot loop.
+  // The ancestor path is unique because each child has one designated parent, so expansion
+  // does not depend on how VS Code requested the node. The guard set stops a corrupt
+  // parent cycle from looping.
   private linkPathTo(childChatId: string): Set<string> {
     const path = new Set<string>();
     let current = this.linkForest.designatedParentByChild.get(childChatId);
@@ -506,20 +389,14 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return path;
   }
 
-  // Memoize a linkedChild node by its composite id. The reuse identity is the target
-  // chat's title + timestamp + broken state (canReuseLinkedChildItem) AND the
-  // expandable state (a child that gains/loses its own linked children must flip its
-  // twistie). A broken child has no record, so title/timestamp compare as null/null
-  // and the broken flag carries the change.
+  // Reuse identity includes the expandable state so the twistie flips when a child gains
+  // or loses its own linked children.
   private linkedChildItemFor(
     child: LinkedChild,
     parentVisited: Set<string>,
   ): LinkedChildItem {
     const record = this.recordsById.get(child.chatId);
-    // Expandable only when the model permits recursion (not broken, not depth-capped,
-    // not already on the path) AND the child is itself a designated parent of further
-    // linked children. The visited set for the recursion check is the parent path
-    // plus this child (it would be the next path), matching what getChildren computes.
+    // Matches what getChildren computes: the next path is the parent path plus this child.
     const visitedForChild = new Set(parentVisited);
     visitedForChild.add(child.chatId);
     const expandable =
@@ -545,10 +422,8 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return item;
   }
 
-  // True when the parent chat id has at least one direct linked child that is NOT
-  // already on the given path (so expanding it would actually render a row). Without
-  // this, a parent whose only linked children are all on the path (a pure cycle)
-  // would render collapsible but expand to nothing; this keeps the twistie honest.
+  // Without this, a parent whose children are all on the path (a pure cycle) would show a
+  // twistie that expands to nothing.
   private anyChildNotOnPath(parentChatId: string, visited: Set<string>): boolean {
     const direct = this.linkForest.childrenByParent.get(parentChatId) ?? [];
     for (const child of direct) {
@@ -569,9 +444,7 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return findNode(this.assembled.roots, folderId);
   }
 
-  // Sort a folder's directly-homed chats newest-first (no timestamp sorts last),
-  // matching the flat view's ordering. The pure model leaves chat order to the
-  // view because timestamps live outside it.
+  // Newest first, no timestamp last, matching the flat view.
   private sortedChatIds(chatIds: string[]): string[] {
     return [...chatIds].sort((a, b) => {
       const ta = this.recordsById.get(a)?.timestamp ?? 0;
@@ -580,12 +453,8 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     });
   }
 
-  // Drop memoized nodes whose id is no longer present in the current tree, so the
-  // cache does not grow unbounded as folders/chats come and go. This now also tracks
-  // the linkedChild composite ids alongside the folder-member ids: a linkedChild id
-  // is live only when it is actually reachable in the link forest's visited-set
-  // traversal (the same prune the render does), so a child removed from the links, a
-  // pruned cycle path, or a depth-capped node is evicted from the cache.
+  // Keeps the cache from growing as folders and chats come and go. A linked child is live
+  // only when the render's own traversal reaches it.
   private pruneMemoized(tree: AssembledTree): void {
     const live = new Set<string>();
     collectLiveIds(tree.roots, this.recordsById, live);
@@ -598,19 +467,9 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     }
   }
 
-  // Collect every linkedChild composite id reachable in the current forest, MIRRORING
-  // the render: getChildren roots a link walk at EVERY chat-member node (every scanned
-  // chat that is a folder member), each with its own fresh visited set of just that
-  // chat. So the prune must walk from every scanned chat too, with the same per-chat
-  // fresh visited set, same visited-set cycle/diamond prune, and same depth cap, or the
-  // live set will not contain an id the tree actually shows. Walking only from forest
-  // roots (chats that are not designated children) under-collects in a pure link cycle:
-  // with B linked under A and A linked under B, both A and B are designated children,
-  // so neither is a root and NO walk would run, evicting the rendered ids
-  // 'A>link>B'/'B>link>A' on every refresh and breaking the memoize-by-id invariant for
-  // cycle-participant rows. Redundant overlap (a subtree reached from several chat-member
-  // roots) only re-adds the same ids and is harmless; under-collection is not. A broken
-  // child contributes its own id (it renders) but is not recursed into.
+  // Walks from every scanned chat, as the render does. Walking only from forest roots would
+  // miss a pure link cycle (A under B and B under A have no root) and evict rendered ids.
+  // Overlapping walks only re-add the same ids.
   private collectLiveLinkedChildIds(into: Set<string>): void {
     for (const rootChatId of this.recordsById.keys()) {
       this.collectLinkedIdsFrom(rootChatId, new Set([rootChatId]), 0, into);
@@ -674,9 +533,7 @@ function collectLiveIdsForNode(
   }
 }
 
-// A chat-member row's description: relative time plus the ~token badge (from the
-// summary token totals on the snapshot record; no body read). Matches the flat
-// view's row description so the two surfaces read identically.
+// Relative time plus token badge, matching the flat view.
 function chatRowDescription(record: ChatRecord): string {
   const rel = relativeTime(record.timestamp);
   const badge = tokenBadge(record);
@@ -689,6 +546,5 @@ function chatRowDescription(record: ChatRecord): string {
   return rel + ' | ' + badge;
 }
 
-// Re-export the composite-id parser so command handlers can recover an owning
-// folder id from a selected chat-member node without reaching into the model.
+// Lets command handlers recover the folder id from a selected node without importing the model.
 export { parseChatNodeId };

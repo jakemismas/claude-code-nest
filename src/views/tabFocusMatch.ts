@@ -1,15 +1,6 @@
-// tabFocusMatch: the PURE, vscode-free matcher behind the "named-tab focus" read-state
-// clear trigger. When a Claude Code chat tab gains focus, the host resolves WHICH chat it
-// is by matching the tab's LABEL to a scanned chat title, then clears that chat's unread
-// affordance.  This is the identity-by-label heuristic, the only available handle: Claude's chat is a WebviewPanel (viewType
-// claudeVSCodePanel) whose real session id is never exposed to any API, but the Tabs API
-// surfaces the active tab's LABEL, which for a NAMED chat equals its title. Unnamed tabs
-// all show "Claude Code" and duplicate titles collide, so this matcher only resolves a
-// chat when EXACTLY ONE scanned record's title matches the label. An ambiguous or unnamed
-// label yields null (the known accepted gap: reading an unnamed chat directly in Claude's
-// UI does not clear it).  Kept vscode-free so the match rule is unit-tested headlessly;
-// the host listener that feature-detects window.tabGroups and reads the label is the thin
-// vscode-bound part.
+// Pure matcher that resolves a focused Claude Code chat tab to a scanned chat by label,
+// so the host can clear that chat's unread state. The tab's session id is not exposed by
+// any API, so the label (equal to the title for a named chat) is the only handle.
 
 // The minimal record shape the matcher needs: a sessionId and its resolved title.
 export interface TitledRecord {
@@ -17,10 +8,9 @@ export interface TitledRecord {
   title: string;
 }
 
-// Resolve a focused tab label to the unique scanned chat it names, or null. Matching
-// is exact after trimming, case-sensitive on the visible title (titles are shown
-// verbatim). Returns null when the label is empty, when NO record matches, or when
-// MORE THAN ONE record matches (ambiguous: do not risk clearing the wrong chat).
+// Resolve a tab label to the one chat whose trimmed title equals it exactly, else null.
+// Unnamed tabs all share one label and duplicate titles collide, so an ambiguous label
+// resolves to null rather than clearing the wrong chat.
 export function matchTabLabelToChat(
   label: string | null | undefined,
   records: readonly TitledRecord[],
@@ -36,7 +26,6 @@ export function matchTabLabelToChat(
   for (const record of records) {
     if (typeof record.title === 'string' && record.title.trim() === target) {
       if (match !== null) {
-        // A second match: the label is ambiguous, so refuse to resolve it.
         return null;
       }
       match = record.sessionId;
@@ -45,11 +34,8 @@ export function matchTabLabelToChat(
   return match;
 }
 
-// Whether a tab's viewType names Claude Code's chat webview. The public Tabs API reports
-// the viewType prefixed as "mainThreadWebview-claudeVSCodePanel" while the bare id is
-// "claudeVSCodePanel", so match by SUFFIX/ substring rather
-// than equality to tolerate the host's prefixing. Undocumented and best-effort: an
-// Anthropic rename silently disables the trigger (low blast radius).
+// The Tabs API reports the viewType with a host prefix ("mainThreadWebview-claudeVSCodePanel"),
+// so match by substring. Undocumented: a rename silently disables the trigger.
 const CLAUDE_CHAT_VIEWTYPE = 'claudeVSCodePanel';
 
 export function isClaudeChatViewType(viewType: string | null | undefined): boolean {

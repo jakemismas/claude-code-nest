@@ -1,3 +1,6 @@
+// Unit tests for the auto-archive pass with every seam stubbed in memory: batching,
+// archive versus copy, and the archivedAt read-back.
+
 import * as assert from 'assert';
 import { ChatMessageBody } from '../../claude/bodyReader';
 import { MS_PER_DAY } from '../../store/autoArchivePolicy';
@@ -6,11 +9,6 @@ import {
   AutoArchiveEngineDeps,
   runAutoArchivePass,
 } from '../../store/autoArchiveEngine';
-
-// Headless unit tests for the auto-archive pass. It sequences injected seams
-// the pure decision selects; all seams are stubbed in memory here, so this exercises the
-// batching, the archive/copy branching, and the read-your-writes archivedAt round-trip
-// without vscode or a filesystem. No stub needed: the module imports no vscode.
 
 const NOW = 1_700_000_000_000;
 
@@ -190,9 +188,7 @@ describe('autoArchiveEngine.runAutoArchivePass', () => {
   });
 });
 
-// The pass threads restoredAt (the deliberate-restore
-// intent marker) into the pure policy, so a chat the user restored is not swept by
-// the very next pass even though its transcript age is past the window.
+// A chat the user restored is not swept by the next pass, even when its transcript age is past the window.
 describe('runAutoArchivePass: restored chats are not re-archived', () => {
   it('skips a past-window chat with a recent restoredAt and archives its sibling without one', async () => {
     const h = harness();

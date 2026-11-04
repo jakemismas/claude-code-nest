@@ -45,7 +45,11 @@
     "onCommand:claudeNest.importLibrary",
     "onCommand:claudeNest.refresh",
     "onCommand:claudeNest.linkToChat",
-    "onCommand:claudeNest.unlinkChat"
+    "onCommand:claudeNest.unlinkChat",
+    "onCommand:claudeNest.openLayoutFile",
+    "onCommand:claudeNest.organizePreview",
+    "onCommand:claudeNest.organizeApply",
+    "onCommand:claudeNest.organizeUndo"
   ],
   "contributes": {
     "viewsContainers": {
@@ -70,6 +74,11 @@
     "configuration": {
       "title": "Claude Code Nest",
       "properties": {
+        "claudeNest.robin.animations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Animate the robin in the Nest header. When off, the robin shows a still pose and no notes."
+        },
         "claudeNest.archiveKeepWindowDays": {
           "type": "number",
           "default": 30,
@@ -123,10 +132,41 @@
       }
     ],
     "viewsWelcome": [],
+    "jsonValidation": [
+      {
+        "fileMatch": ".nest/config.json",
+        "url": "./schemas/nest-config.schema.json"
+      }
+    ],
     "commands": [
+      {
+        "command": "claudeNest.openLayoutFile",
+        "title": "Open Layout File",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.organizePreview",
+        "title": "Organize Chats: Preview Rules",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.organizeApply",
+        "title": "Organize Chats: Apply Rules",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.organizeUndo",
+        "title": "Organize Chats: Undo Last Apply",
+        "category": "Claude Code Nest"
+      },
       {
         "command": "claudeNest.openChat",
         "title": "Open Chat",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.openInTerminal",
+        "title": "Open in Terminal",
         "category": "Claude Code Nest"
       },
       {
@@ -324,6 +364,10 @@
       "commandPalette": [
         {
           "command": "claudeNest.openChat",
+          "when": "false"
+        },
+        {
+          "command": "claudeNest.openInTerminal",
           "when": "false"
         },
         {

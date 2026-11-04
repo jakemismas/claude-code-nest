@@ -1,32 +1,39 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import { runTests } from '@vscode/test-electron';
+import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
+import { integrationUserDataDir } from './userDataDir';
+import { resolveVscodeExecutable } from './vscodeExecutable';
 
-// The electron-host integration test LAUNCHER. This is the file package.json's
-// `test:integration` script points at (out/test/integration/runTest.js after tsc). It
-// downloads a VSCode build and runs the integration suite inside a real Extension
-// Development Host, which is the only place the host-only behaviors can be exercised: a
-// real vscode.DataTransfer / DataTransferItem round-trip and the `instanceof
-// vscode.TreeItem` node-dispatch in the drag-and-drop controller.  This is DEFERRED, not
-// part of the unattended headless gate (`npm test`): it needs a VSCode download and a
-// display, so it is run by a human or CI. The headless mocha suite never downloads
-// VSCode; this launcher is the separate entry point that does.
+// Launcher for the integration suite: downloads a VSCode build and runs the suite in a real Extension Development
+// Host, the only place host-only behavior (real DataTransfer, instanceof TreeItem dispatch) can run. It needs a
+// download and a display, so a person or CI runs it; the headless `npm test` never does.
 
 async function main(): Promise<void> {
   try {
-    // The repo root (two levels up from out/test/integration): it holds the
-    // package.json Extension Manifest the host loads via --extensionDevelopmentPath.
+    // A VS Code integrated terminal sets this, which makes the launched Electron binary run as plain Node.
+    delete process.env.ELECTRON_RUN_AS_NODE;
+
+    // Repo root (two levels up from out/test/integration), holding the package.json the host loads as the extension.
     const extensionDevelopmentPath = path.resolve(__dirname, '../../../');
-    // The compiled suite directory; index.js here exports the run() the host calls.
     const extensionTestsPath = path.resolve(__dirname, './index');
 
+    const downloaded = await downloadAndUnzipVSCode();
+    const vscodeExecutablePath = resolveVscodeExecutable(downloaded, {
+      exists: (p) => fs.existsSync(p),
+    });
+
     const exitCode = await runTests({
+      vscodeExecutablePath,
       extensionDevelopmentPath,
       extensionTestsPath,
-      // No workspace folder is opened: the contract tests construct the
-      // controllers and a fake store directly (the project key is supplied), so
-      // they do not depend on a real ~/.claude/projects scan. Disable the
-      // bundled-extensions to keep the host minimal and deterministic.
-      launchArgs: ['--disable-extensions'],
+      // No workspace folder is opened: the contract tests build controllers and a fake store directly. Bundled
+      // extensions are disabled to keep the host minimal and deterministic.
+      launchArgs: [
+        '--disable-extensions',
+        '--user-data-dir=' +
+          integrationUserDataDir(path.resolve(process.cwd(), '.vscode-test', 'user-data'), os.tmpdir()),
+      ],
     });
     process.exit(exitCode);
   } catch (err) {

@@ -1,8 +1,6 @@
-/* Primary org-panel webview styling. Every SURFACE, TEXT, and BORDER token follows
-   the active VS Code theme so the panel matches the editor chrome in light and dark
-   themes alike. The accent family stays the hardcoded Claude orange. Each
-   theme-driven token falls back to a default light value: the screenshot harness
-   defines no --vscode-* variables, so it renders those defaults. */
+/* Sidebar webview styles. Surface, text and border tokens follow the active VS Code theme and fall back
+   to light defaults, which the screenshot harness renders because it defines no --vscode-* variables.
+   The accent stays the fixed brand orange. */
 
 :root {
   /* Accent (Claude orange): theme-independent by design. */
@@ -46,13 +44,8 @@
   --nest-radius: 6px;
 }
 
-/* The Newsreader serif for later sub-page headings (Settings/Archive overlays,
-   s3b). Bundled in the VSIX and loaded from the extension's own media resources,
-   NEVER from the network. The url is
-   relative to this stylesheet's webview URI, which resolves under the pinned media
-   localResourceRoots. No heading consumes the serif in this stylesheet; the packaging
-   proof (media/fonts/*.woff2 present in the .vsix) is the gate. A local serif stack
-   is the fallback if the face fails to load. */
+/* Newsreader serif for sub-page headings. Bundled in the extension and loaded from its own media
+   resources, never the network; a local serif stack is the fallback if the face fails to load. */
 @font-face {
   font-family: 'Newsreader';
   font-style: normal;
@@ -154,7 +147,7 @@ body {
   outline-offset: 1px;
 }
 
-/* The gear active tint (Settings sub-page open; the overlay lands in s3b). */
+/* The gear active tint (Settings sub-page open). */
 .nest-icon-btn.nest-active {
   color: var(--nest-accent);
   background: var(--nest-accent-soft);
@@ -240,8 +233,7 @@ body {
 .nest-search-icon {
   position: absolute;
   left: 19px;
-  /* 10px centers the 13px glyph against the input's placeholder text; the old 7px
-     sat it visibly high. */
+  /* 10px centers the 13px glyph against the placeholder text. */
   top: 10px;
   pointer-events: none;
   display: inline-flex;
@@ -345,12 +337,8 @@ body {
   background: var(--chip-color);
 }
 
-/* An active chip: color @15% background, color text, color @45% border. The alpha
-   backgrounds/borders are computed as rgba() in JS (media/orgPanel.js hexToRgba) and
-   set inline, NOT via CSS color-mix(), which needs Chromium 111+ and would be
-   invalid on the engines floor (VS Code 1.66 ships Chromium 98). This rule supplies
-   the text color and a safe fallback tint; JS overrides background/border-color with
-   the exact alpha values when the chip has a color. */
+/* An active chip: color text with a fallback tint. JS sets the 15% background and 45% border inline as
+   rgba() (hexToRgba) because color-mix() needs Chromium 111 and VS Code 1.66 ships Chromium 98. */
 .nest-chip-active {
   background: var(--nest-accent-soft);
   color: var(--chip-color);
@@ -396,14 +384,9 @@ body {
   white-space: nowrap;
 }
 
-/* The FOLDERS header carries the + (new folder) and ^ (collapse one level)
-   buttons flush right. Its label must read at the SAME
-   10px/600 uppercase muted scale as the cross-cutting and UNSORTED headers
-   (font-size:10px; letter-spacing:0.7px;
-   color:#AEA99C; font-weight:600). The base .nest-section-header rule sets that type
-   on its own header element, but this header is .nest-folders-header (not
-   .nest-section-header), so the label span must carry the type itself or it inherits
-   the 13px #2B2A27 body defaults. */
+/* The FOLDERS header holds the + (new folder) and ^ (collapse one level) buttons flush right. Its label
+   span sets its own 10px/600 uppercase type because this header is not .nest-section-header and would
+   otherwise inherit the 13px body defaults. */
 .nest-folders-header {
   display: flex;
   align-items: center;
@@ -479,12 +462,15 @@ body {
 }
 
 .nest-folder-chevron {
-  width: 10px;
+  width: 12px;
+  height: 12px;
   flex: 0 0 auto;
-  font-size: 9px;
-  color: var(--nest-text-secondary);
-  text-align: center;
+  display: inline-flex;
   cursor: pointer;
+}
+
+.nest-folder-chevron.is-open .nest-fleet-chev {
+  transform: rotate(90deg);
 }
 
 .nest-folder-glyph {
@@ -507,9 +493,8 @@ body {
   color: var(--nest-text-breadcrumb);
 }
 
-/* The synthetic UNSORTED header: a plain section label that is also a drop target.
-   The margin-top separates UNSORTED from the FOLDERS section above it;
-   margin rather than padding so the drop-target highlight box stays tight. */
+/* The synthetic UNSORTED header: a plain label that is also a drop target. Margin, not padding, separates
+   it from FOLDERS so the drop highlight box stays tight. */
 .nest-unsorted-header {
   margin-top: 10px;
   padding: 9px 8px 3px;
@@ -542,8 +527,7 @@ body {
 
 /* ---- In-panel folder color-swatch picker ---- */
 
-/* The floating swatch popover, opened from the folder menu's "Set color". Replaces
-   the native <input type=color>. Popover shadow + radius per. */
+/* The floating swatch popover, opened from the folder menu's Set color. */
 .nest-color-popover {
   position: fixed;
   z-index: 60;
@@ -562,10 +546,8 @@ body {
   gap: 7px;
 }
 
-/* One color swatch: 22x22, radius 5, filled with its palette color. Unselected
-   swatches carry a hairline inset border; the selected swatch shows a
-   double ring (white gap + a ring in the swatch's own color), matching the
-   swatch box-shadow. */
+/* One color swatch: 22x22, filled with its palette color. Unselected swatches have a hairline inset
+   border; the selected one shows a double ring (white gap, then the swatch color). */
 .nest-swatch {
   --swatch-color: var(--nest-accent);
   width: 22px;
@@ -615,9 +597,7 @@ body {
 
 /* ---- New-folder popover ---- */
 
-/* The floating "New folder" popover opened by the FOLDERS header + button: a name
-   input plus Create / Cancel. Mirrors the folder color swatch styling and the
-   popover shadow. */
+/* The floating New folder popover opened by the FOLDERS + button: a name input plus Create and Cancel. */
 .nest-newfolder-popover {
   position: fixed;
   z-index: 60;
@@ -662,8 +642,7 @@ body {
   padding-top: 9px;
 }
 
-/* Create: accent-filled primary; Cancel: quiet text button. Matches the
-   Create (background #d97757, white) + Cancel (muted text) pair. */
+/* Create: accent-filled primary; Cancel: quiet text button. */
 .nest-newfolder-create {
   flex: 1;
   padding: 6px 0;
@@ -732,8 +711,7 @@ body {
   box-shadow: inset 0 0 0 1px var(--nest-accent);
 }
 
-/* Active row (currently open): warm tint + inset left border. The ONLY row
-   highlight; starred rows are NOT tinted. Best-effort (tab label heuristic). */
+/* Active row (the open chat): warm tint and inset left border; the only row highlight. */
 .nest-row.nest-active {
   background: var(--nest-active-row);
   border-left-color: var(--nest-accent);
@@ -751,10 +729,8 @@ body {
   width: 100%;
 }
 
-/* The left status slot: a fixed 15px slot so titles align
-   whether or not a row carries a status; the glyph inside is a solid 8px dot for
-   status 'done' or a 14px blinking circle with a white '?' for 'question'. The slot
-   is aria-hidden; the row's aria-label carries the meaning. */
+/* The left status slot is a fixed 15px so titles align whether or not a row has a status: an 8px dot for
+   'done' or a 14px blinking '?' badge for 'question'. It is aria-hidden; the row's aria-label carries it. */
 .nest-status {
   flex: 0 0 auto;
   width: 15px;
@@ -785,19 +761,14 @@ body {
   animation: ccblink 1.15s ease-in-out infinite;
 }
 
-/* Honor prefers-reduced-motion. The question badge stops
-   blinking (a static badge) and every panel transition and animation is neutralized so
-   no motion plays for a user who asked for none: the settings switch thumb slide and its
-   track color fade, and the focus-glow border/shadow eases on the search boxes. Kept as
-   a targeted list (not a global *{} reset) so the harness and the shipped panel share the
-   exact same set of neutralized surfaces. */
+/* Honor prefers-reduced-motion: stop the question badge, the switch thumb slide and track fade, and the
+   search-box glow easing. A targeted list, not a global reset, so the harness and panel match. */
 @media (prefers-reduced-motion: reduce) {
   .nest-status-question {
     animation: none;
   }
 
-  /* The overflowed tag strip stays static: the clipped tail remains
-     reachable via the chat menu's full tag list. */
+  /* The overflowed tag strip stays static; the clipped tail stays reachable in the chat menu's tag list. */
   .nest-tags-overflow .nest-row-tags-strip {
     animation: none;
   }
@@ -824,7 +795,8 @@ body {
 
 .nest-row-title-text {
   flex: 1;
-  min-width: 0;
+  /* Tags and the breadcrumb give way first so the title stays readable. */
+  min-width: 11ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -833,7 +805,8 @@ body {
 
 /* Folder breadcrumb (search results and Questions), muted. */
 .nest-row-breadcrumb {
-  flex: 0 0 auto;
+  flex: 0 100 auto;
+  min-width: 0;
   font-size: 10.5px;
   color: var(--nest-text-breadcrumb);
   white-space: nowrap;
@@ -842,13 +815,12 @@ body {
   text-overflow: ellipsis;
 }
 
-/* The pill clip box: bounded and overflow-hidden so a chat with more
-   tags than fits clips on one line instead of squeezing the title or the time. The
-   strip inside carries the pills at their natural width. */
+/* The pill clip box is bounded and overflow-hidden so extra tags clip on one line instead of squeezing the
+   title or time. The strip inside holds the pills at natural width. */
 .nest-row-tags {
   display: flex;
   align-items: center;
-  flex: 0 1 auto;
+  flex: 0 100 auto;
   min-width: 0;
   max-width: 45%;
   overflow: hidden;
@@ -861,12 +833,9 @@ body {
   flex: none;
 }
 
-/* Slow back-and-forth drift for a strip that overflows its clip box:
-   translate to the measured overflow (--tag-scroll, set by armTagMarquee in JS) and
-   back, with dwell at each end so both the head and the tail get read. Duration
-   scales with the overflow (--tag-scroll-duration). Hovering the box pauses the
-   drift so a pill can be read or the + control clicked; prefers-reduced-motion
-   disables it entirely (see the deviation-3 block). */
+/* Slow back-and-forth drift for an overflowing strip: it translates to the measured overflow
+   (--tag-scroll, set by armTagMarquee) and back, dwelling at each end, over --tag-scroll-duration.
+   Hover pauses it so a pill can be read; the reduced-motion block disables it. */
 @keyframes nest-tags-marquee {
   0%,
   12% {
@@ -888,12 +857,17 @@ body {
   animation: nest-tags-marquee var(--tag-scroll-duration, 8s) linear infinite;
 }
 
+/* Fade the clipped edge so a cut pill reads as more to come, not as a broken chip. */
+.nest-row-tags.nest-tags-overflow {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+}
+
 .nest-row-tags.nest-tags-overflow:hover .nest-row-tags-strip {
   animation-play-state: paused;
 }
 
-/* The add-tag + control: quiet, revealed on row hover or keyboard
-   focus, opens the chat menu's tag section anchored under itself. */
+/* The add-tag + control: quiet, shown on row hover or keyboard focus, opens the chat menu under itself. */
 .nest-tag-add {
   flex: 0 0 auto;
   width: 16px;
@@ -926,11 +900,8 @@ body {
   visibility: visible;
 }
 
-/* Tag pills on a chat row: color @15% background / full color text. The @15%
-   background is computed as rgba() in JS (hexToRgba) and set inline rather than via
-   CSS color-mix() (Chromium 111+, not on the 1.66 engines floor). This rule supplies
-   the text color and a safe fallback tint; JS overrides the background with the exact
-   alpha when the tag has a color. */
+/* Tag pills on a chat row: full-color text with a fallback tint. JS sets the 15% rgba background inline
+   (hexToRgba) because color-mix() needs Chromium 111 and VS Code 1.66 ships Chromium 98. */
 .nest-tag {
   --tag-color: var(--nest-accent);
   display: inline-block;
@@ -953,8 +924,8 @@ body {
   text-align: right;
 }
 
-/* Star toggle: filled accent when starred, hollow muted otherwise (hover accent). A
-   <button> reset so it reads as a plain glyph but stays keyboard-focusable. */
+/* Star toggle: filled accent when starred, hollow muted otherwise. A reset button so it reads as a glyph
+   but stays keyboard-focusable. */
 .nest-star {
   flex: 0 0 auto;
   width: 15px;
@@ -1082,9 +1053,7 @@ body {
 
 /* ---- Chat row context menu ---- */
 
-/* The chat menu reuses .nest-menu (surface, radius, the context-menu shadow
-   0 12px 32px rgba(40,33,20,0.18)); this widens it to a ~200px min and
-   pins a z-index above the tree/popovers so it sits over a row. */
+/* The chat menu reuses .nest-menu, with a wider minimum and a z-index above the tree and popovers. */
 .nest-chat-menu {
   min-width: 200px;
   max-width: 210px;
@@ -1142,8 +1111,7 @@ body {
   font-weight: 600;
 }
 
-/* The starred-chat "kept and never archived" note:
-   muted, non-interactive text in place of the Archive entry. */
+/* The starred-chat "kept and never archived" note: muted text in place of the Archive entry. */
 .nest-menu-note {
   padding: 6px 10px;
   font-size: 11.5px;
@@ -1235,10 +1203,8 @@ body {
 }
 
 /* ---- Settings overlay ----
-   A full-panel sub-page over the tree/toolbar It is
-   position:fixed;inset:0 (appended to document.body) so it covers the 320px panel, on
-   the #FCFBF8 overlay surface. A back chevron + Newsreader 16px/600 heading, then a
-   scrolling body with the ARCHIVING group and the SIDEBAR SECTIONS pill switches. */
+   A full-panel sub-page over the tree and toolbar (position:fixed, inset:0): a back chevron and heading,
+   then a scrolling body of settings groups. */
 .nest-overlay {
   position: fixed;
   inset: 0;
@@ -1282,8 +1248,7 @@ body {
   outline-offset: 1px;
 }
 
-/* Sub-page headings use the Newsreader serif at 16px/600. The bundled face loads via @font-face; the
-   local serif stack is the fallback. */
+/* Sub-page headings use the Newsreader serif at 16px/600 (bundled @font-face, local serif fallback). */
 .nest-overlay-title {
   font-family: 'Newsreader', Georgia, serif;
   font-size: 16px;
@@ -1298,8 +1263,8 @@ body {
 }
 
 .nest-settings-group-label {
-  font-size: 10.5px;
-  letter-spacing: 0.6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   color: var(--nest-text-label);
   font-weight: 700;
   margin-bottom: 9px;
@@ -1370,9 +1335,214 @@ body {
   margin-top: 1px;
 }
 
-/* The pill switch (track 34x19 radius 999, thumb 15x15 sliding 15px; on =
-   #d97757, off = #D6D0C2). A role="switch" button; .nest-switch-on paints the on
-   state and slides the thumb. */
+.nest-settings-group-label-spaced {
+  margin-top: 18px;
+}
+
+/* Group-by segmented control: a rounded track, 32px options, the pressed option raised. */
+.nest-seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--vscode-toolbar-hoverBackground, #F1EEE8);
+}
+
+.nest-seg-opt {
+  flex: 1;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nest-text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+.nest-seg-opt-on {
+  background: var(--vscode-editorWidget-background, #fff);
+  color: var(--nest-text-strong);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.nest-seg-opt:focus-visible,
+.nest-settings-open-btn:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+/* A 44px settings row on the raised surface: the layout file path, the robin switch. */
+.nest-settings-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 44px;
+  padding: 0 7px 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--nest-border-soft);
+  background: var(--vscode-editorWidget-background, #fff);
+}
+
+.nest-settings-robin-row {
+  padding-right: 12px;
+}
+
+.nest-settings-path {
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: var(--nest-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nest-settings-open-btn {
+  height: 30px;
+  flex: none;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--nest-border-input);
+  background: transparent;
+  color: var(--nest-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.nest-settings-open-btn:hover {
+  background: var(--nest-btn-hover);
+}
+
+/* Organize: Preview, Apply and Undo buttons, a status line, rule problems and the moves list. */
+.nest-organize-note {
+  margin-top: 0;
+  margin-bottom: 9px;
+}
+
+.nest-organize-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.nest-organize-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.nest-organize-btn:disabled:hover {
+  background: transparent;
+}
+
+.nest-organize-status {
+  margin-top: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--nest-text-secondary);
+}
+
+.nest-organize-problems {
+  list-style: none;
+  margin: 7px 0 0;
+  padding: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--vscode-editorWarning-foreground, #A8641B);
+}
+
+html[data-theme='dark'] .nest-organize-problems,
+body.vscode-dark .nest-organize-problems,
+body.vscode-high-contrast .nest-organize-problems {
+  color: var(--vscode-editorWarning-foreground, #E3A45A);
+}
+
+.nest-organize-problems li + li {
+  margin-top: 3px;
+}
+
+.nest-organize-list {
+  list-style: none;
+  margin: 9px 0 0;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--nest-border-soft);
+  background: var(--vscode-editorWidget-background, #fff);
+  overflow: hidden;
+}
+
+.nest-organize-move {
+  padding: 8px 12px;
+}
+
+.nest-organize-move + .nest-organize-move {
+  border-top: 1px solid var(--nest-border-soft);
+}
+
+.nest-organize-move-title {
+  font-size: 12.5px;
+  color: var(--nest-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nest-organize-move-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--nest-text-muted);
+}
+
+.nest-organize-route,
+.nest-organize-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  max-width: 100%;
+}
+
+.nest-organize-to {
+  color: var(--nest-text-secondary);
+  font-weight: 600;
+}
+
+.nest-organize-chip {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--nest-border-input);
+  color: var(--nest-text-secondary);
+  line-height: 16px;
+}
+
+.nest-organize-more {
+  padding: 7px 12px;
+  border-top: 1px solid var(--nest-border-soft);
+  font-size: 11.5px;
+  color: var(--nest-text-muted);
+}
+
+/* The robin switch is 34x20 and green when on. */
+.nest-switch-robin {
+  height: 20px;
+}
+
+.nest-switch-robin.nest-switch-on {
+  background: #2E9E57;
+}
+
+.nest-switch-robin .nest-switch-thumb {
+  top: 2.5px;
+}
+
+/* The pill switch (a role=switch button): .nest-switch-on paints the on state and slides the thumb. */
 .nest-switch {
   position: relative;
   width: 34px;
@@ -1402,8 +1572,7 @@ body {
   width: 15px;
   height: 15px;
   border-radius: 50%;
-  /* The knob stays white on every theme: it rides the accent (on) or the muted
-     track (off), never the panel surface. */
+  /* The knob stays white on every theme so it never matches the panel surface. */
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   transform: translateX(0);
@@ -1415,12 +1584,8 @@ body {
 }
 
 /* ---- Archive overlay ----
-   A full-panel sub-page over the tree/toolbar reusing
-   the .nest-overlay chrome, back chevron, and Newsreader heading from the Settings overlay.
-   Its "Search archived" box uses a GRAY focus glow (#A6A294 ring / rgba(120,114,102,0.30)
-   bloom), deliberately distinct from the main orange search glow. Each row shows a
-   title over a folder . age meta line, a star (star-unarchive), an export button, and a
-   Restore button whose hover fills #d97757. */
+   A full-panel sub-page reusing the .nest-overlay chrome and heading from Settings. Its search box uses a
+   gray focus glow, distinct from the main orange one. */
 
 .nest-archive-count {
   font-size: 11.5px;
@@ -1452,8 +1617,7 @@ body {
 .nest-archive-search-icon {
   position: absolute;
   left: 21px;
-  /* Same 10px optical centering as the main search icon:
-     identical input padding, font size, and border. */
+  /* Same 10px optical centering as the main search icon. */
   top: 10px;
   pointer-events: none;
   display: inline-flex;
@@ -1461,8 +1625,7 @@ body {
   color: var(--nest-text-muted);
 }
 
-/* The gray-glow search box: a distinct focus token from the main orange search glow
-  . Ring #A6A294, bloom rgba(120,114,102,0.30). */
+/* The gray-glow search box: its focus ring and bloom are gray, distinct from the main orange glow. */
 .nest-archive-search-input {
   width: 100%;
   box-sizing: border-box;
@@ -1501,8 +1664,8 @@ body {
   background: var(--nest-hover-row);
 }
 
-/* The title + meta column is a button so the row body previews the archived copy and is
-   keyboard-focusable; it reads as plain text (no button chrome). */
+/* The title and meta column is a button so the row body previews the archived copy and is
+   keyboard-focusable; it reads as plain text. */
 .nest-archive-row-text {
   flex: 1;
   min-width: 0;
@@ -1551,8 +1714,7 @@ body {
   color: var(--nest-text-breadcrumb);
 }
 
-/* The archived-row star (star-unarchive). Hollow muted star; hover fills the
-   accent like the main-row star. Reuses the .nest-star sizing from the row anatomy. */
+/* The archived-row star: hollow muted; hover fills the accent like the main-row star. */
 .nest-archive-star {
   flex: none;
 }
@@ -1597,7 +1759,7 @@ body {
   border-radius: 6px;
   border: 1px solid var(--nest-border-input);
   background: var(--nest-surface);
-  color: var(--nest-text-secondary);
+  color: var(--nest-text);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
@@ -1613,4 +1775,724 @@ body {
 .nest-archive-restore:focus-visible {
   outline: 2px solid var(--nest-accent);
   outline-offset: 1px;
+}
+
+/* ---- Fleet view: header, controls, queue, groups ---- */
+
+/* Fleet tokens. Surfaces and text follow the VS Code theme and fall back to the light
+   values; the status, pill and tag hues are content colors and stay hardcoded. */
+:root {
+  --nf-text: var(--vscode-foreground, #1F1D1A);
+  --nf-muted: var(--vscode-descriptionForeground, #6A645B);
+  --nf-quiet: var(--vscode-icon-foreground, #8A847A);
+  --nf-hover: var(--vscode-list-hoverBackground, #F1EEE8);
+  --nf-border: var(--vscode-panel-border, #E6E2DA);
+  --nf-divider: var(--vscode-panel-border, #EDE9E2);
+  --nf-input-border: var(--vscode-input-border, #DDD8CF);
+  --nf-input-fill: var(--vscode-input-background, #FFFFFF);
+  --nf-card: var(--vscode-editorWidget-background, #FFFFFF);
+  --nf-wordmark: #C2571A;
+  --nf-branch: #A8A29A;
+  --nf-mono: var(--vscode-editor-font-family, Menlo, monospace);
+
+  --nf-working: #2E9E57;
+  --nf-needs: #E9A100;
+  --nf-needs-ink: #2B1E00;
+  --nf-queued: #3B82D6;
+  --nf-done: #3F8F5C;
+  --nf-idle: #9A948B;
+
+  --pill-teal-bg: #DDF3EE;
+  --pill-teal-fg: #0E6656;
+  --pill-orange-bg: #FCE6D6;
+  --pill-orange-fg: #9A410C;
+  --pill-blue-bg: #E2ECFB;
+  --pill-blue-fg: #1A55AD;
+  --pill-green-bg: #DFF3E5;
+  --pill-green-fg: #1C6E37;
+
+  --tag-build-bg: #E2ECFB;
+  --tag-build-fg: #1A55AD;
+  --tag-fix-bg: #FCE6D6;
+  --tag-fix-fg: #9A410C;
+  --tag-qa-bg: #ECE5F8;
+  --tag-qa-fg: #55389A;
+  --tag-spike-bg: #DDF3EE;
+  --tag-spike-fg: #0E6656;
+  --tag-review-bg: #F1EEE8;
+  --tag-review-fg: #4A453E;
+  --tag-capture-bg: #FBE3EC;
+  --tag-capture-fg: #9A2A55;
+
+  --btn-active-bg: #E3F4E8;
+  --btn-active-border: #8CCB9F;
+  --btn-active-fg: #1C6E37;
+  --btn-queue-bg: #E2ECFB;
+  --btn-queue-border: #9DBDEB;
+  --btn-queue-fg: #1A55AD;
+}
+
+/* Dark: the same hues, fills at 22 percent over the panel, text lightened. */
+html[data-theme='dark'],
+body.vscode-dark,
+body.vscode-high-contrast {
+  --nf-wordmark: #E07B3C;
+  --nf-branch: #6F6A62;
+  --nf-working: #3DBB6C;
+  --nf-done: #6CC58C;
+  --nf-idle: #8C867D;
+
+  --pill-teal-bg: rgba(47, 191, 159, 0.22);
+  --pill-teal-fg: #6FD9C0;
+  --pill-orange-bg: rgba(232, 121, 54, 0.22);
+  --pill-orange-fg: #F4A672;
+  --pill-blue-bg: rgba(79, 140, 230, 0.22);
+  --pill-blue-fg: #8DB8F5;
+  --pill-green-bg: rgba(60, 170, 100, 0.22);
+  --pill-green-fg: #7FD39B;
+
+  --tag-build-bg: rgba(79, 140, 230, 0.22);
+  --tag-build-fg: #8DB8F5;
+  --tag-fix-bg: rgba(232, 121, 54, 0.22);
+  --tag-fix-fg: #F4A672;
+  --tag-qa-bg: rgba(140, 110, 220, 0.22);
+  --tag-qa-fg: #BBA4F2;
+  --tag-spike-bg: rgba(47, 191, 159, 0.22);
+  --tag-spike-fg: #6FD9C0;
+  --tag-review-bg: rgba(150, 145, 135, 0.22);
+  --tag-review-fg: #D0CBC2;
+  --tag-capture-bg: rgba(219, 80, 130, 0.22);
+  --tag-capture-fg: #F29AB8;
+
+  --btn-active-bg: rgba(46, 158, 87, 0.22);
+  --btn-active-border: rgba(46, 158, 87, 0.6);
+  --btn-active-fg: #7FD39B;
+  --btn-queue-bg: rgba(59, 130, 214, 0.22);
+  --btn-queue-border: rgba(59, 130, 214, 0.6);
+  --btn-queue-fg: #8DB8F5;
+}
+
+/* Header: the robin and the wordmark. */
+.nest-header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  /* 13 art pixels above the perch for the highest jump, note and burst. */
+  padding: 39px 16px 16px;
+  flex: none;
+  overflow: hidden;
+}
+
+.nest-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The robin: square SVG pixels drawn by mascot.js, 3 CSS px per art pixel. Its colors are SVG fill
+   attributes, and it animates by redrawing whole pixels, so no CSS animation runs here. */
+.nest-robin-slot {
+  position: relative;
+  z-index: 0;
+  display: inline-block;
+  line-height: 0;
+}
+
+.nest-robin-slot:empty {
+  display: none;
+}
+
+.nest-robin-svg {
+  display: block;
+  overflow: visible;
+}
+
+.nest-wordmark {
+  position: relative;
+  z-index: 1;
+  font-family: var(--nf-mono);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--nf-wordmark);
+}
+
+/* Controls row: the search box beside the Active and Queue buttons. */
+.nest-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 10px;
+  flex: none;
+}
+
+.nest-controls .nest-search {
+  flex: 1 1 96px;
+  min-width: 0;
+  padding: 0;
+}
+
+.nest-controls .nest-search-icon {
+  left: 10px;
+  top: 10px;
+}
+
+.nest-controls .nest-filter {
+  height: 34px;
+  padding: 0 28px 0 30px;
+  border-radius: 8px;
+  border-color: var(--nf-input-border);
+  background: var(--nf-input-fill);
+}
+
+.nest-controls .nest-filter:focus {
+  background: var(--nf-input-fill);
+}
+
+.nest-controls .nest-search-clear {
+  right: 7px;
+  top: 7px;
+}
+
+.nest-fleet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--nf-input-border);
+  background: var(--nf-input-fill);
+  color: var(--nf-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  flex: none;
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.nest-fleet-btn[hidden] {
+  display: none;
+}
+
+.nest-fleet-btn-active[aria-pressed='true'] {
+  background: var(--btn-active-bg);
+  border-color: var(--btn-active-border);
+  color: var(--btn-active-fg);
+}
+
+.nest-fleet-btn-queue[aria-pressed='true'] {
+  background: var(--btn-queue-bg);
+  border-color: var(--btn-queue-border);
+  color: var(--btn-queue-fg);
+}
+
+.nest-fleet-btn:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+
+.nest-fleet-btn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Status marks: one set of dots shared by buttons, rows and the queue. */
+.nest-dot-working {
+  background: var(--nf-working);
+  animation: nest-pulse 1.4s ease-in-out infinite;
+}
+
+.nest-dot-queued {
+  background: var(--nf-queued);
+}
+
+@keyframes nest-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 158, 87, 0.55);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(46, 158, 87, 0);
+    opacity: 0.8;
+  }
+}
+
+@keyframes nest-qblink {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+/* Queue: a read-only card under the controls. */
+.nest-queue {
+  margin: 0 12px 8px;
+  border: 1px solid var(--nf-border);
+  border-radius: 10px;
+  background: var(--nf-card);
+  overflow: hidden;
+  flex: none;
+}
+
+.nest-queue[hidden] {
+  display: none;
+}
+
+.nest-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--nf-divider);
+}
+
+.nest-queue-row:last-child {
+  border-bottom: 0;
+}
+
+.nest-queue-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--nf-queued);
+  flex: none;
+}
+
+.nest-queue-pos {
+  width: 12px;
+  flex: none;
+  color: var(--nf-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.nest-queue-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nest-queue-key,
+.nest-fleet-ticket {
+  color: var(--nf-muted);
+}
+
+.nest-queue-empty {
+  padding: 10px;
+  color: var(--nf-muted);
+}
+
+/* Pills and tags. */
+.nest-pill {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.nest-pill-teal {
+  background: var(--pill-teal-bg);
+  color: var(--pill-teal-fg);
+}
+
+.nest-pill-orange {
+  background: var(--pill-orange-bg);
+  color: var(--pill-orange-fg);
+}
+
+.nest-pill-blue {
+  background: var(--pill-blue-bg);
+  color: var(--pill-blue-fg);
+}
+
+.nest-pill-green {
+  background: var(--pill-green-bg);
+  color: var(--pill-green-fg);
+}
+
+.nest-pill-custom {
+  background: var(--pill-custom-bg);
+  color: var(--pill-custom-fg);
+}
+
+.nest-agent-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nest-agent-build {
+  background: var(--tag-build-bg);
+  color: var(--tag-build-fg);
+}
+
+.nest-agent-fix {
+  background: var(--tag-fix-bg);
+  color: var(--tag-fix-fg);
+}
+
+.nest-agent-qa {
+  background: var(--tag-qa-bg);
+  color: var(--tag-qa-fg);
+}
+
+.nest-agent-spike {
+  background: var(--tag-spike-bg);
+  color: var(--tag-spike-fg);
+}
+
+.nest-agent-review {
+  background: var(--tag-review-bg);
+  color: var(--tag-review-fg);
+}
+
+.nest-agent-capture {
+  background: var(--tag-capture-bg);
+  color: var(--tag-capture-fg);
+}
+
+/* Status slot and marks inside rows. */
+.nest-fleet-status {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nest-fleet-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: block;
+}
+
+.nest-fleet-dot.nest-dot-working {
+  background: var(--nf-working);
+}
+
+.nest-fleet-dot.nest-dot-queued {
+  background: var(--nf-queued);
+}
+
+.nest-fleet-dot-idle {
+  border: 1.5px solid var(--nf-idle);
+  box-sizing: border-box;
+}
+
+.nest-fleet-needs {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--nf-needs);
+  color: var(--nf-needs-ink);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: nest-qblink 1s steps(2, end) infinite;
+}
+
+.nest-fleet-check {
+  display: block;
+}
+
+.nest-fleet-check path {
+  fill: none;
+  stroke: var(--nf-done);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A dot that became done morphs into the check. */
+.nest-fleet-status.nest-morph .nest-fleet-check path {
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  animation: nest-check-draw 0.4s ease-out 0.05s forwards;
+}
+
+@keyframes nest-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Orchestrator card and group rows. */
+.nest-fleet-orch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  min-height: 40px;
+  margin: 2px 12px 0;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--nf-card);
+  border: 1px solid var(--nf-border);
+  color: inherit;
+  cursor: pointer;
+}
+
+.nest-fleet-orch-icon {
+  flex: none;
+  display: block;
+}
+
+.nest-fleet-orch-icon path {
+  fill: none;
+  stroke: var(--nf-wordmark);
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.nest-fleet-orch-label {
+  flex: 1;
+  font-weight: 600;
+}
+
+.nest-fleet-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 12px 4px 14px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nest-fleet-group-row.nest-fleet-past {
+  min-height: 32px;
+  padding: 4px 16px;
+  margin-top: 2px;
+  color: var(--nf-muted);
+}
+
+.nest-fleet-chev {
+  flex: none;
+  transition: transform 0.15s;
+}
+
+.nest-fleet-chev path {
+  fill: none;
+  stroke: var(--nf-quiet);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nest-fleet-group.is-open > .nest-fleet-group-row .nest-fleet-chev {
+  transform: rotate(90deg);
+}
+
+.nest-fleet-folder-icon path {
+  fill: none;
+  stroke: var(--nf-wordmark);
+  stroke-width: 1.2;
+}
+
+.nest-fleet-clock-icon circle,
+.nest-fleet-clock-icon path {
+  fill: none;
+  stroke: var(--nf-quiet);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.nest-fleet-folder-icon,
+.nest-fleet-clock-icon {
+  flex: none;
+  display: block;
+}
+
+.nest-fleet-group-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nest-fleet-group-text.nest-fleet-label {
+  font-weight: 500;
+}
+
+.nest-fleet-live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--nf-working);
+  flex: none;
+  animation: nest-pulse 1.4s ease-in-out infinite;
+}
+
+.nest-fleet-count {
+  flex: none;
+  font-size: 11px;
+  color: var(--nf-muted);
+}
+
+.nest-fleet-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 12px 3px 40px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nest-fleet-chat.nest-fleet-child {
+  padding-left: 54px;
+}
+
+.nest-fleet-branch {
+  flex: none;
+  color: var(--nf-branch);
+}
+
+.nest-fleet-chat-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nest-fleet-chat-text.nest-fleet-suffix {
+  color: var(--nf-muted);
+}
+
+.nest-fleet-orch:hover,
+.nest-fleet-group-row:hover,
+.nest-fleet-chat:hover {
+  background: var(--nf-hover);
+}
+
+.nest-fleet-orch:focus,
+.nest-fleet-group-row:focus,
+.nest-fleet-chat:focus {
+  outline: none;
+}
+
+.nest-fleet-orch:focus-visible,
+.nest-fleet-group-row:focus-visible,
+.nest-fleet-chat:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--nest-accent);
+}
+
+.nest-fleet-chat.nest-active {
+  background: var(--nest-active-row);
+}
+
+.nest-fleet-spacer {
+  height: 10px;
+  flex: none;
+}
+
+/* Group open and close slide. The body animates from zero to its natural height. */
+.nest-fleet-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition: grid-template-rows 0.18s ease, visibility 0s linear 0.18s;
+}
+
+.nest-fleet-group.is-open > .nest-fleet-body {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows 0.18s ease, visibility 0s;
+}
+
+.nest-fleet-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* A new row slides in with a brief highlight. */
+.nest-fleet-enter {
+  animation: nest-fleet-slide 0.35s ease-out, nest-fleet-flash 1.2s ease-out;
+}
+
+.nest-fleet-slide {
+  animation: nest-fleet-slide 0.25s ease-out;
+}
+
+@keyframes nest-fleet-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nest-fleet-flash {
+  from {
+    background: var(--nest-accent-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.nest-fleet-empty {
+  padding: 18px 16px;
+  color: var(--nf-muted);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nest-dot-working,
+  .nest-fleet-live,
+  .nest-fleet-needs {
+    animation: none;
+  }
+
+  .nest-fleet-enter,
+  .nest-fleet-slide,
+  .nest-fleet-status.nest-morph .nest-fleet-check path {
+    animation: none;
+  }
+
+  .nest-fleet-status.nest-morph .nest-fleet-check path {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+
+  .nest-fleet-body,
+  .nest-fleet-group.is-open > .nest-fleet-body,
+  .nest-fleet-chev,
+  .nest-pill,
+  .nest-fleet-btn {
+    transition: none;
+  }
 }

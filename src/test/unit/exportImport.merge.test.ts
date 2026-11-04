@@ -1,13 +1,10 @@
+// Unit tests for the per-scalar last-writer-wins merge of starred, archive and folder color.
+
 import * as assert from 'assert';
 import { ChatMeta, Folder, ProjectMeta, emptyProjectMeta } from '../../store/schema';
 import { mergeProjectMeta } from '../../store/exportImport';
 
-// Pure-logic unit tests for the per-scalar LWW extension of mergeProjectMeta: starred /
-// userArchived / archivedAt arbitrated by the single per-record updatedAt (archivedAt
-// coupled to userArchived), and Folder.color arbitrated by the document-level updatedAt
-// via foldersEqual/cloneFolder. The tag/link union and folderId conflict floor are
-// unchanged; a couple of guards here confirm the extension did not disturb them. No
-// vscode, no filesystem.
+// Covers starred, userArchived and archivedAt under the per-record updatedAt, and Folder.color under the document updatedAt.
 
 const DEVICE = 'dev-A';
 const NOW = 1_700_000_000_000;
@@ -430,11 +427,7 @@ describe('exportImport mergeProjectMeta: drops unsafe file-side MAP KEYS (path-t
   });
 });
 
-// Security fix pass round 1: restoredAt (the deliberate-restore intent marker)
-// travels COUPLED to the archive group through the merge, exactly like archivedAt:
-// the side that supplies userArchived supplies its timestamps. Cross-machine, this
-// is what lets a restore made on device B suppress device A's next auto-archive
-// pass once it syncs.
+// restoredAt travels with the archive group, like archivedAt, so a restore on one device suppresses the next auto-archive on another.
 describe('exportImport mergeProjectMeta: restoredAt travels with the archive group', () => {
   it('carries the winning side restoredAt with its userArchived=false (a synced restore)', () => {
     const live = proj({
@@ -514,13 +507,8 @@ describe('exportImport mergeProjectMeta: restoredAt travels with the archive gro
   });
 });
 
-// Equal-stamp tie-breaks (security audit narrow verify): automated archive flips
-// do not refresh updatedAt, so two devices auto-archiving the same chat hold
-// records with IDENTICAL stamps but DIVERGENT archive groups. The merge must
-// resolve the conflict to ONE value that both machines compute identically
-// (content-based, never live/file-position-based), or the synced content
-// ping-pongs forever. Symmetry is the load-bearing property, so every case here
-// asserts BOTH merge directions produce the same group.
+// Automated archive flips do not refresh updatedAt, so two devices can hold identical stamps with divergent archive groups.
+// The merge must resolve both directions to the same value, so every case asserts symmetry.
 describe('exportImport mergeProjectMeta: equal-stamp deterministic tie-breaks', () => {
   function archChat(archivedAt: number, restoredAt?: number): ChatMeta {
     const c: ChatMeta = {

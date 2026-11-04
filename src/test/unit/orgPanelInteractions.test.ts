@@ -15,16 +15,12 @@ import {
   dialogFocusTrapAction,
 } from '../../views/orgPanelInteractions';
 
-// Headless unit tests for the PURE org-panel interaction kernels. Imports no vscode
-// types, so it never transitively requires the vscode module. The webview
-// (media/orgPanel.js) mirrors this logic; these tests pin the semantics the DOM wiring
-// must match.
+// Unit tests for the pure org panel interaction kernels, plus source-reading guards
+// that pin the semantics the webview (media/orgPanel.js) must match.
 
 describe('TRANSIENT_OVERLAY_KEYS (overlays a tree re-render must tear down)', () => {
   it('names exactly the three body-level fixed overlays, so the re-render and Escape close-sets cannot drift', () => {
-    // The webview closeAllTransientOverlays() closes the color picker, the new-folder
-    // popover, and the folder actions menu. If a fourth body-level overlay is added,
-    // this list and the webview closer must both grow; the test guards the count.
+    // Guards the count: a new body-level overlay needs this list and the webview closer to grow.
     assert.deepStrictEqual(
       [...TRANSIENT_OVERLAY_KEYS].sort(),
       ['colorPicker', 'folderMenu', 'newFolderPopover'],
@@ -63,8 +59,7 @@ describe('folder-row single- vs double-click arbitration', () => {
     const state = newFolderClickState();
     const first = registerFolderClick(state, 'F', 1000);
     assert.strictEqual(first.armToggleFolderId, 'F');
-    // The first toggle would have fired via the timer before this second click; the
-    // webview clears the arm when the timer fires. Model that by clearing here.
+    // The webview clears the arm when the timer fires; model that here.
     clearFolderToggleArm(state);
     const second = registerFolderClick(state, 'F', 1000 + DOUBLE_CLICK_MS + 5);
     assert.strictEqual(second.armToggleFolderId, 'F', 'a click past the window re-arms');
@@ -86,7 +81,6 @@ describe('folder-row single- vs double-click arbitration', () => {
     clearFolderToggleArm(state);
     assert.strictEqual(state.armedFolderId, null);
     assert.strictEqual(state.lastClickAt, null);
-    // After a clear, the next click arms cleanly with nothing to cancel.
     const next = registerFolderClick(state, 'F', 1000 + 5);
     assert.strictEqual(next.armToggleFolderId, 'F');
     assert.strictEqual(next.cancelPending, false);
@@ -118,7 +112,7 @@ describe('content-search reply freshness (isFreshSearchReply)', () => {
   });
 
   it('drops a reply for a superseded (different) query', () => {
-    // The user typed on: the box now holds "redisx" but a reply for "redis" lands.
+    // The box holds "redisx" but a reply for "redis" lands.
     assert.strictEqual(isFreshSearchReply('redis', 'redisx'), false);
   });
 
@@ -128,13 +122,12 @@ describe('content-search reply freshness (isFreshSearchReply)', () => {
   });
 
   it('matches the normalize contract on the reply side (host echoes a raw trimmed query)', () => {
-    // The host echoes its RAW trimmed query; the client stored a normalized filter.
-    // Freshness must hold across the case/space difference.
+    // The host echoes its raw trimmed query while the client stores a normalized one.
     assert.strictEqual(isFreshSearchReply('Rate Limiter', normalizeQuery('  rate limiter ')), true);
   });
 });
 
-describe('host-hit x client-tag join (joinTextHits) — membership + order', () => {
+describe('host-hit x client-tag join (joinTextHits): membership and order', () => {
   interface R extends JoinRow {
     sessionId: string;
     tagIds?: string[];
@@ -148,7 +141,7 @@ describe('host-hit x client-tag join (joinTextHits) — membership + order', () 
   };
   const rowOf = (id: string): R | undefined => rows[id];
   const matchAll = (): boolean => true;
-  // A sort stand-in mirroring the panel's "newest first" (timestamp desc).
+  // Stand-in for the panel sort, newest first.
   const byNewest = (rs: R[]): R[] => rs.slice().sort((x, y) => y.timestamp - x.timestamp);
   const identity = (rs: R[]): R[] => rs;
 
@@ -162,12 +155,10 @@ describe('host-hit x client-tag join (joinTextHits) — membership + order', () 
       rowMatches: passesT1,
       sortRows: identity,
     });
-    // "missing" has no row; b fails the t1 tag filter; a and c pass.
     assert.deepStrictEqual(res.rows.map((r) => r.sessionId), ['a', 'c']);
   });
 
   it('host rank decides membership but the panel SORT decides order', () => {
-    // Host order is a,b,c; a newest-first sort must reorder by timestamp desc.
     const res = joinTextHits<R>({
       order: ['c', 'b', 'a'],
       snippetOf: () => null,
@@ -236,7 +227,6 @@ describe('dialog focus-trap decision kernel (dialogFocusTrapAction)', () => {
   it('empty focusable list: blocks Tab and moves focus nowhere', () => {
     const a = dialogFocusTrapAction(0, -1, false);
     assert.deepStrictEqual(a, { preventDefault: true, focusIndex: null });
-    // shiftKey is irrelevant when there is nothing to focus.
     assert.deepStrictEqual(dialogFocusTrapAction(0, -1, true), {
       preventDefault: true,
       focusIndex: null,
@@ -248,7 +238,6 @@ describe('dialog focus-trap decision kernel (dialogFocusTrapAction)', () => {
       preventDefault: true,
       focusIndex: 0,
     });
-    // The snap is independent of Shift: a stray Shift+Tab from outside also lands on first.
     assert.deepStrictEqual(dialogFocusTrapAction(3, -1, true), {
       preventDefault: true,
       focusIndex: 0,
@@ -281,8 +270,7 @@ describe('dialog focus-trap decision kernel (dialogFocusTrapAction)', () => {
   });
 
   it('Tab at the first (non-shift) and Shift+Tab at the last are middle cases: let native Tab move within', () => {
-    // Forward Tab from the first control advances to the second natively; only the LAST
-    // control wraps. Symmetrically, Shift+Tab from the last retreats natively.
+    // Only the last control wraps on forward Tab; Shift+Tab from the last retreats natively.
     assert.deepStrictEqual(dialogFocusTrapAction(3, 0, false), {
       preventDefault: false,
       focusIndex: null,
@@ -294,8 +282,7 @@ describe('dialog focus-trap decision kernel (dialogFocusTrapAction)', () => {
   });
 
   it('single-focusable dialog: both edges pin focus on the only control (index 0)', () => {
-    // count === 1 means index 0 is simultaneously first and last. The shift branch is
-    // checked first, so Shift+Tab pins to index 0 (count-1); plain Tab also pins to 0.
+    // With one control, index 0 is both first and last, so either Tab direction pins to 0.
     assert.deepStrictEqual(dialogFocusTrapAction(1, 0, true), {
       preventDefault: true,
       focusIndex: 0,
@@ -307,12 +294,8 @@ describe('dialog focus-trap decision kernel (dialogFocusTrapAction)', () => {
   });
 });
 
-// The overlay-teardown / deferred-toggle correctness fix lives in the webview
-// (media/orgPanel.js), which the headless suite cannot import (it needs a DOM and the
-// vscode webview bridge). These structural guards read the shipped source and pin the
-// invariants the fix established, so a later edit that reintroduces the orphaned-
-// overlay, dropped-rename, or un-aborted-toggle class fails here. Same read-the-source
-// technique as commandSurfaces.test.ts.
+// The webview (media/orgPanel.js) cannot be imported headless, so these guards read the
+// shipped source and pin the overlay teardown, rename and toggle-abort invariants.
 describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () => {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
   const webviewSrc = fs.readFileSync(
@@ -320,9 +303,7 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
     'utf8',
   );
 
-  // Return the exact body of a top-level webview function by brace matching from its
-  // signature. These functions contain no braces inside string literals, so a plain
-  // depth counter extracts the body faithfully.
+  // Returns a top-level webview function body by brace matching; none contain braces in strings.
   function fnBody(name: string): string {
     const sig = 'function ' + name + '(';
     const start = webviewSrc.indexOf(sig);
@@ -361,8 +342,7 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
   });
 
   it('render() is the SOLE site that clears listEl, so no re-render path can bypass the teardown', () => {
-    // Count only real statements, not the string as it appears inside explanatory
-    // comments (drop whole-line // comments before matching).
+    // Drop whole-line comments so prose cannot satisfy a match.
     const code = webviewSrc
       .split('\n')
       .filter((l) => !l.trim().startsWith('//'))
@@ -390,9 +370,7 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
   });
 
   it('the Escape handler that closes overlays also aborts the armed toggle', () => {
-    // Brace-match each `if (e.key === 'Escape') { ... }` block (comment length inside
-    // the block is then irrelevant) and assert the one that closes overlays also
-    // cancels the armed toggle. The kernel documents Escape as an abort trigger.
+    // The Escape block that closes overlays must also cancel the armed toggle.
     const marker = "if (e.key === 'Escape') {";
     let idx = webviewSrc.indexOf(marker);
     let found = false;
@@ -434,15 +412,11 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
     );
   });
 
-  // Dialog focus-trap wiring guards. The trap must survive a focused child that calls
-  // e.stopPropagation on Tab. Two independent defenses are pinned: (1) the trap listener
-  // is registered in the CAPTURE phase (fires before any child handler, so no child
-  // stopPropagation can starve it), and (2) the one child that stops Tab (the New-folder
-  // name input) lets Tab through before it stops the event. A regression on EITHER lets
-  // Shift+Tab escape the New-folder popover into the tree.
+  // The trap must survive a child that stops Tab: it listens in the capture phase,
+  // and the New-folder name input lets Tab through before it stops the event.
   it('wireDialogFocusTrap registers its keydown listener in the capture phase', () => {
     const body = fnBody('wireDialogFocusTrap');
-    // The addEventListener('keydown', ...) call must pass a truthy third arg (capture).
+    // The keydown listener must pass a truthy capture argument.
     assert.ok(
       /addEventListener\(\s*'keydown'[\s\S]*\}\s*,\s*true\s*\)/.test(body),
       "wireDialogFocusTrap must add its keydown listener with capture=true so a child's stopPropagation cannot defeat it",
@@ -455,7 +429,7 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
       .filter((l) => !l.trim().startsWith('//'))
       .join('\n');
     const calls = code.match(/wireDialogFocusTrap\(/g) || [];
-    // One definition site + three call sites = four occurrences of the token.
+    // One definition site plus three call sites.
     const callSites = calls.length - (code.includes('function wireDialogFocusTrap(') ? 1 : 0);
     assert.strictEqual(
       callSites,
@@ -465,9 +439,7 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
   });
 
   it('the New-folder name input lets Tab reach the trap before it stops other keys', () => {
-    // Scope to the input's OWN keydown handler (not the sibling button click handlers,
-    // which also stopPropagation). It must early-return for Tab BEFORE stopPropagation,
-    // otherwise Shift+Tab off the input escapes the modal into the tree.
+    // Scoped to the input keydown handler: it must return early for Tab before stopPropagation.
     const body = fnBody('openNewFolderPopover');
     const handlerAt = body.indexOf("input.addEventListener('keydown'");
     assert.ok(handlerAt >= 0, 'the New-folder input registers a keydown handler');
@@ -481,12 +453,8 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
     );
   });
 
-  // The content-search join/freshness logic is mirrored from the kernel
-  // (orgPanelInteractions.ts normalizeQuery / isFreshSearchReply / joinTextHits) so
-  // it can be unit-tested. These parity guards pin that the webview DECLARES those
-  // mirrors and USES them at the load-bearing call sites, so a later edit that
-  // re-inlines the raw trim/lowercase or the join loop (reintroducing the stale-reply
-  // and membership-drift class the kernel tests cover) fails here.
+  // The webview mirrors the kernel search helpers (normalizeQuery, isFreshSearchReply,
+  // joinTextHits); these guards pin that it declares and uses them instead of inlining.
   it('declares the three content-search mirrors (normalizeQuery, isFreshSearchReply, joinTextHits)', () => {
     for (const fn of ['normalizeQuery', 'isFreshSearchReply', 'joinTextHits']) {
       assert.ok(
@@ -509,8 +477,7 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
   });
 
   it('the searchResults handler drops a stale reply via isFreshSearchReply', () => {
-    // Isolate the inbound searchResults branch and assert it gates on the freshness
-    // mirror rather than an inline query comparison.
+    // The inbound searchResults branch must gate on the freshness mirror, not an inline compare.
     const marker = "msg.type === 'searchResults'";
     const at = webviewSrc.indexOf(marker);
     assert.ok(at >= 0, 'the searchResults branch exists');
@@ -546,8 +513,7 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
   });
 
   it('the empty-query reset clears the stale host results before re-rendering', () => {
-    // Pin the clear path: emptying the box drops the prior host hit set at once
-    // so the sectioned view returns without a flash of stale results.
+    // Emptying the box drops the prior host hits so the sectioned view returns without stale results.
     const body = fnBody('onFilterInput');
     const clearAt = body.indexOf('textFilter.length === 0');
     assert.ok(clearAt >= 0, 'onFilterInput has an empty-query branch');
@@ -558,12 +524,8 @@ describe('org panel webview re-render teardown wiring (media/orgPanel.js)', () =
   });
 });
 
-// The resolveRecord path (context-menu export/archive) must NOT trigger a full
-// workspace rescan+reparse per action: the host resolves sessionId->filePath from the
-// cache the scan already built, re-scanning only as a one-time fallback when that
-// cache is still empty. The provider imports the vscode module and cannot be
-// constructed headlessly, so these guards read the shipped host source and pin the
-// caching invariant, matching the read-the-source technique above. A regression that
+// The resolveRecord path (context-menu export and archive) must reuse the scan cache and
+// rescan only as a one-time fallback. The provider needs vscode, so these guards read the host source.
 // re-inlines an unconditional scanRecords()/scanChats() into the action path fails here.
 describe('org panel host record resolve cache (src/views/orgPanelWebview.ts)', () => {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -572,9 +534,7 @@ describe('org panel host record resolve cache (src/views/orgPanelWebview.ts)', (
     'utf8',
   );
 
-  // Return the exact body of a class method by brace matching from its DEFINITION.
-  // Matches the signature only where it begins a line (optionally after private/async),
-  // so a call site (this.foo()) earlier in the file is not mistaken for the definition.
+  // Returns a class method body by brace matching from its definition, skipping earlier call sites.
   function methodBody(name: string): string {
     const def = new RegExp('^\\s*(?:private\\s+|async\\s+)*' + name + '\\(', 'm');
     const m = def.exec(hostSrc);
@@ -596,7 +556,7 @@ describe('org panel host record resolve cache (src/views/orgPanelWebview.ts)', (
     throw new Error('unbalanced braces after ' + name + '()');
   }
 
-  // Strip whole-line comments so a match cannot be satisfied by explanatory prose.
+  // Drop whole-line comments so prose cannot satisfy a match.
   function code(body: string): string {
     return body
       .split('\n')
@@ -610,8 +570,7 @@ describe('org panel host record resolve cache (src/views/orgPanelWebview.ts)', (
       body.includes('this.previewPathBySession.has(sessionId)'),
       'resolveRecord must consult the cached sessionId->filePath map',
     );
-    // The only scanRecords() call allowed is behind the cache gate: a warm cache that
-    // lacks the id returns undefined without scanning; an empty cache may scan once.
+    // scanRecords() may run only behind the cache gate: a warm cache without the id returns undefined.
     const scanAt = body.indexOf('scanRecords()');
     if (scanAt >= 0) {
       const before = body.slice(0, scanAt);

@@ -5,8 +5,8 @@
 // Usage:
 //   node scripts/private-words/check.js [<base>..<head>]   (default origin/main..HEAD)
 //
-// The list lives outside the repo at ~/.config/nest/private-words.txt (override
-// with NEST_PRIVATE_WORDS). One word or phrase per line; blank lines and lines
+// The list lives outside the repo, at .config/nest/private-words.txt under the home
+// directory (override with NEST_PRIVATE_WORDS). One word or phrase per line; blank lines and lines
 // starting with # are ignored. Matching is case-insensitive on word boundaries.
 // A missing or empty list fails closed, so a fresh machine cannot push by accident.
 //

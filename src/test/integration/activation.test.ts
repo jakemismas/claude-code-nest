@@ -7,18 +7,11 @@ import { FoldersProvider } from '../../views/foldersProvider';
 import { TagsProvider } from '../../views/tagsProvider';
 import { MetadataStore, SyncMemento } from '../../store/metadataStore';
 
-// The electron-host integration test for
-// activation and empty-state rendering. It runs ONLY in the Extension Development
-// Host (out/test/integration via runTest.js), never in the headless `npm test`
-// gate, because it needs a real vscode module: a real TreeItem prototype, the real
-// package.json the host loaded as the Extension Manifest, and real view
-// registration. The headless unit suite already covers the pure scan/empty paths
-// (chatScanner.test.ts returns [] for an unresolved workspace; each provider's
-// ensureSnapshot returns []/null on a failed/absent scan); this spec confirms the
-// same contract holds against the real host and that the empty-state contributions
-// ship in the manifest.
+// Extension Development Host test of activation and empty-state rendering. It needs the real vscode module and
+// the loaded manifest, so it never runs in the headless `npm test`. Unit tests cover the pure empty paths;
+// this confirms the contract against the real host and that the empty-state contributions ship in the manifest.
 
-// A minimal in-memory SyncMemento for the store (mirrors the unit suite).
+// Minimal in-memory SyncMemento for the store.
 class FakeMemento implements SyncMemento {
   private readonly map = new Map<string, unknown>();
   private readonly synced = new Set<string>();
@@ -44,17 +37,13 @@ class FakeMemento implements SyncMemento {
 }
 
 function readManifest(): Record<string, unknown> {
-  // The extension root is two dirs up from out/test/integration.
   const manifestPath = path.resolve(__dirname, '..', '..', '..', 'package.json');
   return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
 }
 
 describe('activation and empty-state (electron host)', () => {
   it('is present as an installed extension in the host', () => {
-    // The publisher.name id from package.json. Proves the host loaded this
-    // extension's manifest (activation itself fires on the onView:* events when a
-    // view is opened, which the unattended host does not drive; presence is the
-    // assertion the deferred host run can make without a UI).
+    // The publisher.name id proves the host loaded this manifest; activation fires on view events the unattended host does not drive.
     const ext = vscode.extensions.getExtension('jakemismas.claude-code-nest');
     assert.ok(ext, 'expected jakemismas.claude-code-nest to be loaded in the host');
   });
@@ -64,11 +53,8 @@ describe('activation and empty-state (electron host)', () => {
     const contributes = manifest.contributes as Record<string, unknown>;
     const views = (contributes.views as Record<string, Array<{ id: string }>>).claudeNest;
     const ids = views.map((v) => v.id).sort();
-    // The contributed view set: the org panel webview is the SOLE contributed view.
-    // Archived chats live in the in-panel Archive overlay reached from the bottom
-    // "Archived (N)" row.
-    // Asserted as the exact set so adding or dropping a view forces this gate to be
-    // revisited.
+    // The org panel webview is the only contributed view; archived chats live in its Archive overlay.
+    // The exact set is asserted so adding or dropping a view forces a revisit.
     assert.deepStrictEqual(ids, ['claudeNest.orgPanel']);
     const containers = contributes.viewsContainers as {
       activitybar: Array<{ id: string; icon: string }>;
@@ -82,9 +68,7 @@ describe('activation and empty-state (electron host)', () => {
     const manifest = readManifest();
     const contributes = manifest.contributes as Record<string, unknown>;
     const welcome = contributes.viewsWelcome as Array<{ view: string; contents: string }>;
-    // After the Archive tree is retired and the org panel is a webview that owns its own
-    // empty state, so NO tree view remains to back a viewsWelcome. The array is empty;
-    // any entry would target a retired view id.
+    // The org panel owns its empty state and no tree view remains, so viewsWelcome is empty.
     assert.deepStrictEqual(welcome, [], 'no viewsWelcome after the last tree view retired');
   });
 
@@ -101,9 +85,7 @@ describe('activation and empty-state (electron host)', () => {
   });
 
   it('getChildren(undefined) returns [] and never throws when no project resolves', () => {
-    // Point the kept non-view services at a workspace path that has no on-disk
-    // project dir, so the scan resolves nothing. Each must render empty rather
-    // than throw (the same contract the retired trees honored).
+    // Point the services at a workspace with no project dir so each renders empty instead of throwing.
     const noProject = path.join(__dirname, 'no-such-workspace-' + Date.now());
     const store = new MetadataStore(new FakeMemento(), { deviceId: 'test-device' });
 
@@ -113,7 +95,6 @@ describe('activation and empty-state (electron host)', () => {
     assert.deepStrictEqual(folders.getChildren(undefined), []);
     assert.deepStrictEqual(tags.getChildren(undefined), []);
 
-    // Priming under a (no-op) progress scan also must not throw on an absent project.
     assert.doesNotThrow(() => folders.primeSnapshot({}));
     assert.doesNotThrow(() => tags.primeSnapshot({}));
 

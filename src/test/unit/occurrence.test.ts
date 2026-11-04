@@ -9,9 +9,8 @@ import {
 import { UNTAGGED_TAG_ID } from '../../model/untagged';
 import { isMintableId, mintTagId } from '../../model/idFactory';
 
-// Pure-logic unit tests for the ChatOccurrence wrapper model and its composite-id grammar
-// `${tagId}:${chatId}`. No vscode import, no filesystem. These are the highest-priority
-// tests for (composite-id round-trip and the wrapper's single-owning-tag recovery).
+// Unit tests for the ChatOccurrence wrapper model and its composite id grammar
+// `${tagId}:${chatId}`: id round-trip and recovery of the single owning tag.
 
 describe('tagOccurrenceId / parseTagOccurrenceId (composite-id round-trip)', () => {
   it('builds and round-trips an occurrence id splitting on the first :', () => {
@@ -52,22 +51,20 @@ describe('tagOccurrenceId / parseTagOccurrenceId (composite-id round-trip)', () 
 
 describe('makeOccurrence (the wrapper)', () => {
   it('carries the two ids and the composite id, and dereferences ONE record by chatId', () => {
-    // The wrapper holds only ids; it never embeds a ChatRecord, so the SAME chat
-    // under two tags yields two wrappers that both point at the one shared record
-    // (resolved at the view layer by chatId).
+    // The wrapper holds only ids, so one chat under two tags yields two wrappers
+    // that point at the same shared record.
     const a = makeOccurrence('tagA', 'chat1');
     const b = makeOccurrence('tagB', 'chat1');
     assert.strictEqual(a.chatId, 'chat1');
     assert.strictEqual(b.chatId, 'chat1');
     assert.strictEqual(a.id, 'tagA:chat1');
     assert.strictEqual(b.id, 'tagB:chat1');
-    // Two distinct occurrences of one chat have DISTINCT ids but the SAME chatId.
+    // Two occurrences of one chat have distinct ids but the same chatId.
     assert.notStrictEqual(a.id, b.id);
   });
 
   it('getParent recovery: the occurrence id resolves to EXACTLY one owning tag', () => {
-    // The single-parent rule at the model level: parsing the occurrence id yields one tag
-    // id, the wrapper's owning tag.
+    // Parsing the occurrence id yields exactly one tag id, the owning tag.
     const occ = makeOccurrence('owning-tag', 'chatX');
     const parsed = parseTagOccurrenceId(occ.id);
     assert.ok(parsed);
@@ -109,12 +106,8 @@ describe('canReuseOccurrenceItem (memoization reuse predicate)', () => {
 });
 
 describe('memoizeById (node-object memoization across refreshes)', () => {
-  // The PURE core of the provider's *ItemFor. VSCode caches tree elements by
-  // OBJECT REFERENCE, so this proves the by-id reuse contract with object
-  // identity, headlessly: an unchanged id returns the SAME object across refreshes;
-  // a changed id (content drift) returns a fresh object that replaces the cached
-  // one; distinct ids never collide. This is the "node objects memoized by
-  // id" rule.
+  // VSCode caches tree elements by object reference, so an unchanged id must return
+  // the same object and a changed id a fresh one.
   it('returns the SAME object for an unchanged id across refreshes', () => {
     const cache = new Map<string, { id: string; v: number }>();
     let built = 0;
@@ -131,11 +124,10 @@ describe('memoizeById (node-object memoization across refreshes)', () => {
   it('rebuilds (new object, replaces cache) when canReuse is false for the id', () => {
     const cache = new Map<string, { id: string; v: number }>();
     const first = memoizeById(cache, 'x', () => true, () => ({ id: 'x', v: 1 }));
-    // A content change for the SAME id forces a rebuild; the new object is stored.
+    // A content change for the same id forces a rebuild.
     const second = memoizeById(cache, 'x', () => false, () => ({ id: 'x', v: 2 }));
     assert.notStrictEqual(first, second, 'a content change must yield a fresh object');
     assert.strictEqual(cache.get('x'), second, 'the rebuilt object replaces the cached one');
-    // And the now-current object is reused on the next unchanged refresh.
     const third = memoizeById(cache, 'x', (c) => c !== undefined, () => ({ id: 'x', v: 3 }));
     assert.strictEqual(third, second, 'after a rebuild the new object is reused while unchanged');
   });

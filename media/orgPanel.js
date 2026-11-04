@@ -1,23 +1,11 @@
-// The PRIMARY org-panel webview script. Renders the host-assembled section model
-// (Starred, Questions heuristic, the folder hierarchy with per-folder color, Unsorted,
-// and the bottom Archived row) as an ARIA tree, supports tag filter chips, sort via a
-// popover, folder rename, folder color, drag-and-drop that posts a self-describing drop
-// message the host maps to the unchanged pure reducer, full keyboard navigation, and a
-// title filter. The shell has a New session pill, the gear, the sort popover, the search
-// box with a clear button, the FOLDERS header + / ^ buttons, and the Archived (N) row.
-// Accessibility is a requirement, not polish: the list is role="tree" with role="treeitem" rows
-// grouped under role="group" sections, a single roving tabindex, arrow-key navigation,
-// Enter/Space activation, and a visible focus ring (CSS). The new sort popover and the
-// toolbar buttons (New session, gear, sort) are keyboard operable with focus handling and
-// aria-labels so the ARIA story does not regress.
+// Sidebar webview script: renders the host-built section model as an ARIA tree with tag chips,
+// sort, search, folder tools, drag and drop, Settings and Archive overlays, the fleet layout and
+// the robin header. Keyboard use runs through a roving tabindex and every control has an aria-label.
 (function () {
   const vscode = acquireVsCodeApi();
 
-  // The 8-color palette (the tag AND folder color
-  // choices). Used by the in-panel folder color-swatch picker, which replaces the native
-  // <input type=color>. These are compile-time literals; a chosen value is still
-  // re-validated at the host boundary (orgPanelWebview coerce -> isValidColor) before it
-  // can reach any style sink.
+  // The 8-color palette for tags and folders. Chosen values are re-validated at the host boundary
+  // (isValidColor) before they reach a style sink.
   const HANDOFF_PALETTE = [
     '#d97757',
     '#c6613f',
@@ -38,27 +26,18 @@
   const sortBtnEl = document.getElementById('sortBtn');
   const sortPopoverEl = document.getElementById('sortPopover');
 
-  // The latest host-posted section model. allTags is the FULL project tag list (every tag
-  // with id/label/color/count), distinct from tags (the filter-chip row, which omits
-  // zero-chat tags); the chat context menu lists allTags so a zero-chat tag can still be
-  // checked/toggled.
+  // Latest host-posted section model. allTags is the full tag list (zero-chat tags included),
+  // unlike the filter chips, so the chat menu can toggle any tag.
   let sections = { starred: [], questions: [], folders: [], tags: [], allTags: [], archivedCount: 0 };
   // The set of active tag-id filters (AND across selected chips: a row must carry
   // every selected tag to show).
   const activeTags = new Set();
-  // The current text filter (normalized: trimmed + lowercased). Text MATCHING is
-  // HOST-side (the MiniSearch content index over titles + on-demand bodies): the client
-  // posts { type:'search', query } and the host replies with { type: 'searchResults' };
-  // the client never re-implements a text index.
+  // Normalized text filter (trimmed, lowercased). Matching happens on the host; the client posts
+  // the query and renders the reply.
   let textFilter = '';
 
-  // The host content-search results for the CURRENT text query. searchHitSnippets maps
-  // sessionId -> the host snippet (a role-prefixed body-match snippet, or null on a title
-  // match); searchHitOrder is the host-ranked id list; searchResultsQuery is the
-  // normalized query those results correspond to, so a late reply for a stale query is
-  // ignored (the host posts twice per query as the two-phase warm-then-body index
-  // refines, and keystrokes can interleave). Text hits are trusted ONLY when
-  // searchResultsQuery === textFilter.
+  // Host search hits for the current query (snippets by sessionId, ranked ids). Hits count only when
+  // searchResultsQuery equals textFilter, because the host replies twice and keystrokes interleave.
   let searchHitSnippets = new Map();
   let searchHitOrder = [];
   let searchResultsQuery = null;
@@ -71,20 +50,15 @@
   // Sort, hydrated from the host's persisted state on 'state'.
   let sortMode = 'newest';
 
-  // The collapsed-folder id set, seeded from the host's persisted state on 'state' and
-  // posted back via setState whenever it changes. A folder id here renders its header
-  // with aria-expanded="false", hides its role="group" body, and hides every descendant
-  // folder section so the hidden rows are never in the DOM (so they cannot receive the
-  // roving tabindex). Workspace-local and never synced.
+  // Collapsed folder ids, seeded from persisted state and posted back on change. Collapsed subtrees
+  // stay out of the DOM so hidden rows cannot take the roving tabindex.
   const collapsedFolders = new Set();
 
   // The dragged chat ids for an in-flight in-panel drag (fully in-process; the drop
   // posts these straight to the host). Cleared on dragend.
   let draggingChatIds = [];
 
-  // The currently-open chat's sessionId (best-effort tab-label match, posted by the host
-  // as an 'active' message). Its row gets the .nest-active tint, the ONLY row highlight
-  // (starred rows are NOT tinted). null tints no row.
+  // SessionId of the open chat (best-effort tab-label match from the host). Only its row is tinted.
   let activeId = null;
 
   // The roving-tabindex focus target: the dataset.id of the row that holds the
@@ -93,10 +67,34 @@
 
   // ---- Settings overlay ----
 
-  // The auto-archive window in DAYS (0 = Never), hydrated from the host 'settings'
-  // message. Persisted on workspaceState by the host; the client only reflects and
-  // posts it. The allowed values mirror autoArchivePolicy.AUTO_ARCHIVE_WINDOW_DAYS.
+  // Auto-archive window in days (0 = Never), hydrated from the host 'settings' message.
   let autoArchiveWindowDays = 30;
+  // The per-workspace "Group chats by" choice ('auto' when no override) and the robin
+  // animations setting, both hydrated from the host 'settings' message.
+  let groupByOverride = 'auto';
+  let robinAnimationsOn = true;
+  // The Organize section: the last report the host posted for the layout file's rules.
+  // moves is the Preview list; Apply and Undo are enabled from it.
+  let organizeState = {
+    kind: 'idle',
+    message: '',
+    moves: [],
+    moreMoves: 0,
+    matched: 0,
+    skippedHandFiled: 0,
+    rulesActive: 0,
+    problems: [],
+    canUndo: false,
+    undoCount: 0,
+    skippedOnUndo: 0,
+  };
+  let organizeBusy = false;
+  const GROUP_BY_OPTIONS = [
+    { mode: 'auto', label: 'Auto' },
+    { mode: 'tickets', label: 'Tickets' },
+    { mode: 'folders', label: 'Folders' },
+    { mode: 'date', label: 'Date' },
+  ];
   const AUTO_ARCHIVE_OPTIONS = [
     { days: 7, label: '7 days' },
     { days: 14, label: '14 days' },
@@ -106,43 +104,28 @@
     { days: 0, label: 'Never archive' },
   ];
 
-  // The four section-visibility toggles (all ON by default). Client-side
-  // render gates only: hiding a section never removes a chat from the model, and
-  // search + chips still reach every chat, so no chat is ever made unreachable.
+  // Section toggles (all on by default). They gate rendering only; search and chips still reach every chat.
   const sectionsVisible = { starred: true, questions: true, folders: true, unsorted: true };
 
-  // The Settings overlay element (body-of-panel position:absolute;inset:0), or null
-  // when closed. Unlike the click-dismiss popovers it is a persistent sub-page: it
-  // stays open until the back chevron or Escape, so it is tracked separately from the
-  // transient-overlay close-set. settingsReturnFocusEl restores focus to the gear on
-  // close.
+  // Settings overlay element, or null when closed. It stays open until the back chevron or Escape,
+  // so it sits outside closeAllTransientOverlays.
   let settingsOverlayEl = null;
   let settingsReturnFocusEl = null;
 
   // ---- Archive overlay ----
 
-  // The archived rows the host posted for the OPEN overlay (an ArchivedRow[] carrying
-  // sessionId, title, folder, relativeTime, starred, present). Held only while the
-  // overlay is open; the host re-posts on every open and after a Restore. The
-  // archive-search box filters this set CLIENT-SIDE by title substring; text is a tiny
-  // local filter over a small posted set, NOT the host MiniSearch index (which
-  // deliberately excludes archived chats).
+  // Archived rows posted by the host while the overlay is open. The archive search filters them by
+  // title on the client; the host search index excludes archived chats.
   let archivedRows = [];
-  // The archive overlay element (position:fixed;inset:0), or null when closed. Like the
-  // Settings overlay it is a PERSISTENT sub-page (stays open until the back chevron or
-  // Escape), tracked apart from closeAllTransientOverlays. archiveReturnFocusEl restores
-  // focus to the Archived (N) row on close (or to the gear-equivalent trigger).
+  // Archive overlay element, or null when closed. Persistent like Settings, so closeAllTransientOverlays
+  // skips it.
   let archiveOverlayEl = null;
   let archiveReturnFocusEl = null;
   // The current archive-search text (normalized: trimmed + lowercased), client-side only.
   let archiveSearchText = '';
 
-  // Convert a strict #rrggbb hex color to an rgba string at the given alpha. Used for the
-  // tag-pill @15% background and the active-chip @15%/@45% background/border. Computed
-  // here rather than via CSS color-mix, which needs Chromium 111+ and would be INVALID on
-  // the engines floor (VS Code 1.66 ships Chromium 98). Colors reaching here are already
-  // validated to #rrggbb at the store normalize boundary (schema.isValidColor); a
-  // non-matching value returns null so the caller keeps the CSS fallback tint.
+  // Converts #rrggbb to rgba at the given alpha. CSS color-mix needs Chromium 111 and the minimum
+  // VS Code ships Chromium 98. Returns null for a non-matching value.
   function hexToRgba(hex, alpha) {
     if (typeof hex !== 'string') {
       return null;
@@ -217,11 +200,7 @@
 
   // ---- row matching (tag filter, client-side) ----
 
-  // The CLIENT-side filter is the tag AND-filter only: a row must carry every
-  // selected tag. TEXT matching is HOST-side (searchHit* above), joined in
-  // renderFiltered, so this is not consulted for text; it gates the sectioned
-  // tree's per-section visibility and the tag-only flat view. A row with no active
-  // tag filter always passes here.
+  // Tag AND-filter only: a row must carry every selected tag. Text matching is host-side (searchHit*).
   function rowMatches(row) {
     if (activeTags.size > 0) {
       const ids = row.tagIds || [];
@@ -254,15 +233,12 @@
 
   // ---- row + section rendering ----
 
-  // Build one chat row (role="treeitem"). Draggable; double-click is reserved for
-  // folder rename, so a row's activation is a single click / Enter / Space. opts may
-  // carry showSnippet (search/filter results show the body-match snippet beneath) and
-  // showBreadcrumb (Questions + search results show the folder-path breadcrumb).
+  // Builds one chat row. A row activates on single click, Enter or Space (double-click is for folder rename).
+  // opts.showSnippet and opts.showBreadcrumb add the search snippet and the folder path.
   function makeRow(row, depth, opts) {
     const el = document.createElement('div');
     el.className = 'nest-row';
-    // The active row (currently-open chat) is the ONLY tint; starred rows are NOT tinted.
-    // Best-effort tab-label match from the host.
+    // Only the open chat's row is tinted; starred rows are not.
     if (activeId && row.sessionId === activeId) {
       el.classList.add('nest-active');
     }
@@ -279,9 +255,7 @@
     const main = document.createElement('div');
     main.className = 'nest-row-main';
 
-    // The left status slot: a solid dot for status 'done' or a blinking '?' badge for
-    // status 'question'. Always present (even when empty) so titles align down the
-    // column. The meaning rides the aria-label; the glyph is decorative.
+    // The status slot is always present, even when empty, so titles align. The aria-label carries the meaning.
     const status = document.createElement('span');
     status.className = 'nest-status';
     status.setAttribute('aria-hidden', 'true');
@@ -302,9 +276,7 @@
     titleText.textContent = row.title;
     main.appendChild(titleText);
 
-    // Folder breadcrumb (Questions and search/filter results only), muted, on the right
-    // of the title. Rendered only when the caller asks for it AND the chat is filed
-    // (row.breadcrumb non-null).
+    // Folder breadcrumb right of the title, for filed chats in Questions and search results.
     if (opts && opts.showBreadcrumb && row.breadcrumb) {
       const crumb = document.createElement('span');
       crumb.className = 'nest-row-breadcrumb';
@@ -313,10 +285,8 @@
     }
 
     if (row.tags && row.tags.length > 0) {
-      // The clip box (.nest-row-tags, overflow hidden, bounded width) holds a strip
-      // (.nest-row-tags-strip) carrying the pills, so a chat with more tags than the row
-      // can show clips on one line instead of squeezing the title or time. The strip is a
-      // separate node so overflow behavior can act on it without touching the pills.
+      // A clip box holds a strip of pills so extra tags clip on one line instead of squeezing the title.
+      // The separate strip node lets the marquee animate without touching the pills.
       const tagRow = document.createElement('span');
       tagRow.className = 'nest-row-tags';
       const tagStrip = document.createElement('span');
@@ -327,8 +297,7 @@
         const tagColor = row.tagColors && row.tagColors[i];
         if (tagColor) {
           t.style.setProperty('--tag-color', tagColor);
-          // Tag pill @15% background, computed as rgba so no CSS color-mix is needed on
-          // the engines floor.
+          // 15% rgba tag background (no color-mix).
           const bg = hexToRgba(tagColor, 0.15);
           if (bg) {
             t.style.background = bg;
@@ -341,11 +310,8 @@
       main.appendChild(tagRow);
     }
 
-    // The add-tag control: a small + after the last pill (or where the pills would sit),
-    // shown on row hover or focus. Opens the SAME chat menu the right-click opens (tag
-    // toggles + create new tag), anchored under the control, so tagging reuses the
-    // existing validated toggleTag/createTagWithColor paths. A <button> like the star, so
-    // it is keyboard-focusable and its click does not bubble to the row's open handler.
+    // Add-tag control, shown on hover or focus. It opens the chat menu under the control. It is a button
+    // so it is focusable and its click does not bubble to the row.
     const addTag = document.createElement('button');
     addTag.type = 'button';
     addTag.className = 'nest-tag-add';
@@ -365,11 +331,8 @@
     time.textContent = relative(row.timestamp);
     main.appendChild(time);
 
-    // Star affordance: filled accent star when starred, hollow muted star otherwise.
-    // Clicking toggles it and persists immediately through the store (the host routes it
-    // to the star/unstar curation commands). A <button> so it is independently
-    // keyboard-focusable and screen-reader labelled; its click is stopped from bubbling
-    // to the row's open handler.
+    // Star toggle, persisted through the store. A button so it is focusable and labelled; its click
+    // does not bubble to the row.
     const star = document.createElement('button');
     star.type = 'button';
     star.className = row.starred ? 'nest-star' : 'nest-star nest-star-empty';
@@ -392,10 +355,8 @@
     }
 
     el.addEventListener('click', () => activateRow(row.sessionId));
-    // Right-click a chat row to open its context menu: tag toggles, create tag, export,
-    // archive. The row model carries everything the menu needs (tagIds, starred); a fresh
-    // sections model may replace this row object, so the menu resolves the LIVE row by
-    // sessionId on open rather than closing over this stale one.
+    // Right-click opens the chat menu. The menu resolves the live row by sessionId on open, since a
+    // refresh may replace this row object.
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       openChatMenu(e, row.sessionId);
@@ -421,9 +382,7 @@
     return label;
   }
 
-  // Build a cross-cutting section header (Starred, Questions): a bare muted uppercase
-  // label. These headers carry NO
-  // count and NO badge, matching the FOLDERS and UNSORTED labels; do not add either.
+  // Header for Starred or Questions: a bare muted label with no count or badge, like FOLDERS and UNSORTED.
   function makeSectionHeader(text) {
     const header = document.createElement('div');
     header.className = 'nest-section-header';
@@ -434,9 +393,7 @@
     return header;
   }
 
-  // Render a flat cross-cutting section (Starred / Questions). Hidden entirely when it
-  // has no visible rows. opts is passed through to makeRow (Questions rows carry
-  // showBreadcrumb).
+  // Renders a flat section (Starred or Questions); hidden when it has no visible rows.
   function renderCrossCuttingSection(label, rows, opts) {
     const visible = sortRows(rows.filter(rowMatches));
     if (visible.length === 0) {
@@ -452,13 +409,10 @@
     listEl.appendChild(group);
   }
 
-  // Render one folder section (a header plus a role="group" of rows). A folder
-  // section is a DROP TARGET: dropping chats onto it files them there (or unfiles on
-  // the synthetic Unsorted bucket). A REAL folder header is double-click renameable,
-  // right-click recolorable, and collapsible; the synthetic Unsorted catch-all is a
-  // plain drop-target label.
+  // Renders one folder section: a header plus a role=group of rows, and a drop target (Unsorted unfiles).
+  // Real folders rename on double-click, recolor on right-click and collapse; Unsorted is a plain label.
   function renderFolderSection(folder) {
-    const { folderId, name, color, depth, synthetic } = folder;
+    const { folderId, name, depth, synthetic } = folder;
     const visible = sortRows((folder.rows || []).filter(rowMatches));
     const collapsed = !synthetic && collapsedFolders.has(folderId);
 
@@ -467,15 +421,14 @@
       const header = document.createElement('div');
       header.className = 'nest-unsorted-header';
       header.textContent = name;
-      header.dataset.dropFolderId = folderId;
-      attachDropTarget(header, folderId);
+      if (!folder.auto) {
+        header.dataset.dropFolderId = folderId;
+        attachDropTarget(header, folderId);
+      }
       listEl.appendChild(header);
     } else {
-      // The header count is the rolled-up count (chats in this folder + all its
-      // subfolders;), a stable structural count from the model, NOT the post-filter
-      // visible.length. Folder headers render only in the unfiltered tree (filtering
-      // swaps to the flat results list), so the unfiltered rollup is the right number.
-      // Fall back to the visible count only if the model did not supply one (older host).
+      // The header count is the model's rolled-up count (folder plus subfolders), because headers show only in
+      // the unfiltered tree. Falls back to the visible count when the host omits it.
       const count =
         typeof folder.rolledUpCount === 'number' ? folder.rolledUpCount : visible.length;
       const header = makeFolderHeader(folder, collapsed, count);
@@ -488,25 +441,22 @@
     const group = document.createElement('div');
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', name);
-    // Real folders nest their chats one level under the folder HEADER (depth + 1: a
-    // top-level folder's chats sit at the 29px child indent). The synthetic Unsorted
-    // bucket has NO header row to nest under; its chats are unparented, top-level rows
-    // and must align with the Starred/Questions rows at the 11px top-level indent. So
-    // render synthetic-bucket rows at the bucket's own depth (0), not depth + 1.
+    // Real folders nest chats one level under the header. The Unsorted bucket has no header, so its rows
+    // render at depth 0 to align with Starred and Questions.
     const rowDepth = synthetic ? depth : depth + 1;
     for (const row of visible) {
       const rowEl = makeRow(row, rowDepth);
       rowEl.dataset.parentFolderId = folderId;
       group.appendChild(rowEl);
     }
-    attachDropTarget(group, folderId);
+    if (!folder.auto) {
+      attachDropTarget(group, folderId);
+    }
     listEl.appendChild(group);
   }
 
-  // A real folder header row: chevron, colored folder glyph, name, count. It is a
-  // navigable, actionable, collapsible treeitem (role="treeitem", aria-level,
-  // aria-expanded). Enter/Space opens rename; double-click renames; right-click
-  // opens the folder actions menu; the chevron toggles collapse.
+  // A real folder header: chevron, folder glyph, name, count. Enter or Space opens rename, double-click
+  // renames, right-click opens the menu and the chevron collapses.
   function makeFolderHeader(folder, collapsed, count) {
     const { folderId, name, color, depth } = folder;
     const header = document.createElement('div');
@@ -528,12 +478,11 @@
     const chevron = document.createElement('span');
     chevron.className = 'nest-folder-chevron';
     chevron.setAttribute('aria-hidden', 'true');
-    chevron.textContent = collapsed ? '▸' : '▾';
+    chevron.classList.toggle('is-open', !collapsed);
+    chevron.appendChild(svgEl(12, 12, 'nest-fleet-chev', ['M4 2.5 7.5 6 4 9.5']));
     chevron.addEventListener('click', (e) => {
       e.stopPropagation();
-      // The chevron toggles immediately (it is the disclosure control, not a rename
-      // target). Cancel any armed row toggle first so a pending deferred toggle does
-      // not fire a second time right after this one.
+      // The chevron toggles at once; cancel any armed row toggle so it does not fire a second time.
       cancelPendingFolderToggle();
       toggleCollapse(folderId);
     });
@@ -551,12 +500,8 @@
     countEl.textContent = String(count);
     header.appendChild(countEl);
 
-    // Collapse toggles on a plain header-row click, in addition to the chevron and
-    // keyboard ArrowLeft/Right. The click is DEFERRED by a double-click window
-    // (onFolderRowClick) so it does not race the double-click rename: without the defer,
-    // the first click of a double-click would toggle collapse, re-render the tree
-    // (listEl.textContent = ''), detach this header, and the dblclick would never open
-    // rename. A dblclick cancels the armed toggle and opens rename instead.
+    // A plain header click also collapses, deferred by a double-click window (onFolderRowClick). Toggling at
+    // once would re-render and detach this header before dblclick could open rename.
     header.addEventListener('click', () => onFolderRowClick(folderId));
     header.addEventListener('dblclick', () => {
       cancelPendingFolderToggle();
@@ -570,7 +515,7 @@
     return header;
   }
 
-  // The colored rounded-folder SVG glyph (fill = folder color), matching the design.
+  // Colored folder glyph (fill = folder color).
   function folderGlyph(color) {
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
@@ -650,8 +595,7 @@
     listEl.appendChild(header);
   }
 
-  // The bottom Archived (N) row, shown only when any chat is archived. Opens the
-  // interim Archive view (the in-panel Archive overlay lands in s3b).
+  // Bottom Archived (N) row, shown only when a chat is archived. Opens the Archive overlay.
   function renderArchivedRow() {
     if (!sections.archivedCount || sections.archivedCount <= 0) {
       return;
@@ -673,10 +617,8 @@
     count.textContent = String(sections.archivedCount);
     btn.appendChild(count);
     btn.addEventListener('click', () => {
-      // Remember the trigger so closing the overlay restores focus here (the row is
-      // re-created on each render, so resolve it by class on close instead of holding this
-      // node). Request the archived rows + open the overlay; the host answers with an
-      // 'archivedRows' post the client renders into the overlay.
+      // Remember the trigger so closing restores focus here; the row is re-created per render, so close
+      // resolves it by class. The host answers with an 'archivedRows' post.
       archiveReturnFocusEl = btn;
       vscode.postMessage({ type: 'openArchive' });
     });
@@ -694,19 +636,9 @@
   // Archived row. When a filter is active, a flat "N RESULTS" list replaces the sectioned
   // view.
   function render() {
-    // render() is the SINGLE choke point for every tree re-render: it is the only
-    // site that clears listEl, and all re-render paths (the inbound 'sections'/'state'
-    // handlers, the deferred folder-collapse timer, collapse-all/one, search, and the
-    // keyboard collapse) funnel through it. Clearing listEl detaches the in-list
-    // rename input and orphans the body-level position:fixed overlays (color picker,
-    // new-folder popover, folder actions menu), which would otherwise float at a stale
-    // point while their captured-closure buttons post mutations for a folderId this
-    // render may have recolored, renamed, or deleted. So teardown lives HERE, once, and
-    // no caller can reintroduce the orphan/dropped-rename gap: commit any in-progress
-    // rename (its input dies with listEl and removing a focused node does not fire
-    // blur), drop any armed deferred toggle whose target node is being replaced, and
-    // close all transient overlays. Order: commit the rename before the overlays close
-    // so a rename begun from the folder menu is not lost when the menu is removed.
+    // render() is the only place that clears listEl, so teardown lives here: commit an in-progress rename
+    // (a removed focused input fires no blur), drop an armed folder toggle, then close the transient
+    // overlays. Committing first keeps a rename begun from the folder menu.
     commitPendingRename();
     cancelPendingFolderToggle();
     closeAllTransientOverlays();
@@ -724,18 +656,20 @@
       sections.starred.length +
       sections.questions.length +
       sections.folders.reduce((n, f) => n + f.rows.length, 0);
-    if (total === 0 && (!sections.archivedCount || sections.archivedCount <= 0)) {
+    if (total === 0 && (!sections.archivedCount || sections.archivedCount <= 0) && !fleetHasContent()) {
       renderEmpty('No Claude Code chats found for this workspace yet.');
       return;
     }
 
-    // Section-visibility gates: each toggle hides only the SECTION's rendering; the
-    // model, search, and chips are untouched, so a hidden section's chats stay reachable
-    // via search and the tag chips. Starred/Questions also hide when empty (unchanged).
-    // Folders hidden -> skip the FOLDERS header and every real folder; Unsorted hidden ->
-    // skip the synthetic Unsorted bucket. Disabling Unsorted can never strand an unfiled
-    // chat: it remains reachable through search/chips (and through any other section it
-    // also belongs to).
+    // The Active projection shows only the fleet groups with live work.
+    if (fleet && fleet.active) {
+      renderFleetLayout();
+      restoreFocus();
+      return;
+    }
+
+    // Toggles hide only rendering; the model, search and chips still reach every chat, so Unsorted off
+    // never strands an unfiled chat. Starred and Questions also hide when empty.
     if (sectionsVisible.starred) {
       renderCrossCuttingSection('Starred', sections.starred);
     }
@@ -743,6 +677,9 @@
       renderCrossCuttingSection('Questions', sections.questions, { showBreadcrumb: true });
     }
 
+    if (fleet) {
+      renderFleetLayout();
+    }
     renderFolderTree();
 
     renderArchivedRow();
@@ -750,11 +687,8 @@
     armTagMarquee();
   }
 
-  // Measure each row's tag strip and arm the slow back-and-forth marquee on the ones that
-  // overflow their clip box. Runs on a rAF after a render commits (layout must exist to
-  // measure) and again on panel resize. Pure presentation: no state, no host message. The
-  // animation itself lives in CSS, where hovering the strip pauses it and
-  // prefers-reduced-motion disables it.
+  // Arms the slow marquee on tag strips that overflow their clip box. Runs after a render commits (layout
+  // must exist to measure) and on resize; hover pause and reduced motion are handled in CSS.
   let tagMarqueePending = false;
   function armTagMarquee() {
     if (tagMarqueePending) {
@@ -793,35 +727,29 @@
   // marquee) and a narrower one can create it, so re-measure on resize.
   window.addEventListener('resize', armTagMarquee);
 
-  // Render the FOLDERS header and the folder tree, honoring the Folders and Unsorted
-  // section-visibility toggles. Split out of render() so the gating reads cleanly; the
-  // collapse/hide bookkeeping is unchanged.
+  // Renders the FOLDERS header and the folder tree, honoring the Folders and Unsorted toggles.
   function renderFolderTree() {
     const showFolders = sectionsVisible.folders;
     const showUnsorted = sectionsVisible.unsorted;
-    // The FOLDERS header belongs to the real folder tree; hide it when Folders is off.
-    // When ONLY Unsorted is on (Folders off), the synthetic Unsorted bucket still
-    // renders below without a FOLDERS header, matching "Unsorted is the always-present
-    // catch-all" while respecting the Folders toggle.
+    // The FOLDERS header follows the Folders toggle; with only Unsorted on, the bucket still renders below it.
     if (showFolders) {
       renderFoldersHeader();
     }
-    // The folders array is a pre-order flattening. When a folder is collapsed we
-    // skip every following entry whose depth is greater than the collapsed folder's
-    // depth, so the whole collapsed subtree (rows and descendant folder sections) is
-    // omitted from the DOM. This uses the TRUE structural depth (treeDepth), not the
-    // clamped render depth: two legacy folders can both clamp to render depth 2, but
-    // their treeDepths differ, so a collapsed clamped-deep folder still hides its
-    // clamped-deep descendants. Falls back to the clamped depth if the model did not
-    // supply treeDepth (older host).
+    // The folders array is a pre-order flattening. A collapsed folder skips following entries deeper than its
+    // treeDepth, the true depth (two legacy folders can share a clamped render depth). Falls back to the
+    // clamped depth for an older host.
     const depthOf = (f) => (typeof f.treeDepth === 'number' ? f.treeDepth : f.depth);
     let hideDeeperThan = Infinity;
     for (const folder of sections.folders) {
-      // The synthetic Unsorted bucket is gated by the Unsorted toggle; the real
-      // folders by the Folders toggle. A folder skipped by its toggle contributes
-      // nothing to the collapse bookkeeping (it and its subtree are simply not drawn).
+      // The Unsorted toggle gates the synthetic bucket and the Folders toggle gates real folders; a skipped
+      // folder adds nothing to the collapse bookkeeping.
       if (folder.synthetic) {
-        if (showUnsorted) {
+        // The fleet layout draws computed groups and Unsorted itself.
+        if (fleet) {
+          continue;
+        }
+        // Computed groups (auto) are not the Unsorted bucket and stay visible.
+        if (folder.auto || showUnsorted) {
           renderFolderSection(folder);
         }
         continue;
@@ -843,10 +771,8 @@
     }
   }
 
-  // Build a sessionId -> row lookup over every section (Starred, Questions, and each
-  // folder's rows), first-seen wins. The SAME chat appears in several sections (a
-  // starred, filed, question chat is in all three); we want one row object carrying
-  // its tags/status/breadcrumb/star to resolve a host text hit against.
+  // Builds a sessionId -> row lookup across all sections (first seen wins). A chat can sit in several
+  // sections; one row carries its tags, status, breadcrumb and star for resolving a host hit.
   function rowsBySessionId() {
     const map = new Map();
     const add = (rows) => {
@@ -864,18 +790,13 @@
     return map;
   }
 
-  // MIRROR of src/views/orgPanelInteractions.ts normalizeQuery: the ONE way both the
-  // outbound text filter and the inbound search-reply compare normalize a query
-  // (trim then lowercase), so a reply the host echoes compares equal to the stored
-  // textFilter for the same input. Kept name-identical to the kernel so the parity
-  // test can pin that the webview uses it.
+  // Mirrors normalizeQuery in src/views/orgPanelInteractions.ts (trim, lowercase) so an echoed host reply
+  // compares equal to textFilter. The parity test pins the name.
   function normalizeQuery(raw) {
     return typeof raw === 'string' ? raw.trim().toLowerCase() : '';
   }
 
-  // MIRROR of src/views/orgPanelInteractions.ts isFreshSearchReply: a reply for
-  // replyQuery is trusted only when it matches the current non-empty textFilter; an
-  // empty filter trusts nothing and a mismatch is a superseded reply to drop.
+  // Mirrors isFreshSearchReply: a reply counts only when it matches the current non-empty textFilter.
   function isFreshSearchReply(replyQuery, currentTextFilter) {
     if (currentTextFilter.length === 0) {
       return false;
@@ -883,20 +804,13 @@
     return normalizeQuery(replyQuery) === currentTextFilter;
   }
 
-  // Whether the host content-search results in hand correspond to the current text
-  // query. A late reply for a stale query (the host posts twice per query as its
-  // two-phase index refines, and keystrokes interleave) is not trusted. Delegates to
-  // the shared freshness mirror so the render side and the inbound-message side use
-  // one rule (searchResultsQuery is already normalized when stored).
+  // Whether the host results match the current text query; a late reply for an earlier keystroke is not trusted.
   function haveFreshTextResults() {
     return isFreshSearchReply(searchResultsQuery, textFilter);
   }
 
-  // MIRROR of src/views/orgPanelInteractions.ts joinTextHits: intersect the host-
-  // ranked ids with the client tag filter, dedupe (first occurrence wins), collect
-  // each non-empty host snippet, then apply the panel sort (host rank -> membership,
-  // sort -> order). Returns { rows, snippets }. Kept name/shape-aligned with the
-  // kernel the unit test pins.
+  // Mirrors joinTextHits: intersect host-ranked ids with the tag filter, dedupe, collect snippets, then
+  // apply the panel sort. Returns { rows, snippets }.
   function joinTextHits(order, snippetOf, rowOf, matches, sort) {
     const seen = new Set();
     const rows = [];
@@ -919,17 +833,9 @@
     return { rows: sort(rows), snippets };
   }
 
-  // The flat filtered view: a "N RESULTS" label then the flat matching rows, with a
-  // body-match snippet and a folder breadcrumb. Two combine modes:
-  //   - TEXT present: the result set is the HOST text-hit ids (searchHitOrder)
-  //     intersected with the CLIENT tag AND-filter (rowMatches). Row content comes
-  //     from the client section row; the snippet is the HOST snippet for that id
-  //     (null on a title match -> no snippet row). Text is host-only, tags are
-  //     client-side, the combined result is one flat list.
-  //   - TAG-ONLY (chips, no text): the existing pure client-side tag-AND flat view,
-  //     unchanged (no host round-trip).
-  // The bottom "Archived (N)" row renders in this view too, as in the unfiltered view: the Archived block is a sibling
-  // after both the filtering and non-filtering blocks.
+  // Flat filtered view: an "N RESULTS" label, then matching rows with snippet and breadcrumb. With text, the
+  // result is the host hit ids intersected with the tag AND-filter (the snippet is null on a title match).
+  // Tag-only filtering stays on the client. The Archived (N) row renders here too.
   function renderFiltered() {
     const withText = textFilter.length > 0;
     let visible = [];
@@ -938,11 +844,8 @@
     const rowSnippets = new Map();
 
     if (withText) {
-      // Host text hits joined with the client tag filter, in host rank order, then sorted
-      // by the panel's sort control: host rank decides MEMBERSHIP, the chosen sort
-      // decides ORDER. The join/dedup/snippet-collect + sort is the shared joinTextHits
-      // mirror. Only a FRESH host reply is joined; a stale/absent reply yields an empty
-      // set.
+      // Host rank decides membership and the sort control decides order (joinTextHits). Only a fresh host
+      // reply is joined; a stale or absent one gives an empty set.
       if (haveFreshTextResults()) {
         const byId = rowsBySessionId();
         const joined = joinTextHits(
@@ -956,7 +859,7 @@
         joined.snippets.forEach((snip, id) => rowSnippets.set(id, snip));
       }
     } else {
-      // Tag-only flat view: pure client-side, unchanged (no host round-trip).
+      // Tag-only flat view: client-side, no host round-trip.
       const seen = new Set();
       const collect = (rows) => {
         for (const row of rows || []) {
@@ -981,7 +884,7 @@
     header.className = 'nest-section-header';
     const labelEl = document.createElement('span');
     labelEl.className = 'nest-section-label';
-    labelEl.textContent = visible.length + ' RESULTS';
+    labelEl.textContent = visible.length + (visible.length === 1 ? ' RESULT' : ' RESULTS');
     header.appendChild(labelEl);
     listEl.appendChild(header);
 
@@ -993,9 +896,7 @@
       group.setAttribute('aria-label', 'Filter results');
       for (const row of visible) {
         const snip = rowSnippets.get(row.sessionId);
-        // A body-match snippet OVERRIDES the row's summary snippet; a title match (or
-        // tag-only) shows none. Pass it through a shallow row copy so makeRow's
-        // row.snippet contract is untouched and the section row object is not mutated.
+        // A body-match snippet overrides the row summary. A shallow copy keeps the section row unmutated.
         const rowForRender = snip ? Object.assign({}, row, { snippet: snip }) : row;
         group.appendChild(
           makeRow(rowForRender, 0, { showSnippet: !!snip, showBreadcrumb: true }),
@@ -1036,28 +937,21 @@
     refocusById('folder:' + folderId);
   }
 
-  // The true structural depth of a folder section (treeDepth when the model supplies
-  // it, else the clamped render depth for an older host). Collapse/hide bookkeeping
-  // must key on the true depth, since two legacy folders can share a clamped render
-  // depth.
+  // True structural depth (treeDepth, or the clamped depth for an older host). Collapse bookkeeping needs
+  // it because legacy folders can share a clamped depth.
   function treeDepthOf(folder) {
     return typeof folder.treeDepth === 'number' ? folder.treeDepth : folder.depth;
   }
 
-  // Whether a folder section at index i has at least one descendant folder. The
-  // pre-order flattening guarantees a folder's first descendant (if any) is the very
-  // next entry at a greater (true) depth.
+  // Whether the folder at index i has a descendant folder: pre-order puts its first descendant next.
   function folderHasChild(i) {
     const here = sections.folders[i];
     const next = sections.folders[i + 1];
     return !!(next && treeDepthOf(next) > treeDepthOf(here));
   }
 
-  // "Collapse one level" (the ^ button): collapse the deepest currently-open VISIBLE
-  // folder tier; repeated clicks fold upward; once all folded, the next click re-expands
-  // ALL. Mirrors the unit-tested pure helper foldOneLevel: it computes the deepest
-  // visible open tier and, when nothing is collapsible but real folders exist, clears the
-  // collapsed set instead of no-opping.
+  // The ^ button: collapse the deepest open visible tier; once all are folded, the next click re-expands
+  // all. Mirrors foldOneLevel.
   function collapseDeepestOpenLevel() {
     if (isFiltering()) {
       return;
@@ -1077,10 +971,7 @@
       }
     }
     if (deepest < 0) {
-      // Nothing is collapsible. If there are real folders, they are all folded to
-      // their shallowest level, so this terminal click re-expands them all by
-      // clearing the collapsed set (only when it actually holds ids, so a tree with
-      // no collapsible nesting does not thrash).
+      // Nothing collapsible: all folders are folded, so re-expand by clearing the set (only when it holds ids).
       if (hasRealFolder && collapsedFolders.size > 0) {
         collapsedFolders.clear();
         persistCollapsed();
@@ -1193,12 +1084,8 @@
 
   // ---- folder rename (in-place editor) ----
 
-  // The in-flight folder rename, so a cross-surface re-render (a 'sections'/'state'
-  // message landing while the user is mid-rename) can COMMIT the half-typed name
-  // before it destroys the input, instead of silently dropping it. Removing a
-  // focused element from the DOM does not reliably fire 'blur', so render() cannot
-  // rely on the blur-commit; it calls commitPendingRename() explicitly first.
-  // Holds { commit } for the open input, or null when no rename is active.
+  // The in-flight rename ({ commit }, or null). render() commits it first because removing a focused input
+  // does not reliably fire blur.
   let pendingRename = null;
 
   function commitPendingRename() {
@@ -1209,16 +1096,10 @@
     }
   }
 
-  // Folder-row single- vs double-click arbitration. A click that toggles collapse
-  // re-renders the whole tree, detaching the node a following dblclick needs, so a
-  // per-click toggle would race the rename: the first click of a double-click would fire
-  // the toggle, re-render, and the dblclick would never open rename. The browser fires
-  // click, click, dblclick, so the toggle is DEFERRED by a double-click window and
-  // cancelled if a second click / dblclick arrives first. This mirrors
-  // src/views/orgPanelInteractions.ts (registerFolder- Click / registerFolderDblClick,
-  // DOUBLE_CLICK_MS): lastFolderClickAt is the arm stamp, folderToggleTimer is the
-  // pending timer, folderToggleArmedId is the folder the armed toggle targets (so a click
-  // on a DIFFERENT folder cancels the stale arm rather than toggling the wrong one).
+  // Single versus double click on a folder row. A toggle re-renders and detaches the node dblclick needs,
+  // so it is deferred by a double-click window and cancelled by a second click. Mirrors orgPanelInteractions.ts
+  // (DOUBLE_CLICK_MS): lastFolderClickAt stamps the arm, folderToggleTimer holds it, folderToggleArmedId is
+  // its target, so a click on another folder cancels the stale arm.
   const DOUBLE_CLICK_MS = 250;
   let lastFolderClickAt = null;
   let folderToggleTimer = null;
@@ -1329,13 +1210,8 @@
     input.addEventListener('blur', commit);
   }
 
-  // Right-click a folder header to open the folder actions menu. Wire ArrowUp/ArrowDown
-  // cyclic roving focus and Enter/Space activation across the .nest-menu-item buttons of
-  // a role="menu" overlay, matching the sort popover (wireSortPopover) so every ARIA menu
-  // in the panel honors the same keyboard pattern it advertises. Native buttons already
-  // fire click on Enter/Space, but keeping an explicit handler is harmless and keeps the
-  // affordance uniform with the sort popover. Call after all items are appended and
-  // BEFORE focusing the first item.
+  // Wires ArrowUp/ArrowDown cyclic focus and Enter/Space across the .nest-menu-item buttons of a role=menu
+  // overlay, like the sort popover. Call after the items are appended and before focusing the first.
   function wireMenuRoving(menu) {
     var items = Array.prototype.slice.call(menu.querySelectorAll('.nest-menu-item'));
     items.forEach(function (item, i) {
@@ -1362,9 +1238,8 @@
     }
   }
   function openFolderMenu(e, headerEl, folderId, label, currentColor) {
-    // Opening a conflicting surface aborts any armed folder-row collapse so the folder
-    // cannot collapse out from under the menu a beat later (and so the deferred timer
-    // cannot fire render() and orphan this body-level menu).
+    // Opening a conflicting surface aborts an armed folder-row collapse, so its timer cannot render() and
+    // orphan this menu.
     cancelPendingFolderToggle();
     closeFolderMenu();
     const menu = document.createElement('div');
@@ -1383,9 +1258,7 @@
       menu.appendChild(b);
     };
     item('Rename', () => beginRename(headerEl, folderId, label));
-    // "Set color" opens the in-panel 8-swatch picker, anchored under the folder
-    // header so the swatches read next to the folder they recolor, seeded with the
-    // folder's current color. The native <input type=color> is retired.
+    // Set color opens the 8-swatch picker under the folder header, seeded with the folder's color.
     item('Set color', () => beginColor(folderId, headerEl, currentColor || null));
     item('Clear color', () => vscode.postMessage({ type: 'setFolderColor', folderId, color: null }));
     item('Delete folder', () => vscode.postMessage({ type: 'deleteFolder', folderId }));
@@ -1401,13 +1274,9 @@
   }
   // ---- chat context menu ----
 
-  // The right-click menu on a chat row. Body-level position:fixed, in the SAME transient-
-  // overlay class as the folder menu / color picker / new-folder popover, so a tree
-  // re-render or Escape tears it down (closeAllTransientOverlays) and it can never post a
-  // mutation for a row a refresh removed. Two modes: the LIST mode (tag toggles, create
-  // tag, export, archive-or-starred-note) and the NEW-TAG mode (name input + 8-swatch
-  // picker + Add/Cancel). chatMenuSessionId is the chat the open menu targets; the menu
-  // re-resolves the LIVE row by that id on each (re)render so a toggle reads current tags.
+  // Right-click menu on a chat row, a body-level fixed overlay closed with the other transient overlays on
+  // re-render or Escape. LIST mode shows tags, export and archive; NEW-TAG mode shows a name input and
+  // swatches. chatMenuSessionId is the target chat, re-resolved to its live row on each render.
   let openChatMenuEl = null;
   let chatMenuSessionId = null;
   let chatMenuReturnFocusEl = null;
@@ -1433,9 +1302,7 @@
     }
   }
 
-  // Resolve the live row object for the open menu's chat, or null when it is gone (a
-  // refresh removed it). Used so a tag toggle reads the CURRENT tag set, not the stale
-  // row captured when the menu opened.
+  // The live row for the open menu's chat, or null if a refresh removed it, so a toggle reads current tags.
   function chatMenuRow() {
     if (!chatMenuSessionId) {
       return null;
@@ -1444,8 +1311,7 @@
   }
 
   function openChatMenu(e, sessionId) {
-    // Opening the menu aborts an armed folder-row toggle, so no other transient
-    // surface fights it or fires a re-render that orphans it.
+    // Opening the menu aborts an armed folder-row toggle so a re-render cannot orphan it.
     cancelPendingFolderToggle();
     closeAllTransientOverlays();
     if (!sessionId) {
@@ -1455,8 +1321,7 @@
     chatMenuNewTagMode = false;
     chatMenuNewTagName = '';
     chatMenuNewTagColor = HANDOFF_PALETTE[0];
-    // Restore focus to the row on close when it survives (a keyboard-opened menu returns
-    // there); a pointer right-click has no meaningful return target beyond the row.
+    // Return focus to the row on close when it survives.
     var rows = focusableRows();
     chatMenuReturnFocusEl =
       rows.find(function (r) {
@@ -1522,6 +1387,21 @@
     var sessionId = row.sessionId;
     var currentTagIds = row.tagIds || [];
 
+    if (isAttachableChat(sessionId)) {
+      var termBtn = document.createElement('button');
+      termBtn.type = 'button';
+      termBtn.className = 'nest-menu-item';
+      termBtn.setAttribute('role', 'menuitem');
+      termBtn.textContent = 'Open in terminal';
+      termBtn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        vscode.postMessage({ type: 'openInTerminal', sessionId: sessionId, explicit: true });
+        closeChatMenu();
+      });
+      menu.appendChild(termBtn);
+      menu.appendChild(chatMenuDivider());
+    }
+
     menu.appendChild(chatMenuCaption('TAGS'));
     var allTags = sections.allTags || [];
     for (var i = 0; i < allTags.length; i++) {
@@ -1564,9 +1444,8 @@
             tagId: tag.tagId,
             on: !isOn,
           });
-          // The refresh that follows the store write re-renders the tree AND (via the
-          // sections handler's teardown) closes this menu, so the checkmark reflects the
-          // new state on reopen. Close now so the menu does not linger over a re-render.
+          // Close now: the refresh after the store write re-renders and closes the menu anyway; the checkmark
+          // shows on reopen.
           closeChatMenu();
         });
         menu.appendChild(item);
@@ -1645,9 +1524,8 @@
     }
   }
 
-  // The NEW-TAG mode: a name input, the 8-swatch color picker, and Add tag / Cancel. On
-  // Add, post createTagWithColor with only a HANDOFF_PALETTE literal (or the default), the
-  // trimmed name, and the target sessionId; the host mints + applies + refreshes.
+  // NEW-TAG mode: name input, swatches, Add tag and Cancel. Add posts createTagWithColor with a palette
+  // literal (or the default), the trimmed name and the sessionId.
   function renderChatMenuNewTag(menu) {
     var row = chatMenuRow();
     if (!row) {
@@ -1757,8 +1635,7 @@
     });
     cancelBtn.addEventListener('click', function (ev) {
       ev.stopPropagation();
-      // Cancel returns to the tag LIST, not closing the
-      // whole menu.
+      // Cancel returns to the tag list instead of closing the menu.
       chatMenuNewTagMode = false;
       chatMenuNewTagName = '';
       renderChatMenu();
@@ -1793,11 +1670,8 @@
     }
   });
 
-  // The in-panel 8-swatch folder color picker, replacing the native
-  // <input type=color>. It floats near the anchor (the folder header row or the
-  // right-click point), paints one swatch per palette color plus a "Default"
-  // (clear) chip, marks the folder's current color, and posts setFolderColor on a
-  // pick. Only palette literals (or null) are ever sent; the host re-validates.
+  // In-panel 8-swatch folder color picker. It posts setFolderColor with a palette literal or null (the
+  // Default chip); the host re-validates.
   let openColorEl = null;
   let colorReturnFocusEl = null;
   function closeColorPicker() {
@@ -1805,9 +1679,7 @@
       openColorEl.remove();
       openColorEl = null;
     }
-    // Restore focus to the folder header the picker was opened from, so keyboard
-    // focus is never dropped to <body> on close (mirrors the sort popover's
-    // focus-restore; ARIA rule).
+    // Restore focus to the folder header so it is not dropped to body.
     if (colorReturnFocusEl) {
       const el = colorReturnFocusEl;
       colorReturnFocusEl = null;
@@ -1816,9 +1688,8 @@
       }
     }
   }
-  // anchorEl is the folder header the picker hangs under (used for positioning AND
-  // focus restore); currentColor is the folder's color (#rrggbb) or null so the
-  // active swatch shows a ring.
+  // anchorEl positions the picker and receives focus on close; currentColor (#rrggbb or null) marks the
+  // active swatch.
   function beginColor(folderId, anchorEl, currentColor) {
     cancelPendingFolderToggle();
     closeFolderMenu();
@@ -1848,8 +1719,7 @@
       sw.title = color;
       sw.addEventListener('click', (e) => {
         e.stopPropagation();
-        // A committed pick triggers a store mutation + re-render, which re-seats the
-        // roving tabindex; do not fight it by refocusing the stale header.
+        // A committed pick re-renders and re-seats the roving tabindex; do not refocus the stale header.
         colorReturnFocusEl = null;
         closeColorPicker();
         vscode.postMessage({ type: 'setFolderColor', folderId, color });
@@ -1859,8 +1729,7 @@
     }
     pop.appendChild(grid);
 
-    // A "Default" chip clears any custom color (posts null), matching the folder
-    // menu's existing "Clear color" action so the picker is self-sufficient.
+    // The Default chip clears the color (posts null), like the folder menu's Clear color.
     const clear = document.createElement('button');
     clear.type = 'button';
     clear.className = 'nest-swatch-clear';
@@ -1910,12 +1779,9 @@
 
   // ---- new-folder popover ----
 
-  // The in-panel "New folder" popover the FOLDERS header + button opens, replacing
-  // the bare createFolder prompt in the native input box. A name input plus Create /
-  // Cancel; Create posts { type:'createFolder', name } (the host runs the same
-  // createFolder command with the name as presetName, so slash-path expansion and
-  // the one-sublevel depth cap still apply). Enter commits, Escape cancels; an
-  // outside click dismisses it (shared document handler below).
+  // New folder popover from the FOLDERS + button. Create posts { type:'createFolder', name }; the host runs
+  // createFolder with presetName, so slash paths and the depth cap still apply. Enter commits, Escape
+  // cancels and an outside click dismisses it.
   let openNewFolderEl = null;
   let newFolderReturnFocusEl = null;
   function closeNewFolderPopover() {
@@ -1923,8 +1789,7 @@
       openNewFolderEl.remove();
       openNewFolderEl = null;
     }
-    // Restore focus to the + button so keyboard focus is not dropped to <body> on
-    // close. On a committed Create the caller nulls this first (a re-render follows).
+    // Restore focus to the + button on close. A committed Create nulls this first, since a re-render follows.
     if (newFolderReturnFocusEl) {
       const el = newFolderReturnFocusEl;
       newFolderReturnFocusEl = null;
@@ -1934,22 +1799,14 @@
     }
   }
 
-  // Close ALL three body-level transient overlays together. They are appended to
-  // document.body (outside listEl) and are position:fixed, so a tree re-render
-  // (listEl.textContent = '') does NOT remove them: they would float, orphaned, at
-  // a stale viewport point while their captured-closure buttons still post
-  // setFolderColor/renameFolder/deleteFolder for a folderId the same refresh may
-  // have recolored, renamed, or deleted. The Escape handler and every inbound tree
-  // re-render ('sections'/'state') both route through this ONE function so the
-  // close-set can never drift. The keys mirror src/views/orgPanelInteractions.ts
-  // TRANSIENT_OVERLAY_KEYS ('colorPicker', 'newFolderPopover', 'folderMenu').
+  // Closes all body-level transient overlays together. They are position:fixed outside listEl, so a re-render
+  // leaves them behind and their buttons could post mutations for a changed folder. Escape and every tree
+  // re-render call this one function; the keys mirror TRANSIENT_OVERLAY_KEYS in orgPanelInteractions.ts.
   function closeAllTransientOverlays() {
     closeColorPicker();
     closeNewFolderPopover();
     closeFolderMenu();
-    // The chat context menu is another body-level position:fixed overlay in
-    // this class; a tree re-render or Escape must tear it down too so its captured-closure
-    // items cannot post a toggle/export/archive for a row a refresh removed.
+    // The chat menu is also a body-level overlay and closes with the rest.
     closeChatMenu();
   }
   function openNewFolderPopover(anchorEl) {
@@ -1996,8 +1853,7 @@
     const commit = () => {
       const name = input.value.trim();
       if (name.length > 0) {
-        // A successful create triggers a re-render that re-seats focus; do not
-        // refocus the (still-present) + button and fight it.
+        // A successful create re-renders and re-seats focus; do not refocus the + button.
         newFolderReturnFocusEl = null;
         closeNewFolderPopover();
         vscode.postMessage({ type: 'createFolder', name });
@@ -2055,16 +1911,9 @@
     { key: 'unsorted', label: 'Unsorted', sub: 'Show chats not in a folder' },
   ];
 
-  // Shared focus trap for every role="dialog" aria-modal="true" surface in the panel: the
-  // two full-panel sub-pages (Settings, Archive) that cover the tree/toolbar, and the
-  // anchored New-folder popover dialog. Keyboard Tab must cycle WITHIN the open dialog
-  // rather than escaping to the tree still in the DOM behind/around it. Attaches a Tab
-  // keydown handler on the dialog node (Tab bubbles up from the focused child inside it):
-  // Tab past the last focusable wraps to the first, Shift+Tab before the first wraps to the
-  // last, and a Tab from outside (or from a since-removed node) snaps back to the first
-  // focusable. Escape is owned by the document handler (and each dialog's own Escape wiring);
-  // this only manages Tab. Each dialog calls this once at build time; the listener dies with
-  // the removed dialog node.
+  // Focus trap for every role=dialog aria-modal surface (Settings, Archive, New folder). Tab wraps within the
+  // dialog, and a Tab from outside or a removed node snaps to the first focusable. Escape is handled
+  // elsewhere. Call once at build time; the listener dies with the node.
   function dialogFocusables(overlay) {
     var sel =
       'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]),' +
@@ -2076,18 +1925,14 @@
   }
 
   function wireDialogFocusTrap(overlay) {
-    // Capture phase (third arg true): the trap must see Tab BEFORE any focused child's own
-    // keydown handler runs. Some dialog children (e.g. the New-folder name input) call
-    // e.stopPropagation() unconditionally, which would kill a bubbling trap listener before
-    // Tab ever reached it and let focus escape the modal. Capturing on the dialog node fires
-    // on the way down, ahead of the child, so no child stopPropagation can defeat the trap.
+    // Capture phase so the trap sees Tab before a child's handler: some children (the New-folder input) stop
+    // propagation, which would defeat a bubbling listener.
     overlay.addEventListener('keydown', function (e) {
       if (e.key !== 'Tab') {
         return;
       }
-      // MIRRORS dialogFocusTrapAction in src/views/orgPanelInteractions.ts (unit-gated).
-      // The DOM parts (which controls are focusable, where focus is, moving it) live here;
-      // the pure edge/wrap/snap decision is pinned by that kernel's tests.
+      // Mirrors dialogFocusTrapAction in orgPanelInteractions.ts: the DOM work is here, the edge and wrap
+      // decision lives in the tested kernel.
       var items = dialogFocusables(overlay);
       var active = document.activeElement;
       var activeIndex = overlay.contains(active)
@@ -2130,15 +1975,10 @@
     return settingsOverlayEl !== null;
   }
 
-  // Build and open the full-panel Settings overlay. A back chevron + Newsreader 16px/600
-  // heading, an ARCHIVING group (a "Keep chats for" select), and a SIDEBAR SECTIONS
-  // group of four pill switches (on = #d97757). The overlay is position:absolute;inset:0
-  // over the panel; it stays open until the back chevron or Escape. Idempotent: opening
-  // it while open re-renders in place (so a fresh 'settings' state re-seeds the controls).
+  // Builds the full-panel Settings overlay (inset:0 over the panel), open until the back chevron or Escape.
+  // Opening while open re-renders in place so a fresh 'settings' state re-seeds the controls.
   function openSettingsOverlay() {
-    // A conflicting transient surface is torn down, but this persistent sub-page is not
-    // in that close-set; opening it dismisses the click-dismiss popovers so nothing
-    // floats over it.
+    // Close the click-dismiss popovers; this persistent sub-page is outside that close-set.
     closeAllTransientOverlays();
     closeSort(false);
     // Two persistent sub-pages never stack: opening Settings closes the Archive overlay.
@@ -2176,6 +2016,144 @@
     // Scrolling body.
     const body = document.createElement('div');
     body.className = 'nest-overlay-body';
+
+    // GROUP CHATS BY: a four-option segmented control.
+    const groupLabel = document.createElement('div');
+    groupLabel.className = 'nest-settings-group-label';
+    groupLabel.textContent = 'GROUP CHATS BY';
+    body.appendChild(groupLabel);
+
+    const seg = document.createElement('div');
+    seg.className = 'nest-seg';
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-label', 'Group chats by');
+    GROUP_BY_OPTIONS.forEach((opt) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'nest-seg-opt';
+      b.setAttribute('role', 'radio');
+      b.dataset.mode = opt.mode;
+      b.textContent = opt.label;
+      b.addEventListener('click', () => {
+        groupByOverride = opt.mode;
+        reconcileOpenSettingsControls();
+        vscode.postMessage({ type: 'setGroupBy', mode: opt.mode });
+      });
+      seg.appendChild(b);
+    });
+    body.appendChild(seg);
+
+    const groupNote = document.createElement('div');
+    groupNote.className = 'nest-settings-note';
+    groupNote.textContent = 'Auto: tickets when an orchestrator records them, otherwise folders, then date.';
+    body.appendChild(groupNote);
+
+    // LAYOUT FILE: the path and an Open button.
+    const layoutLabel = document.createElement('div');
+    layoutLabel.className = 'nest-settings-group-label nest-settings-group-label-spaced';
+    layoutLabel.textContent = 'LAYOUT FILE';
+    body.appendChild(layoutLabel);
+
+    const layoutRow = document.createElement('div');
+    layoutRow.className = 'nest-settings-card-row';
+    const layoutPath = document.createElement('span');
+    layoutPath.className = 'nest-settings-path';
+    layoutPath.textContent = '.nest/config.json';
+    layoutRow.appendChild(layoutPath);
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'nest-settings-open-btn';
+    openBtn.textContent = 'Open';
+    openBtn.setAttribute('aria-label', 'Open layout file');
+    openBtn.addEventListener('click', () => vscode.postMessage({ type: 'openLayoutFile' }));
+    layoutRow.appendChild(openBtn);
+    body.appendChild(layoutRow);
+
+    // ORGANIZE: Preview, Apply and Undo for the layout file's rules.
+    const organizeLabel = document.createElement('div');
+    organizeLabel.className = 'nest-settings-group-label nest-settings-group-label-spaced';
+    organizeLabel.textContent = 'ORGANIZE';
+    body.appendChild(organizeLabel);
+
+    const organizeNote = document.createElement('div');
+    organizeNote.className = 'nest-settings-note nest-organize-note';
+    organizeNote.textContent = 'The rules in your layout file sort chats into folders and tags. Preview lists every move first; nothing changes until you apply.';
+    body.appendChild(organizeNote);
+
+    const organizeActions = document.createElement('div');
+    organizeActions.className = 'nest-organize-actions';
+    [
+      { act: 'preview', label: 'Preview', type: 'organizePreview', aria: 'Preview organize rules' },
+      { act: 'apply', label: 'Apply', type: 'organizeApply', aria: 'Apply organize rules' },
+      { act: 'undo', label: 'Undo', type: 'organizeUndo', aria: 'Undo the last organize apply' },
+    ].forEach(function (def) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'nest-settings-open-btn nest-organize-btn';
+      btn.dataset.organize = def.act;
+      btn.textContent = def.label;
+      btn.setAttribute('aria-label', def.aria);
+      btn.addEventListener('click', function () {
+        if (btn.disabled) {
+          return;
+        }
+        organizeBusy = true;
+        renderOrganize();
+        vscode.postMessage({ type: def.type });
+      });
+      organizeActions.appendChild(btn);
+    });
+    body.appendChild(organizeActions);
+
+    const organizeStatus = document.createElement('div');
+    organizeStatus.className = 'nest-organize-status';
+    organizeStatus.setAttribute('role', 'status');
+    organizeStatus.setAttribute('aria-live', 'polite');
+    body.appendChild(organizeStatus);
+
+    const organizeProblems = document.createElement('ul');
+    organizeProblems.className = 'nest-organize-problems';
+    organizeProblems.setAttribute('aria-label', 'Rule problems');
+    body.appendChild(organizeProblems);
+
+    const organizeList = document.createElement('ul');
+    organizeList.className = 'nest-organize-list';
+    organizeList.setAttribute('aria-label', 'Planned moves');
+    body.appendChild(organizeList);
+
+    // ROBIN: the animations switch.
+    const robinLabel = document.createElement('div');
+    robinLabel.className = 'nest-settings-group-label nest-settings-group-label-spaced';
+    robinLabel.textContent = 'ROBIN';
+    body.appendChild(robinLabel);
+
+    const robinRow = document.createElement('div');
+    robinRow.className = 'nest-settings-card-row nest-settings-robin-row';
+    const robinName = document.createElement('span');
+    robinName.className = 'nest-settings-toggle-name';
+    robinName.textContent = 'Animations';
+    robinRow.appendChild(robinName);
+    const robinSw = document.createElement('button');
+    robinSw.type = 'button';
+    robinSw.className = 'nest-switch nest-switch-robin';
+    robinSw.setAttribute('role', 'switch');
+    robinSw.setAttribute('aria-label', 'Robin animations');
+    const robinThumb = document.createElement('span');
+    robinThumb.className = 'nest-switch-thumb';
+    robinThumb.setAttribute('aria-hidden', 'true');
+    robinSw.appendChild(robinThumb);
+    robinSw.addEventListener('click', () => {
+      robinAnimationsOn = !robinAnimationsOn;
+      reconcileOpenSettingsControls();
+      vscode.postMessage({ type: 'setRobinAnimations', on: robinAnimationsOn });
+    });
+    robinRow.appendChild(robinSw);
+    body.appendChild(robinRow);
+
+    const topDivider = document.createElement('div');
+    topDivider.className = 'nest-settings-divider';
+    topDivider.setAttribute('aria-hidden', 'true');
+    body.appendChild(topDivider);
 
     // ARCHIVING group.
     const archLabel = document.createElement('div');
@@ -2276,8 +2254,169 @@
     // area as an inset:0 sub-page and inherits the panel width.
     document.body.appendChild(overlay);
     settingsOverlayEl = overlay;
+    reconcileOpenSettingsControls();
+    renderOrganize();
     wireDialogFocusTrap(overlay);
     back.focus();
+  }
+
+  // Coerces the host's organize report to a safe shape. Every string is rendered as
+  // textContent only; counts and lists are bounded.
+  function coerceOrganize(msg) {
+    const text = function (v, max) {
+      return typeof v === 'string' ? v.slice(0, max) : '';
+    };
+    const num = function (v) {
+      return typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+    };
+    const moves = [];
+    if (Array.isArray(msg.moves)) {
+      msg.moves.slice(0, 500).forEach(function (m) {
+        if (!m || typeof m !== 'object' || typeof m.sessionId !== 'string') {
+          return;
+        }
+        moves.push({
+          sessionId: text(m.sessionId, 64),
+          title: text(m.title, 200),
+          from: typeof m.from === 'string' ? text(m.from, 400) : null,
+          to: typeof m.to === 'string' ? text(m.to, 400) : null,
+          createsFolder: m.createsFolder === true,
+          tags: Array.isArray(m.tags) ? m.tags.slice(0, 20).map(function (t) { return text(t, 200); }) : [],
+          pin: m.pin === true,
+        });
+      });
+    }
+    return {
+      kind: msg.kind === 'preview' || msg.kind === 'applied' || msg.kind === 'undone' || msg.kind === 'error' ? msg.kind : 'idle',
+      message: text(msg.message, 300),
+      moves: moves,
+      moreMoves: num(msg.moreMoves),
+      matched: num(msg.matched),
+      skippedHandFiled: num(msg.skippedHandFiled),
+      rulesActive: num(msg.rulesActive),
+      problems: Array.isArray(msg.problems) ? msg.problems.slice(0, 20).map(function (t) { return text(t, 300); }) : [],
+      canUndo: msg.canUndo === true,
+      undoCount: num(msg.undoCount),
+      skippedOnUndo: num(msg.skippedOnUndo),
+    };
+  }
+
+  // Folder paths arrive as 'A/B'; show them with spaced separators like the breadcrumb.
+  function organizePathText(p) {
+    return typeof p === 'string' && p.length > 0 ? p.split('/').join(' / ') : 'Unsorted';
+  }
+
+  // Paints the Organize section from organizeState. Safe to call while the overlay is closed.
+  function renderOrganize() {
+    if (!settingsOverlayEl) {
+      return;
+    }
+    const st = organizeState;
+    const previewBtn = settingsOverlayEl.querySelector('[data-organize="preview"]');
+    const applyBtn = settingsOverlayEl.querySelector('[data-organize="apply"]');
+    const undoBtn = settingsOverlayEl.querySelector('[data-organize="undo"]');
+    if (previewBtn) {
+      previewBtn.disabled = organizeBusy;
+    }
+    if (applyBtn) {
+      applyBtn.disabled = organizeBusy || st.kind !== 'preview' || st.moves.length === 0;
+    }
+    if (undoBtn) {
+      undoBtn.disabled = organizeBusy || !st.canUndo;
+      undoBtn.textContent = st.canUndo && st.undoCount > 0 ? 'Undo ' + st.undoCount : 'Undo';
+    }
+    const status = settingsOverlayEl.querySelector('.nest-organize-status');
+    if (status) {
+      const parts = [];
+      if (organizeBusy) {
+        parts.push('Working...');
+      } else {
+        if (st.message) {
+          parts.push(st.message);
+        }
+        if (st.kind === 'preview' && st.skippedHandFiled > 0) {
+          parts.push(st.skippedHandFiled + (st.skippedHandFiled === 1 ? ' chat you filed or moved to Unsorted by hand is left alone.' : ' chats you filed or moved to Unsorted by hand are left alone.'));
+        }
+      }
+      status.textContent = parts.join(' ');
+      status.hidden = parts.length === 0;
+    }
+    const problems = settingsOverlayEl.querySelector('.nest-organize-problems');
+    if (problems) {
+      problems.textContent = '';
+      st.problems.forEach(function (text) {
+        const li = document.createElement('li');
+        li.textContent = text;
+        problems.appendChild(li);
+      });
+      problems.hidden = st.problems.length === 0;
+    }
+    const list = settingsOverlayEl.querySelector('.nest-organize-list');
+    if (list) {
+      list.textContent = '';
+      const moves = st.kind === 'preview' ? st.moves : [];
+      moves.forEach(function (m) {
+        const li = document.createElement('li');
+        li.className = 'nest-organize-move';
+        const title = document.createElement('div');
+        title.className = 'nest-organize-move-title';
+        title.textContent = m.title || m.sessionId;
+        title.title = m.title || m.sessionId;
+        li.appendChild(title);
+        const detail = document.createElement('div');
+        detail.className = 'nest-organize-move-detail';
+        const route = document.createElement('div');
+        route.className = 'nest-organize-route';
+        if (typeof m.to === 'string' && m.to.length > 0) {
+          const from = document.createElement('span');
+          from.className = 'nest-organize-from';
+          from.textContent = organizePathText(m.from);
+          route.appendChild(from);
+          const arrow = document.createElement('span');
+          arrow.className = 'nest-organize-arrow';
+          arrow.setAttribute('aria-hidden', 'true');
+          arrow.textContent = '\u2192';
+          route.appendChild(arrow);
+          const to = document.createElement('span');
+          to.className = 'nest-organize-to';
+          to.textContent = organizePathText(m.to) + (m.createsFolder ? ' (new)' : '');
+          route.appendChild(to);
+        } else {
+          const stays = document.createElement('span');
+          stays.className = 'nest-organize-stays';
+          stays.textContent = 'Stays in ' + organizePathText(m.from) + (m.pin && !(m.tags || []).length ? ', starred' : ', tagged');
+          route.appendChild(stays);
+        }
+        detail.appendChild(route);
+        const tagList = m.tags || [];
+        if (tagList.length > 0 || m.pin) {
+          const chips = document.createElement('div');
+          chips.className = 'nest-organize-chips';
+          tagList.forEach(function (label) {
+            const chip = document.createElement('span');
+            chip.className = 'nest-organize-chip';
+            chip.textContent = '+ ' + label;
+            chips.appendChild(chip);
+          });
+          if (m.pin) {
+            const chip = document.createElement('span');
+            chip.className = 'nest-organize-chip';
+            chip.textContent = 'Star';
+            chips.appendChild(chip);
+          }
+          detail.appendChild(chips);
+        }
+        li.appendChild(detail);
+        list.appendChild(li);
+      });
+      if (st.kind === 'preview' && st.moreMoves > 0) {
+        const more = document.createElement('li');
+        more.className = 'nest-organize-more';
+        more.textContent = '+ ' + st.moreMoves + ' more';
+        list.appendChild(more);
+      }
+      list.hidden = list.children.length === 0;
+    }
   }
 
   // Reconcile the OPEN overlay's controls to the current state WITHOUT a rebuild, so a
@@ -2290,6 +2429,16 @@
     const select = settingsOverlayEl.querySelector('.nest-settings-select');
     if (select) {
       select.value = String(autoArchiveWindowDays);
+    }
+    settingsOverlayEl.querySelectorAll('.nest-seg-opt').forEach(function (b) {
+      const pressed = b.dataset.mode === groupByOverride;
+      b.setAttribute('aria-checked', pressed ? 'true' : 'false');
+      b.classList.toggle('nest-seg-opt-on', pressed);
+    });
+    const robinSwEl = settingsOverlayEl.querySelector('.nest-switch-robin');
+    if (robinSwEl) {
+      robinSwEl.setAttribute('aria-checked', robinAnimationsOn ? 'true' : 'false');
+      robinSwEl.classList.toggle('nest-switch-on', robinAnimationsOn);
     }
     const rows = settingsOverlayEl.querySelectorAll('.nest-settings-toggle-row');
     // Rows are in SECTION_TOGGLES order; sync each switch's on-state from sectionsVisible.
@@ -2314,17 +2463,14 @@
     return archiveOverlayEl !== null;
   }
 
-  // Coerce one inbound archived row to a safe shape (defensive; the host already builds
-  // these, but the client validates every inbound field). sessionId/title/folder/relativeTime
-  // are strings (rendered as textContent only, never a sink); starred/present are booleans.
-  // A row missing a string sessionId is dropped by the filter below.
+  // Coerces one inbound archived row to a safe shape: strings render as textContent only, and a row
+  // without a string sessionId is dropped.
   function isArchivedRow(r) {
     return !!r && typeof r.sessionId === 'string' && r.sessionId.length > 0;
   }
 
-  // Close the Archive overlay. restoreFocusToTrigger returns focus to the Archived (N) row
-  // (resolved by class, since a re-render replaces the node) when true, mirroring the
-  // Settings overlay's back-to-gear restore. Clears the held rows and the search text.
+  // Closes the Archive overlay. restoreFocusToTrigger returns focus to the Archived (N) row (resolved by
+  // class, since a re-render replaces it). Clears the held rows and search text.
   function closeArchiveOverlay(restoreFocusToTrigger) {
     if (archiveOverlayEl) {
       archiveOverlayEl.remove();
@@ -2357,16 +2503,10 @@
     });
   }
 
-  // Build and open the full-panel Archive overlay: a back chevron +
-  // Newsreader heading + count, a note, the GRAY-glow "Search archived" box, and the archived
-  // rows (title, folder . age, an export button, a Restore button). Reuses the .nest-overlay
-  // chrome, back chevron, and Newsreader heading from the Settings overlay verbatim.
-  // Idempotent: opening while open re-renders in place so a fresh 'archivedRows' post
-  // re-seeds the list. Persistent sub-page: stays open until the back chevron or Escape.
+  // Builds the full-panel Archive overlay, reusing the Settings overlay chrome. Opening while open re-renders
+  // in place so a fresh 'archivedRows' post re-seeds the list. Open until the back chevron or Escape.
   function openArchiveOverlay() {
-    // Dismiss the click-dismiss popovers and the sort popover; this persistent sub-page is
-    // not in that close-set, so nothing floats over it. If the Settings overlay is open,
-    // close it first (two persistent sub-pages never stack).
+    // Dismiss the popovers and close Settings first; two persistent sub-pages never stack.
     closeAllTransientOverlays();
     closeSort(false);
     if (isSettingsOpen()) {
@@ -2421,11 +2561,8 @@
     back.focus();
   }
 
-  // (Re)build the Archive overlay's body under the header: the note, the gray-glow search
-  // box, and the archived row list (or an empty state). Called on open, on each keystroke,
-  // and after a fresh 'archivedRows' post. Preserves the search box's focus/caret when it
-  // is only the row list that changed by rebuilding the whole body but restoring focus to
-  // the search input when it had focus.
+  // Rebuilds the overlay body under the header (note, search box, rows or empty state) on open, on each
+  // keystroke and on a fresh 'archivedRows'. Restores focus to the search input if it had focus.
   function renderArchiveOverlayBody() {
     if (!archiveOverlayEl) {
       return;
@@ -2524,11 +2661,8 @@
     }
   }
 
-  // One archived-chat row: title over a "folder . age" meta line, an export button, and a
-  // Restore button. Every label is textContent (untrusted transcript title/folder). Export
-  // routes to the exportIO-guarded exportChat seam; Restore clears the synced userArchived
-  // flag (keeps the star); a click on the row body previews the archived copy. A
-  // starred archived row (rare, e.g. star-unarchive raced a refresh) still shows Restore.
+  // One archived row: title, a folder and age line, export and Restore buttons. Labels are textContent
+  // (untrusted). Restore clears userArchived and keeps the star; a click on the row body previews the copy.
   function makeArchivedRow(row) {
     var el = document.createElement('div');
     el.className = 'nest-archive-row';
@@ -2537,8 +2671,7 @@
     var textCol = document.createElement('button');
     textCol.type = 'button';
     textCol.className = 'nest-archive-row-text';
-    // The row body previews the archived copy: a cleaned-up chat is reachable from
-    // the overlay row, and a present chat previews its saved copy too.
+    // The row body previews the archived copy, so a cleaned-up chat stays reachable.
     textCol.setAttribute(
       'aria-label',
       'Preview archived chat ' + row.title,
@@ -2583,11 +2716,8 @@
     textCol.appendChild(meta);
     el.appendChild(textCol);
 
-    // Star affordance (starring an archived chat un-archives it). A hollow star
-    // (archived rows are not starred, since starred chats are never archived); clicking it
-    // posts starUnarchive, which sets the synced star AND clears userArchived through the
-    // existing seams, so the chat leaves the overlay and reappears in the list, starred. A
-    // <button> so it is independently keyboard-focusable and labelled.
+    // Starring an archived chat posts starUnarchive, which sets the star and clears userArchived, so the
+    // chat returns to the list starred.
     var star = document.createElement('button');
     star.type = 'button';
     star.className = 'nest-star nest-star-empty nest-archive-star';
@@ -2624,8 +2754,7 @@
     return el;
   }
 
-  // The gray magnifier glyph for the archive search box (currentColor, themed via CSS),
-  // main search icon but living in the archive overlay so its gray-glow box reads distinct.
+  // Gray magnifier glyph (currentColor) for the archive search box, distinct from the main search icon.
   function searchGlyphGray() {
     var NS = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(NS, 'svg');
@@ -2733,11 +2862,50 @@
   // ---- keyboard navigation (roving tabindex over treeitems) ----
 
   function focusableRows() {
-    return Array.prototype.slice.call(listEl.querySelectorAll('[role="treeitem"]'));
+    return Array.prototype
+      .slice.call(listEl.querySelectorAll('[role="treeitem"]'))
+      .filter((el) => !el.closest('.nest-fleet-group:not(.is-open) > .nest-fleet-body'));
   }
 
+  // The live fleet row for a chat, or null. Rows come from the latest fleet message, so
+  // the attachable flag is always the host's current answer.
+  function fleetRowFor(sessionId) {
+    if (!fleet) {
+      return null;
+    }
+    const lists = [];
+    if (fleet.orchestrator) {
+      lists.push([fleet.orchestrator]);
+    }
+    const groups = (fleet.groups || []).concat(fleet.userFolders || []);
+    if (fleet.pastOrchestrators) {
+      groups.push(fleet.pastOrchestrators);
+    }
+    if (fleet.unsorted) {
+      groups.push(fleet.unsorted);
+    }
+    for (const g of groups) {
+      lists.push(g.rows || []);
+    }
+    for (const rows of lists) {
+      for (const r of rows) {
+        if (r.sessionId === sessionId) {
+          return r;
+        }
+      }
+    }
+    return null;
+  }
+
+  function isAttachableChat(sessionId) {
+    const row = fleetRowFor(sessionId);
+    return !!row && row.attachable === true;
+  }
+
+  // The host re-checks attachable and falls back to a plain open, so this only chooses
+  // which message to post.
   function activateRow(sessionId) {
-    vscode.postMessage({ type: 'open', sessionId });
+    vscode.postMessage({ type: isAttachableChat(sessionId) ? 'openInTerminal' : 'open', sessionId });
   }
 
   function moveFocus(delta) {
@@ -2807,6 +2975,27 @@
       if (rows.length) {
         setFocus(rows[rows.length - 1]);
       }
+    } else if (e.key === 'ArrowRight' && isRow && active.dataset.kind === 'fleet-group') {
+      e.preventDefault();
+      if (active.getAttribute('aria-expanded') === 'false') {
+        toggleFleetGroup(active.dataset.groupId);
+      } else {
+        moveToFirstChild(active);
+      }
+    } else if (e.key === 'ArrowLeft' && isRow && active.dataset.kind === 'fleet-group') {
+      e.preventDefault();
+      if (active.getAttribute('aria-expanded') === 'true') {
+        toggleFleetGroup(active.dataset.groupId);
+      }
+    } else if (e.key === 'ArrowLeft' && isRow && active.dataset.parentFleetGroup) {
+      e.preventDefault();
+      const entry = fleetGroupEls.get(active.dataset.parentFleetGroup);
+      if (entry) {
+        setFocus(entry.header);
+      }
+    } else if ((e.key === 'Enter' || e.key === ' ') && isRow && active.dataset.kind === 'fleet-group') {
+      e.preventDefault();
+      toggleFleetGroup(active.dataset.groupId);
     } else if (e.key === 'ArrowRight' && isRow) {
       e.preventDefault();
       const folderId = folderIdOf(active);
@@ -2852,10 +3041,8 @@
 
   // ---- search input ----
 
-  // Post the current text query to the host content-search seam. Debounced by
-  // onFilterInput so a fast typist does not fire a query per
-  // keystroke; the host's body-index build already yields to the event loop
-  // (BODY_READ_CHUNK) so neither side blocks the UI thread.
+  // Posts the current text query to the host search. onFilterInput debounces it so typing does not
+  // fire a query per keystroke.
   function postSearchQuery() {
     vscode.postMessage({ type: 'search', query: filterEl.value });
   }
@@ -2872,10 +3059,8 @@
     if (searchClearEl) {
       searchClearEl.hidden = filterEl.value.length === 0;
     }
-    // Re-render immediately so the search box, chip state, and (for a tag-only
-    // filter) the flat list stay responsive; the TEXT hit set fills in when the
-    // debounced host reply lands. When the box is emptied, drop any stale host
-    // results at once so clearing restores the sectioned view without a flash.
+    // Re-render at once so the search box, chips and tag-only list stay responsive; text hits fill in when the
+    // host reply lands. Clearing the box drops stale results immediately.
     if (textFilter.length === 0) {
       cancelSearchDebounce();
       searchResultsQuery = null;
@@ -2988,9 +3173,8 @@
     document.addEventListener('click', () => closeSort(false));
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        // The Archive and Settings overlays are persistent sub-pages: Escape closes the open
-        // one first (returning focus to its trigger) rather than falling through to the tree
-        // overlays. The archive search box handles its own Escape-to-clear before this fires.
+        // Escape closes an open Archive or Settings overlay first, returning focus to its trigger. The archive
+        // search box handles its own Escape-to-clear before this.
         if (isArchiveOpen()) {
           closeArchiveOverlay(true);
           return;
@@ -3001,13 +3185,735 @@
         }
         closeSort(isSortOpen());
         closeAllTransientOverlays();
-        // Escape is a documented abort trigger for the deferred folder-row toggle
-        // (orgPanelInteractions.ts clearFolderToggleArm): dismissing the UI must also
-        // drop any armed collapse so it cannot fire a beat later against the tree the
-        // user just abandoned.
+        // Escape also drops an armed folder-row collapse (clearFolderToggleArm) so it cannot fire against an
+        // abandoned tree.
         cancelPendingFolderToggle();
       }
     });
+  }
+
+  // ---- fleet layout ----
+
+  // The latest host-posted fleet message (display-ready groups, rows and ARIA fields), or
+  // null until the host posts one. While null, the panel draws only the original sections.
+  let fleet = null;
+  // Open state per group id: an explicit user choice. The Active projection forces live
+  // groups open without touching this map, so turning Active off restores it.
+  const groupOpen = new Map();
+  // Open overrides while Active is on. Cleared whenever Active turns on or off.
+  const activeOpen = new Map();
+  let queueOpen = false;
+  // What changed between the previous fleet message and the one being drawn. Set by the
+  // message handler for exactly one render so only real changes animate.
+  let fleetDiff = null;
+  // The elements of the last fleet render, by group id, for in-place open and close.
+  const fleetGroupEls = new Map();
+  const MAX_SAVED_GROUPS = 500;
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const activeBtnEl = document.getElementById('activeBtn');
+  const activeLabelEl = document.getElementById('activeLabel');
+  const queueBtnEl = document.getElementById('queueBtn');
+  const queueLabelEl = document.getElementById('queueLabel');
+  const queueListEl = document.getElementById('queueList');
+
+  function svgEl(width, height, className, paths, circles) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', className);
+    for (const c of circles || []) {
+      const circle = document.createElementNS(SVG_NS, 'circle');
+      circle.setAttribute('cx', String(c[0]));
+      circle.setAttribute('cy', String(c[1]));
+      circle.setAttribute('r', String(c[2]));
+      svg.appendChild(circle);
+    }
+    for (const d of paths) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      svg.appendChild(path);
+    }
+    return svg;
+  }
+
+  function saveFleetState() {
+    const entries = Array.from(groupOpen.entries()).slice(-MAX_SAVED_GROUPS);
+    try {
+      vscode.setState({ fleetGroupOpen: entries, queueOpen: queueOpen });
+    } catch (err) {
+      // The saved copy is a convenience; the in-memory state is authoritative.
+    }
+  }
+
+  function restoreFleetState() {
+    let saved;
+    try {
+      saved = vscode.getState();
+    } catch (err) {
+      return;
+    }
+    if (!saved || typeof saved !== 'object') {
+      return;
+    }
+    if (Array.isArray(saved.fleetGroupOpen)) {
+      for (const entry of saved.fleetGroupOpen.slice(-MAX_SAVED_GROUPS)) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean') {
+          groupOpen.set(entry[0], entry[1]);
+        }
+      }
+    }
+    queueOpen = saved.queueOpen === true;
+  }
+
+  // The groups the fleet layout draws, in order. User folders appear here only in the
+  // Active projection; otherwise the folder tree below draws them.
+  function fleetGroupsOf(f) {
+    const out = [];
+    if (!f) {
+      return out;
+    }
+    if (f.pastOrchestrators) {
+      out.push(f.pastOrchestrators);
+    }
+    for (const g of f.groups || []) {
+      out.push(g);
+    }
+    if (f.active) {
+      for (const g of f.userFolders || []) {
+        out.push(g);
+      }
+    }
+    if (f.unsorted) {
+      out.push(f.unsorted);
+    }
+    return out;
+  }
+
+  // Whether a group is open under a given message. With nothing explicit, a group with a
+  // live chat is open, and so is the newest group when nothing is live.
+  function groupIsOpen(f, g) {
+    if (f.active) {
+      return activeOpen.has(g.id) ? activeOpen.get(g.id) : g.forceOpen === true;
+    }
+    if (groupOpen.has(g.id)) {
+      return groupOpen.get(g.id);
+    }
+    if (g.hasLive) {
+      return true;
+    }
+    const first = (f.groups || [])[0];
+    return g === first && !(f.groups || []).some((x) => x.hasLive);
+  }
+
+  // A group that has shown live work stays open until the user closes it.
+  function latchLiveGroups(f) {
+    if (f.active) {
+      return;
+    }
+    for (const g of fleetGroupsOf(f)) {
+      if (g.hasLive && !groupOpen.has(g.id)) {
+        groupOpen.set(g.id, true);
+      }
+    }
+  }
+
+  function rowSnapshot(f) {
+    const status = new Map();
+    const stage = new Map();
+    const open = new Map();
+    if (!f) {
+      return { status: status, stage: stage, open: open };
+    }
+    const rows = [];
+    if (f.orchestrator) {
+      rows.push(f.orchestrator);
+    }
+    for (const g of fleetGroupsOf(f)) {
+      for (const r of g.rows) {
+        rows.push(r);
+      }
+      stage.set(g.id, { stage: g.stage, family: g.stageFamily, color: g.stageColor });
+      open.set(g.id, groupIsOpen(f, g));
+    }
+    for (const r of rows) {
+      status.set(r.sessionId, r.status);
+    }
+    return { status: status, stage: stage, open: open };
+  }
+
+  function diffFleet(prev, next) {
+    if (!prev) {
+      return null;
+    }
+    const before = rowSnapshot(prev);
+    const after = rowSnapshot(next);
+    const added = new Set();
+    const done = new Set();
+    for (const [id, status] of after.status) {
+      if (!before.status.has(id)) {
+        added.add(id);
+      } else if (before.status.get(id) !== 'done' && status === 'done') {
+        done.add(id);
+      }
+    }
+    // Switching the Active projection moves whole groups; it is not a new row.
+    const switched = prev.active !== next.active;
+    if (switched) {
+      added.clear();
+      done.clear();
+    }
+    return {
+      added: added,
+      done: done,
+      stage: before.stage,
+      open: before.open,
+      activeChanged: switched,
+    };
+  }
+
+  function makeStatusMark(status, morph) {
+    const slot = document.createElement('span');
+    slot.className = 'nest-fleet-status';
+    slot.setAttribute('aria-hidden', 'true');
+    if (status === 'working') {
+      const dot = document.createElement('span');
+      dot.className = 'nest-fleet-dot nest-dot-working';
+      slot.appendChild(dot);
+    } else if (status === 'needs') {
+      const q = document.createElement('span');
+      q.className = 'nest-fleet-needs';
+      q.textContent = '?';
+      slot.appendChild(q);
+    } else if (status === 'queued') {
+      const dot = document.createElement('span');
+      dot.className = 'nest-fleet-dot nest-dot-queued';
+      slot.appendChild(dot);
+    } else if (status === 'done') {
+      slot.appendChild(svgEl(12, 12, 'nest-fleet-check', ['M2 6.5 5 9.5 10 3']));
+      if (morph) {
+        slot.classList.add('nest-morph');
+      }
+    } else {
+      const dot = document.createElement('span');
+      dot.className = 'nest-fleet-dot nest-fleet-dot-idle';
+      slot.appendChild(dot);
+    }
+    return slot;
+  }
+
+  const PILL_FAMILIES = ['teal', 'orange', 'blue', 'green'];
+
+  function applyPillColor(pill, family, color) {
+    if (color) {
+      const bg = hexToRgba(color, 0.15);
+      if (bg) {
+        pill.className = 'nest-pill nest-pill-custom';
+        pill.style.setProperty('--pill-custom-bg', bg);
+        pill.style.setProperty('--pill-custom-fg', color);
+        return;
+      }
+    }
+    pill.className = 'nest-pill nest-pill-' + (PILL_FAMILIES.indexOf(family) >= 0 ? family : 'blue');
+  }
+
+  // A stage pill. When the previous message had a different stage color family for the
+  // same id, the pill starts in the old colors and moves to the new ones next frame, so
+  // the colors cross-fade.
+  function makeStagePill(text, family, color, before) {
+    const pill = document.createElement('span');
+    pill.textContent = text;
+    const oldFamily =
+      before && before.family && before.family !== family && !before.color && !color ? before.family : null;
+    applyPillColor(pill, oldFamily || family, color);
+    if (oldFamily) {
+      requestAnimationFrame(() => requestAnimationFrame(() => applyPillColor(pill, family, color)));
+    }
+    return pill;
+  }
+
+  function makeAgentTag(row) {
+    const tag = document.createElement('span');
+    const kind = ['build', 'fix', 'qa', 'spike', 'review', 'capture'].indexOf(row.tagKind) >= 0 ? row.tagKind : 'review';
+    tag.className = 'nest-agent-tag nest-agent-' + kind;
+    tag.textContent = row.agentTag;
+    return tag;
+  }
+
+  function setTreeitemAria(el, row) {
+    el.setAttribute('role', 'treeitem');
+    el.setAttribute('aria-level', String(row.ariaLevel));
+    el.setAttribute('aria-posinset', String(row.ariaPosInSet));
+    el.setAttribute('aria-setsize', String(row.ariaSetSize));
+    el.setAttribute('aria-label', row.ariaLabel);
+    el.setAttribute('tabindex', '-1');
+  }
+
+  function wireFleetChat(el, row) {
+    el.dataset.kind = 'chat';
+    el.dataset.id = row.sessionId;
+    if (activeId && row.sessionId === activeId) {
+      el.classList.add('nest-active');
+    }
+    el.draggable = true;
+    el.addEventListener('click', () => activateRow(row.sessionId));
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openChatMenu(e, row.sessionId);
+    });
+    el.addEventListener('dragstart', (e) => onRowDragStart(e, row.sessionId));
+    el.addEventListener('dragend', onDragEnd);
+  }
+
+  function makeOrchestratorCard(row) {
+    const el = document.createElement('div');
+    el.className = 'nest-fleet-orch';
+    setTreeitemAria(el, row);
+    wireFleetChat(el, row);
+    el.appendChild(svgEl(14, 14, 'nest-fleet-orch-icon', ['M5 1.5h4l-.6 4 2.1 2H3.5l2.1-2L5 1.5ZM7 7.5v5']));
+    const label = document.createElement('span');
+    label.className = 'nest-fleet-orch-label';
+    label.textContent = 'Orchestrator';
+    el.appendChild(label);
+    el.appendChild(makeStatusMark(row.status, false));
+    return el;
+  }
+
+  function makeFleetChatRow(row, group) {
+    const el = document.createElement('div');
+    el.className = 'nest-fleet-chat' + (row.child ? ' nest-fleet-child' : '');
+    setTreeitemAria(el, row);
+    wireFleetChat(el, row);
+    el.dataset.parentFleetGroup = group.id;
+    if (fleetDiff && fleetDiff.added.has(row.sessionId)) {
+      el.classList.add('nest-fleet-enter');
+    }
+    if (row.child) {
+      const branch = document.createElement('span');
+      branch.className = 'nest-fleet-branch';
+      branch.setAttribute('aria-hidden', 'true');
+      branch.textContent = '└';
+      el.appendChild(branch);
+    }
+    el.appendChild(makeStatusMark(row.status, !!(fleetDiff && fleetDiff.done.has(row.sessionId))));
+    if (row.agentTag) {
+      el.appendChild(makeAgentTag(row));
+    }
+    const isTicket = group.kind === 'ticket';
+    const text = isTicket ? row.suffix : row.title;
+    if (text || (isTicket && !row.agentTag)) {
+      const label = document.createElement('span');
+      label.className = 'nest-fleet-chat-text' + (isTicket && row.suffix ? ' nest-fleet-suffix' : '');
+      label.textContent = text || row.title;
+      el.appendChild(label);
+    }
+    return el;
+  }
+
+  function makeFleetGroupHeader(g, open) {
+    const el = document.createElement('div');
+    const isPast = g.id === 'past-orchestrators';
+    el.className = 'nest-fleet-group-row' + (isPast ? ' nest-fleet-past' : '');
+    setTreeitemAria(el, g);
+    el.setAttribute('aria-expanded', open ? 'true' : 'false');
+    el.dataset.kind = 'fleet-group';
+    el.dataset.id = 'fleet-group:' + g.id;
+    el.dataset.groupId = g.id;
+    el.appendChild(svgEl(12, 12, 'nest-fleet-chev', ['M4 2.5 7.5 6 4 9.5']));
+
+    if (isPast) {
+      const label = document.createElement('span');
+      label.className = 'nest-fleet-group-text';
+      label.textContent = g.label;
+      el.appendChild(label);
+    } else if (g.kind === 'ticket') {
+      if (g.rollup) {
+        el.appendChild(makeStatusMark(g.rollup, false));
+      }
+      const text = document.createElement('span');
+      text.className = 'nest-fleet-group-text';
+      const id = document.createElement('span');
+      id.className = 'nest-fleet-ticket';
+      id.textContent = g.ticket || g.label;
+      text.appendChild(id);
+      if (g.title) {
+        text.appendChild(document.createTextNode(' ' + g.title));
+      }
+      el.appendChild(text);
+      if (g.stage) {
+        const before = fleetDiff && fleetDiff.stage.get(g.id);
+        el.appendChild(makeStagePill(g.stage, g.stageFamily, g.stageColor, before));
+      }
+    } else {
+      if (g.kind === 'date') {
+        el.appendChild(svgEl(14, 14, 'nest-fleet-clock-icon', ['M7 4v3.2l2 1.3'], [[7, 7, 5.3]]));
+      } else {
+        el.appendChild(
+          svgEl(15, 13, 'nest-fleet-folder-icon', [
+            'M1.5 3V11a.8.8 0 0 0 .8.8h10.4a.8.8 0 0 0 .8-.8V4.6a.8.8 0 0 0-.8-.8H7L5.6 2.2H2.3a.8.8 0 0 0-.8.8Z',
+          ]),
+        );
+      }
+      const label = document.createElement('span');
+      label.className = 'nest-fleet-group-text nest-fleet-label';
+      label.textContent = g.label;
+      el.appendChild(label);
+      if (g.hasLive) {
+        const live = document.createElement('span');
+        live.className = 'nest-fleet-live';
+        live.setAttribute('aria-hidden', 'true');
+        el.appendChild(live);
+      }
+      const count = document.createElement('span');
+      count.className = 'nest-fleet-count';
+      count.setAttribute('aria-hidden', 'true');
+      count.textContent = String(g.count);
+      el.appendChild(count);
+    }
+    el.addEventListener('click', () => toggleFleetGroup(g.id));
+    return el;
+  }
+
+  function renderFleetGroup(g) {
+    const open = groupIsOpen(fleet, g);
+    const wrap = document.createElement('div');
+    wrap.className = 'nest-fleet-group';
+    wrap.dataset.groupId = g.id;
+    const header = makeFleetGroupHeader(g, open);
+    wrap.appendChild(header);
+    const body = document.createElement('div');
+    body.className = 'nest-fleet-body';
+    body.setAttribute('role', 'group');
+    body.setAttribute('aria-label', g.label || g.ticket || '');
+    const inner = document.createElement('div');
+    inner.className = 'nest-fleet-body-inner';
+    for (const row of g.rows) {
+      inner.appendChild(makeFleetChatRow(row, g));
+    }
+    body.appendChild(inner);
+    wrap.appendChild(body);
+    if (fleetDiff && fleetDiff.activeChanged) {
+      wrap.classList.add('nest-fleet-slide');
+    }
+    // Start in the previous open state and move to the new one next frame, so a change
+    // slides instead of snapping.
+    const was = fleetDiff && fleetDiff.open.has(g.id) ? fleetDiff.open.get(g.id) : open;
+    wrap.classList.toggle('is-open', was);
+    if (was !== open) {
+      requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.toggle('is-open', open)));
+    }
+    fleetGroupEls.set(g.id, { wrap: wrap, header: header });
+    listEl.appendChild(wrap);
+  }
+
+  function toggleFleetGroup(id) {
+    const entry = fleetGroupEls.get(id);
+    const g = fleetGroupsOf(fleet).find((x) => x.id === id);
+    if (!entry || !g) {
+      return;
+    }
+    const next = !groupIsOpen(fleet, g);
+    if (fleet.active) {
+      activeOpen.set(id, next);
+    } else {
+      groupOpen.set(id, next);
+      saveFleetState();
+    }
+    entry.wrap.classList.toggle('is-open', next);
+    entry.header.setAttribute('aria-expanded', next ? 'true' : 'false');
+  }
+
+  function fleetHasContent() {
+    return (
+      !!fleet &&
+      (!!fleet.orchestrator ||
+        !!fleet.pastOrchestrators ||
+        (fleet.groups || []).length > 0 ||
+        (fleet.active && (fleet.userFolders || []).length > 0) ||
+        !!fleet.unsorted)
+    );
+  }
+
+  // The fleet layout: the pinned orchestrator, past orchestrators, then the groups.
+  function renderFleetLayout() {
+    fleetGroupEls.clear();
+    if (fleet.orchestrator) {
+      listEl.appendChild(makeOrchestratorCard(fleet.orchestrator));
+    }
+    const all = fleetGroupsOf(fleet);
+    const past = all.filter((g) => g.id === 'past-orchestrators');
+    const rest = all.filter((g) => g.id !== 'past-orchestrators');
+    for (const g of past) {
+      renderFleetGroup(g);
+    }
+    if (fleet.orchestrator || past.length > 0) {
+      const spacer = document.createElement('div');
+      spacer.className = 'nest-fleet-spacer';
+      listEl.appendChild(spacer);
+    }
+    for (const g of rest) {
+      renderFleetGroup(g);
+    }
+    if (!fleetHasContent()) {
+      const empty = document.createElement('div');
+      empty.className = 'nest-fleet-empty';
+      empty.textContent = fleet.active ? 'Nothing is running.' : 'No chats yet.';
+      listEl.appendChild(empty);
+    }
+  }
+
+  function renderQueue() {
+    if (!queueListEl || !queueBtnEl) {
+      return;
+    }
+    queueBtnEl.setAttribute('aria-pressed', queueOpen ? 'true' : 'false');
+    queueListEl.hidden = !queueOpen;
+    queueListEl.textContent = '';
+    if (!queueOpen || !fleet) {
+      return;
+    }
+    const rows = fleet.queue || [];
+    if (rows.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'nest-queue-empty';
+      empty.textContent = 'The queue is empty.';
+      queueListEl.appendChild(empty);
+      return;
+    }
+    for (const q of rows) {
+      const row = document.createElement('div');
+      row.className = 'nest-queue-row';
+      row.setAttribute('role', 'listitem');
+      const dot = document.createElement('span');
+      dot.className = 'nest-queue-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      row.appendChild(dot);
+      const pos = document.createElement('span');
+      pos.className = 'nest-queue-pos';
+      pos.textContent = String(q.position);
+      row.appendChild(pos);
+      const text = document.createElement('span');
+      text.className = 'nest-queue-text';
+      const key = document.createElement('span');
+      key.className = 'nest-queue-key';
+      key.textContent = q.key;
+      text.appendChild(key);
+      if (q.title) {
+        text.appendChild(document.createTextNode(' ' + q.title));
+      }
+      row.appendChild(text);
+      if (q.stage) {
+        row.appendChild(makeStagePill(q.stage, q.stageFamily, q.stageColor, null));
+      }
+      queueListEl.appendChild(row);
+    }
+  }
+
+  // The Active and Queue buttons mirror the latest fleet message.
+  function renderFleetControls() {
+    if (!fleet || !activeBtnEl || !queueBtnEl) {
+      return;
+    }
+    activeBtnEl.hidden = false;
+    queueBtnEl.hidden = false;
+    activeBtnEl.setAttribute('aria-pressed', fleet.active ? 'true' : 'false');
+    activeLabelEl.textContent = 'Active ' + fleet.activeCount;
+    queueLabelEl.textContent = 'Queue ' + fleet.queueCount;
+    renderQueue();
+  }
+
+  function isValidFleetMessage(msg) {
+    return (
+      msg &&
+      msg.type === 'fleet' &&
+      Array.isArray(msg.groups) &&
+      Array.isArray(msg.userFolders) &&
+      Array.isArray(msg.queue) &&
+      typeof msg.activeCount === 'number' &&
+      typeof msg.queueCount === 'number'
+    );
+  }
+
+  function onFleetMessage(msg) {
+    if (!isValidFleetMessage(msg)) {
+      return;
+    }
+    fleetDiff = diffFleet(fleet, msg);
+    if (fleet && fleet.active !== msg.active) {
+      activeOpen.clear();
+    }
+    fleet = msg;
+    latchLiveGroups(fleet);
+    renderFleetControls();
+    render();
+    fleetDiff = null;
+  }
+
+  function onActiveClick() {
+    const next = !(fleet && fleet.active);
+    activeBtnEl.setAttribute('aria-pressed', next ? 'true' : 'false');
+    vscode.postMessage({ type: 'setActive', active: next });
+  }
+
+  function onQueueClick() {
+    queueOpen = !queueOpen;
+    saveFleetState();
+    renderQueue();
+  }
+
+  // ---- robin ----
+  // The host decides the robin's state and posts it; mascot.js draws and animates it. This block
+  // picks the theme and motion, redraws only when something the drawing shows changed, and stops
+  // the animation while the panel is hidden.
+
+  const robinSlotEl = document.getElementById('robinSlot');
+  const robinLiveEl = document.getElementById('robinLive');
+  const ROBIN_STATES = ['hatch', 'rotate', 'error', 'needs', 'worm', 'done', 'milestone', 'working', 'sleep', 'night', 'idle'];
+  const ROBIN_PIXEL_PX = 3;
+  const ROBIN_MAX_NOTES = 6;
+  const mascot = window.NestMascot;
+  const reducedMotionQuery =
+    typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+  let robinState = 'idle';
+  let robinMsg = null;
+  let robinHandle = null;
+  let robinDrawnKey = null;
+  let robinDrawnState = null;
+  // Where the last drawing of robinDrawnState stopped, so a redraw resumes the scene, not replays it.
+  let robinResumeAt = 0;
+  // Set by the host when the sidebar view is collapsed or switched away, which does not flip document.hidden.
+  let robinPanelHidden = false;
+
+  function robinStill() {
+    return !robinMsg || robinMsg.animations !== true || (reducedMotionQuery !== null && reducedMotionQuery.matches);
+  }
+
+  // Dark themes and high contrast dark use the dark palette; high contrast light keeps the light one.
+  function robinDark() {
+    const cls = document.body.classList;
+    return (
+      cls.contains('vscode-dark') ||
+      (cls.contains('vscode-high-contrast') && !cls.contains('vscode-high-contrast-light')) ||
+      document.documentElement.getAttribute('data-theme') === 'dark'
+    );
+  }
+
+  function stopRobin() {
+    if (robinHandle) {
+      robinResumeAt = robinHandle.elapsed();
+      robinHandle.stop();
+      robinHandle = null;
+    }
+  }
+
+  function drawRobin() {
+    if (!robinSlotEl || !mascot) {
+      return;
+    }
+    const still = robinStill();
+    robinSlotEl.setAttribute('data-state', robinState);
+    robinSlotEl.setAttribute('data-motion', still ? 'still' : 'full');
+    if (robinPanelHidden || document.hidden) {
+      stopRobin();
+      return;
+    }
+    const dark = robinDark();
+    const key = JSON.stringify([robinMsg, robinState, still, dark]);
+    if (key === robinDrawnKey && robinHandle) {
+      return;
+    }
+    stopRobin();
+    const msg = robinMsg || { speed: 0, workingCount: 0, noteBudget: 0, noteDelaysMs: [], noteMinMs: 0, noteSpreadMs: 0 };
+    robinHandle = mascot.render(robinSlotEl, robinState, {
+      dark,
+      still,
+      scale: ROBIN_PIXEL_PX,
+      speed: msg.speed,
+      workingCount: msg.workingCount,
+      notes: { delays: msg.noteDelaysMs.slice(0, msg.noteBudget), minMs: msg.noteMinMs, spreadMs: msg.noteSpreadMs },
+      startAt: robinState === robinDrawnState ? robinResumeAt : 0,
+    });
+    const svg = robinSlotEl.firstElementChild;
+    if (svg) {
+      svg.setAttribute('class', 'nest-robin-svg');
+    }
+    robinDrawnKey = key;
+    robinDrawnState = robinState;
+  }
+
+  function isValidRobinMessage(msg) {
+    return (
+      msg &&
+      msg.type === 'robin' &&
+      ROBIN_STATES.indexOf(msg.state) !== -1 &&
+      typeof msg.animations === 'boolean' &&
+      typeof msg.noteMinMs === 'number' &&
+      typeof msg.noteSpreadMs === 'number' &&
+      typeof msg.noteBudget === 'number' &&
+      Array.isArray(msg.noteDelaysMs) &&
+      typeof msg.reducedHint === 'string' &&
+      typeof msg.liveText === 'string'
+    );
+  }
+
+  function onRobinVisibilityMessage(msg) {
+    if (!msg || msg.type !== 'visibility' || typeof msg.visible !== 'boolean') {
+      return;
+    }
+    robinPanelHidden = !msg.visible;
+    drawRobin();
+  }
+
+  function onRobinMessage(msg) {
+    if (!isValidRobinMessage(msg)) {
+      return;
+    }
+    const changed = !robinMsg || robinMsg.state !== msg.state;
+    const next = {
+      state: msg.state,
+      speed: msg.speed === 1 || msg.speed === 2 ? msg.speed : 0,
+      workingCount: typeof msg.workingCount === 'number' ? Math.max(0, Math.min(Math.floor(msg.workingCount), ROBIN_MAX_NOTES)) : 0,
+      animations: msg.animations,
+      noteMinMs: Math.max(500, Math.min(msg.noteMinMs, 60000)),
+      noteSpreadMs: Math.max(0, Math.min(msg.noteSpreadMs, 60000)),
+      noteBudget: Math.max(0, Math.min(Math.floor(msg.noteBudget), ROBIN_MAX_NOTES)),
+      noteDelaysMs: msg.noteDelaysMs
+        .slice(0, ROBIN_MAX_NOTES)
+        .map((n) => (typeof n === 'number' && n >= 0 && n <= 60000 ? n : 2500)),
+    };
+    while (next.noteDelaysMs.length < next.noteBudget) {
+      next.noteDelaysMs.push(next.noteMinMs);
+    }
+    // The host may resend an identical message; redrawing would restart the scene and wipe notes in flight.
+    if (robinMsg && JSON.stringify(robinMsg) === JSON.stringify(next)) {
+      return;
+    }
+    robinMsg = next;
+    robinState = msg.state;
+    // A new state starts its scene from the beginning, even if it last showed before the panel hid.
+    if (changed) {
+      robinDrawnState = null;
+      robinResumeAt = 0;
+    }
+    drawRobin();
+    if (changed && robinLiveEl) {
+      robinLiveEl.textContent = msg.liveText.slice(0, 60);
+    }
+  }
+
+  drawRobin();
+  document.addEventListener('visibilitychange', drawRobin);
+  if (reducedMotionQuery && typeof reducedMotionQuery.addEventListener === 'function') {
+    reducedMotionQuery.addEventListener('change', drawRobin);
+  }
+  // VS Code swaps the body theme class in place when the user changes the color theme.
+  if (typeof MutationObserver === 'function') {
+    const themeWatch = new MutationObserver(drawRobin);
+    themeWatch.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
   // ---- inbound host messages ----
@@ -3018,9 +3924,7 @@
       return;
     }
     if (msg.type === 'sections' && msg.sections) {
-      // render() (called below) is the single choke point that commits a pending
-      // rename, drops any armed folder-toggle, and tears down the body-level overlays
-      // before it clears listEl, so this handler does not repeat that teardown.
+      // render() commits a pending rename, drops an armed toggle and closes overlays before clearing listEl.
       sections = msg.sections;
       // Drop any active tag filter whose tag no longer exists.
       const live = new Set((sections.tags || []).map((t) => t.tagId));
@@ -3045,8 +3949,7 @@
       renderChips();
       render();
     } else if (msg.type === 'state') {
-      // Like 'sections', this handler re-renders via render() below, which owns the
-      // rename-commit / toggle-drop / overlay-teardown before it clears listEl.
+      // render() owns the teardown before it clears listEl, as in the 'sections' handler.
       sortMode = msg.sort || 'newest';
       collapsedFolders.clear();
       if (Array.isArray(msg.collapsedFolders)) {
@@ -3062,13 +3965,15 @@
         }
       }
       render();
+    } else if (msg.type === 'fleet') {
+      onFleetMessage(msg);
+    } else if (msg.type === 'robin') {
+      onRobinMessage(msg);
+    } else if (msg.type === 'visibility') {
+      onRobinVisibilityMessage(msg);
     } else if (msg.type === 'searchResults') {
-      // Host content-search reply. Adopt the ranked ids and the
-      // per-id snippet ONLY for the query still in the box; a reply for a stale query
-      // (the host posts twice per query as its two-phase index refines, and
-      // keystrokes interleave) is dropped. The host echoes its RAW trimmed query;
-      // normalize it the same way textFilter is (the shared normalizeQuery mirror)
-      // and drop the reply unless it is fresh for the query still in the box.
+      // Host search reply: adopt ids and snippets only when fresh for the query in the box (normalized like
+      // textFilter); drop a stale one.
       const q = normalizeQuery(msg.query);
       if (!isFreshSearchReply(q, textFilter)) {
         return;
@@ -3094,18 +3999,17 @@
         render();
       }
     } else if (msg.type === 'settings') {
-      // The host posted the Settings overlay state: the auto-archive window
-      // and the four section-visibility toggles. Adopt them and re-render the tree so
-      // the section gates apply. We do NOT rebuild an OPEN overlay here: the host posts
-      // 'settings' after every setAutoArchiveWindow / setSectionsVisible the user just
-      // made in the open overlay, and rebuilding would steal focus back to the back
-      // chevron on every toggle. The open overlay already reflects the user's own change
-      // optimistically (the switch/select handlers update their control in place); the
-      // fresh state is seeded the next time the overlay is opened. Reconcile the open
-      // overlay's controls in place (without a rebuild) so a host-side coercion (e.g. an
-      // out-of-range window snapped to the default) is still reflected.
+      // Settings state: adopt the window and section toggles, then re-render the tree. An open overlay is not
+      // rebuilt, since that would steal focus on every toggle; its controls are reconciled in place so a
+      // host-side coercion still shows.
       if (typeof msg.autoArchiveWindowDays === 'number') {
         autoArchiveWindowDays = msg.autoArchiveWindowDays;
+      }
+      if (typeof msg.groupByOverride === 'string' && GROUP_BY_OPTIONS.some((o) => o.mode === msg.groupByOverride)) {
+        groupByOverride = msg.groupByOverride;
+      }
+      if (typeof msg.robinAnimations === 'boolean') {
+        robinAnimationsOn = msg.robinAnimations;
       }
       const sv = msg.sectionsVisible;
       if (sv && typeof sv === 'object') {
@@ -3118,13 +4022,16 @@
       if (isSettingsOpen()) {
         reconcileOpenSettingsControls();
       }
+    } else if (msg.type === 'organize') {
+      organizeBusy = false;
+      organizeState = coerceOrganize(msg);
+      renderOrganize();
     } else if (msg.type === 'openSettings') {
       // The palette/view-title Settings command asked to open the in-panel overlay.
       openSettingsOverlay();
     } else if (msg.type === 'archivedRows') {
-      // The host posted the archived rows for the Archive overlay, in response
-      // to an openArchive request (the Archived (N) row, the auto-archive toast, or a
-      // Restore that re-posts the trimmed set). Adopt them and open-or-refresh the overlay.
+      // Archived rows for the overlay, sent after openArchive (the Archived row, the auto-archive toast or a
+      // Restore). Adopt them and open or refresh the overlay.
       archivedRows = Array.isArray(msg.rows) ? msg.rows.filter(isArchivedRow) : [];
       openArchiveOverlay();
     } else if (msg.type === 'openArchive') {
@@ -3140,11 +4047,11 @@
         return;
       }
       activeId = next;
-      for (const el of listEl.querySelectorAll('.nest-row.nest-active')) {
+      for (const el of listEl.querySelectorAll('.nest-row.nest-active, .nest-fleet-chat.nest-active, .nest-fleet-orch.nest-active')) {
         el.classList.remove('nest-active');
       }
       if (activeId) {
-        for (const el of listEl.querySelectorAll('.nest-row')) {
+        for (const el of listEl.querySelectorAll('.nest-row, .nest-fleet-chat, .nest-fleet-orch')) {
           if (el.dataset.id === activeId) {
             el.classList.add('nest-active');
           }
@@ -3196,12 +4103,17 @@
     newSessionEl.addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
   }
   if (settingsEl) {
-    // The gear opens the in-panel Settings overlay directly (client-side render). No
-    // host round-trip is needed to OPEN it; the overlay's controls are seeded from the
-    // last 'settings' message the host posted on 'ready' and re-posts on every change.
+    // The gear opens Settings client-side; its controls are seeded from the last 'settings' message.
     settingsEl.addEventListener('click', () => openSettingsOverlay());
   }
   wireSortPopover();
+  if (activeBtnEl) {
+    activeBtnEl.addEventListener('click', onActiveClick);
+  }
+  if (queueBtnEl) {
+    queueBtnEl.addEventListener('click', onQueueClick);
+  }
+  restoreFleetState();
 
   vscode.postMessage({ type: 'ready' });
 })();

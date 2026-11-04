@@ -1,3 +1,6 @@
+// Local persistence for the Nest-owned copy of an archived chat body, written to extension globalStorage.
+// All IO goes through exportIO, which refuses to write under the Claude projects directory.
+// The copy is never synced; only the userArchived flag syncs.
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as exportIO from './exportIO';
@@ -5,38 +8,12 @@ import { ChatMessageBody } from '../claude/bodyReader';
 import { decideRetention } from './archiveRetention';
 import { isSafeRecordId } from './schema';
 
-// vscode-THIN persistence for the Nest-owned ARCHIVED CHAT BODY copy. When the user
-// archives a chat, the full transcript body is read once on demand (bodyReader, in the
-// command layer) and a Nest-owned copy is written HERE so the chat survives Claude's
-// cleanup of ~/.claude/projects.  READ-ONLY INVARIANT: this module mirrors searchStore.ts
-// EXACTLY. It does NO node fs and NO direct vscode.workspace.fs; every
-// write/read/list/delete goes through exportIO (exportIO.writeTextFile / readTextFile /
-// listDirectory / deleteFile / ensureDirectory), which runtime-asserts
-// assertNotUnderClaudeProjects before every write/createDirectory/delete. So this module
-// is under the FULL read-only lint bank (it is NOT a carve-out) and cannot write a
-// transcript: the only write path is exportIO, whose target here is always
-// context.globalStorageUri/archive, never ~/.claude/projects.  LOCAL, NEVER SYNCED: the
-// body copy is a FILE in extension globalStorage, not a globalState key, so it is
-// structurally outside the MetadataStore sync surface and is never registered with
-// setKeysForSync. The only synced surface stays nest.meta.v1::<key> (and the curation
-// scalars on it). The user-archive FLAG (ChatMeta.userArchived) syncs; the body COPY does
-// not.  One file per archived chat, keyed by the sessionId (a separator-free UUID), so
-// the filename is collision-free and needs no encoding. The stored envelope carries the
-// archive timestamp and the starred flag so a prune pass can decide retention WITHOUT
-// re-reading the synced store, plus the ordered message bodies.
-
-// The fixed subdir under globalStorage the body copies live in (mirrors
-// searchStore's 'search' subdir convention).
+// Subdir under globalStorage that holds the body copies.
 const ARCHIVE_DIR = 'archive';
 const ENVELOPE_VERSION = 1;
 
-// The on-disk envelope for one archived chat body copy. version guards a future
-// incompatible layout (a mismatch reads as absent). sessionId / title carry
-// identity for the Archive view to render the copy even when the live transcript
-// is gone. archivedAt and starred are the retention inputs captured at write time;
-// archivedAt is refreshed on each (re)write and starred is updated by
-// updateStarFlag so a prune reads current state from the copy itself. bodies are
-// the ordered user/assistant message bodies from bodyReader.
+// On-disk envelope for one body copy. A version mismatch reads as absent. archivedAt and starred are
+// stored so a prune can decide retention without the synced store.
 export interface ArchivedBodyEnvelope {
   version: number;
   sessionId: string;
@@ -46,12 +23,7 @@ export interface ArchivedBodyEnvelope {
   bodies: ChatMessageBody[];
 }
 
-// Thrown when a body-file sessionId is not a safe record id, or when the resolved
-// path would escape the archive directory. A path-traversal sessionId
-// ('../../../x') reaches a filesystem sink here (Uri.joinPath collapses '..'), so
-// the path is built ONLY after both guards pass. Every caller wraps the build in a
-// try/catch and fails safe (no write, no delete, null read), so a thrown guard is
-// a no-op for the command, never a crash.
+// Thrown for an unsafe sessionId or a path that escapes the archive dir. Callers catch it and fail safe.
 export class ArchivePathError extends Error {
   constructor(message: string) {
     super(message);
@@ -59,19 +31,11 @@ export class ArchivePathError extends Error {
   }
 }
 
-// The directory Uri the archive copies live under (globalStorageUri/archive).
 function archiveDir(globalStorageUri: vscode.Uri): vscode.Uri {
   return vscode.Uri.joinPath(globalStorageUri, ARCHIVE_DIR);
 }
 
-// Confine a resolved body-file fsPath UNDER the archive directory. Normalizes both
-// sides (lexical resolve; on win32 also case-fold to match NTFS's
-// case-insensitivity, mirroring exportPathGuard.canonicalize) and requires the
-// candidate to sit strictly below the dir, never to equal it or escape it. This is
-// the defense-in-depth layer asked for on TOP of the existing
-// assertNotUnderClaudeProjects guard inside exportIO: even if a future change let an
-// unsafe id slip the isSafeRecordId check, a path that resolves outside the archive
-// dir is rejected here before any IO. Pure string math over fsPath, no IO.
+// Confines a body-file fsPath strictly below the archive dir (case-folded on win32), on top of the exportIO guard.
 function isUnderArchiveDir(dirFsPath: string, candidateFsPath: string): boolean {
   let dir = path.normalize(path.resolve(dirFsPath));
   let candidate = path.normalize(path.resolve(candidateFsPath));
@@ -82,14 +46,8 @@ function isUnderArchiveDir(dirFsPath: string, candidateFsPath: string): boolean 
   return candidate.startsWith(dir + path.sep);
 }
 
-// The full Uri of one chat's body-copy file. A legitimate sessionId is a UUID
-// (separator-free) that passes isSafeRecordId, so a safe filename needs no
-// encoding. An UNSAFE sessionId (a path-traversal string, a prototype name, an
-// over-long or illegal value from an untrusted import/sync that re-keyed a chat
-// under it) is REJECTED here, before the path is built, so it can never reach the
-// filesystem sink. As defense in depth the resolved path is then asserted to stay
-// UNDER the archive dir, so a future bypass of the id check still cannot escape
-// globalStorage. Throws ArchivePathError on either failure; callers fail safe.
+// The Uri of one chat's body-copy file. An unsafe sessionId from an untrusted import or sync is rejected
+// before the path is built, and the resolved path must stay under the archive dir. Throws ArchivePathError.
 function bodyFileUri(globalStorageUri: vscode.Uri, sessionId: string): vscode.Uri {
   if (!isSafeRecordId(sessionId)) {
     throw new ArchivePathError(
@@ -108,27 +66,14 @@ function bodyFileUri(globalStorageUri: vscode.Uri, sessionId: string): vscode.Ur
   return fileUri;
 }
 
-// Write (or overwrite) the Nest-owned body copy for one archived chat. Creates the
-// archive dir before the first write (ensureDirectory is idempotent). Goes ONLY
-// through exportIO, so the read-only guard runs before the bytes land and the
-// target can never be a transcript path. Returns true on success, false on a
-// swallowed failure (the copy is best-effort durability, not the source of truth;
-// the synced userArchived flag is authoritative for membership).
+// Writes or overwrites the body copy for one archived chat, only through exportIO so the read-only guard runs.
+// Returns false on failure; the synced userArchived flag stays authoritative.
 export async function writeArchivedBody(
   globalStorageUri: vscode.Uri,
   envelope: { sessionId: string; title: string; archivedAt: number; starred: boolean; bodies: ChatMessageBody[] },
 ): Promise<boolean> {
-  // EMPTY-BODIES GUARD (data-loss): bodyReader.readTranscriptBodies returns [] on
-  // ANY read failure (a locked/AV-held/just-deleted transcript), and an envelope
-  // persisted with bodies:[] would be a PERMANENT poison marker: hasArchivedBody
-  // would report a copy exists, the auto-archive pass would never retry the
-  // protective copy for a starred chat, and when Claude's cleanup later deletes
-  // the source transcript the chat's only durable form is an empty shell. Refuse
-  // the write instead (return false, the same signal as a storage failure), so an
-  // existing good copy is never downgraded, no poisoned marker is minted, the
-  // interactive archive command surfaces its honest "copy failed, re-archive to
-  // retry" toast, and the next auto-archive pass retries. A transcript with genuinely
-  // zero extractable bodies loses nothing by having no copy.
+  // Refuse empty bodies: readTranscriptBodies returns [] on any read failure, and an empty envelope
+  // would read as an existing copy and block later retries. Returning false matches a storage failure.
   if (envelope.bodies.length === 0) {
     return false;
   }
@@ -148,17 +93,12 @@ export async function writeArchivedBody(
     );
     return true;
   } catch {
-    // Best-effort: a storage hiccup (or the read-only guard firing on a
-    // pathological globalStorage) must not break the archive command. The synced
-    // userArchived flag still flips; only the durable body copy is missing, and a
-    // later re-archive retries.
+    // Best-effort: a storage failure must not break the archive command, since the synced flag still flips.
     return false;
   }
 }
 
-// Read one archived chat's body copy back. Returns null on any failure (absent
-// file, unreadable, malformed JSON, version mismatch), NEVER throwing, so the
-// Archive view and a Restore degrade gracefully when a copy is missing.
+// Reads a body copy back and returns null on any failure, so the Archive view and Restore degrade gracefully.
 export async function readArchivedBody(
   globalStorageUri: vscode.Uri,
   sessionId: string,
@@ -180,15 +120,8 @@ export async function readArchivedBody(
   }
 }
 
-// Whether a Nest-owned body copy WITH CONTENT already exists for one chat. Used by the
-// auto-archive engine to skip writing a starred protective copy that already landed, so
-// the pass is idempotent and never re-copies. Any failure (absent, unreadable, malformed)
-// reads as absent. An envelope with EMPTY bodies also reads as absent: envelope-exists is
-// not content-exists. A legacy empty envelope (written before writeArchivedBody's
-// empty-bodies guard, from a transiently unreadable transcript) must not satisfy the
-// protective-copy check, or the starred chat's only durable form would stay an empty
-// shell forever; treating it as absent makes the next pass retry and overwrite it with
-// the real content. Best-effort, never throws.
+// Whether a copy with content exists. An envelope with empty bodies reads as absent, so a legacy empty
+// copy does not stop the next pass from retrying the protective copy.
 export async function hasArchivedBody(
   globalStorageUri: vscode.Uri,
   sessionId: string,
@@ -197,10 +130,7 @@ export async function hasArchivedBody(
   return envelope !== null && envelope.bodies.length > 0;
 }
 
-// Delete one archived chat's body copy (used by Restore: clearing the
-// userArchived flag also removes the now-redundant Nest-owned copy). Best-effort:
-// a swallowed failure leaves a stale copy that a later prune reclaims. Goes only
-// through exportIO.deleteFile, whose guard asserts the target is not a transcript.
+// Deletes one chat's body copy (used by Restore). A failure leaves a stale copy that a later prune reclaims.
 export async function deleteArchivedBody(
   globalStorageUri: vscode.Uri,
   sessionId: string,
@@ -212,10 +142,8 @@ export async function deleteArchivedBody(
   }
 }
 
-// Update the starred flag recorded on an existing body copy WITHOUT rewriting the
-// bodies. Star/unstar of an archived chat must keep the copy's retention input
-// (starred) current so a later prune reads the right exemption. Reads the copy,
-// flips the flag, rewrites the envelope. No-op (best-effort) when no copy exists.
+// Updates the starred flag on an existing copy without rewriting bodies, so retention sees the
+// current exemption. No-op when no copy exists.
 export async function updateStarFlag(
   globalStorageUri: vscode.Uri,
   sessionId: string,
@@ -237,33 +165,13 @@ export async function updateStarFlag(
   });
 }
 
-// A live-store backstop the prune consults BEFORE deleting a copy. Given a copy's
-// sessionId, it reports whether the LIVE synced state still protects that chat,
-// i.e. the chat is still userArchived and either starred or otherwise must not lose
-// its only durable form. Returns true to FORCE keep regardless of the copy's own
-// recorded {archivedAt, starred}. Optional: when absent, prune falls back to the
-// copy's recorded snapshot alone (the historical behavior).
-//
-// This closes the drift hole: the copy's recorded `starred` is updated only by
-// updateStarFlag, which is best-effort (a swallowed write failure, a star applied
-// where the copy never landed, or a star synced from another device that never
-// touched this install's copy can all leave the copy's snapshot stale-false while
-// the live synced flag is true). Trusting only the on-disk snapshot would then prune
-// a copy the user explicitly starred (the documented "do not lose this" signal),
-// which is silent, permanent loss of the chat's survival mechanism. The backstop
-// reads the live synced flag so a starred-but-stale-snapshot copy is never deleted.
+// Live-store check consulted before a prune deletes a copy; true forces keep. The copy's recorded
+// starred flag can be stale (a failed write, or a star synced from another device), and trusting it
+// would delete a starred chat's only durable copy.
 export type LiveProtectionCheck = (sessionId: string) => boolean;
 
-// Prune body copies whose retention window has lapsed, using the PURE policy
-// (archiveRetention.decideRetention) over each copy's own recorded {archivedAt,
-// starred} and the supplied keepWindowDays + now. STARRED copies are exempt
-// (decideRetention returns 'keep'), and keepWindowDays <= 0 keeps everything.
-// Lists the archive dir through exportIO.listDirectory, reads each copy's envelope
-// for its retention inputs, and deletes only the ones the policy returns 'prune'
-// for AND the live-store backstop does not protect. Returns the sessionIds pruned.
-// Best-effort throughout: a listing or per-file failure is swallowed so a prune
-// pass never breaks activation or a command, and a throwing backstop fails SAFE
-// (the copy is kept).
+// Prunes copies the retention policy marks 'prune' and the live check does not protect, and returns
+// the pruned sessionIds. Failures are swallowed so a prune never breaks activation.
 export async function pruneArchivedBodies(
   globalStorageUri: vscode.Uri,
   keepWindowDays: number,
@@ -295,9 +203,8 @@ export async function pruneArchivedBodies(
     if (decision !== 'prune') {
       continue;
     }
-    // The copy's own snapshot says prune. Before deleting, consult the live synced
-    // state: a star (or other protection) that never reached this copy must still
-    // exempt it. A throwing backstop fails safe toward KEEP.
+    // Consult live state before deleting: a star that never reached this copy must still exempt it.
+    // A throwing check keeps the copy.
     if (isLiveProtected !== undefined) {
       let protectedLive: boolean;
       try {
@@ -325,12 +232,8 @@ function isEnvelope(value: unknown): value is ArchivedBodyEnvelope {
   );
 }
 
-// Exposed for the guard test (mirrors searchStore.indexFilePath): the absolute
-// fsPath one chat's body copy resolves to under a given globalStorage path, so a
-// test can assert it is under globalStorage and that assertNotUnderClaudeProjects
-// throws when globalStorage is (pathologically) a projects path. Pure string join
-// over fsPath, no IO. Throws ArchivePathError when sessionId is unsafe or resolves
-// outside the archive dir (the bodyFileUri guards), which a test can assert.
+// Test helper: the absolute fsPath a chat's body copy resolves to under a globalStorage path.
+// Throws ArchivePathError for an unsafe sessionId.
 export function archivedBodyPath(globalStorageUri: vscode.Uri, sessionId: string): string {
   return bodyFileUri(globalStorageUri, sessionId).fsPath;
 }

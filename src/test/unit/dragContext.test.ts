@@ -1,3 +1,5 @@
+// Unit tests for the in-process cross-view drag stash.
+
 import * as assert from 'assert';
 import {
   clearDrag,
@@ -6,11 +8,7 @@ import {
   takeDrag,
 } from '../../dnd/dragContext';
 
-// Headless unit tests for the in-process cross-view drag stash. dragContext is
-// vscode-free (the cross-view payload carrier the DataTransfer cannot deliver across
-// controllers), so this test never transitively requires vscode. It covers the one-shot
-// take contract that keeps a stale stash from leaking into a later unrelated drop, the
-// overwrite-on-new-drag behavior, and the defensive copy.
+// Covers the one-shot take contract, overwrite on a new drag, and the defensive copy.
 
 describe('dragContext cross-view stash', () => {
   beforeEach(() => clearDrag());

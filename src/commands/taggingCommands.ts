@@ -1,23 +1,12 @@
 import { MetadataStore } from '../store/metadataStore';
 import { effectiveTagIds } from '../model/untagged';
 
-// taggingCommands: the multi-select tag command driven by the canPickMany QuickPick, plus
-// the pure tag-diff that turns a chosen tag-id set into the adds and removes to stage.
-// Applying a multi-tag, multi-chat change is batched into ONE store write (N synchronous
-// store calls coalesced by the store's debounce) and a SINGLE refresh, matching the
-// drag-and-drop drop path and the deleteFolder cascade.  The command depends only on
-// injectable seams (a tag-multi-pick presenter, a project-key resolver, a refreshable
-// provider, the store), so its orchestration is exercisable headless; the concrete
-// QuickPick lives in ui/tagQuickPick.ts. The pure tagSetDiff is exported and unit-tested
-// directly.
+// taggingCommands: the multi-select tag command over a canPickMany QuickPick, plus the pure tag diff that turns a chosen set into adds and removes.
+// A multi-chat change is one batched store write and one refresh. The command takes injected seams; the QuickPick lives in ui/tagQuickPick.ts.
 
 export const TAG_CHATS_COMMAND = 'claudeNest.tagChats';
 
-// The injectable multi-select tag picker seam. Returns the FINAL selected tag-id
-// set (checked rows), or undefined when dismissed without confirming. extension.ts
-// wires this to ui/tagQuickPick.showTagMultiPick; a test supplies a scripted
-// double. The options carry each tag's current applied state so the picker can
-// pre-check it.
+// The injectable multi-select tag picker seam. Returns the final selected tag ids, or undefined when dismissed; options carry each tag's applied state to pre-check.
 export interface TagMultiPickUi {
   pickTags(
     options: { tagId: string; label: string; picked: boolean }[],
@@ -33,23 +22,14 @@ export interface TaggingCommandDeps {
   ui: TagMultiPickUi;
 }
 
-// The adds and removes a multi-select tag confirmation implies for ONE chat: the
-// tag ids newly checked (to add) and the tag ids unchecked that were applied (to
-// remove). Pure data so the command can stage exactly these mutations.
+// The adds and removes a multi-select confirmation implies for one chat.
 export interface TagSetDelta {
   add: string[];
   remove: string[];
 }
 
-// Compute the per-chat add/remove delta between the chat's CURRENT applied tag set
-// and the SELECTED set returned by the multi-pick. This is the pure core of the
-// multi-select tagging mutation, exported and unit-tested without vscode:
-// - add: selected ids not currently applied (order follows `selected`).
-// - remove: currently-applied ids not in the selection (order follows `current`).
-// Both inputs are treated as sets (duplicates collapse). An id that is both absent
-// from current and present in selected is an add; one present in current and
-// absent from selected is a remove; an unchanged id appears in neither list, so a
-// confirm-without-changes yields an empty delta and the command no-ops.
+// Compute the per-chat delta between the current applied tag set and the selected set.
+// Inputs collapse to sets: add is selected minus current, remove is current minus selected, so an unchanged confirm yields an empty delta.
 export function tagSetDiff(current: string[], selected: string[]): TagSetDelta {
   const currentSet = new Set(current);
   const selectedSet = new Set(selected);
@@ -72,11 +52,8 @@ export function tagSetDiff(current: string[], selected: string[]): TagSetDelta {
   return { add, remove };
 }
 
-// The COMMON applied-tag set across a multi-chat selection: a tag is pre-checked
-// only when EVERY selected chat already has it, so confirming an unchanged picker
-// is a no-op for the whole selection and toggling a partially-applied tag ON adds
-// it everywhere (rather than the picker lying about a mixed state). Pure;
-// unit-tested directly. An empty chat list yields an empty common set.
+// The tag set common to all selected chats: a tag is pre-checked only when every chat has it, so an unchanged confirm is a no-op.
+// An empty chat list yields an empty set.
 export function commonAppliedTagIds(
   perChatTagIds: string[][],
 ): string[] {
@@ -98,13 +75,8 @@ export function commonAppliedTagIds(
   return result;
 }
 
-// Tag one or more chats via the multi-select QuickPick. Presents every tag with
-// the COMMON applied set pre-checked, then applies the confirmed selection to
-// EVERY chat in the selection as one batched store write: for each chat, the adds
-// and removes from its OWN diff against the confirmed set are staged as synchronous
-// store calls (coalesced into one pending write), then a single flush and a single
-// refresh. Returns without mutating when there are no tags, no project, an empty
-// chat selection, or the picker is cancelled.
+// Tag one or more chats via the multi-select QuickPick with the common set pre-checked, applying each chat's own diff as one batched store write and one refresh.
+// Returns without mutating on no tags, no project, an empty selection, or cancel.
 export async function tagChats(
   deps: TaggingCommandDeps,
   chatIds: string[],
@@ -127,16 +99,8 @@ export async function tagChats(
     return;
   }
 
-  // The per-chat current tag sets, RESOLVED to real tags (effectiveTagIds drops
-  // dangling ids — a tag created/deleted on another machine, not yet reconciled
-  // locally). Diffing against the raw stored array would place every dangling id
-  // into delta.remove (the picker only ever offers real tags, so a dangling id can
-  // never be re-selected), and the resulting removeChatTag would stamp the record
-  // and let last-writer-wins reconcile permanently drop a membership that
-  // untagged.effectiveTagIds was written to preserve. Resolving here keeps dangling
-  // ids untouched in storage while still computing correct adds/removes for real
-  // tags. The common set pre-checked in the picker is computed from the same
-  // resolved sets.
+  // Resolve each chat's tags through effectiveTagIds so dangling ids (a tag deleted on another machine) stay untouched in storage.
+  // Diffing the raw array would put them in delta.remove and let last-writer-wins drop a membership permanently.
   const perChatTagIds = targets.map((chatId) =>
     effectiveTagIds(meta.tags, meta.chats[chatId]?.tags),
   );
@@ -155,11 +119,7 @@ export async function tagChats(
     return;
   }
 
-  // Apply the confirmed selection to each chat via its OWN diff, so a tag that
-  // was applied to only some chats is added to the rest (it was unchecked in the
-  // common set) when the user leaves it checked, and removed everywhere when the
-  // user unchecks it. Every store call is synchronous and coalesces into one
-  // pending write.
+  // Apply each chat's own diff so a partially applied tag is added to the rest when left checked, and removed everywhere when unchecked.
   const selectedSet = selected;
   let mutated = false;
   targets.forEach((chatId, index) => {

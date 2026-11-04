@@ -11,37 +11,25 @@ import {
 
 describe('projectKeyResolver.encodeProjectKey (verified exact encoding table)', () => {
   const table: Array<[string, string]> = [
-    // The canonical example: lowercase the leading drive letter, replace every
-    // non-[A-Za-z0-9-] character with one hyphen, preserving existing hyphens. "Code -
-    // Nest" -> "Code---Nest".
+    // Lowercase the drive letter and turn every non-[A-Za-z0-9-] character into one hyphen.
     [
-      'c:\\Users\\JakeMismas\\Documents\\Claude Code - Nest',
-      'c--Users-JakeMismas-Documents-Claude-Code---Nest',
+      'c:\\Users\\User\\Documents\\sample-app',
+      'c--Users-User-Documents-sample-app',
     ],
-    // Uppercase drive letter is lowercased.
-    ['C:\\Users\\JakeMismas', 'c--Users-JakeMismas'],
-    // Forward slashes are separators too.
-    ['C:/Users/JakeMismas', 'c--Users-JakeMismas'],
-    // A dot in a path segment becomes a hyphen.
+    ['C:\\Users\\User', 'c--Users-User'],
+    ['C:/Users/User', 'c--Users-User'],
     [
-      'c:\\Users\\JakeMismas\\dart--pricing.sandbox',
-      'c--Users-JakeMismas-dart--pricing-sandbox',
+      'c:\\Users\\User\\demo--pricing.sandbox',
+      'c--Users-User-demo--pricing-sandbox',
     ],
-    // Existing double hyphen is preserved, not collapsed.
     ['c:\\a--b', 'c--a--b'],
-    // CRITICAL regression guard: a non-separator special character ('+') is also
-    // hyphenated. This is the live ground truth on this machine: the workspace
-    // "c:\\Users\\JakeMismas\\Notes+ Github" is stored on disk as
-    // "c--Users-JakeMismas-Notes--Github" (the '+' AND the trailing space each
-    // collapse to a hyphen, producing the double hyphen). A separators-only
-    // encoder leaves the '+' intact and breaks chat discovery for this project.
+    // A non-separator character such as "+" also hyphenates, so "Notes+ Github" becomes "Notes--Github";
+    // a separators-only encoder breaks chat discovery for such workspaces.
     [
-      'c:\\Users\\JakeMismas\\Notes+ Github',
-      'c--Users-JakeMismas-Notes--Github',
+      'c:\\Users\\User\\Notes+ Github',
+      'c--Users-User-Notes--Github',
     ],
-    // Other common non-alphanumeric folder characters all hyphenate.
     ['c:\\proj\\a&b(c),d@e!f', 'c--proj-a-b-c--d-e-f'],
-    // An apostrophe (e.g. "Jake's Project") hyphenates.
     ["c:\\Users\\Jake's Project", 'c--Users-Jake-s-Project'],
   ];
 
@@ -61,7 +49,7 @@ describe('projectKeyResolver.keysMatch', () => {
     assert.strictEqual(keysMatch('c--Users-X', 'c--Users-X'), true);
   });
   it('matches across leading drive-letter casing', () => {
-    assert.strictEqual(keysMatch('c--Users-JakeMismas', 'C--Users-JakeMismas'), true);
+    assert.strictEqual(keysMatch('c--Users-User', 'C--Users-User'), true);
   });
   it('does not match different paths', () => {
     assert.strictEqual(keysMatch('c--Users-A', 'c--Users-B'), false);
@@ -75,46 +63,42 @@ describe('projectKeyResolver.keysMatch', () => {
 describe('projectKeyResolver.resolveProjectDir', () => {
   it('resolves via the exact-encoding direct match', () => {
     const deps: ResolveDeps = {
-      listProjectDirs: () => ['c--Users-JakeMismas-Documents-Claude-Code---Nest', 'c--Users-JakeMismas-bbmcp'],
+      listProjectDirs: () => ['c--Users-User-Documents-sample-app', 'c--Users-User-sample-app'],
     };
-    const dir = resolveProjectDir('c:\\Users\\JakeMismas\\Documents\\Claude Code - Nest', deps);
-    assert.strictEqual(dir, 'c--Users-JakeMismas-Documents-Claude-Code---Nest');
+    const dir = resolveProjectDir('c:\\Users\\User\\Documents\\sample-app', deps);
+    assert.strictEqual(dir, 'c--Users-User-Documents-sample-app');
   });
 
   it('resolves a derived lowercase-drive key to an on-disk UPPERCASE-drive dir (casing fork)', () => {
-    // Real ground truth: C--Users-JakeMismas exists with an uppercase C, but the
-    // encoding rule derives a lowercase c--Users-JakeMismas. Case-insensitive
-    // leading-segment match must bridge this.
+    // A legacy directory has an uppercase drive letter; the derived key is lowercase, so matching ignores case.
     const deps: ResolveDeps = {
-      listProjectDirs: () => ['C--Users-JakeMismas', 'c--Users-JakeMismas-bbmcp'],
+      listProjectDirs: () => ['C--Users-User', 'c--Users-User-sample-app'],
     };
-    const dir = resolveProjectDir('C:\\Users\\JakeMismas', deps);
-    assert.strictEqual(dir, 'C--Users-JakeMismas');
+    const dir = resolveProjectDir('C:\\Users\\User', deps);
+    assert.strictEqual(dir, 'C--Users-User');
   });
 
   it('falls back to the cwd scan with self-verify when no name matches', () => {
-    // The directory name is opaque/legacy and does not equal the derived key,
-    // but one of its transcripts records a cwd that re-encodes to the derived
-    // key. The scan fallback must find it.
+    // The directory name is legacy, but a transcript records a cwd that re-encodes to the derived key.
     const deps: ResolveDeps = {
       listProjectDirs: () => ['legacy-opaque-dir', 'unrelated-dir'],
       probeCwds: (dir: string) => {
         if (dir === 'legacy-opaque-dir') {
-          return ['c:\\Users\\JakeMismas\\Documents\\Claude Code - Nest'];
+          return ['c:\\Users\\User\\Documents\\sample-app'];
         }
         return ['c:\\Users\\Someone\\else'];
       },
     };
-    const dir = resolveProjectDir('c:\\Users\\JakeMismas\\Documents\\Claude Code - Nest', deps);
+    const dir = resolveProjectDir('c:\\Users\\User\\Documents\\sample-app', deps);
     assert.strictEqual(dir, 'legacy-opaque-dir');
   });
 
   it('scan fallback self-verify also bridges drive-letter casing in the cwd', () => {
     const deps: ResolveDeps = {
       listProjectDirs: () => ['opaque'],
-      probeCwds: () => ['C:/Users/JakeMismas/proj'],
+      probeCwds: () => ['C:/Users/User/proj'],
     };
-    const dir = resolveProjectDir('c:\\Users\\JakeMismas\\proj', deps);
+    const dir = resolveProjectDir('c:\\Users\\User\\proj', deps);
     assert.strictEqual(dir, 'opaque');
   });
 
@@ -123,10 +107,10 @@ describe('projectKeyResolver.resolveProjectDir', () => {
       listProjectDirs: () => ['c--Users-Other'],
       probeCwds: () => ['c:\\Users\\Other'],
     };
-    assert.strictEqual(resolveProjectDir('c:\\Users\\JakeMismas\\nope', deps), null);
+    assert.strictEqual(resolveProjectDir('c:\\Users\\User\\nope', deps), null);
   });
 
   it('returns null when there are no project dirs at all', () => {
-    assert.strictEqual(resolveProjectDir('c:\\Users\\JakeMismas', { listProjectDirs: () => [] }), null);
+    assert.strictEqual(resolveProjectDir('c:\\Users\\User', { listProjectDirs: () => [] }), null);
   });
 });

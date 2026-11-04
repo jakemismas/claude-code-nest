@@ -2,13 +2,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import Mocha from 'mocha';
 
-// The mocha programmatic runner the Extension Development Host invokes (the host calls
-// the exported run). It lives INSIDE the host, so its `require('vscode')` resolves to the
-// real module: this is the only place the integration specs can import vscode and touch
-// real DataTransfer / TreeItem types.  Kept separate from the .mocharc.json headless
-// config on purpose: the headless `npm test` globs out/test/unit/**, never
-// out/test/integration/**, so an integration spec can never be pulled into the unattended
-// gate. This runner globs only the integration directory.
+// Mocha runner the Extension Development Host invokes (via the exported run). It runs inside the host, so
+// require('vscode') resolves to the real module. It is separate from .mocharc.json because the headless
+// `npm test` globs out/test/unit/** and must never pick up integration specs; this runner globs only this directory.
 
 export function run(): Promise<void> {
   const mocha = new Mocha({ ui: 'bdd', color: true, timeout: 20000 });
@@ -17,9 +13,7 @@ export function run(): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let files: string[];
     try {
-      // Discover compiled integration specs by a shallow readdir rather than glob,
-      // so this runner does not depend on the glob package's shifting API. Only
-      // *.test.js in THIS directory are integration specs.
+      // A shallow readdir avoids depending on the glob package API; only *.test.js here are integration specs.
       files = fs
         .readdirSync(testsRoot)
         .filter((name) => name.endsWith('.test.js'));

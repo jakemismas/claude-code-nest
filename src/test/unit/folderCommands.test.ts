@@ -1,3 +1,5 @@
+// Unit tests for Folders-view command orchestration over a real MetadataStore and FakeMemento.
+
 import * as assert from 'assert';
 import { MetadataStore } from '../../store/metadataStore';
 import { FakeMemento } from './fakeMemento';
@@ -13,16 +15,7 @@ import {
 } from '../../commands/folderCommands';
 import type { FoldersProvider, FolderItem, ChatMemberItem } from '../../views/foldersProvider';
 
-// Headless unit tests for the Folders-view command orchestration. The commands
-// depend only on the injectable FolderCommandUi/FolderCommandDeps seams (designed
-// to be exercised without the real vscode UI), a real MetadataStore over the
-// FakeMemento double, and a refresh-counting FoldersProvider stub. No vscode host.
-//
-// This complements folderTree.test.ts (the pure model) by covering the command
-// layer the model feeds: parent-chain path composition (with its cyclic guard),
-// slash-path create + persistence + the mint-id write-boundary assertion, the
-// delete cascade-count confirmation and single-flush cascade, the rename
-// slash-rejection, and the assign null-pick-to-Unfiled mapping.
+// Covers parent-chain paths, slash-path create, cascade delete, rename and assign. The pure model is in folderTree.test.ts.
 
 const DEVICE = 'dev-cmd';
 const PK = 'c--proj-cmd';
@@ -90,10 +83,7 @@ function makeUi(responses: {
   return ui;
 }
 
-// projectKey is supplied as a getProjectKey closure (the commands now re-resolve it
-// on demand, mirroring scanChats), so an explicit `undefined` return genuinely
-// exercises the no-project guard. mutableProjectKey lets a test flip the value
-// BETWEEN calls to prove the command picks up a dir created after activation.
+// projectKey is a closure the commands re-resolve on demand; mutableProjectKey lets a test flip it between calls.
 function makeDeps(
   store: MetadataStore,
   provider: FoldersProvider,
@@ -512,6 +502,7 @@ describe('assignChatToFolder', () => {
     const ui = makeUi({ picks: [{ folderId: null }] });
     await assignChatToFolder(makeDeps(store, provider, ui, PK), chatArg('chatX'));
     assert.strictEqual(store.getProjectMeta(PK).chats.chatX.folderId, null);
+    assert.ok(store.getUnsortedByHand(PK).has('chatX'), 'the move to Unsorted is a hand move');
     assert.strictEqual(refreshCount(), 1);
     // The picker offered the Unfiled choice first.
     assert.strictEqual(ui.pickCalls[0].items[0].folderId, null);

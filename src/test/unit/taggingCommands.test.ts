@@ -9,11 +9,8 @@ import {
   tagSetDiff,
 } from '../../commands/taggingCommands';
 
-// Headless unit tests for the multi-select tagging command and its pure helpers.
-// The command depends only on the injectable TagMultiPickUi seam, a real
-// MetadataStore over the FakeMemento double, and a refresh-counting provider stub.
-// No vscode host (the concrete QuickPick lives in ui/tagQuickPick.ts, not imported
-// here). Mirrors tagCommands.test.ts.
+// Unit tests for the multi-select tagging command and its pure helpers over an injectable TagMultiPickUi,
+// a real MetadataStore on FakeMemento, and a refresh-counting provider stub. Mirrors tagCommands.test.ts.
 
 const DEVICE = 'dev-tagging';
 const PK = 'c--proj-tagging';
@@ -171,8 +168,6 @@ describe('tagChats orchestration', () => {
     store.addChatTag(PK, 'c1', 't2');
     await store.flush();
 
-    // t1 currently applied is pre-picked; the user unchecks t1 and checks t3,
-    // keeps t2.
     const ui = makeUi([['t2', 't3']]);
     await tagChats(makeDeps(store, provider, ui, PK), ['c1']);
 
@@ -215,7 +210,6 @@ describe('tagChats orchestration', () => {
     const { provider, refreshCount } = makeProvider();
     store.upsertTag(PK, { id: 't1', label: 'Bug' });
     store.upsertTag(PK, { id: 't2', label: 'Feature' });
-    // c1 has t1+t2; c2 has only t1. Common applied set is {t1}.
     store.addChatTag(PK, 'c1', 't1');
     store.addChatTag(PK, 'c1', 't2');
     store.addChatTag(PK, 'c2', 't1');
@@ -226,7 +220,6 @@ describe('tagChats orchestration', () => {
 
     const picked = ui.pickCalls[0].options.filter((o) => o.picked).map((o) => o.tagId);
     assert.deepStrictEqual(picked, ['t1'], 'only the common tag is pre-checked');
-    // Confirming {t1, t2} adds t2 to c2 (it lacked it) and leaves c1 unchanged.
     assert.deepStrictEqual(
       new Set(store.getProjectMeta(PK).chats.c1.tags),
       new Set(['t1', 't2']),
@@ -246,7 +239,6 @@ describe('tagChats orchestration', () => {
     store.addChatTag(PK, 'c2', 't1');
     await store.flush();
 
-    // t1 is common (pre-checked); user clears the selection.
     const ui = makeUi([[]]);
     await tagChats(makeDeps(store, provider, ui, PK), ['c1', 'c2']);
     assert.deepStrictEqual(store.getProjectMeta(PK).chats.c1.tags, []);
@@ -259,19 +251,17 @@ describe('tagChats orchestration', () => {
     const { provider, refreshCount } = makeProvider();
     store.upsertTag(PK, { id: 't1', label: 'Bug' });
     store.addChatTag(PK, 'c1', 't1');
-    // tDangling references a tag created/deleted on another machine: stored on the
-    // chat but absent from meta.tags (not yet reconciled locally).
+    // tDangling is stored on the chat but absent from meta.tags (created or deleted on another machine).
     store.addChatTag(PK, 'c1', 'tDangling');
     await store.flush();
 
-    // The picker only ever offers real tags, so t1 is the only pickable option and
-    // it is the only one pre-checked; the user confirms without change.
+    // The picker offers only real tags, so t1 is the one pre-checked option.
     const ui = makeUi([['t1']]);
     await tagChats(makeDeps(store, provider, ui, PK), ['c1']);
 
     const offered = ui.pickCalls[0].options.map((o) => o.tagId);
     assert.deepStrictEqual(offered, ['t1'], 'dangling id never offered as an option');
-    // The dangling id must survive untouched: confirm-without-change is a no-op.
+    // Confirming without change is a no-op, so the dangling id survives.
     assert.deepStrictEqual(
       store.getProjectMeta(PK).chats.c1.tags,
       ['t1', 'tDangling'],
@@ -289,7 +279,6 @@ describe('tagChats orchestration', () => {
     store.addChatTag(PK, 'c1', 'tDangling');
     await store.flush();
 
-    // User adds t2 (and leaves t1 checked); tDangling is never offered.
     const ui = makeUi([['t1', 't2']]);
     await tagChats(makeDeps(store, provider, ui, PK), ['c1']);
 

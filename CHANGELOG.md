@@ -6,6 +6,60 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Fleet view. If you run several Claude Code sessions at once, the panel shows them as a
+  live fleet: a pinned orchestrator, past orchestrators, ticket or folder groups with
+  status dots, stage pills and agent tags.
+- Fleet records. Nest reads `dev/fleet.jsonl` in each workspace folder, read-only, and
+  refreshes the panel when it changes. `docs/fleet-record.md` is the contract an
+  orchestrator writes against.
+- Live status for each chat (working, needs you, queued, done or idle) from running
+  sessions (`claude agents --json`), fleet records and an optional queue file. A group
+  shows its most urgent dot.
+- Grouping by ticket, folder or date, with an automatic mode that picks the best fit.
+  A chat you filed by hand stays where you put it, and so does a chat you moved back
+  to Unsorted.
+- Layout file `.nest/config.json` (JSON with comments, read-only) for grouping, tag
+  colors, linked folders, extra fleet files, a queue table and done stages, with a JSON
+  schema, hot reload and an Open Layout File command.
+- Active filter for working and waiting chats, and a read-only Queue list that follows
+  the queue table and marks tickets with a live chat.
+- Open in terminal for a running background session, which runs `claude attach` in a
+  new terminal. Every other chat opens through Claude Code as before.
+- Organize rules in the layout file file existing chats into folders and tags. Preview
+  lists every move and writes nothing, Apply never moves a chat you filed by hand, and
+  Undo restores the state before the last Apply.
+- Settings gains Group chats by, Layout file, Organize and Robin animations.
+- The header robin reacts to the fleet: it taps along while chats work (faster with
+  more of them) and sings a pixel note for each, hops when one needs you, jumps and
+  sings when work finishes, squawks on a failure, catches a worm for a new chat, flies
+  when the orchestrator rotates and sleeps when nothing runs. It is drawn in square
+  pixels with light and dark palettes, keeps its feet on the branch unless it hops,
+  jumps or flies, pauses while the panel is hidden, and stays still with
+  `claudeNest.robin.animations` off or with the editor's reduced motion preference.
+- A robin style sheet, `docs/mascot.md`, shows every state animated, the still poses,
+  the icons and both palettes.
+
+### Changed
+
+- The listing icon and the Activity Bar icon show the robin.
+
+### Security
+
+- The live session lookup runs one fixed command with no shell, from the home
+  directory, with a hard kill and an output cap. A watchdog keeps a hung command from
+  stalling status updates.
+- Organize rule patterns are checked for worst-case cost, and a pattern that could run
+  slowly turns off only its own rule.
+
+### Development
+
+- The screenshot harness takes `--theme light|dark` and `--out <dir>`.
+- Integration tests run from deep checkout paths.
+- `node scripts/readme/robin.js` redraws the README robin and the robin style sheet from
+  the panel's art, and a unit test fails when they are out of date.
+
 ## [0.2.0] - 2026-07-10
 
 Nest is now a single sidebar panel.

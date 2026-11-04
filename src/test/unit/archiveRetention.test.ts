@@ -1,3 +1,5 @@
+// Unit tests for the archive keep-window retention policy, including the exact-window boundary.
+
 import * as assert from 'assert';
 import {
   MS_PER_DAY,
@@ -5,11 +7,6 @@ import {
   coerceKeepWindowDays,
   decideRetention,
 } from '../../store/archiveRetention';
-
-// Pure-logic unit tests for the archive keep-window retention policy. The policy decides
-// keep|prune purely from {archivedAt, starred, keepWindowDays, now} with no clock or
-// config access, so every case here is deterministic (the boundary case in particular:
-// age exactly == window). No vscode, no filesystem.
 
 const NOW = 1_700_000_000_000;
 

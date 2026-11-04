@@ -1,19 +1,14 @@
-// Screenshot driver for the Nest panel.
+// Screenshot driver for the Nest panel. Renders the real panel assets (media/orgPanel.{css,js}) through
+// scripts/fidelity/harness.html, which feeds them made-up data, in headless Chrome or Edge at 320px wide.
+// Writes one full-page PNG per panel state to .claude-working/screens/ (gitignored) as <state>-<theme>.png:
+// the default list, search results, menus, Settings and Archive overlays, popovers, drag highlight, inline
+// rename, the fleet view and the robin. Review the images by eye; there is no pixel diffing.
 //
-// Renders the real panel assets (media/orgPanel.{css,js}) through
-// scripts/fidelity/harness.html, which feeds them made-up data, in headless Chrome
-// or Edge at 320px wide. It writes one full-page PNG per panel state into
-// .claude-working/fidelity/ (gitignored): the default list, search results, the
-// context menu, the settings and archive overlays, popovers, drag highlight and
-// inline rename. Review the images by eye; there is no pixel diffing.
+// Usage: npm run fidelity -- [--theme light|dark] [--out <dir>]
 //
-// It has zero npm dependencies. The extension ships with no runtime dependencies,
-// so this talks to the browser over the Chrome DevTools Protocol using only Node
-// built-ins (Node 20+ has a global fetch and WebSocket). The scripts/ folder is
-// excluded from the VSIX.
-//
-// It only reads repo files and writes PNGs under .claude-working/fidelity/. It never
-// touches ~/.claude/projects.
+// It has no npm dependencies: it talks to the browser over the Chrome DevTools Protocol with Node built-ins
+// (Node 20+ has a global fetch and WebSocket), and scripts/ is excluded from the VSIX. It reads repo files
+// and writes PNGs under the output folder only; it never reads the author's Claude Code session data.
 
 'use strict';
 
@@ -26,8 +21,47 @@ const { pathToFileURL } = require('url');
 // --- paths -----------------------------------------------------------------
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const OUT_DIR = path.join(REPO_ROOT, '.claude-working', 'fidelity');
 const HARNESS_HTML = path.join(__dirname, 'harness.html');
+
+// --theme light|dark (default light) and --out <dir> (default .claude-working/screens/).
+function parseArgs(argv) {
+  const opts = { theme: 'light', out: path.join(REPO_ROOT, '.claude-working', 'screens') };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--theme' || a.startsWith('--theme=')) {
+      opts.theme = a === '--theme' ? argv[++i] : a.slice('--theme='.length);
+    } else if (a === '--out' || a.startsWith('--out=')) {
+      const v = a === '--out' ? argv[++i] : a.slice('--out='.length);
+      opts.out = path.resolve(process.cwd(), v || '');
+    } else {
+      console.error('\nUnknown argument: ' + a + '\nUsage: npm run fidelity -- [--theme light|dark] [--out <dir>]\n');
+      process.exit(1);
+    }
+  }
+  if (opts.theme !== 'light' && opts.theme !== 'dark') {
+    console.error('\n--theme must be light or dark, got: ' + opts.theme + '\n');
+    process.exit(1);
+  }
+  return opts;
+}
+
+const OPTS = parseArgs(process.argv.slice(2));
+const OUT_DIR = OPTS.out;
+const THEME = OPTS.theme;
+
+// Captures are named <state>-<theme>.png.
+function harnessOut(state) {
+  return path.join(OUT_DIR, state + '-' + THEME + '.png');
+}
+// The harness reads ?theme= and opts into the dark --vscode-* variables.
+function harnessUrl() {
+  return pathToFileURL(HARNESS_HTML).href + '?theme=' + THEME;
+}
+
+// The fleet captures add ?fleet=ticket|folder so the harness posts the fleet view.
+function harnessFleetUrl(view) {
+  return harnessUrl() + '&fleet=' + view;
+}
 
 // Panel width for every capture. The panel stays usable from 260 to 480px.
 const VIEWPORT_WIDTH = 320;
@@ -363,6 +397,42 @@ function waitForEvent(page, method, timeoutMs) {
   });
 }
 
+// Runs in the page. Boxes of the drawn legs, body and head in art pixels from the robin's top-left
+// corner, with the boxes frame() gives the legs and body at rest. A part not drawn reads as null.
+function robinPartBoxes() {
+  const m = window.NestMascot;
+  const svg = document.querySelector('.nest-robin-svg');
+  if (!m || !svg) {
+    return null;
+  }
+  const s = svg.getBoundingClientRect();
+  const px = s.height / m.H;
+  const drawn = (selector) => {
+    const el = svg.querySelector(selector);
+    const r = el ? el.getBoundingClientRect() : null;
+    if (!r || r.width === 0) {
+      return null;
+    }
+    return { left: (r.left - s.left) / px, top: (r.top - s.top) / px, right: (r.right - s.left) / px, bottom: (r.bottom - s.top) / px };
+  };
+  const atRest = (test) => {
+    const d = m.frame('idle', 0).find((p) => test(p.k));
+    const cells = [];
+    d.rows.forEach((row, y) => [...row].forEach((c, x) => c !== '.' && cells.push([d.x + x, d.y + y])));
+    return {
+      left: Math.min(...cells.map((c) => c[0])),
+      top: Math.min(...cells.map((c) => c[1])),
+      right: Math.max(...cells.map((c) => c[0])) + 1,
+      bottom: Math.max(...cells.map((c) => c[1])) + 1,
+    };
+  };
+  return {
+    legs: { actual: drawn('[data-k="legs"]'), expect: atRest((k) => k === 'legs') },
+    body: { actual: drawn('[data-k^="body"]'), expect: atRest((k) => k.startsWith('body')) },
+    head: drawn('[data-k^="head"]'),
+  };
+}
+
 // Evaluate an expression in the page and return its JSON value.
 async function evaluate(page, expression) {
   const res = await page.send('Runtime.evaluate', {
@@ -417,10 +487,8 @@ async function typeIntoInput(page, selector, text) {
   );
 }
 
-// The query the results-state captures stage. It matches a body line in the mock (the
-// harness reply) and a body line while being ABSENT
-// from those chats' titles, so the flat "N RESULTS" list shows a role-prefixed "You: ..."
-// body-match snippet.
+// The query the results captures stage. It matches a body line in the harness reply but no chat title, so
+// the flat "N RESULTS" list shows a role-prefixed "You: ..." body-match snippet.
 const RESULTS_QUERY = 'redis';
 
 // --- main ------------------------------------------------------------------
@@ -456,8 +524,8 @@ async function main() {
     const harnessPage = await openPage(browser);
     await renderAndCapture(
       harnessPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness.png'),
+      harnessUrl(),
+      harnessOut('default'),
       async (page) => {
         // Wait for the mock to be posted AND for the script to render at least one
         // chat row, so we never screenshot an empty tree.
@@ -475,17 +543,15 @@ async function main() {
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('default')));
 
-    // the RESULTS STATE of the real panel. Re-render the harness, type a
-    // body-only-match query into the search box, wait for the flat "N RESULTS" list (the
-    // harness echoes a synthetic host searchResults reply), and capture it. This is the
-    // results-state analogue of harness.png.
+    // Results state: re-render the harness, type a body-only query, wait for the flat "N RESULTS" list (the
+    // harness echoes a synthetic searchResults reply) and capture it.
     const harnessResultsPage = await openPage(browser);
     await renderAndCapture(
       harnessResultsPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-results.png'),
+      harnessUrl(),
+      harnessOut('results'),
       async (page) => {
         await waitForCondition(
           page,
@@ -509,23 +575,21 @@ async function main() {
         await waitForCondition(
           page,
           "(function(){var h=document.querySelector('#list .nest-section-label');" +
-            "return !!h && /RESULTS/.test(h.textContent) && document.querySelectorAll('#list .nest-row-snippet').length > 0;})()",
+            "return !!h && /RESULTS?/.test(h.textContent) && document.querySelectorAll('#list .nest-row-snippet').length > 0;})()",
           10000,
           'harness results state to render',
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-results.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('results')));
 
-    // the CHAT CONTEXT MENU (list state) of the real panel. Re-render the
-    // harness, dispatch a contextmenu on a chat row, wait for the menu, and capture the
-    // full 320px viewport so the floating menu is in frame. The menu is a body-level
-    // position:fixed node, so this capture is NOT clipped to the tree.
+    // Chat context menu (list state): dispatch contextmenu on a chat row and capture the full viewport, since
+    // the menu is a body-level fixed node and a tree clip would cut it.
     const harnessMenuPage = await openPage(browser);
     await renderAndCapture(
       harnessMenuPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-context-menu.png'),
+      harnessUrl(),
+      harnessOut('context-menu'),
       async (page) => {
         await waitForCondition(
           page,
@@ -566,16 +630,15 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('context-menu')),
     );
 
-    // the CREATE-TAG state of the chat context menu. Open the menu, click "Create
-    // new tag" to switch to the name-input + 8-swatch state, and capture it.
+    // Create-tag state: open the menu, click Create new tag and capture the name input and swatches.
     const harnessNewTagPage = await openPage(browser);
     await renderAndCapture(
       harnessNewTagPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-context-menu-newtag.png'),
+      harnessUrl(),
+      harnessOut('context-menu-newtag'),
       async (page) => {
         await waitForCondition(
           page,
@@ -637,18 +700,16 @@ async function main() {
     );
     console.log(
       '  wrote ' +
-        path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu-newtag.png')),
+        path.relative(REPO_ROOT, harnessOut('context-menu-newtag')),
     );
 
-    // the SETTINGS OVERLAY of the real panel. Open the harness, click the gear to
-    // open the in-panel Settings sub-page, wait for its "Keep chats for" select and the
-    // four section switches, and capture the full 320px viewport (the overlay is
-    // position:fixed;inset:0 over the panel).
+    // Settings overlay: click the gear, wait for the Keep chats for select and the section switches, and
+    // capture the full viewport (the overlay is fixed over the panel).
     const harnessSettingsPage = await openPage(browser);
     await renderAndCapture(
       harnessSettingsPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-settings.png'),
+      harnessUrl(),
+      harnessOut('settings'),
       async (page) => {
         await waitForCondition(
           page,
@@ -678,25 +739,65 @@ async function main() {
           page,
           "(function(){var o=document.querySelector('.nest-settings-overlay');" +
             "return !!o && !!o.querySelector('.nest-settings-select') && " +
-            "o.querySelectorAll('.nest-switch').length === 4;})()",
+            "o.querySelectorAll('.nest-switch').length === 5 && o.querySelectorAll('.nest-seg-opt').length === 4;})()",
           10000,
-          'harness Settings overlay to render with the select and four switches',
+          'harness Settings overlay to render with the select, group-by control and five switches',
         );
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-settings.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('settings')));
 
-    // the ARCHIVE OVERLAY of the real panel. Open the harness, click the bottom
-    // Archived (N) row to open the in-panel Archive sub-page, wait for its gray-glow
-    // search box and the archived rows (the harness echoes a synthetic archivedRows
-    // reply), and capture the full 320px viewport (the overlay is position:fixed;inset:0
-    // over the panel).
+    // The ORGANIZE section of the Settings overlay: the Preview list with Apply and Undo
+    // enabled, the empty result, rule problems, and the state after an Apply. The harness
+    // posts the made-up report when the URL carries ?organize=<state>.
+    const organizeStates = [
+      { name: 'organize-preview', mode: 'preview', ready: "document.querySelectorAll('.nest-organize-move').length === 4" },
+      { name: 'organize-empty', mode: 'empty', ready: "!!document.querySelector('.nest-organize-status') && document.querySelector('.nest-organize-status').textContent.indexOf('Nothing to move') === 0" },
+      { name: 'organize-problems', mode: 'problems', ready: "document.querySelectorAll('.nest-organize-problems li').length === 2" },
+      { name: 'organize-applied', mode: 'applied', ready: "!!document.querySelector('.nest-organize-status') && document.querySelector('.nest-organize-status').textContent.indexOf('organized') > 0" },
+    ];
+    for (const state of organizeStates) {
+      const organizePage = await openPage(browser);
+      await renderAndCapture(
+        organizePage,
+        harnessUrl() + '&organize=' + state.mode,
+        harnessOut(state.name),
+        async (page) => {
+          await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+          await waitForCondition(
+            page,
+            "document.querySelectorAll('#list .nest-row').length > 0",
+            10000,
+            'harness sectioned rows to render',
+          );
+          const opened = await evaluate(
+            page,
+            "(function(){var g=document.getElementById('settings');if(!g)return 'no-gear';g.click();return 'ok';})()",
+          );
+          if (opened !== 'ok') {
+            throw new Error('Could not open the harness Settings overlay: ' + opened);
+          }
+          await waitForCondition(page, "!!document.querySelector('.nest-settings-overlay')", 10000, 'harness Settings overlay');
+          // The overlay is built after the report arrived; paint it from the report.
+          await evaluate(
+            page,
+            "(function(){window.postMessage(window.__nestHarnessOrganize,'*');return 'ok';})()",
+          );
+          await waitForCondition(page, state.ready, 10000, 'the ' + state.name + ' state to render');
+          await sleep(150);
+        },
+      );
+      console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(state.name)));
+    }
+
+    // Archive overlay: click the Archived (N) row, wait for the search box and rows (the harness echoes a
+    // synthetic archivedRows reply) and capture the full viewport.
     const harnessArchivePage = await openPage(browser);
     await renderAndCapture(
       harnessArchivePage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-archive.png'),
+      harnessUrl(),
+      harnessOut('archive'),
       async (page) => {
         await waitForCondition(
           page,
@@ -733,20 +834,16 @@ async function main() {
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-archive.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('archive')));
 
-    // the DRAG DROP-HIGHLIGHT state of the real panel. The .nest-drop-over
-    // highlight only paints while a chat drag is in flight (attachDropTarget's dragover
-    // handler is gated on draggingChatIds.length > 0), so this stage first dispatches a
-    // dragstart on a chat row to arm the in-process drag, then a dragover onto a folder
-    // header so the header paints its inset-ring drop target. The capture is the clipped
-    // 320px tree (the highlight is an in-list state, not a body-level overlay), matching
-    // the "clipped tree for in-list states" rule.
+    // Drag drop highlight: .nest-drop-over paints only while a chat drag is in flight (dragover is gated on
+    // draggingChatIds), so dispatch dragstart on a row, then dragover on a folder header. The capture is the
+    // clipped tree, since the highlight is an in-list state.
     const harnessDropPage = await openPage(browser);
     await renderAndCapture(
       harnessDropPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-drop-highlight.png'),
+      harnessUrl(),
+      harnessOut('drop-highlight'),
       async (page) => {
         await waitForCondition(
           page,
@@ -760,13 +857,9 @@ async function main() {
           10000,
           'harness sectioned rows to render',
         );
-        // Arm the drag on the 'Fix N+1 query in orders' row (s-05), then drag over the
-        // 'Backend API' folder header (the second .nest-folder-row) so that header shows
-        // the drop highlight. A DragEvent carries a real DataTransfer so the panel's
-        // dragstart handler (onRowDragStart) records draggingChatIds and the dragover
-        // handler paints .nest-drop-over (the handler paints on any folder header while a
-        // drag is armed; the highlight is purely visual and does not depend on the target
-        // being a non-home folder).
+        // Arm the drag on the 'Fix N+1 query in orders' row (s-05), then drag over the second folder header. The
+        // DragEvent carries a real DataTransfer so onRowDragStart records draggingChatIds; the highlight is
+        // purely visual and does not depend on the target folder.
         const dropped = await evaluate(
           page,
           '(function(){' +
@@ -802,17 +895,15 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-drop-highlight.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('drop-highlight')),
     );
 
-    // the SORT POPOVER (open) state of the real panel. Click the sort button and
-    // wait for the popover to un-hide, then capture the full 320px viewport (the popover
-    // is a body-adjacent toolbar overlay, so capture the whole panel like the menus).
+    // Sort popover: click the sort button, wait for it to un-hide and capture the full viewport.
     const harnessSortPage = await openPage(browser);
     await renderAndCapture(
       harnessSortPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-sort-popover.png'),
+      harnessUrl(),
+      harnessOut('sort-popover'),
       async (page) => {
         await waitForCondition(
           page,
@@ -848,16 +939,15 @@ async function main() {
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-sort-popover.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('sort-popover')));
 
-    // the NEW-FOLDER POPOVER (open) state of the real panel. Click the
-    // FOLDERS-header + button (openNewFolderPopover) and wait for the popover with its
-    // name input and Create/Cancel actions, then capture the full 320px viewport.
+    // New-folder popover: click the FOLDERS + button, wait for the name input and Create and Cancel actions,
+    // and capture the full viewport.
     const harnessNewFolderPage = await openPage(browser);
     await renderAndCapture(
       harnessNewFolderPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-newfolder-popover.png'),
+      harnessUrl(),
+      harnessOut('newfolder-popover'),
       async (page) => {
         await waitForCondition(
           page,
@@ -896,18 +986,16 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-newfolder-popover.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('newfolder-popover')),
     );
 
-    // the INLINE FOLDER RENAME state of the real panel. Double-click a folder
-    // header (its dblclick handler calls beginRename), wait for the .nest-rename-input to
-    // replace the folder name in place, then capture the clipped 320px tree (an in-list
-    // state).
+    // Inline folder rename: double-click a folder header, wait for .nest-rename-input to replace the name,
+    // and capture the clipped tree.
     const harnessRenamePage = await openPage(browser);
     await renderAndCapture(
       harnessRenamePage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-rename.png'),
+      harnessUrl(),
+      harnessOut('rename'),
       async (page) => {
         await waitForCondition(
           page,
@@ -948,7 +1036,335 @@ async function main() {
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-rename.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('rename')));
+
+    // The FLEET VIEW states: the ticket view, the any-folder view, the Active filter on
+    // and the Queue list open. Each page loads the harness with made-up fleet data and
+    // waits for the group rows. Captures are the clipped 320px column.
+    const fleetStates = [
+      { name: 'fleet-ticket', view: 'ticket', drive: null, ready: "document.querySelectorAll('#list .nest-fleet-group').length > 0" },
+      { name: 'fleet-folder', view: 'folder', drive: null, ready: "document.querySelectorAll('#list .nest-fleet-group').length > 0" },
+      {
+        name: 'fleet-active',
+        view: 'ticket',
+        drive: "document.getElementById('activeBtn').click();",
+        ready:
+          "document.getElementById('activeBtn').getAttribute('aria-pressed')==='true'" +
+          " && document.querySelectorAll('#list .nest-fleet-group').length > 0" +
+          " && !document.querySelector('#list .nest-fleet-group[data-group-id=\"ticket.A-099\"]')",
+      },
+      {
+        name: 'fleet-queue',
+        view: 'ticket',
+        drive: "document.getElementById('queueBtn').click();",
+        ready: "document.querySelectorAll('#queueList .nest-queue-row').length === 3",
+      },
+      { name: 'fleet-markup', view: 'markup', drive: null, ready: "document.querySelectorAll('#list .nest-fleet-group').length > 0" },
+    ];
+    for (const state of fleetStates) {
+      const fleetPage = await openPage(browser);
+      await renderAndCapture(
+        fleetPage,
+        harnessFleetUrl(state.view),
+        harnessOut(state.name),
+        async (page) => {
+          await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+          await waitForCondition(
+            page,
+            "document.querySelectorAll('#list .nest-fleet-group').length > 0 && !document.getElementById('activeBtn').hidden",
+            10000,
+            'harness fleet groups to render',
+          );
+          if (state.drive) {
+            const driven = await evaluate(page, '(function(){' + state.drive + "return 'ok';})()");
+            if (driven !== 'ok') {
+              throw new Error('Could not drive the ' + state.name + ' state: ' + driven);
+            }
+          }
+          await waitForCondition(page, state.ready, 10000, 'the ' + state.name + ' state to render');
+          await sleep(500);
+          return await evaluate(
+            page,
+            '(function(){return {x:0,y:0,width:320,height:document.documentElement.scrollHeight};})()',
+          );
+        },
+      );
+      console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(state.name)));
+    }
+
+    // DOM checks on the fleet panel. Each failure adds one short line; any failure fails the run.
+    const domFailures = [];
+    const probe = async (view, drive, ready) => {
+      const page = await openPage(browser);
+      await renderAndCapture(page, harnessFleetUrl(view), path.join(OUT_DIR, 'dom-check-' + view + '.png'), async (p) => {
+        await waitForCondition(p, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+        await waitForCondition(
+          p,
+          "document.querySelectorAll('#list .nest-fleet-group, #list [role=treeitem]').length > 0 && !document.getElementById('activeBtn').hidden",
+          10000,
+          'harness fleet rows to render',
+        );
+        return await drive(p);
+      });
+    };
+    const ev = async (page, code) => evaluate(page, '(function(){' + code + '})()');
+    await probe('ticket', async (page) => {
+      const pressed = "document.getElementById('activeBtn').getAttribute('aria-pressed')";
+      const before = await ev(page, 'return ' + pressed);
+      await ev(page, "document.getElementById('activeBtn').click();");
+      await sleep(150);
+      const during = await ev(page, 'return ' + pressed);
+      await ev(page, "document.getElementById('activeBtn').click();");
+      await sleep(150);
+      const after = await ev(page, 'return ' + pressed);
+      if (before !== 'false' || during !== 'true' || after !== 'false') {
+        domFailures.push('Active button does not toggle aria-pressed (' + [before, during, after].join(',') + ')');
+      }
+
+      await ev(page, "document.getElementById('queueBtn').click();");
+      await waitForCondition(page, "document.querySelectorAll('#queueList .nest-queue-row').length > 0", 10000, 'the queue list');
+      const extras = await ev(
+        page,
+        "return Array.from(document.querySelectorAll('#queueList *')).filter(function(n){" +
+          "if (n.matches('.nest-queue-close, .nest-queue-back')) return false;" +
+          "return n.matches('button, input, select, textarea, a[href], summary, [role=button], [role=link], [role=menuitem], [onclick], [tabindex]:not([tabindex=\"-1\"])');" +
+          "}).length;",
+      );
+      if (extras !== 0) {
+        domFailures.push('Queue card has ' + extras + ' interactive element(s)');
+      }
+      await ev(page, "document.getElementById('queueBtn').click();");
+
+      const moved = await ev(
+        page,
+        "var rows = Array.from(document.querySelectorAll('#list [role=treeitem]'));" +
+          'if (rows.length < 2) return "too few rows";' +
+          'rows[0].focus();' +
+          'var first = document.activeElement;' +
+          "first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));" +
+          "return document.activeElement !== first && document.activeElement.getAttribute('role') === 'treeitem' ? 'ok' : 'focus did not move';",
+      );
+      if (moved !== 'ok') {
+        domFailures.push('Arrow-down in the fleet tree: ' + moved);
+      }
+    });
+    await probe('markup', async (page) => {
+      const res = await ev(
+        page,
+        "var list = document.getElementById('list');" +
+          "var q = document.getElementById('queueBtn'); q.click();" +
+          "var scope = [list, document.getElementById('queueList')];" +
+          "var injected = scope.reduce(function(n, el){ return n + el.querySelectorAll('b, i').length; }, 0);" +
+          "var literal = list.textContent.indexOf('<b>x</b>') !== -1;" +
+          'return injected + "|" + literal;',
+      );
+      if (res !== '0|true') {
+        domFailures.push('Markup in a fleet title renders as elements (injected|literal=' + res + ')');
+      }
+    });
+    if (domFailures.length > 0) {
+      throw new Error('Fleet DOM checks failed:\n  ' + domFailures.join('\n  '));
+    }
+    console.log('  fleet DOM checks passed');
+
+    // The ROBIN captures: the header robin, clipped to a header strip. Each entry waits for the
+    // panel to apply the state. A freeze time (seconds) draws that exact moment of the scene with
+    // seeded notes; entries without one run live for a fixed wait. Still captures turn the
+    // animations setting off.
+    const live = ['idle', 'working', 'needs', 'done', 'error', 'sleep', 'night', 'worm', 'rotate', 'hatch', 'milestone'];
+    const moments = {
+      idle: [['rest', 0], ['breathe', 1.7], ['look', 2.5], ['blink', 3.55], ['peep', 6.05], ['yawn', 10.3], ['peck', 11.55]],
+      working: [['tap', 0.3], ['peck', 0.55], ['notes', 1.0], ['notes-high', 2.0]],
+      needs: [['chirp', 0.05], ['cock', 0.6], ['crouch', 1.1], ['hop', 1.2], ['land', 1.45]],
+      done: [['crouch', 0.1], ['rise', 0.25], ['top', 0.37], ['land', 0.6], ['check', 0.95], ['sing', 1.4], ['sing-late', 2.3]],
+      error: [['squawk', 0.2], ['squawk-2', 0.33], ['calm', 1.3]],
+      sleep: [['zs', 0.6], ['snore', 1.8]],
+      night: [['zs', 0.6], ['stars', 2.0]],
+      worm: [['arrive', 0.25], ['windup', 0.9], ['strike', 1.05], ['slurp', 1.6], ['gulp', 2.4], ['content', 3.0]],
+      rotate: [['crouch', 0.12], ['takeoff', 0.35], ['flight', 0.65], ['away', 1.1], ['empty', 1.8], ['return', 2.5], ['approach', 3.0], ['land', 3.32], ['settle', 3.8]],
+      hatch: [['egg', 0.3], ['wobble', 0.75], ['crack', 2.0], ['poke', 2.75], ['burst', 3.35], ['air', 3.6], ['land', 4.0], ['peep', 4.3]],
+      milestone: [['hop', 0.3], ['crouch', 0.85], ['high', 1.3], ['burst', 1.5], ['sparkles', 2.0], ['sing', 2.6]],
+    };
+    const robinStates = [];
+    for (const state of live) {
+      robinStates.push({ name: state, state, wait: 600 });
+    }
+    for (const state of live) {
+      robinStates.push({ name: 'still-' + state, state, wait: 200, still: true });
+    }
+    for (const state of live) {
+      for (const [moment, freeze] of moments[state]) {
+        robinStates.push({ name: state + '-' + moment, state, freeze });
+      }
+    }
+    const robinCaptures = [];
+    // States where both feet stay on the branch; the rest hop, jump or fly.
+    const plantedStates = ['idle', 'working', 'error', 'sleep', 'night', 'worm'];
+    const feetFailures = [];
+    for (const entry of robinStates) {
+      const name = 'robin-' + entry.name;
+      robinCaptures.push(name);
+      const robinPage = await openPage(browser);
+      let robinUrl = harnessUrl() + '&robin=' + entry.state + (entry.still ? '&still=1' : '');
+      if (entry.freeze !== undefined) {
+        robinUrl += '&freeze=' + entry.freeze;
+      }
+      await renderAndCapture(
+        robinPage,
+        robinUrl,
+        harnessOut(name),
+        async (page) => {
+          await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+          await waitForCondition(
+            page,
+            "document.getElementById('robinSlot').getAttribute('data-state') === '" + entry.state + "'" +
+              " && document.getElementById('robinSlot').getAttribute('data-motion') === '" + (entry.still ? 'still' : 'full') + "'",
+            10000,
+            'the robin ' + entry.state + ' state to apply',
+          );
+          if (entry.freeze !== undefined) {
+            await waitForCondition(page, 'window.__nestHarnessFrozen === true', 10000, 'the frozen frame');
+          } else {
+            await sleep(entry.wait);
+          }
+          // In a planted state the legs and body sit exactly where the art puts them at rest, and
+          // in every state the head never rises far enough to leave a gap above the body.
+          const boxes = await evaluate(page, '(' + robinPartBoxes.toString() + ')()');
+          const planted = plantedStates.includes(entry.state);
+          if (!boxes) {
+            feetFailures.push(name + ': the robin is not drawn');
+          } else if (planted && (!boxes.legs.actual || !boxes.body.actual || !boxes.head)) {
+            feetFailures.push(name + ': the robin parts are missing');
+          } else {
+            for (const key of planted ? ['legs', 'body'] : []) {
+              const { actual, expect } = boxes[key];
+              for (const side of ['left', 'top', 'right', 'bottom']) {
+                if (Math.abs(actual[side] - expect[side]) > 0.01) {
+                  feetFailures.push(name + ': the ' + key + ' moved (' + side + ' ' + actual[side].toFixed(2) + ', rest ' + expect[side] + ')');
+                }
+              }
+            }
+            if (boxes.head && boxes.body.actual && boxes.body.actual.top - boxes.head.bottom > 0.01) {
+              feetFailures.push(name + ': a ' + (boxes.body.actual.top - boxes.head.bottom).toFixed(2) + ' pixel gap under the head');
+            }
+          }
+          return await evaluate(
+            page,
+            '(function(){const r=document.querySelector(".nest-header").getBoundingClientRect();return {x:0,y:0,width:320,height:Math.ceil(r.bottom)};})()',
+          );
+        },
+      );
+      console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(name)));
+    }
+    // Every robin capture must be on disk for this theme.
+    const missingRobin = robinCaptures.filter((name) => {
+      try {
+        return fs.statSync(harnessOut(name)).size === 0;
+      } catch {
+        return true;
+      }
+    });
+    if (missingRobin.length > 0) {
+      throw new Error('Missing robin captures for the ' + THEME + ' theme: ' + missingRobin.join(', '));
+    }
+    if (feetFailures.length > 0) {
+      throw new Error('Robin lower body and feet checks failed:\n  ' + feetFailures.join('\n  '));
+    }
+    console.log('  robin lower body and feet checks passed');
+
+    // The robin follows a theme change and a reduced motion change without a reload. The light
+    // run starts light, so each body class VS Code sets must pick its palette on the spot.
+    if (THEME === 'light') {
+      const themePage = await openPage(browser);
+      await renderAndCapture(themePage, harnessUrl() + '&robin=idle', path.join(OUT_DIR, 'robin-switch-check.png'), async (page) => {
+        await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'full'", 10000, 'the robin to animate');
+        const uses = (palette) =>
+          "Array.from(document.querySelectorAll('#robinSlot rect')).some((r) => r.getAttribute('fill') === window.NestMascot." + palette + ".H)";
+        const cases = [
+          ['vscode-dark', 'DARK'],
+          ['vscode-high-contrast', 'DARK'],
+          ['vscode-high-contrast vscode-high-contrast-light', 'LIGHT'],
+          ['vscode-light', 'LIGHT'],
+        ];
+        for (const [cls, palette] of cases) {
+          await evaluate(page, "document.body.className = '" + cls + "'");
+          await waitForCondition(page, uses(palette) + ' && !' + uses(palette === 'DARK' ? 'LIGHT' : 'DARK'), 3000, 'the ' + palette.toLowerCase() + ' robin for ' + cls);
+        }
+        await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'still'", 3000, 'the robin to go still for reduced motion');
+        await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'full'", 3000, 'the robin to move again');
+        return null;
+      });
+      console.log('  robin theme and reduced motion switch checks passed');
+    }
+
+    // One contact sheet with every robin capture in a grid. It is written next to the PNGs.
+    const sheetName = 'robin-contact';
+    const sheetHtml = path.join(OUT_DIR, sheetName + '-' + THEME + '.html');
+    const cells = robinCaptures
+      .map(
+        (name) =>
+          '<figure><img src="' + pathToFileURL(harnessOut(name)).href + '" width="320"><figcaption>' +
+          name.replace(/^robin-/, '') + '</figcaption></figure>',
+      )
+      .join('');
+    fs.writeFileSync(
+      sheetHtml,
+      '<!doctype html><meta charset="utf-8"><style>body{margin:0;padding:12px;background:' +
+        (THEME === 'dark' ? '#1e1e1e' : '#ffffff') + ';color:' + (THEME === 'dark' ? '#ccc' : '#333') +
+        ';font:12px sans-serif;display:grid;grid-template-columns:repeat(4,320px);gap:10px}figure{margin:0}' +
+        'img{display:block;border:1px solid #8884}</style>' + cells,
+    );
+    const sheetPage = await openPage(browser);
+    await renderAndCapture(
+      sheetPage,
+      pathToFileURL(sheetHtml).href,
+      harnessOut(sheetName),
+      async (page) => {
+        await waitForCondition(page, 'Array.from(document.images).every((i) => i.complete)', 10000, 'the contact sheet images');
+        return await evaluate(
+          page,
+          '(function(){return {x:0,y:0,width:1400,height:document.documentElement.scrollHeight};})()',
+        );
+      },
+      1400,
+    );
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(sheetName)));
+
+    // The ACTIVITY BAR icon, drawn the way VS Code draws a contributed icon: the SVG is a mask
+    // filled with the bar's foreground color, so it must read as one color at 24 px. The colors
+    // are the default themes' Activity Bar colors; each row shows the active and inactive icon.
+    const iconSvg = fs.readFileSync(path.join(REPO_ROOT, 'media', 'nest.svg'), 'utf8');
+    const iconUrl = 'data:image/svg+xml;base64,' + Buffer.from(iconSvg).toString('base64');
+    const bars =
+      THEME === 'dark'
+        ? [['Dark Modern', '#181818', '#D7D7D7', '#868686', '#0078D4'], ['High Contrast', '#000000', '#FFFFFF', '#FFFFFF', '#F38518']]
+        : [['Light Modern', '#F8F8F8', '#1F1F1F', '#616161', '#005FB8'], ['High Contrast Light', '#FFFFFF', '#292929', '#292929', '#B5200D']];
+    const barRows = bars
+      .map(
+        ([label, bg, fg, idle, accent]) =>
+          '<div class="row" style="background:' + bg + ';color:' + fg + '">' +
+          '<span class="cell" style="border-left:2px solid ' + accent + '"><i style="background:' + fg + '"></i></span>' +
+          '<span class="cell"><i style="background:' + idle + '"></i></span>' +
+          '<span class="cell big"><i style="background:' + fg + '"></i></span>' +
+          '<span class="label">' + label + '</span></div>',
+      )
+      .join('');
+    const barHtml = path.join(OUT_DIR, 'activitybar-' + THEME + '.html');
+    fs.writeFileSync(
+      barHtml,
+      '<!doctype html><meta charset="utf-8"><style>body{margin:0;font:12px sans-serif}' +
+        '.row{display:flex;align-items:center;height:96px}.cell{display:flex;align-items:center;justify-content:center;width:48px;height:48px;box-sizing:border-box}' +
+        '.cell i{display:block;width:24px;height:24px;-webkit-mask:url(' + iconUrl + ') no-repeat 50% 50%;-webkit-mask-size:24px}' +
+        '.cell.big{width:120px;height:96px}.cell.big i{width:96px;height:96px;-webkit-mask-size:96px}.label{padding-left:12px}</style>' + barRows,
+    );
+    const barPage = await openPage(browser);
+    await renderAndCapture(barPage, pathToFileURL(barHtml).href, harnessOut('activitybar'), async (page) => {
+      return await evaluate(page, '(function(){return {x:0,y:0,width:320,height:document.body.scrollHeight};})()');
+    });
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('activitybar')));
 
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
   } catch (err) {

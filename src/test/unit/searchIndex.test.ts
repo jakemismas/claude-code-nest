@@ -14,20 +14,14 @@ import {
 } from '../../search/searchIndex';
 import { ChatRecord, TokenTotals } from '../../model/types';
 
-// Headless unit tests for the PURE, vscode-free full-text search index
-// (src/search/searchIndex.ts). This file and the module it imports must NOT
-// require the vscode module (unit-gate rule); searchIndex imports only the
-// vendored MiniSearch (by relative path) and the model types, so there is no
-// vscode in this graph. The guard against a vscode import is asserted explicitly
-// at the bottom.
+// Unit tests for the pure, vscode-free full-text search index (src/search/searchIndex.ts). The last test
+// loads the module in an isolated child process to prove it never imports vscode.
 
 function totals(): TokenTotals {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
 }
 
-// A minimal ChatRecord factory for docFromRecord tests. Only the fields
-// docFromRecord reads (sessionId, title, lastMessageText, filesTouched) carry
-// values; the rest are defaulted so the record type-checks.
+// ChatRecord factory: only the fields docFromRecord reads carry values.
 function record(over: Partial<ChatRecord>): ChatRecord {
   return {
     sessionId: 's',
@@ -51,12 +45,8 @@ function record(over: Partial<ChatRecord>): ChatRecord {
   };
 }
 
-// Mirror the production split (docFromRecord): a role-labeled body is stored
-// verbatim as the snippet source and indexed with its labels STRIPPED, so a raw
-// doc built here exercises the same shape the app builds (labels never enter the
-// searchable bodyText; they ride only in bodySnippetSource). A caller may still
-// override either field explicitly. bodyText passed in is treated as the labeled
-// source unless bodySnippetSource is given separately.
+// Mirrors docFromRecord: a role-labeled body is the snippet source and is indexed with labels stripped,
+// so labels never enter the searchable bodyText. An explicit bodySnippetSource overrides.
 function stripLabels(labeled: string): string {
   return labeled
     .split('\n')
@@ -77,9 +67,7 @@ function doc(over: Partial<SearchDoc>): SearchDoc {
     lastMessage: '',
     files: '',
     ...over,
-    // Re-derive the split AFTER `over` so a supplied bodyText becomes the labeled
-    // snippet source with its labels stripped for the index (production shape),
-    // unless the caller set bodySnippetSource explicitly.
+    // Re-derive the split after `over` so a supplied bodyText becomes the labeled snippet source.
     bodyText: stripLabels(labeled),
     bodySnippetSource:
       typeof over.bodySnippetSource === 'string' ? over.bodySnippetSource : labeled,
@@ -121,8 +109,7 @@ describe('searchIndex.search ranked results', () => {
 
   it('boosts a title match above a body-only match', () => {
     const index = buildIndex(docs);
-    // "tags" is in chat b's title; it should rank b first even though other docs
-    // may mention tagging in the body.
+    // "tags" is in chat b's title, so b ranks first even if other bodies mention tagging.
     const hits = search(index, 'tags');
     assert.ok(hits.length >= 1);
     assert.strictEqual(hits[0].sessionId, 'b', 'the title match ranks first via the title boost');
@@ -163,8 +150,7 @@ describe('searchIndex.search ranked results', () => {
   });
 
   it('tolerates a duplicate sessionId (first-seen wins, no throw)', () => {
-    // MiniSearch THROWS on a duplicate id; buildIndex must dedupe so a
-    // pathological scan does not crash a content search.
+    // MiniSearch throws on a duplicate id, so buildIndex must dedupe.
     const dup: SearchDoc[] = [
       doc({ sessionId: 'd', title: 'first widget', bodyText: 'first' }),
       doc({ sessionId: 'd', title: 'second widget', bodyText: 'second' }),
@@ -251,7 +237,6 @@ describe('searchIndex.buildSnippet centering and truncation', () => {
     assert.ok(s.includes('TARGETWORD'), 'the matched term is inside the window');
     assert.ok(s.startsWith('...'), 'a leading ellipsis when the window does not start at 0');
     assert.ok(s.endsWith('...'), 'a trailing ellipsis when the window does not reach the end');
-    // Allow the two 3-char ellipses on top of the window length.
     assert.ok(s.length <= SNIPPET_LENGTH + 6, 'snippet bounded to the window plus ellipses');
   });
 
@@ -276,7 +261,7 @@ describe('searchIndex.buildSnippet centering and truncation', () => {
   });
 
   it('does not cut into the matched term at the right edge', () => {
-    // A match near the end: the trailing snap-to-space must not slice the term.
+    // A match near the end: the trailing snap-to-space must not cut the term.
     const head = Array.from({ length: 80 }, (_, i) => 'x' + i).join(' ');
     const source = head + ' FINALMATCH';
     const s = buildSnippet(source, 'FINALMATCH');
@@ -285,9 +270,8 @@ describe('searchIndex.buildSnippet centering and truncation', () => {
 });
 
 describe('searchIndex.buildRoleSnippet role prefixing', () => {
-  // The body feed (orgPanelWebview.readBodyText) prefixes each message with its
-  // role label and joins with '\n'. buildRoleSnippet must find the matched message
-  // and re-emit its "You: " / "Claude: " label on the snippet.
+  // The body feed prefixes each message with its role label and joins with newlines; buildRoleSnippet
+  // re-emits the matched message's "You: " or "Claude: " label.
   const body = ROLE_LABEL_USER + 'how do we retry failed webhooks\n' +
     ROLE_LABEL_ASSISTANT + 'exponential backoff with jitter and a dead-letter queue';
 
@@ -314,17 +298,14 @@ describe('searchIndex.buildRoleSnippet role prefixing', () => {
   });
 
   it('degrades to a plain snippet (NO synthesized prefix) when the source has no role marker', () => {
-    // The tier-A last-message text and the title reach this path without markers;
-    // they must not gain a bogus role label. This is what preserves every prior
-    // searchIndex test (which feeds marker-less bodyText).
+    // Tier-A text and the title carry no markers, so they must not gain a role label.
     const s = buildRoleSnippet('a plain last message with no role marker', 'plain');
     assert.strictEqual(s, 'a plain last message with no role marker');
     assert.ok(!s.startsWith(ROLE_LABEL_USER) && !s.startsWith(ROLE_LABEL_ASSISTANT));
   });
 
   it('does not treat ordinary prose beginning with "you" as a role marker', () => {
-    // roleOf matches the EXACT "You: " literal, not the word "you", so a message
-    // that merely starts with "you" is not mislabelled.
+    // roleOf matches the exact "You: " literal, not any message starting with "you".
     const s = buildRoleSnippet('you should index the tolerant parser output', 'tolerant');
     assert.ok(!s.startsWith(ROLE_LABEL_USER), 'no false role prefix: ' + s);
     assert.ok(s.toLowerCase().includes('tolerant'));
@@ -337,17 +318,12 @@ describe('searchIndex.buildRoleSnippet role prefixing', () => {
 
   it('falls back to the first labelled segment when the term is absent', () => {
     const s = buildRoleSnippet(body, 'absenttermzz');
-    // No segment contains the term; the first (user) segment is chosen and labelled.
     assert.ok(s.startsWith(ROLE_LABEL_USER), 'first labelled segment on a no-term source: ' + s);
   });
 
   it('a match on the SECOND labelled message keeps that message role (no bleed from line 1)', () => {
-    // Regression for the multi-segment feed: the host joins one collapsed line per
-    // message, so the assistant line is its own segment and a match there is labelled
-    // "Claude: ", not "You: " from the first line. (If a message were fed with an
-    // internal newline, its continuation line would be an UNLABELLED segment and a
-    // match there would lose the prefix; readBodyText collapses each message to one
-    // line precisely so that cannot happen.)
+    // The host joins one collapsed line per message, so the assistant line is its own segment and a match
+    // there is labelled "Claude: ". readBodyText collapses each message to one line to keep that true.
     const twoMsgs = ROLE_LABEL_USER + 'question about the api\n' +
       ROLE_LABEL_ASSISTANT + 'the answer mentions pgvector recall';
     const s = buildRoleSnippet(twoMsgs, 'pgvector');
@@ -375,12 +351,8 @@ describe('searchIndex.buildRoleSnippet role prefixing', () => {
 });
 
 describe('searchIndex role labels are NOT searchable tokens', () => {
-  // The role labels ("You: " / "Claude: ") must ride ONLY in the stored snippet
-  // source, never in the indexed text. Before the fix readBodyText prefixed each
-  // message and fed the joined string as the indexed bodyText, so MiniSearch
-  // tokenized "you" and "claude" onto EVERY chat with a body, and with prefix
-  // search on every prefix of them matched every chat. These tests pin that the
-  // label words no longer match any chat that does not genuinely contain them.
+  // Role labels ride only in the stored snippet source, never in the indexed text. Otherwise "you" and
+  // "claude" would tokenize onto every chat with a body and match all of them under prefix search.
   function labeled(msgs: { role: 'user' | 'assistant'; text: string }[]): string {
     return msgs
       .map((m) => (m.role === 'user' ? ROLE_LABEL_USER : ROLE_LABEL_ASSISTANT) + m.text)
@@ -464,12 +436,8 @@ describe('searchIndex role labels are NOT searchable tokens', () => {
 });
 
 describe('searchIndex multi-term query snippet centering', () => {
-  // firstMatchedTerm centers the snippet on result.terms[0]. Before the fix the
-  // injected label tokens ("you"/"claude") could be terms[0] for a query that
-  // combined a real term with a label word, centering the snippet on the wrong
-  // message segment. With labels out of the index, terms[0] is always a real term,
-  // so the snippet lands on the segment that actually contains the query word
-  // regardless of term order.
+  // firstMatchedTerm centers the snippet on result.terms[0]. With labels out of the index, terms[0] is a
+  // real term, so the snippet lands on the segment containing the query word in any term order.
   function chat(): SearchDoc {
     return doc({
       sessionId: 'z',
@@ -503,17 +471,11 @@ describe('searchIndex multi-term query snippet centering', () => {
   });
 });
 
-// The unit-gate invariant: importing searchIndex must not transitively pull in
-// the vscode module. The whole mocha suite shares one process where other test
-// files install a vscode stub, so an in-process require.cache check is unreliable.
-// Instead, require searchIndex in an ISOLATED child node process (no stub, no
-// vscode host) and assert it loads and that no vscode module entered THAT
-// process's require cache. If searchIndex (or the vendored MiniSearch) imported
-// vscode, the child require would throw "Cannot find module 'vscode'".
+// Importing searchIndex must not pull in vscode. Other test files install a vscode stub in this process,
+// so an isolated child node process (no stub) checks that it loads and vscode never enters its require cache.
 describe('searchIndex is vscode-free', () => {
   it('loads in an isolated process with no vscode module', () => {
-    // Resolve out/search/searchIndex.js relative to this compiled test file
-    // (out/test/unit/searchIndex.test.js -> out/search/searchIndex.js).
+    // Resolve out/search/searchIndex.js from this compiled file (out/test/unit).
     const indexJs = path.join(__dirname, '..', '..', 'search', 'searchIndex.js');
     const script =
       'const m = require(' +
@@ -523,8 +485,7 @@ describe('searchIndex is vscode-free', () => {
       'const hasVscode = Object.keys(require.cache).some((k) => /[\\\\/]vscode[\\\\/]/.test(k)); ' +
       'if (hasVscode) { console.error("vscode was loaded"); process.exit(3); } ' +
       'process.exit(0);';
-    // execFileSync throws on a non-zero exit, which fails the test with the child
-    // stderr attached, so a vscode import or a missing export is a clear failure.
+    // execFileSync throws on a non-zero exit with child stderr attached, so a vscode import fails clearly.
     const out = execFileSync(process.execPath, ['-e', script], { encoding: 'utf8' });
     assert.strictEqual(out, '', 'the isolated load produced no error output');
   });

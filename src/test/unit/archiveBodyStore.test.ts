@@ -1,3 +1,6 @@
+// Tests for the archived-body store: writes, reads and prunes copies under globalStorage,
+// never under the Claude projects dir.
+
 // vscodeStub MUST be imported first so require('vscode') resolves before
 // archiveBodyStore's transitive import of exportIO (which imports 'vscode') runs.
 import './vscodeStub';
@@ -24,15 +27,6 @@ import {
 import { MS_PER_DAY } from '../../store/archiveRetention';
 import { MetadataStore } from '../../store/metadataStore';
 import { FakeMemento } from './fakeMemento';
-
-// Headless tests for the vscode-THIN Nest-owned archived-body store
-// (src/store/archiveBodyStore.ts). It persists/reads/prunes ONLY through exportIO
-// (vscode.workspace.fs, stubbed here) against a globalStorage Uri, never under
-// ~/.claude/projects, and never as a synced globalState key. The guard test reuses
-// exportPathGuard (the same guard every exportIO write runtime-asserts) to prove
-// the target resolves under globalStorage and that a projects-path target is
-// rejected. The prune test exercises the pure retention policy over each stored
-// copy's recorded {archivedAt, starred}.
 
 function uri(fsPath: string): { fsPath: string; scheme: 'file' } {
   return { fsPath, scheme: 'file' };
@@ -282,11 +276,7 @@ describe('archiveBodyStore.pruneArchivedBodies (pure retention over recorded cop
     assert.deepStrictEqual(pruned, []);
   });
 
-  // DRIFT GUARD (data-loss finding): a copy's recorded starred can be stale-false
-  // while the LIVE synced flag is true (a swallowed updateStarFlag write, a star
-  // applied where the copy never landed, or a cross-device star). Without the
-  // backstop the prune would delete that copy past the window. The backstop reads
-  // the live synced state and forces keep.
+  // A copy can record starred as false while the live synced flag is true; the backstop reads the live flag and forces keep.
   it('does NOT prune a past-window unstarred-on-disk copy that the live backstop protects', async () => {
     await seedThree();
     // old-unstarred's copy snapshot says starred:false, but the live store says the
@@ -319,15 +309,8 @@ describe('archiveBodyStore.pruneArchivedBodies (pure retention over recorded cop
     assert.deepStrictEqual(pruned, [], 'a throwing backstop keeps every otherwise-prunable copy');
   });
 
-  // DATA-LOSS GUARD ("archive means keep"): the prod backstop (extension.ts
-  // isArchivedCopyLiveProtected) force-keeps ANY chat that is still userArchived,
-  // regardless of starred. The hole this closes: archivedAt is a synced scalar under
-  // per-record LWW, so a foreign device can win an OLDER archivedAt that drives a
-  // copy's recorded snapshot past the keep-window even though THIS user still wants the
-  // chat archived; before the fix the backstop only force-kept when ALSO starred, so an
-  // UNstarred-but-archived chat's sole surviving copy could be pruned. This test drives
-  // the prune through a backstop built from a real MetadataStore, mirroring the prod
-  // predicate exactly, and asserts an unstarred-but-archived chat is kept.
+  // Archive means keep: the backstop force-keeps any chat still userArchived, even unstarred, so a foreign
+  // device winning an older archivedAt cannot prune its only copy. This test builds the backstop from a real MetadataStore.
   describe('live backstop force-keeps any userArchived chat, regardless of starred', () => {
     const DEVICE = 'dev-prune-backstop';
     const PK = 'c--Users-Tester-prune-backstop';
@@ -336,8 +319,7 @@ describe('archiveBodyStore.pruneArchivedBodies (pure retention over recorded cop
       return new MetadataStore(new FakeMemento(), { deviceId: DEVICE, debounceMs: 0, now: () => NOW });
     }
 
-    // The production backstop predicate, lifted from extension.ts: force-keep when the
-    // live synced ChatMeta is still userArchived (no longer gated on starred).
+    // Mirrors the production predicate: keep when the live ChatMeta is still userArchived.
     function liveProtectedFrom(store: MetadataStore): (sessionId: string) => boolean {
       return (sessionId) => store.getProjectMeta(PK).chats[sessionId]?.userArchived === true;
     }
@@ -345,9 +327,7 @@ describe('archiveBodyStore.pruneArchivedBodies (pure retention over recorded cop
     it('does NOT prune a past-window UNSTARRED copy when the live chat is still userArchived', async () => {
       await seedThree();
       const store = makeStore();
-      // old-unstarred's on-disk snapshot is unstarred and past the 7d window, AND the
-      // live store records it as userArchived but NOT starred. Pre-fix this was pruned
-      // (backstop required starred too); post-fix the archive flag alone protects it.
+      // The snapshot is unstarred and past the window, but the live store has it archived, so the archive flag alone protects it.
       store.setChatArchived(PK, 'old-unstarred', true);
       await store.flush();
       assert.strictEqual(store.getProjectMeta(PK).chats['old-unstarred'].starred, undefined);
@@ -388,9 +368,7 @@ describe('archiveBodyStore.pruneArchivedBodies (pure retention over recorded cop
   });
 });
 
-// The GUARD test: the body target resolves under globalStorage, and the same guard
-// every exportIO write runs (assertNotUnderClaudeProjects) rejects a pathological
-// globalStorage that points into ~/.claude/projects/.
+// The body target resolves under globalStorage, and the exportIO guard rejects a globalStorage that points into ~/.claude/projects/.
 describe('archiveBodyStore target is guarded under globalStorage, never under ~/.claude/projects', () => {
   it('the body file path resolves under the given globalStorage dir', () => {
     const fsPath = archivedBodyPath(uri(STORAGE) as never, 'sess-1');
@@ -427,14 +405,8 @@ describe('archiveBodyStore target is guarded under globalStorage, never under ~/
   });
 });
 
-// PATH-TRAVERSAL GUARD (CRITICAL finding): a chat sessionId can arrive from an
-// untrusted import/sync that re-keyed a chat under a path-traversal or
-// prototype-name id. That id flows verbatim to bodyFileUri, where Uri.joinPath
-// collapses '..' and would escape globalStorage. The body store validates the
-// sessionId with the same record-id check as the schema boundary, and as defense
-// in depth asserts the resolved path stays UNDER the archive dir. A legitimate
-// UUID sessionId passes; an unsafe one is a safe no-op (no write/delete, null read)
-// because every caller wraps the path build in a try/catch.
+// A sessionId from an untrusted import can be a path-traversal or prototype-name id. The store validates it and
+// asserts the resolved path stays under the archive dir, so an unsafe id is a no-op (no write or delete, null read).
 describe('archiveBodyStore refuses an unsafe or escaping sessionId (path-traversal confinement)', () => {
   beforeEach(() => vscodeHarness.reset());
 

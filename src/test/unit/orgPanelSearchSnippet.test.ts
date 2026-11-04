@@ -1,25 +1,13 @@
-// vscodeStub MUST be imported first so require('vscode') resolves before
-// orgPanelWebview (and its transitive searchStore -> exportIO) imports it.
+// Import vscodeStub first so require('vscode') resolves before orgPanelWebview loads.
 import './vscodeStub';
 
 import * as assert from 'assert';
 import { ChatRecord, TokenTotals } from '../../model/types';
 import { ROLE_LABEL_USER, ROLE_LABEL_ASSISTANT } from '../../search/searchIndex';
 
-// Behavior tests for the host content-search reply the PRIMARY org panel posts
-// (src/views/orgPanelWebview.ts rankRows / postSearchResults), driving the REAL
-// provider through its message handler exactly as the search-race regression test
-// does. Two things are pinned here:
-//
-//   - Snippet gating: a TITLE match sends snippet:null (no snippet row); a
-//     BODY-only match sends a role-prefixed snippet ("You: " / "Claude: ").
-//   - The body feed threads role INTO the snippet source, so the emitted body-match
-//     snippet begins with the matched line's role label.
-//
-// It intercepts the two module-level data deps (chatScanner.scanChats,
-// bodyReader.readTranscriptBodies) on the cached CommonJS module objects, the same
-// technique the race test uses (the compiled provider calls them through the module
-// namespace at call time).
+// Behavior tests for the host content-search reply (src/views/orgPanelWebview.ts), driven through
+// the real provider message handler. A title match sends snippet:null; a body-only match sends a
+// role-prefixed snippet ("You: " or "Claude: "). Scanner and body reader are replaced on the cached modules.
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const chatScanner = require('../../claude/chatScanner') as {
@@ -114,7 +102,7 @@ function makeView(): { view: unknown; posted: Posted[]; send: (msg: unknown) => 
     },
   };
   return {
-    view: { webview },
+    view: { webview, visible: true, onDidChangeVisibility: (): { dispose(): void } => ({ dispose: (): void => undefined }), onDidDispose: (): { dispose(): void } => ({ dispose: (): void => undefined }) },
     posted,
     send: (msg: unknown): void => {
       if (handler === undefined) {
@@ -171,7 +159,7 @@ describe('orgPanelWebview content-search snippet gating', () => {
     const { view, posted, send } = makeView();
     provider.resolveWebviewView(view);
     send({ type: 'search', query });
-    // Let the two-phase build settle so the body-indexed reply (the final post) lands.
+    // Let the two-step build settle so the body-indexed reply lands.
     await until(
       () => posted.filter((m) => m.type === 'searchResults' && m.query === query).length > 0,
     );
@@ -213,7 +201,6 @@ describe('orgPanelWebview content-search snippet gating', () => {
       b!.snippet!.startsWith(ROLE_LABEL_USER) || b!.snippet!.startsWith(ROLE_LABEL_ASSISTANT),
       'the body snippet is role-prefixed: ' + b!.snippet,
     );
-    // The matched line is the USER line ("...redis..."), so the label is "You: ".
     assert.ok(b!.snippet!.startsWith(ROLE_LABEL_USER), 'the matched line role is You: ' + b!.snippet);
     assert.ok(b!.snippet!.toLowerCase().includes('redis'), 'the matched term rides the snippet');
   });

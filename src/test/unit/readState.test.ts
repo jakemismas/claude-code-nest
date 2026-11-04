@@ -1,10 +1,8 @@
 import * as assert from 'assert';
 import { ReadStateStore, ReadStateMemento, READ_STATE_KEY, READ_STATE_SEEDED_KEY } from '../../views/readState';
 
-// Headless unit tests for the per-device lastSeenAt read-state store. It takes an
-// injected Memento (get/update over a JSON string), so no vscode import is needed
-// (unit-gate rule). Covers round-trip, the monotonic no-regress rule, corrupt/absent
-// tolerance, and the single-key storage shape.
+// Unit tests for the per-device lastSeenAt read-state store over an injected Memento:
+// round-trip, the monotonic no-regress rule, corrupt or absent data, and the single-key shape.
 
 class FakeMemento implements ReadStateMemento {
   private store = new Map<string, string>();
@@ -30,7 +28,6 @@ describe('ReadStateStore round-trip', () => {
     const store = new ReadStateStore(mem);
     store.markSeen('c1', 1000);
     assert.strictEqual(store.getMap().get('c1'), 1000);
-    // Persisted under the single documented key, as a JSON object.
     const raw = mem.raw(READ_STATE_KEY);
     assert.ok(raw && raw.indexOf('c1') !== -1, 'persisted under READ_STATE_KEY');
   });
@@ -110,12 +107,8 @@ describe('ReadStateStore tolerance', () => {
   });
 });
 
-// The persistence-sink id gate (security fix pass round 3): markSeen writes the
-// whole lastSeenAt map back to the memento, so an id that is not in the safe
-// record-id shape (the shape every real transcript-filename sessionId has) must
-// be rejected AT THE SINK. A tampered webview 'open' message or a foreign
-// extension invoking the open command with a multi-megabyte or garbage id would
-// otherwise grow workspaceState without bound.
+// markSeen writes the whole lastSeenAt map to the memento, so an id outside the safe record-id
+// shape (a tampered open message, say) must be rejected at the sink to keep workspaceState bounded.
 describe('ReadStateStore markSeen id gate (safe record-id shape at the sink)', () => {
   it('rejects an oversized id (no write, no map growth)', () => {
     const mem = new FakeMemento();
@@ -150,9 +143,8 @@ describe('ReadStateStore markSeen id gate (safe record-id shape at the sink)', (
   });
 });
 
-// The one-time first-run seed: every chat present at the first scan is marked read at its
-// own last-activity timestamp, exactly once, so pre-existing chats never light the unread
-// dot while later assistant activity still does.
+// The first-run seed marks every chat present at the first scan as read at its own timestamp,
+// once, so existing chats never light the unread dot but later activity does.
 describe('ReadStateStore first-run seed', () => {
   const records = [
     { sessionId: 'old-1', timestamp: 1000 },
@@ -191,8 +183,7 @@ describe('ReadStateStore first-run seed', () => {
   it('a newer assistant message still reads unread after the seed', () => {
     const store = new ReadStateStore(new FakeMemento());
     store.seedIfFirstRun([{ sessionId: 'c1', timestamp: 1000 }], 9999);
-    // The rowStatus predicate shows unread when record.timestamp > seenAt; a
-    // message at 1500 is newer than the seeded 1000.
+    // rowStatus shows unread when record.timestamp > seenAt, and 1500 is newer than the seeded 1000.
     const seenAt = store.getMap().get('c1');
     assert.ok(seenAt !== undefined && 1500 > seenAt);
   });

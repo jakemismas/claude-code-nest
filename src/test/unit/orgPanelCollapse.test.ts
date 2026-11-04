@@ -5,11 +5,8 @@ import {
   foldOneLevel,
 } from '../../views/orgPanelCollapse';
 
-// Headless unit tests for the PURE "collapse one level" logic. It imports no vscode
-// types, so this test never transitively requires the vscode module. It covers the
-// deepest-open-level selection: only expanded folders that have a descendant folder
-// qualify, the max-depth tier is chosen, all candidates at that tier collapse together,
-// and the no-op cases.
+// Unit tests for the pure collapse-one-level logic: deepest open folder selection,
+// ties at the same depth, and the no-op cases.
 
 function node(over: Partial<CollapseFolderNode> & { id: string }): CollapseFolderNode {
   return {
@@ -27,7 +24,7 @@ describe('deepestOpenLevelToCollapse', () => {
   });
 
   it('returns an empty list when no expanded folder has a child folder', () => {
-    // Two leaf root folders: each is expanded but has no nesting to collapse.
+    // Leaf folders have no nesting to collapse.
     const folders = [
       node({ id: 'a', depth: 0, hasChildFolder: false }),
       node({ id: 'b', depth: 0, hasChildFolder: false }),
@@ -36,9 +33,7 @@ describe('deepestOpenLevelToCollapse', () => {
   });
 
   it('collapses the deepest open parent level, not the leaves', () => {
-    // root(0,parent) -> mid(1,parent) -> leaf(2). The deepest OPEN folder that has
-    // a child is mid at depth 1, so collapse it (not the depth-2 leaf, which has no
-    // child to fold).
+    // The deepest open folder that has a child is mid, not the childless leaf.
     const folders = [
       node({ id: 'root', depth: 0, hasChildFolder: true }),
       node({ id: 'mid', depth: 1, hasChildFolder: true }),
@@ -48,7 +43,6 @@ describe('deepestOpenLevelToCollapse', () => {
   });
 
   it('collapses every qualifying folder at the deepest open level together', () => {
-    // Two sibling depth-1 parents, each with a child; both collapse in one action.
     const folders = [
       node({ id: 'root', depth: 0, hasChildFolder: true }),
       node({ id: 'mid1', depth: 1, hasChildFolder: true }),
@@ -60,7 +54,6 @@ describe('deepestOpenLevelToCollapse', () => {
   });
 
   it('skips an already-collapsed folder and falls to the next-deepest open tier', () => {
-    // mid is already collapsed, so the deepest OPEN parent is root at depth 0.
     const folders = [
       node({ id: 'root', depth: 0, hasChildFolder: true }),
       node({ id: 'mid', depth: 1, hasChildFolder: true, collapsed: true }),
@@ -77,8 +70,7 @@ describe('deepestOpenLevelToCollapse', () => {
   });
 
   it('ignores an open folder that is hidden inside a collapsed ancestor (no invisible collapse)', () => {
-    // root(0) is collapsed, hiding mid(1, open, has child) and leaf(2). mid is open
-    // but not on screen, so it must NOT be a candidate; nothing visible qualifies.
+    // A hidden open folder is not on screen, so it is not a candidate.
     const folders = [
       node({ id: 'root', depth: 0, hasChildFolder: true, collapsed: true }),
       node({ id: 'mid', depth: 1, hasChildFolder: true, hasCollapsedAncestor: true }),
@@ -88,9 +80,7 @@ describe('deepestOpenLevelToCollapse', () => {
   });
 
   it('collapses the deepest VISIBLE open tier, not a deeper folder hidden under a collapsed ancestor', () => {
-    // Branch A: a0(0) collapsed hides a1(1, open, has child) and a2(2). Branch B:
-    // b0(0, open, has child) is visible. The deepest open folder by raw depth is the
-    // hidden a1, but only the visible b0 may collapse.
+    // The deepest open folder by raw depth is hidden under a collapsed ancestor, so only the visible one collapses.
     const folders = [
       node({ id: 'a0', depth: 0, hasChildFolder: true, collapsed: true }),
       node({ id: 'a1', depth: 1, hasChildFolder: true, hasCollapsedAncestor: true }),
@@ -102,14 +92,12 @@ describe('deepestOpenLevelToCollapse', () => {
   });
 
   it('collapses only the deepest tier when parents exist at multiple depths', () => {
-    // root(0) and mid(1) are both open parents; deepest open parent is mid(1).
     const folders = [
       node({ id: 'root', depth: 0, hasChildFolder: true }),
       node({ id: 'mid', depth: 1, hasChildFolder: true }),
       node({ id: 'inner', depth: 2, hasChildFolder: true }),
       node({ id: 'leaf', depth: 3, hasChildFolder: false }),
     ];
-    // inner at depth 2 is the deepest open parent.
     assert.deepStrictEqual(deepestOpenLevelToCollapse(folders), ['inner']);
   });
 });
@@ -129,9 +117,7 @@ describe('foldOneLevel (collapse-one-level with the terminal re-expand-all branc
   });
 
   it('re-expands all when nothing is collapsible but real folders exist', () => {
-    // Everything is already collapsed to its shallowest level: root is collapsed and
-    // its descendants are hidden. No candidate remains, so the terminal click asks
-    // the webview to clear its collapsed set (expand all).
+    // With nothing left to collapse, the click asks the webview to expand all.
     const folders = [
       node({ id: 'root', depth: 0, hasChildFolder: true, collapsed: true }),
       node({ id: 'mid', depth: 1, hasChildFolder: true, hasCollapsedAncestor: true }),
@@ -140,9 +126,7 @@ describe('foldOneLevel (collapse-one-level with the terminal re-expand-all branc
   });
 
   it('re-expands all when the tree is only leaf folders with nothing to collapse', () => {
-    // Two leaf roots: no nesting to fold, but real folders exist, so the button's
-    // terminal behavior is expand-all (a harmless clear when the set is already empty
-    // in the webview, which the webview guards on set size).
+    // With only leaf roots the terminal behavior is still expand-all; the webview guards on set size.
     const folders = [
       node({ id: 'a', depth: 0, hasChildFolder: false }),
       node({ id: 'b', depth: 0, hasChildFolder: false }),
@@ -151,9 +135,7 @@ describe('foldOneLevel (collapse-one-level with the terminal re-expand-all branc
   });
 
   it('drives the full fold-up-then-expand-all cycle for a root -> child tree', () => {
-    // Model the webview loop over a two-tier tree root(0,parent) -> child(1,parent)
-    // -> grandchild(2). Each fold click mutates the collapsed / hasCollapsedAncestor
-    // projection the way the webview's Set would, then re-asks foldOneLevel.
+    // Models the webview loop: each fold mutates the collapsed projection, then re-asks foldOneLevel.
     const ids = ['root', 'child', 'grand'];
     const state: Record<string, { collapsed: boolean }> = {
       root: { collapsed: false },
@@ -197,25 +179,19 @@ describe('foldOneLevel (collapse-one-level with the terminal re-expand-all branc
       }
     };
 
-    // Click 1: deepest visible open parent is child(1) -> collapse it.
     let r = foldOneLevel(project(), true);
     assert.deepStrictEqual(r, { action: 'collapse', ids: ['child'] });
     apply(r);
 
-    // Click 2: child is collapsed (grand now hidden), deepest visible open parent is
-    // root(0) -> collapse it.
     r = foldOneLevel(project(), true);
     assert.deepStrictEqual(r, { action: 'collapse', ids: ['root'] });
     apply(r);
 
-    // Click 3: everything is folded to the shallowest tier; nothing collapsible ->
-    // re-expand all.
     r = foldOneLevel(project(), true);
     assert.deepStrictEqual(r, { action: 'expandAll' });
     apply(r);
 
-    // After expand-all the tree is fully open again, and the next click restarts the
-    // cycle by collapsing the deepest tier.
+    // After expand-all the next click restarts the cycle at the deepest tier.
     assert.strictEqual(state.root.collapsed, false);
     assert.strictEqual(state.child.collapsed, false);
     r = foldOneLevel(project(), true);

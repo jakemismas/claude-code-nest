@@ -1,3 +1,5 @@
+// Unit tests for the auto-archive policy: archive, copy or none from activity, star and window.
+
 import * as assert from 'assert';
 import {
   MS_PER_DAY,
@@ -5,11 +7,6 @@ import {
   decideAutoArchive,
   coerceAutoArchiveWindowDays,
 } from '../../store/autoArchivePolicy';
-
-// Pure-logic unit tests for the auto-archive policy. The policy decides archive|copy|none
-// purely from {lastActivity, starred, archived, hasCopy, keepWindowDays, now} with no
-// clock/config/fs access, so every case is deterministic (the boundary case in
-// particular: age exactly == window). No vscode.
 
 const NOW = 1_700_000_000_000;
 
@@ -132,9 +129,7 @@ describe('autoArchivePolicy.decideAutoArchive', () => {
   });
 });
 
-// Security fix pass round 1: a chat the user DELIBERATELY restored must not be
-// silently re-archived by the very next pass. restoredAt (stamped by the store on
-// unarchive) counts as activity for the ARCHIVE decision only.
+// A deliberately restored chat is not re-archived by the next pass: restoredAt counts as activity for the archive decision only.
 describe('autoArchivePolicy.decideAutoArchive: restoredAt (deliberate restore intent)', () => {
   it('does NOT re-archive a restored chat whose transcript is past the window but whose restore is recent', () => {
     assert.strictEqual(

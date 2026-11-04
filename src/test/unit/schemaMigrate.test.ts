@@ -8,9 +8,7 @@ import {
 } from '../../store/schemaMigrate';
 import { ProjectMeta, SCHEMA_VERSION, emptyProjectMeta } from '../../store/schema';
 
-// Pure-logic unit tests for the EXPORT-FILE ENVELOPE validation and migration.
-// This is DISTINCT from schema.test.ts, which exercises the per-project document
-// migration. No vscode, no filesystem.
+// Unit tests for export-file envelope validation and migration; schema.test.ts covers per-project migration.
 
 const DEVICE = 'dev-import';
 const NOW = 1_700_000_000_000;
@@ -78,14 +76,9 @@ describe('schemaMigrate validateEnvelope (shape gate)', () => {
     );
   });
 
-  // Security fix pass (import-envelope hardening, revised in review round 2): a
-  // project KEY from the file is minted verbatim into a synced globalState key
-  // and registered with setKeysForSync (no removal path), so the wrapper gate
-  // bounds its length, charset, and count before any migration runs. A failing
-  // ENTRY is SKIPPED AND COUNTED rather than rejecting the whole file: v0.1.x
-  // accepted any non-empty key, so a user's own pre-0.2.0 backup can carry one
-  // legacy-invalid key among legitimate projects, and wholesale rejection would
-  // make every project in that backup unrestorable.
+  // A project key from the file becomes a synced globalState key with no removal path, so the wrapper gate
+  // bounds its length, charset and count. A failing entry is skipped and counted, not file-fatal, because
+  // pre-0.2.0 backups can hold a legacy-invalid key among valid projects.
   it('skips a non-object project value and keeps the valid remainder', () => {
     const v = validateEnvelope({
       version: 1,
@@ -169,8 +162,7 @@ describe('schemaMigrate migrateEnvelope (version migration, reuse migrateProject
       version: 1,
       exportedAt: NOW,
       projects: {
-        // A pre-versioned (schemaVersion-less) project, exactly the shape
-        // migrateProjectMeta lifts.
+        // A pre-versioned (schemaVersion-less) project, the shape migrateProjectMeta lifts.
         'c--proj': {
           folders: { f1: { id: 'f1', name: 'Inbox', parentId: null, order: 0 } },
           tags: { t1: { id: 't1', label: 'urgent' } },
@@ -188,7 +180,6 @@ describe('schemaMigrate migrateEnvelope (version migration, reuse migrateProject
     assert.strictEqual(proj.schemaVersion, SCHEMA_VERSION);
     assert.strictEqual(proj.folders.f1.name, 'Inbox');
     assert.strictEqual(proj.tags.t1.label, 'urgent');
-    // A stamp-less chat is defaulted to the supplied stamp by migrateProjectMeta.
     assert.strictEqual(proj.chats.c1.updatedAt, NOW);
     assert.strictEqual(proj.chats.c1.deviceId, DEVICE);
   });
@@ -205,7 +196,6 @@ describe('schemaMigrate migrateEnvelope (version migration, reuse migrateProject
           chats: {},
           updatedAt: 5,
           deviceId: 'future',
-          // A newer build's field this build does not understand.
           pinnedChats: ['c1'],
         },
       },
@@ -216,8 +206,7 @@ describe('schemaMigrate migrateEnvelope (version migration, reuse migrateProject
     }
     const norm = migrateEnvelope(env.envelope, DEVICE, NOW);
     const proj = norm.projects['c--proj'];
-    // The project keeps its newer schemaVersion and escrows the unknown field, so a
-    // round-trip through this older build does not strip the newer machine's data.
+    // The project keeps its newer schemaVersion and escrows the unknown field.
     assert.strictEqual(proj.schemaVersion, SCHEMA_VERSION + 3);
     assert.deepStrictEqual(proj.__unknown, { pinnedChats: ['c1'] });
   });
@@ -233,8 +222,7 @@ describe('schemaMigrate migrateEnvelope (version migration, reuse migrateProject
       return;
     }
     const norm = migrateEnvelope(env.envelope, DEVICE, NOW);
-    // The keys come from an untrusted file: a non-own index must resolve to
-    // undefined, never to an inherited Object member.
+    // Keys come from an untrusted file: a non-own index must not resolve to an inherited member.
     assert.strictEqual(Object.getPrototypeOf(norm.projects), null);
     assert.strictEqual(
       (norm.projects as Record<string, unknown>).constructor,
@@ -257,7 +245,6 @@ describe('schemaMigrate buildEnvelope (round-trip foundation)', () => {
     src.folders.f1 = { id: 'f1', name: 'A', parentId: null, order: 0 };
     const projects = { 'c--proj': src };
     const env = buildEnvelope(projects, NOW);
-    // Mutate the source after building.
     src.folders.f1.name = 'MUTATED';
     assert.strictEqual(env.projects['c--proj'].folders.f1.name, 'A');
   });

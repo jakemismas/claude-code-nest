@@ -1,17 +1,7 @@
 import * as vscode from 'vscode';
 
-// tagQuickPick: the vscode-bound multi-select tag picker (QuickPick with
-// canPickMany), the PRIMARY tagging affordance. It presents
-// every tag with the chat's currently-applied tags pre-picked, lets the user
-// toggle many in one pass, and returns the FINAL selected tag-id set. The command
-// layer (taggingCommands.ts) diffs that set against the current set and stages the
-// adds and removes as one batched store write.
-//
-// This module imports vscode (the QuickPick API) and is therefore NOT imported by
-// any unit test; the pure tag-diff logic it feeds lives in taggingCommands.ts
-// behind an injectable seam so the command can be exercised headless. Keeping the
-// raw QuickPick wiring here isolates the one piece that genuinely needs the vscode
-// window.
+// tagQuickPick: the vscode-bound multi-select tag picker (QuickPick with canPickMany). Applied tags are pre-picked and the final selected tag-id set is returned.
+// taggingCommands.ts diffs it against the current set; that logic sits behind an injectable seam so tests never import this module.
 
 // One selectable tag row in the multi-select picker.
 export interface TagPickOption {
@@ -26,14 +16,8 @@ interface TagQuickPickItem extends vscode.QuickPickItem {
   tagId: string;
 }
 
-// Show the multi-select tag picker for a chat. Returns the FINAL set of selected
-// tag ids (those the user left checked), or undefined when the picker was
-// dismissed without confirming (Escape), so the caller can distinguish "confirmed
-// an empty selection" (remove all tags) from "cancelled" (do nothing).
-//
-// canPickMany is true: the user toggles checkboxes and confirms once. The
-// currently-applied tags are pre-picked so confirming without changes is a no-op
-// the caller detects via the diff.
+// Show the multi-select tag picker for a chat. Returns the final selected tag ids, or undefined when dismissed, so the caller can tell "confirmed empty" (remove all) from "cancelled" (do nothing).
+// Applied tags are pre-picked, so confirming without changes yields an empty diff.
 export function showTagMultiPick(
   options: TagPickOption[],
   placeholder: string,

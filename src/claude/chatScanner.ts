@@ -8,26 +8,16 @@ import {
   resolveProjectDir,
 } from './projectKeyResolver';
 
-// Discovers Claude Code chat transcripts for a workspace and reads each into a
-// ChatRecord. STRICTLY READ-ONLY: this module only globs and reads files under
-// ~/.claude/projects/<projectDir>/*.jsonl. It never writes, renames, moves, or
-// deletes anything there. It globs *.jsonl ONLY, so bare-UUID transcript dirs
-// and the "memory" sidecar dir are ignored.
-//
-// This module is vscode-free (it takes the workspace path as a plain string),
-// so the extension host wires it to the active workspace folder.
+// Discovers Claude Code chat transcripts for a workspace and reads each into a ChatRecord.
+// Read-only: it only lists and reads ~/.claude/projects/<projectDir>/*.jsonl, so bare-UUID
+// transcript dirs and the "memory" sidecar dir are ignored. It takes the workspace path as
+// a plain string and has no vscode dependency.
 
 export interface ScannerOptions {
-  // Override the projects root, used by tests to point at a scratch fixture.
-  // Defaults to ~/.claude/projects.
+  // Defaults to ~/.claude/projects; tests point it at a scratch fixture.
   projectsRoot?: string;
-  // Optional plain-callback progress/cancellation seam for a large scan. The
-  // scanner stays vscode-free: the vscode layer (a refresh command wrapping
-  // vscode.window.withProgress with a CancellationToken) supplies these. onProgress
-  // is called after each transcript is read with the running done/total counts;
-  // shouldCancel is polled before each file so a user cancel stops the scan
-  // promptly. Neither is required, so getChildren can scan with no options bag and
-  // the unit suite exercises the seam with plain functions and no vscode import.
+  // Plain callbacks let the vscode layer show progress and cancel without this module importing vscode.
+  // onProgress runs after each transcript; shouldCancel is polled before each file.
   onProgress?: (done: number, total: number) => void;
   shouldCancel?: () => boolean;
 }
@@ -36,9 +26,7 @@ export function defaultProjectsRoot(): string {
   return path.join(os.homedir(), '.claude', 'projects');
 }
 
-// Resolve the project directory for a workspace path against the on-disk dirs,
-// using the tolerant resolver (case-insensitive drive letter plus cwd scan
-// self-verify). Returns null when no project directory exists yet.
+// Returns null when no project directory exists yet.
 export function resolveDir(workspacePath: string, options: ScannerOptions = {}): string | null {
   const root = options.projectsRoot ?? defaultProjectsRoot();
   const deps: ResolveDeps = {
@@ -48,16 +36,9 @@ export function resolveDir(workspacePath: string, options: ScannerOptions = {}):
   return resolveProjectDir(workspacePath, deps);
 }
 
-// Scan all transcripts for a workspace into ChatRecords, sorted newest first
-// (records with no timestamp sort last). Returns [] when the project directory
-// does not resolve or contains no *.jsonl files; never throws on a malformed or
-// unreadable individual transcript.
-//
-// When options.shouldCancel/onProgress are supplied (the vscode refresh-command
-// path wraps vscode.window.withProgress around this), the scan polls shouldCancel
-// before each file and reports done/total after each. A cancel stops early and
-// returns the records gathered so far, still sorted: a partial-but-honest result
-// rather than a throw, so a cancelled refresh leaves the view consistent.
+// Sorted newest first, records with no timestamp last. Returns [] when the project directory
+// does not resolve; an unreadable transcript is skipped. A cancel returns the sorted records
+// gathered so far instead of throwing, so a cancelled refresh leaves the view consistent.
 export function scanChats(workspacePath: string, options: ScannerOptions = {}): ChatRecord[] {
   const root = options.projectsRoot ?? defaultProjectsRoot();
   const dirName = resolveDir(workspacePath, options);
@@ -86,6 +67,39 @@ export function scanChats(workspacePath: string, options: ScannerOptions = {}): 
   return records;
 }
 
+export interface LinkedScan {
+  readonly records: ChatRecord[];
+  // sessionId -> basename of the folder whose transcript directory held the chat.
+  readonly sourceByChat: Map<string, string>;
+}
+
+// The folders to scan: the workspace first, then each linked folder once. The caller
+// passes linked folders already expanded and checked against ~/.claude/projects.
+export function foldersToScan(workspacePath: string, linkedFolders: readonly string[]): string[] {
+  return [workspacePath, ...new Set(linkedFolders.filter((f) => f !== workspacePath))];
+}
+
+// Merges per-folder scan results into one list. A chat found twice keeps the first
+// (workspace) copy. Sorted newest first. Pure: the caller runs scanChats per folder.
+export function mergeFolderScans(
+  parts: ReadonlyArray<{ folder: string; records: readonly ChatRecord[] }>,
+): LinkedScan {
+  const sourceByChat = new Map<string, string>();
+  const byId = new Map<string, ChatRecord>();
+  for (const part of parts) {
+    const label = path.basename(part.folder) || part.folder;
+    for (const record of part.records) {
+      if (!byId.has(record.sessionId)) {
+        byId.set(record.sessionId, record);
+        sourceByChat.set(record.sessionId, label);
+      }
+    }
+  }
+  const records = [...byId.values()];
+  records.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+  return { records, sourceByChat };
+}
+
 // Read one transcript into a ChatRecord. Returns null only when the file cannot
 // be read at all; an empty or title-less transcript still yields a record whose
 // title falls back to the sessionId.
@@ -104,14 +118,12 @@ export function readChat(filePath: string): ChatRecord | null {
     title,
     timestamp: scan.timestamp,
     filePath,
-    // Carry the smart-group signals through to the record. The scanner stays the SOLE
-    // file reader; the reader stays the SOLE parser.
     prNumber: scan.prNumber,
     prUrl: scan.prUrl,
     prRepository: scan.prRepository,
     gitBranch: scan.gitBranch,
+    cwd: scan.cwd ?? null,
     leadingMessageUuids: scan.leadingMessageUuids,
-    // Compact summary fields, carried through with no additional file read.
     messageCount: scan.messageCount,
     firstMessageText: scan.firstMessageText,
     firstMessageRole: scan.firstMessageRole,
@@ -150,9 +162,7 @@ function listDirNames(root: string): string[] {
   return entries.filter((e) => e.isDirectory()).map((e) => e.name);
 }
 
-// Read transcript cwd fields from a project dir for the resolver's scan-fallback
-// self-verification. Reads at most a few lines per transcript, just enough to
-// surface a cwd. Read-only; tolerant of malformed files.
+// Collects each transcript's first cwd so the resolver can verify a directory match.
 function probeCwds(projectDir: string): string[] {
   const cwds = new Set<string>();
   for (const filePath of globJsonl(projectDir)) {

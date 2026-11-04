@@ -1,10 +1,9 @@
+// Unit tests for the additive per-project merge, collision identity and the never-delete-absent rule.
+
 import * as assert from 'assert';
 import { ProjectMeta, emptyProjectMeta } from '../../store/schema';
 import { buildImportPlan, mergeProjectMeta } from '../../store/exportImport';
 import { NormalizedEnvelope } from '../../store/schemaMigrate';
-
-// Pure-logic unit tests for the ADDITIVE per-project merge, the pinned COLLISION
-// IDENTITY RULE, and the never-delete-absent rule. No vscode, no filesystem.
 
 const DEVICE = 'dev-A';
 const NOW = 1_700_000_000_000;
