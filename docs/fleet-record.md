@@ -13,7 +13,7 @@ lines in time order into one entry per session.
 - Set `"v": 1`. A line with any other version is ignored.
 - Set `event` to one of `launch`, `rename`, `rotate`, `end`, `backfill` or `organize`.
   An unknown event is ignored.
-- Set `sessionId` to the chat's session id. It must match `^[0-9a-fA-F-]{8,64}$`, or
+- Set `sessionId` to the chat's session id. It must match `^[0-9a-fA-F][0-9a-fA-F-]{7,63}$`, or
   the line is ignored.
 - Set `at` to an ISO 8601 timestamp. A line with a missing or invalid value takes the time of the line before it.
 - Unknown fields and unknown `role` values are ignored.
@@ -76,7 +76,7 @@ others are past, newest first.
 
 ### end
 
-A session finished. Nest shows it as done, or as failed when `outcome` is `failed`.
+A session finished. Nest shows it as done, or as failed when `outcome` is `failed`. A later `launch` for the same session clears the end.
 
 ```json
 {"v":1,"event":"end","at":"2026-03-02T13:30:00Z","sessionId":"bbbb2222-0000-4000-8000-000000000003","outcome":"done"}

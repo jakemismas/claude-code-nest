@@ -8,50 +8,48 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- A README Fleet view section and `docs/fleet-record.md`, the record contract an orchestrator can write against.
-- Organize rules in the layout file (`rules`) file existing chats into your folders and
-  tags. Settings has an Organize section with Preview, Apply and Undo, and the Command
-  Palette has matching commands. Preview lists every move and writes nothing. A chat you
-  filed by hand is never moved. Apply writes through the normal store path and keeps a
-  per-device record, and Undo restores it.
-- Settings gains a Group chats by control (auto, tickets, folders, date), an Open
-  layout file row and a Robin animations toggle. The grouping choice is stored per
-  workspace and takes precedence over the layout file's `groupBy`. Choosing auto
-  returns to the layout file's value.
-- The header robin reacts to live fleet state: it pecks while chats work (faster with
-  more of them, with a pixel note for each), catches a worm on a new ticket, tilts and
-  asks when a chat needs you, celebrates a finished chat or ticket, ruffles when
-  something fails, flies off and is replaced when the orchestrator rotates, sleeps when
-  nothing runs and shows a moon at night. An egg hatches the first time it runs on a
-  device. It is drawn with square pixels on a branch of its own (thick or leafy), flaps
-  through three wing frames when it flies, takes a victory lap when every queued ticket
-  is done, and flutters off the branch now and then while idle. Reactions (notes,
-  question, exclamation, z, sparkles, moon, worm, check) are pixel glyphs, not font
-  characters. The setting `claudeNest.robin.animations` turns the motion off, and the
-  editor's reduced motion preference is respected.
-- The screenshot harness takes `--theme light|dark` and `--out <dir>`, and writes
-  `<state>-<theme>.png` captures to `.claude-working/screens/` by default.
-- The integration test host finds the VS Code executable through a small injectable
-  module that unit tests cover.
-- Nest reads fleet records from `dev/fleet.jsonl` in each workspace folder, read-only,
-  and refreshes the panel when the file changes.
-- Optional layout file `.nest/config.json` (JSON with comments, read-only) controls
-  grouping, linked folders and fleet files, with a JSON schema, hot reload and an
-  Open Layout File command.
-- Nest works out a live status for each chat (working, needs you, queued, done or idle)
-  from running Claude Code sessions, fleet records and an optional queue file.
-- Clicking a chat that runs as a working or waiting background session offers an Open in
-  terminal button that runs `claude attach` in a new terminal. The chat context menu has
-  the same entry. Every other chat opens through Claude Code as before.
-- Nest can now sort chats into ticket, folder and date groups, with an automatic mode
-  that picks the best fit.
-- The panel shows the fleet view: a pinned orchestrator, past orchestrators, ticket or
-  folder groups with status dots, stage pills and agent tags, an Active filter and a
-  read-only Queue list.
+- Fleet view. If you run several Claude Code sessions at once, the panel shows them as a
+  live fleet: a pinned orchestrator, past orchestrators, ticket or folder groups with
+  status dots, stage pills and agent tags.
+- Fleet records. Nest reads `dev/fleet.jsonl` in each workspace folder, read-only, and
+  refreshes the panel when it changes. `docs/fleet-record.md` is the contract an
+  orchestrator writes against.
+- Live status for each chat (working, needs you, queued, done or idle) from running
+  sessions (`claude agents --json`), fleet records and an optional queue file. A group
+  shows its most urgent dot.
+- Grouping by ticket, folder or date, with an automatic mode that picks the best fit.
+  A chat you filed by hand stays where you put it.
+- Layout file `.nest/config.json` (JSON with comments, read-only) for grouping, tag
+  colors, linked folders, extra fleet files, a queue table and done stages, with a JSON
+  schema, hot reload and an Open Layout File command.
+- Active filter for working and waiting chats, and a read-only Queue list that follows
+  the queue table and marks tickets with a live chat.
+- Open in terminal for a running background session, which runs `claude attach` in a
+  new terminal. Every other chat opens through Claude Code as before.
+- Organize rules in the layout file file existing chats into folders and tags. Preview
+  lists every move and writes nothing, Apply never moves a chat you filed by hand, and
+  Undo restores the state before the last Apply.
+- Settings gains Group chats by, Layout file, Organize and Robin animations.
+- The header robin reacts to the fleet: it pecks while chats work
+  (faster with more of them, with a pixel note for each), asks when one needs
+  you, celebrates finished work, ruffles on a failure, flies when the orchestrator
+  rotates and sleeps when nothing runs. It is drawn in square pixels, pauses while the
+  panel is hidden, and stays still with `claudeNest.robin.animations` off or with the
+  editor's reduced motion preference.
 
 ### Security
 
-- Pre-release audit hardening: the agents lookup runs from the home directory with a hard kill, the status poller has a watchdog so a hung command cannot stall it, and the regex rule check estimates worst-case cost and refuses patterns over budget.
+- The live session lookup runs one fixed command with no shell, from the home
+  directory, with a hard kill and an output cap. A watchdog keeps a hung command from
+  stalling status updates.
+- Organize rule patterns are checked for worst-case cost, and a pattern that could run
+  slowly turns off only its own rule.
+
+### Development
+
+- The screenshot harness takes `--theme light|dark` and `--out <dir>`.
+- Integration tests run from deep checkout paths.
+- `node scripts/readme/robin.js` redraws the README robin from the panel's pixel art.
 
 ## [0.2.0] - 2026-07-10
 
