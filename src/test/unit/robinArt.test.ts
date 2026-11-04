@@ -35,7 +35,7 @@ interface Art {
   birdFrame(flags: { blink?: boolean; flick?: boolean }): string[];
   flightFrame(kind: string): string[];
   birdParts(rows: string[]): Record<string, Rect[]>;
-  legStretch(rows: string[]): Rect[];
+  chestFill(rows: string[]): Rect[];
 }
 
 function loadArt(): Art {
@@ -125,7 +125,7 @@ describe('robin art', () => {
       const total = Object.values(parts).reduce((n, list) => n + list.reduce((m, r) => m + r.w, 0), 0);
       const lit = rows.join('').replace(/\./g, '').length;
       assert.strictEqual(total, lit);
-      assert.ok(parts.head.length > 0 && parts.tail.length > 0 && parts.wing.length > 0 && parts.body.length > 0);
+      assert.ok(['head', 'tail', 'chest', 'lower', 'legs'].every((name) => parts[name].length > 0));
     }
   });
 
@@ -145,50 +145,68 @@ describe('robin art', () => {
     }
   });
 
-  it('hides each leg stretch pixel behind a body pixel of the same color', () => {
-    const stretch = art.legStretch(art.BIRD);
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(stretch)), [
-      { x: 11, y: 8, w: 1, h: 1, c: 'H' },
-      { x: 15, y: 8, w: 1, h: 1, c: 'r' },
-    ]);
-    for (const r of stretch) {
-      assert.strictEqual(art.BIRD[r.y][r.x], r.c, 'the body covers ' + r.x + ',' + r.y);
+  it('breathes with rows 4 to 6 only and fills the row the chest leaves', () => {
+    for (const flags of [{}, { blink: true }, { flick: true }]) {
+      const parts = art.birdParts(art.birdFrame(flags));
+      assert.ok(parts.head.every((r) => r.y < 4), 'head rows 0 to 3');
+      assert.ok(parts.chest.every((r) => r.y >= 4 && r.y <= 6 && r.x > 7), 'chest rows 4 to 6');
+      assert.ok(parts.lower.every((r) => r.y >= 7 && r.y <= 8 && r.x > 7), 'lower body rows 7 and 8');
+      assert.ok(parts.tail.every((r) => r.x <= 7), 'tail columns 0 to 7');
+    }
+    const fill = art.chestFill(art.BIRD);
+    const row6 = art.birdParts(art.BIRD).chest.filter((r) => r.y === 6);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(fill)), JSON.parse(JSON.stringify(row6)));
+    for (const r of fill) {
+      for (let x = r.x; x < r.x + r.w; x += 1) {
+        assert.strictEqual(art.BIRD[r.y][x], r.c, 'the chest hides the fill at ' + x + ',' + r.y);
+      }
     }
   });
 
-  it('keeps the feet planted in every state that is not a jump, hop or flight', () => {
+  it('moves only the head and chest in a state that is not a jump, hop or flight', () => {
     const css = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'media', 'orgPanel.css'), 'utf8');
     const planted = ['idle', 'working', 'error', 'sleep', 'night', 'worm'];
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '').split('}').map((r) => r.trim());
-    const whole = /\.rp-(perch|hop|legs|at)\b/;
+    const whole = /\.rp-(perch|hop|at)\b/;
+    const still = /\.rp-(legs|lower|tail|chest)\b/;
+    const mayMove = /^\.(rp-upper|rp-head|rp-note|rb-[a-z-]+)$/;
+    let checked = 0;
     for (const rule of rules) {
       const brace = rule.indexOf('{');
       if (brace < 0 || rule.startsWith('@keyframes')) {
         continue;
       }
-      const selector = rule.slice(0, brace);
       const decl = rule.slice(brace + 1);
-      const moves = /(^|[\s;])(animation|transform)\s*:/.test(decl);
-      for (const sel of selector.split(',')) {
-        if (!moves || !whole.test(sel)) {
-          continue;
-        }
-        if (/\.rp-legs\b/.test(sel)) {
-          assert.fail('the legs never animate: ' + sel.trim());
-        }
+      if (!/(^|[\s;])(animation|transform)\s*:/.test(decl)) {
+        continue;
+      }
+      for (const raw of rule.slice(0, brace).split(',')) {
+        const sel = raw.trim();
+        assert.ok(!still.test(sel), 'the legs, lower body, tail and chest move only with the whole bird: ' + sel);
         const state = /\[data-state="([a-z]+)"\]/.exec(sel);
-        assert.ok(state, 'a rule that moves the whole bird names its state: ' + sel.trim());
-        assert.ok(!planted.includes(state[1]), state[1] + ' moves the whole bird: ' + sel.trim());
+        if (whole.test(sel)) {
+          assert.ok(state, 'a rule that moves the whole bird names its state: ' + sel);
+          assert.ok(!planted.includes(state[1]), state[1] + ' moves the whole bird: ' + sel);
+        }
+        if (state && planted.includes(state[1])) {
+          const target = sel.split(/\s+/).pop() || '';
+          assert.ok(mayMove.test(target), state[1] + ' moves more than the head and chest: ' + sel);
+          checked += 1;
+        }
       }
     }
+    assert.ok(checked >= 10, 'expected the planted state rules to be checked, got ' + checked);
   });
 
-  it('draws the legs in the panel outside the body group', () => {
+  it('draws the legs, lower body and tail in the panel outside the moving head and chest', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'media', 'orgPanel.js'), 'utf8');
     const start = src.indexOf('function buildRobin(');
     const body = src.slice(start, src.indexOf('\n  }\n', start));
-    assert.ok(/robinGroup\(hop, 'rp-legs'\)/.test(body), 'legs sit in rp-hop');
-    assert.ok(/robinGroup\(hop, 'rp-root'\)/.test(body), 'the body sits in rp-hop beside the legs');
+    for (const cls of ['rp-legs', 'rp-lower', 'rp-tail rp-tail-rest', 'rp-tail rp-tail-flick', 'rp-upper']) {
+      assert.ok(body.includes("robinGroup(hop, '" + cls + "')"), cls + ' sits directly in rp-hop');
+    }
+    assert.ok(body.includes("robinGroup(upper, 'rp-chest')"), 'the chest sits in rp-upper');
+    assert.ok(body.includes("robinGroup(upper, 'rp-head')"), 'the head sits in rp-upper');
   });
 
   it('places every reaction on a known glyph and color', () => {

@@ -43,9 +43,11 @@
     '...........H...r......',
   ];
   const BIRD_ORIGIN = { x: 2, y: 0 };
-  // Rows 0 to 3 are the head; the eye is the single 'e' pixel.
+  // Rows 0 to 3 are the head; the eye is the single 'e' pixel. Rows 4 to 6 are the chest band
+  // (back, wing and breast), the only body rows that breathe. Rows 7 and 8 are the lower body
+  // and the last row is the legs; with the tail they leave the branch only when the bird does.
   const HEAD_ROWS = 4;
-  // The last row is the legs. They stand on the branch and only leave it when the bird does.
+  const LOWER_ROW = 7;
   const LEG_ROW = BIRD.length - 1;
 
   // The branches with the bird removed (the bird's feet land on row 10).
@@ -285,7 +287,7 @@
     return out;
   }
 
-  // Splits a bird frame into head, eye, tail, wing, body and legs so each part can move alone.
+  // Splits a bird frame into head, eye, chest, lower body, tail and legs so each part can move alone.
   function birdParts(rows) {
     const part = (x, y, c) => {
       if (y >= LEG_ROW) {
@@ -300,22 +302,19 @@
       if (y < HEAD_ROWS) {
         return 'head';
       }
-      if (c === 'w') {
-        return 'wing';
-      }
-      return 'body';
+      return y < LOWER_ROW ? 'chest' : 'lower';
     };
     const out = {};
-    for (const name of ['head', 'eye', 'tail', 'wing', 'body', 'legs']) {
+    for (const name of ['head', 'eye', 'tail', 'chest', 'lower', 'legs']) {
       out[name] = runs(rows, (x, y, c) => part(x, y, c) === name);
     }
     return out;
   }
 
-  // One more pixel on top of each leg. The body hides it at rest; when the body rises a
-  // pixel to breathe, it shows, so the legs stretch and the feet stay on the branch.
-  function legStretch(rows) {
-    return birdParts(rows).legs.map((r) => ({ x: r.x, y: r.y - 1, w: r.w, h: r.h, c: r.c }));
+  // A copy of the chest's bottom row that stays with the lower body. The chest hides it at
+  // rest; when the chest rises a pixel to breathe, it fills the row the chest left.
+  function chestFill(rows) {
+    return birdParts(rows).chest.filter((r) => r.y === LOWER_ROW - 1);
   }
 
   function glyphRows(name, color) {
@@ -370,6 +369,7 @@
     PALETTE,
     BIRD,
     BIRD_ORIGIN,
+    LOWER_ROW,
     LEG_ROW,
     BRANCHES,
     BRANCH_W,
@@ -391,7 +391,7 @@
     flightFrame,
     runs,
     birdParts,
-    legStretch,
+    chestFill,
     glyphRows,
     badCells,
     allGrids,
