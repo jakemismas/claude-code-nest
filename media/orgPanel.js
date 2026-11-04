@@ -484,7 +484,7 @@
   // right-click recolorable, and collapsible; the synthetic Unsorted catch-all is a
   // plain drop-target label.
   function renderFolderSection(folder) {
-    const { folderId, name, color, depth, synthetic } = folder;
+    const { folderId, name, depth, synthetic } = folder;
     const visible = sortRows((folder.rows || []).filter(rowMatches));
     const collapsed = !synthetic && collapsedFolders.has(folderId);
 

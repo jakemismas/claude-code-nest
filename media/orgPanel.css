@@ -2075,8 +2075,7 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
 
 /* Animated poses. Every step holds its value until the next keyframe, so motion is whole pixels. */
 .nest-robin-slot[data-motion="full"] .rp-root,
-.nest-robin-slot[data-motion="full"] .rp-head,
-.nest-robin-slot[data-motion="full"] .rb-fx {
+.nest-robin-slot[data-motion="full"] .rp-head {
   animation-timing-function: step-end;
 }
 .nest-robin-slot[data-motion="full"][data-state="idle"] .rp-root,

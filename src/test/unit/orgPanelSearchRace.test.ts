@@ -8,7 +8,7 @@ import { ChatRecord, TokenTotals } from '../../model/types';
 // Regression test for the refresh-during-async-build race in
 // src/views/orgPanelWebview.ts (the content-search machinery the PRIMARY org panel
 // carried over from the retired chatsPreview POC). The content index builds in two
-// detached phases (tier-A, then a yielding body-read upgrade). A 'refresh' message
+// detached phases (tier-A, then a yielding body-read upgrade). A refresh
 // lands invalidateContentIndex() in the middle of the body-read window. WITHOUT the
 // generation guard, the in-flight build would write back AFTER invalidation:
 // contentIndex resurrected to a stale index and bodyIndexReady flipped back to true,
@@ -220,6 +220,7 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
 
     const provider = makeProvider('/ws') as {
       resolveWebviewView(view: unknown): void;
+      refresh(): void;
       contentIndex: unknown;
       bodyIndexReady: boolean;
       indexedRecords: Map<string, unknown>;
@@ -231,7 +232,7 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
     bodyReader.readTranscriptBodies = (): { role: 'user'; text: string; uuid: null }[] => {
       if (!refreshFired) {
         refreshFired = true;
-        send({ type: 'refresh' });
+        provider.refresh();
       }
       return [{ role: 'user', text: 'alpha body', uuid: null }];
     };
@@ -269,7 +270,7 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
     let currentCorpus = stale;
     chatScanner.scanChats = (): ChatRecord[] => currentCorpus.map((r) => ({ ...r }));
 
-    const provider = makeProvider('/ws') as { resolveWebviewView(view: unknown): void };
+    const provider = makeProvider('/ws') as { resolveWebviewView(view: unknown): void; refresh(): void };
     const { view, posted, send } = makeView();
     provider.resolveWebviewView(view);
 
@@ -278,7 +279,7 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
       if (!refreshFired) {
         refreshFired = true;
         currentCorpus = fresh;
-        send({ type: 'refresh' });
+        provider.refresh();
       }
       return [{ role: 'user', text: 'gamma body', uuid: null }];
     };
@@ -320,7 +321,7 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
 
     chatScanner.scanChats = (): ChatRecord[] => corpus.map((r) => ({ ...r }));
 
-    const provider = makeProvider('/ws') as { resolveWebviewView(view: unknown): void };
+    const provider = makeProvider('/ws') as { resolveWebviewView(view: unknown): void; refresh(): void };
     const { view, posted, send } = makeView();
     provider.resolveWebviewView(view);
 
@@ -328,7 +329,7 @@ describe('orgPanelWebview content-search refresh-during-build race', () => {
     bodyReader.readTranscriptBodies = (): { role: 'user'; text: string; uuid: null }[] => {
       if (!refreshFired) {
         refreshFired = true;
-        send({ type: 'refresh' });
+        provider.refresh();
       }
       return [{ role: 'user', text: 'alpha body', uuid: null }];
     };
@@ -418,7 +419,7 @@ describe('orgPanelWebview content-search excludes user-archived chats from the i
       { role: 'user', text: 'zebra body', uuid: null },
     ];
 
-    const provider = makeProviderWithMeta('/ws', meta) as { resolveWebviewView(view: unknown): void };
+    const provider = makeProviderWithMeta('/ws', meta) as { resolveWebviewView(view: unknown): void; refresh(): void };
     const { view, posted, send } = makeView();
     provider.resolveWebviewView(view);
 
