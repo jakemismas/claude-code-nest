@@ -7,8 +7,10 @@ import { FleetSections, buildFleetSections } from '../fleet/groupModel';
 import type { QueueRow } from '../fleet/queueTable';
 import { GroupBy } from '../fleet/nestConfig';
 import { OPEN_LAYOUT_FILE_COMMAND } from '../commands/openLayoutFile';
+import type { OrganizeReport } from '../commands/organizeCommands';
 import { GROUP_BY_OVERRIDE_KEY, coerceGroupByOverride, coerceSettingsInbound } from '../fleet/groupByOverride';
 import { EMPTY_FLEET_STATE, FleetState } from '../fleet/types';
+import { RuleSubject, buildRuleSubjects } from '../fleet/rules';
 import { INITIAL_ROBIN_MEMORY, RobinMemory, RobinOutput, buildRobinMessage, buildRobinSignals, stepRobin } from '../fleet/robinState';
 import { DEFAULT_STAGE_STYLE, StageStyleConfig, buildFleetMessage, coerceSetActive } from './fleetPanel';
 import { readTranscriptBodies } from '../claude/bodyReader';
@@ -155,6 +157,11 @@ type Inbound =
   | { type: 'setGroupBy'; mode: GroupBy }
   | { type: 'setRobinAnimations'; on: boolean }
   | { type: 'openLayoutFile' }
+  // The Settings overlay's Organize buttons. No payload: the host recomputes the plan
+  // from the layout file's rules and its own curation state.
+  | { type: 'organizePreview' }
+  | { type: 'organizeApply' }
+  | { type: 'organizeUndo' }
   | {
       type: 'setSectionsVisible';
       starred?: boolean;
@@ -238,6 +245,18 @@ export interface OrgPanelActions {
 // (markdown | json); named locally so the webview host does not import the command
 // module's type surface for one union.
 export type ExportFormat = 'markdown' | 'json';
+
+// The organize seams the Settings overlay drives. Wired in extension.ts to the organize
+// commands, so the webview never writes to the store itself.
+export interface OrganizeActions {
+  idle(): OrganizeReport;
+  preview(): OrganizeReport;
+  apply(): Promise<OrganizeReport>;
+  undo(): Promise<OrganizeReport>;
+}
+
+// The most moves one organize message lists; the rest are counted.
+const MAX_ORGANIZE_MOVES_POSTED = 500;
 
 // The persisted view-state keys (Memento) for the user's sort and density choice,
 // so the panel reopens in the same mode. Stored on workspaceState by the wiring.
@@ -589,6 +608,29 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  // Every unarchived chat as a rule subject, joined with its fleet record. Scans once
+  // when the panel has not scanned yet. Read-only.
+  getOrganizeSubjects(): RuleSubject[] {
+    if (this.lastRecords.length === 0 && this.workspacePath !== undefined) {
+      try {
+        this.scanAll(this.workspacePath);
+      } catch {
+        return [];
+      }
+    }
+    const projectKey = this.getProjectKey();
+    const meta: ProjectMeta | undefined =
+      projectKey !== undefined ? this.store.getProjectMeta(projectKey) : undefined;
+    const cwdByChat = new Map<string, string>();
+    for (const session of this.agentSessions) {
+      if (session.cwd !== null) {
+        cwdByChat.set(session.sessionId, session.cwd);
+      }
+    }
+    const chats = fleetModelChats(this.lastRecords, meta, cwdByChat).filter((c) => !c.archived);
+    return buildRuleSubjects(chats, this.fleetState.entries, this.workspacePath ?? null);
+  }
+
   getStatuses(): ReadonlyMap<string, ChatStatus> {
     return this.statusByChat;
   }
@@ -739,6 +781,12 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       this.groupByOverrideListener?.();
     } else if (msg.type === 'openLayoutFile') {
       void vscode.commands.executeCommand(OPEN_LAYOUT_FILE_COMMAND);
+    } else if (msg.type === 'organizePreview') {
+      void this.runOrganize('preview');
+    } else if (msg.type === 'organizeApply') {
+      void this.runOrganize('apply');
+    } else if (msg.type === 'organizeUndo') {
+      void this.runOrganize('undo');
     } else if (msg.type === 'setRobinAnimations') {
       // The configuration listener in the host re-posts the robin and the settings state.
       void vscode.workspace
@@ -1022,6 +1070,76 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       groupByOverride: coerceGroupByOverride(this.stateStore.get(GROUP_BY_OVERRIDE_KEY)) ?? 'auto',
       robinAnimations: this.robinAnimations(),
     });
+    this.postOrganizeState();
+  }
+
+  private organizeActions: OrganizeActions | undefined;
+  private lastOrganize: OrganizeReport | undefined;
+
+  setOrganizeActions(actions: OrganizeActions): void {
+    this.organizeActions = actions;
+  }
+
+  // Post an organize report to the Settings overlay's Organize section.
+  postOrganize(report: OrganizeReport): void {
+    this.lastOrganize = report;
+    if (this.view === undefined) {
+      return;
+    }
+    const moves = report.moves.slice(0, MAX_ORGANIZE_MOVES_POSTED).map((m) => ({
+      sessionId: m.sessionId,
+      title: m.title,
+      from: m.fromFolder,
+      to: m.toFolder,
+      createsFolder: m.createsFolder,
+      tags: m.tagsAdded,
+      pin: m.pin,
+    }));
+    void this.view.webview.postMessage({
+      type: 'organize',
+      kind: report.kind,
+      message: report.message,
+      moves,
+      moreMoves: Math.max(0, report.moves.length - moves.length),
+      matched: report.matched,
+      skippedHandFiled: report.skippedHandFiled,
+      rulesActive: report.rulesActive,
+      problems: report.problems.slice(0, 20),
+      canUndo: report.canUndo,
+      undoCount: report.undoCount,
+      skippedOnUndo: report.skippedOnUndo,
+    });
+  }
+
+  // Run one organize action and post its report. A failure is reported, never thrown.
+  async runOrganize(action: 'preview' | 'apply' | 'undo'): Promise<OrganizeReport | undefined> {
+    const actions = this.organizeActions;
+    if (actions === undefined) {
+      return undefined;
+    }
+    try {
+      const report =
+        action === 'preview' ? actions.preview() : action === 'apply' ? await actions.apply() : await actions.undo();
+      this.postOrganize(report);
+      return report;
+    } catch (err) {
+      const base = actions.idle();
+      const message = err instanceof Error ? err.message : 'Organize failed.';
+      const failed: OrganizeReport = { ...base, kind: 'error', message };
+      this.postOrganize(failed);
+      return failed;
+    }
+  }
+
+  // The report the Organize section shows when the Settings overlay opens.
+  private postOrganizeState(): void {
+    if (this.organizeActions === undefined) {
+      return;
+    }
+    const idle = this.organizeActions.idle();
+    // Keep a Preview list on screen across settings re-posts; refresh the Undo state.
+    const last = this.lastOrganize;
+    this.postOrganize(last !== undefined && last.kind === 'preview' ? { ...last, canUndo: idle.canUndo, undoCount: idle.undoCount } : idle);
   }
 
   // Tell the client to OPEN the Settings overlay (a client-side render). Sent when the
@@ -1537,6 +1655,15 @@ function coerce(raw: unknown): Inbound | null {
   }
   if (obj.type === 'openLayoutFile') {
     return { type: 'openLayoutFile' };
+  }
+  if (obj.type === 'organizePreview') {
+    return { type: 'organizePreview' };
+  }
+  if (obj.type === 'organizeApply') {
+    return { type: 'organizeApply' };
+  }
+  if (obj.type === 'organizeUndo') {
+    return { type: 'organizeUndo' };
   }
   if (obj.type === 'refresh') {
     return { type: 'refresh' };

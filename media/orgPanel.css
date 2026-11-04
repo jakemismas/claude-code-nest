@@ -1453,6 +1453,103 @@ body {
   background: var(--nest-btn-hover);
 }
 
+/* Organize: Preview, Apply and Undo buttons, a status line, rule problems and the
+   planned moves on the raised surface. */
+.nest-organize-note {
+  margin-top: 0;
+  margin-bottom: 9px;
+}
+
+.nest-organize-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.nest-organize-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.nest-organize-btn:disabled:hover {
+  background: transparent;
+}
+
+.nest-organize-status {
+  margin-top: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--nest-text-secondary);
+}
+
+.nest-organize-problems {
+  list-style: none;
+  margin: 7px 0 0;
+  padding: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--vscode-editorWarning-foreground, #A8641B);
+}
+
+.nest-organize-problems li + li {
+  margin-top: 3px;
+}
+
+.nest-organize-list {
+  list-style: none;
+  margin: 9px 0 0;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--nest-border-soft);
+  background: var(--vscode-editorWidget-background, #fff);
+  overflow: hidden;
+}
+
+.nest-organize-move {
+  padding: 8px 12px;
+}
+
+.nest-organize-move + .nest-organize-move {
+  border-top: 1px solid var(--nest-border-soft);
+}
+
+.nest-organize-move-title {
+  font-size: 12.5px;
+  color: var(--nest-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nest-organize-move-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--nest-text-muted);
+}
+
+.nest-organize-to {
+  color: var(--nest-text-secondary);
+  font-weight: 600;
+}
+
+.nest-organize-chip {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--nest-border-input);
+  color: var(--nest-text-secondary);
+  line-height: 16px;
+}
+
+.nest-organize-more {
+  padding: 7px 12px;
+  border-top: 1px solid var(--nest-border-soft);
+  font-size: 11.5px;
+  color: var(--nest-text-muted);
+}
+
 /* The robin switch is 34x20 and green when on. */
 .nest-switch-robin {
   height: 20px;

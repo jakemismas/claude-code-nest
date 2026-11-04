@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as os from 'os';
 import {
   FoldersProvider,
   FolderItem,
@@ -150,6 +151,16 @@ import { GROUP_BY_OVERRIDE_KEY, effectiveGroupBy } from './fleet/groupByOverride
 import { EMPTY_FLEET_STATE, FleetState } from './fleet/types';
 import { OPEN_LAYOUT_FILE_COMMAND, openLayoutFile } from './commands/openLayoutFile';
 import { createOpenLayoutDeps } from './commands/openLayoutFileHost';
+import {
+  ORGANIZE_APPLY_COMMAND,
+  ORGANIZE_PREVIEW_COMMAND,
+  ORGANIZE_UNDO_COMMAND,
+  OrganizeDeps,
+  applyOrganize,
+  idleOrganizeReport,
+  previewOrganize,
+  undoOrganize,
+} from './commands/organizeCommands';
 import { resolveFolderName, resolveStarred, resolveTagLabels } from './views/chatMeta';
 
 // Entry point for the Claude Code Nest extension. It contributes the claudeNest Activity
@@ -1524,6 +1535,67 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(OPEN_LAYOUT_FILE_COMMAND, () =>
       openLayoutFile(createOpenLayoutDeps(workspacePath, context.extensionUri)),
     ),
+  );
+  // Organize rules: Preview reads, Apply and Undo write through the store after the
+  // reconcile barrier. The undo snapshot is kept in the store's never-synced local area.
+  const organizeDeps: OrganizeDeps = {
+    store,
+    getProjectKey: () => foldersProvider.resolveProjectKey(),
+    getSubjects: () => orgPanelProvider.getOrganizeSubjects(),
+    // Rules hold patterns from the workspace layout file, so they stay off until the workspace is trusted.
+    getRules: () => (vscode.workspace.isTrusted === false ? [] : configReloader.getParsed().config.rules),
+    getTagColors: () => configReloader.getParsed().config.tags,
+    homedir: os.homedir(),
+    barrier: () => reconcileBeforeAutomatedWrite(),
+    refresh: () => {
+      tagsProvider.refresh();
+      foldersProvider.refresh();
+      refreshOrgPanel();
+      scheduleAutoExport();
+    },
+  };
+  orgPanelProvider.setOrganizeActions({
+    idle: () => idleOrganizeReport(organizeDeps),
+    preview: () => previewOrganize(organizeDeps),
+    apply: () => applyOrganize(organizeDeps),
+    undo: () => undoOrganize(organizeDeps),
+  });
+  const confirmOrganize = async (message: string, label: string): Promise<boolean> =>
+    (await vscode.window.showWarningMessage(message, { modal: true }, label)) === label;
+  context.subscriptions.push(
+    vscode.commands.registerCommand(ORGANIZE_PREVIEW_COMMAND, async () => {
+      await vscode.commands.executeCommand('claudeNest.openSettings');
+      await orgPanelProvider.runOrganize('preview');
+    }),
+    vscode.commands.registerCommand(ORGANIZE_APPLY_COMMAND, async () => {
+      const preview = previewOrganize(organizeDeps);
+      if (preview.moves.length === 0) {
+        void vscode.window.showInformationMessage(preview.message);
+        return;
+      }
+      const count = preview.moves.length;
+      if (!(await confirmOrganize(`Apply organize rules to ${count} ${count === 1 ? 'chat' : 'chats'}? Undo restores them.`, 'Apply'))) {
+        return;
+      }
+      const report = await orgPanelProvider.runOrganize('apply');
+      if (report !== undefined) {
+        void vscode.window.showInformationMessage(report.message);
+      }
+    }),
+    vscode.commands.registerCommand(ORGANIZE_UNDO_COMMAND, async () => {
+      const idle = idleOrganizeReport(organizeDeps);
+      if (!idle.canUndo) {
+        void vscode.window.showInformationMessage('There is nothing to undo.');
+        return;
+      }
+      if (!(await confirmOrganize(`Undo the last organize Apply for ${idle.undoCount} ${idle.undoCount === 1 ? 'chat' : 'chats'}?`, 'Undo'))) {
+        return;
+      }
+      const report = await orgPanelProvider.runOrganize('undo');
+      if (report !== undefined) {
+        void vscode.window.showInformationMessage(report.message);
+      }
+    }),
   );
   if (typeof vscode.workspace.onDidGrantWorkspaceTrust === 'function') {
     context.subscriptions.push(

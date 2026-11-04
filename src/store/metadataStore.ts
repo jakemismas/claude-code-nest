@@ -29,6 +29,8 @@ import {
   ProjectMeta,
   Tag,
   emptyLocalProjectMeta,
+  normalizeOrganizeLedger,
+  OrganizeLedger,
   clampName,
   emptyProjectMeta,
   isMetaKey,
@@ -644,9 +646,41 @@ export class MetadataStore {
   // caller mutation cannot leak into the staged value before it persists.
   putLocalProjectMeta(projectKey: string, local: LocalProjectMeta): Promise<void> {
     const copy = JSON.parse(JSON.stringify(local)) as LocalProjectMeta;
-    return this.enqueueLocalWrite(() =>
-      this.memento.update(localKeyFor(projectKey), copy),
-    );
+    return this.enqueueLocalWrite(() => {
+      // A replacement that carries no organize ledger keeps the one already stored:
+      // the orphan reconcile builds its document without it.
+      if (copy.organize === undefined) {
+        const kept = this.getOrganizeLedger(projectKey);
+        if (kept !== null) {
+          copy.organize = kept;
+        }
+      }
+      return this.memento.update(localKeyFor(projectKey), copy);
+    });
+  }
+
+  // The last organize Apply on this device, or null. Local only, never synced.
+  getOrganizeLedger(projectKey: string): OrganizeLedger | null {
+    return normalizeOrganizeLedger(this.getLocalProjectMeta(projectKey).organize);
+  }
+
+  // Replaces (or with null clears) the organize ledger inside the local companion
+  // document. Runs on the local write chain, so it never interleaves with an orphan
+  // state write. The local key is never registered for sync.
+  setOrganizeLedger(projectKey: string, ledger: OrganizeLedger | null): Promise<void> {
+    if (!isSafeProjectKey(projectKey)) {
+      return Promise.resolve();
+    }
+    const copy = ledger === null ? null : (JSON.parse(JSON.stringify(ledger)) as OrganizeLedger);
+    return this.enqueueLocalWrite(() => {
+      const local = this.getLocalProjectMeta(projectKey);
+      if (copy === null) {
+        delete local.organize;
+      } else {
+        local.organize = copy;
+      }
+      return this.memento.update(localKeyFor(projectKey), local);
+    });
   }
 
   // Set one chat's orphan state. The read of the current document and the write

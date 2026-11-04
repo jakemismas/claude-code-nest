@@ -42,6 +42,8 @@ modules.
 | `src/fleet/` (group model) | `groupModel` (pure: turns chats, fleet state, statuses, the queue and the group-by mode into panel sections), `suffix` (pure: the short text after a chat row's agent tag). |
 | `src/fleet/` (live status) | `status` (pure status mapping and rollup), `queueTable` (pure Markdown table parser), `queueSource` (the only reader of the queue file), `agentsPoller` (poll scheduler with an injected clock and runner). |
 | `src/commands/openLayoutFile.ts` | Opens the layout file in the editor. Writes nothing. |
+| `src/fleet/rules.ts` | Pure organize rules: compile, first-match, folder templates, the Preview plan, the hand-filed guard and the Undo plan. |
+| `src/commands/organizeCommands.ts` | Preview, Apply and Undo. Imports no `vscode`. Writes only through the metadata store, after the reconcile barrier. |
 | `schemas/nest-config.schema.json` | JSON schema for the layout file, shipped in the extension. |
 | `src/search/` | Full-text index (`searchIndex`), its persistence (`searchStore`), and the vendored MiniSearch build. |
 | `src/smart/` | Signal extraction (PR, ticket, branch, fork lineage) used to suggest groups. |
@@ -98,9 +100,10 @@ is type-checked.
 - Webview to host: `ready`, `refresh`, `open`, `search`, `drop`, `toggleStar`,
   `toggleTag`, `createTagWithColor`, `createFolder`, `renameFolder`,
   `setFolderColor`, `deleteFolder`, `exportChat`, `archiveChat`, `restoreChat`,
-  `previewArchivedChat`, `newSession`, `setState`, and a few settings messages.
+  `previewArchivedChat`, `newSession`, `setState`, `organizePreview`,
+  `organizeApply`, `organizeUndo` (no payload), and a few settings messages.
 - Host to webview: `sections`, `state`, `searchResults`, `settings`,
-  `archivedRows`, `active`, `openSettings`, `openArchive`. The `settings` message
+  `archivedRows`, `active`, `openSettings`, `openArchive`, `organize`. The `settings` message
   also carries `groupByOverride` (`auto` when none) and `robinAnimations`.
 
 The host owns all state changes. The webview only requests them.
@@ -112,7 +115,7 @@ Nest keeps data in three places, chosen by how it should travel.
 | Store | Holds | Synced |
 | --- | --- | --- |
 | Synced `globalState`, key `nest.meta.v1::<projectKey>` | Folders, tags, per-chat folder, tags, links, stars, archive flags. One document per project. | Yes, through VS Code Settings Sync. |
-| Per-device state: `nest.local.v1`, `nest.shadow.v1`, `nest.deviceId.v1`, and `workspaceState` | Orphaned records, the shadow copy used to merge remote edits, the device id, sort and layout choices, read markers. | No. |
+| Per-device state: `nest.local.v1`, `nest.shadow.v1`, `nest.deviceId.v1`, and `workspaceState` | Orphaned records, the last organize Apply (for Undo), the shadow copy used to merge remote edits, the device id, sort and layout choices, read markers. | No. |
 | `globalStorage` files | The search index and Nest's copies of archived chat bodies. | No. |
 
 Only `nest.meta.v1::*` keys are registered for sync. Keeping one document per
@@ -176,14 +179,15 @@ never writes, creates, renames or deletes it. You edit it in the editor.
   fleet paths, re-creates the fleet watchers only when the resolved path list
   changed, reloads fleet state and refreshes the panel.
 - `placement.ts` picks a chat's group in this order: a folder you filed it in by
-  hand, a fleet organize folder, rules (not used yet), then automatic grouping by
+  hand, a fleet organize folder, then automatic grouping by
   `groupBy` (`auto`, `tickets`, `folders`, `date`). A computed group is display
   only. It is not a drop target and writes no metadata, and it stays visible when
-  the Unsorted section is hidden.
+  the Unsorted section is hidden. Organize rules do not place chats virtually; they
+  file chats into your folders when you press Apply (see Organize rules).
 - `schemas/nest-config.schema.json` is contributed through `contributes.jsonValidation`
   for `.nest/config.json` and ships in the VSIX.
-- The Settings overlay holds a Group chats by control, a Layout file row and a Robin
-  animations toggle. Group chats by is a per-workspace override stored in
+- The Settings overlay holds a Group chats by control, a Layout file row, an Organize
+  section and a Robin animations toggle. Group chats by is a per-workspace override stored in
   `workspaceState` under `claudeNest.orgPanel.groupByOverride`, never synced. A concrete
   override (`tickets`, `folders` or `date`) takes precedence over the layout file's
   `groupBy`. `auto` clears it, and the layout file's value stands. `groupByOverride.ts`
@@ -195,6 +199,21 @@ never writes, creates, renames or deletes it. You edit it in the editor.
   JSONC editor when the file is missing. It uses no filesystem write.
 - Unit tests cover parsing, coercion, expansion, precedence and the reloader with a
   fake clock. The hot reload and the command run in `npm run test:integration`.
+
+## Organize rules
+
+The `rules` array of the layout file files existing chats into your folders and tags. Nest only acts when you press a button: nothing applies on a file change.
+
+A rule is `{ "match": { ... }, "folder"?, "tags"?, "pin"? }`. The `match` object takes `role`, `agent`, `ticket` (`true` or a regular expression), `name` (a regular expression) and `cwd` (a glob where `*` matches any run of characters). Every condition must hold. `folder` is a template with the fields `{ticket}`, `{title}`, `{agent}`, `{role}` and `{subfolder}`; a slash in the template makes one sublevel. `tags` lists tag names, and `pin: true` stars the chat.
+
+- `src/fleet/rules.ts` is pure and clock-free. Rules are evaluated in file order and the first match wins. Each regular expression is capped at 200 characters, compiled once, and limited to a backtracking-safe shape: at most three quantifiers, no repeated groups, lookarounds or backreferences. Only the first 500 characters of a name or ticket are tested, and rules stay off until the workspace is trusted. A rule with an invalid or over-long pattern, an unknown key or field, no condition or no action is turned off and reported, and the other rules stay active.
+- A template expands from the coerced fleet fields and the scan only. A field value never adds a level (its slashes become hyphens), the result has at most two levels, and an empty field leaves the chat unfiled by that rule. Names go through the same folder path expansion as a folder created by hand.
+- Preview covers every unarchived chat, including chats known only from `backfill` records, and lists each move with the current folder, the target folder, the tags to add and whether the chat is starred. It writes nothing.
+- A chat you filed by hand is never moved or retagged. A chat is movable only when it has no folder, or its folder is the one the last Apply chose for it. After Undo, a folder the user kept on a chat Undo skipped counts as filed by hand.
+- Apply runs after the reconcile barrier, recomputes the plan, creates missing folders and tags, and writes through the metadata store like a hand move. It stores a per-device record in `nest.local.v1` (never synced, no schema version change): the folder and tags each changed chat had before, the folders and tags Apply created, and the folder chosen for each chat a rule filed.
+- Undo restores the last Apply's record. It leaves alone a chat whose folder or star changed since, removes only the tags Apply added, deletes folders and tags Apply created that nothing uses any more, and clears the record.
+- The Settings overlay posts `organizePreview`, `organizeApply` and `organizeUndo`. The host drops any other organize message. The commands `claudeNest.organizePreview`, `claudeNest.organizeApply` and `claudeNest.organizeUndo` reach the same code from the Command Palette; Apply and Undo ask for confirmation there.
+- Unit tests cover matching, first-match, templates, the hand-filed guard, the Preview plan and Undo. A store-backed test covers Apply then Undo behind a barrier.
 
 ## Live status
 

@@ -101,6 +101,22 @@
   // animations setting, both hydrated from the host 'settings' message.
   let groupByOverride = 'auto';
   let robinAnimationsOn = true;
+  // The Organize section: the last report the host posted for the layout file's rules.
+  // moves is the Preview list; Apply and Undo are enabled from it.
+  let organizeState = {
+    kind: 'idle',
+    message: '',
+    moves: [],
+    moreMoves: 0,
+    matched: 0,
+    skippedHandFiled: 0,
+    rulesActive: 0,
+    problems: [],
+    canUndo: false,
+    undoCount: 0,
+    skippedOnUndo: 0,
+  };
+  let organizeBusy = false;
   const GROUP_BY_OPTIONS = [
     { mode: 'auto', label: 'Auto' },
     { mode: 'tickets', label: 'Tickets' },
@@ -2273,6 +2289,58 @@
     layoutRow.appendChild(openBtn);
     body.appendChild(layoutRow);
 
+    // ORGANIZE: Preview, Apply and Undo for the layout file's rules.
+    const organizeLabel = document.createElement('div');
+    organizeLabel.className = 'nest-settings-group-label nest-settings-group-label-spaced';
+    organizeLabel.textContent = 'ORGANIZE';
+    body.appendChild(organizeLabel);
+
+    const organizeNote = document.createElement('div');
+    organizeNote.className = 'nest-settings-note nest-organize-note';
+    organizeNote.textContent = 'The rules in your layout file sort chats into folders and tags. Preview lists every move first; nothing changes until you apply.';
+    body.appendChild(organizeNote);
+
+    const organizeActions = document.createElement('div');
+    organizeActions.className = 'nest-organize-actions';
+    [
+      { act: 'preview', label: 'Preview', type: 'organizePreview', aria: 'Preview organize rules' },
+      { act: 'apply', label: 'Apply', type: 'organizeApply', aria: 'Apply organize rules' },
+      { act: 'undo', label: 'Undo', type: 'organizeUndo', aria: 'Undo the last organize apply' },
+    ].forEach(function (def) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'nest-settings-open-btn nest-organize-btn';
+      btn.dataset.organize = def.act;
+      btn.textContent = def.label;
+      btn.setAttribute('aria-label', def.aria);
+      btn.addEventListener('click', function () {
+        if (btn.disabled) {
+          return;
+        }
+        organizeBusy = true;
+        renderOrganize();
+        vscode.postMessage({ type: def.type });
+      });
+      organizeActions.appendChild(btn);
+    });
+    body.appendChild(organizeActions);
+
+    const organizeStatus = document.createElement('div');
+    organizeStatus.className = 'nest-organize-status';
+    organizeStatus.setAttribute('role', 'status');
+    organizeStatus.setAttribute('aria-live', 'polite');
+    body.appendChild(organizeStatus);
+
+    const organizeProblems = document.createElement('ul');
+    organizeProblems.className = 'nest-organize-problems';
+    organizeProblems.setAttribute('aria-label', 'Rule problems');
+    body.appendChild(organizeProblems);
+
+    const organizeList = document.createElement('ul');
+    organizeList.className = 'nest-organize-list';
+    organizeList.setAttribute('aria-label', 'Planned moves');
+    body.appendChild(organizeList);
+
     // ROBIN: the animations switch.
     const robinLabel = document.createElement('div');
     robinLabel.className = 'nest-settings-group-label nest-settings-group-label-spaced';
@@ -2407,8 +2475,154 @@
     document.body.appendChild(overlay);
     settingsOverlayEl = overlay;
     reconcileOpenSettingsControls();
+    renderOrganize();
     wireDialogFocusTrap(overlay);
     back.focus();
+  }
+
+  // Coerces the host's organize report to a safe shape. Every string is rendered as
+  // textContent only; counts and lists are bounded.
+  function coerceOrganize(msg) {
+    const text = function (v, max) {
+      return typeof v === 'string' ? v.slice(0, max) : '';
+    };
+    const num = function (v) {
+      return typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+    };
+    const moves = [];
+    if (Array.isArray(msg.moves)) {
+      msg.moves.slice(0, 500).forEach(function (m) {
+        if (!m || typeof m !== 'object' || typeof m.sessionId !== 'string') {
+          return;
+        }
+        moves.push({
+          sessionId: text(m.sessionId, 64),
+          title: text(m.title, 200),
+          from: typeof m.from === 'string' ? text(m.from, 400) : null,
+          to: typeof m.to === 'string' ? text(m.to, 400) : null,
+          createsFolder: m.createsFolder === true,
+          tags: Array.isArray(m.tags) ? m.tags.slice(0, 20).map(function (t) { return text(t, 200); }) : [],
+          pin: m.pin === true,
+        });
+      });
+    }
+    return {
+      kind: msg.kind === 'preview' || msg.kind === 'applied' || msg.kind === 'undone' || msg.kind === 'error' ? msg.kind : 'idle',
+      message: text(msg.message, 300),
+      moves: moves,
+      moreMoves: num(msg.moreMoves),
+      matched: num(msg.matched),
+      skippedHandFiled: num(msg.skippedHandFiled),
+      rulesActive: num(msg.rulesActive),
+      problems: Array.isArray(msg.problems) ? msg.problems.slice(0, 20).map(function (t) { return text(t, 300); }) : [],
+      canUndo: msg.canUndo === true,
+      undoCount: num(msg.undoCount),
+      skippedOnUndo: num(msg.skippedOnUndo),
+    };
+  }
+
+  // Folder paths arrive as 'A/B'; show them with spaced separators like the breadcrumb.
+  function organizePathText(p) {
+    return typeof p === 'string' && p.length > 0 ? p.split('/').join(' / ') : 'Unsorted';
+  }
+
+  // Paints the Organize section from organizeState. Safe to call while the overlay is closed.
+  function renderOrganize() {
+    if (!settingsOverlayEl) {
+      return;
+    }
+    const st = organizeState;
+    const previewBtn = settingsOverlayEl.querySelector('[data-organize="preview"]');
+    const applyBtn = settingsOverlayEl.querySelector('[data-organize="apply"]');
+    const undoBtn = settingsOverlayEl.querySelector('[data-organize="undo"]');
+    if (previewBtn) {
+      previewBtn.disabled = organizeBusy;
+    }
+    if (applyBtn) {
+      applyBtn.disabled = organizeBusy || st.kind !== 'preview' || st.moves.length === 0;
+    }
+    if (undoBtn) {
+      undoBtn.disabled = organizeBusy || !st.canUndo;
+      undoBtn.textContent = st.canUndo && st.undoCount > 0 ? 'Undo ' + st.undoCount : 'Undo';
+    }
+    const status = settingsOverlayEl.querySelector('.nest-organize-status');
+    if (status) {
+      const parts = [];
+      if (organizeBusy) {
+        parts.push('Working...');
+      } else {
+        if (st.message) {
+          parts.push(st.message);
+        }
+        if (st.kind === 'preview' && st.skippedHandFiled > 0) {
+          parts.push(st.skippedHandFiled + (st.skippedHandFiled === 1 ? ' chat you filed by hand is left alone.' : ' chats you filed by hand are left alone.'));
+        }
+      }
+      status.textContent = parts.join(' ');
+      status.hidden = parts.length === 0;
+    }
+    const problems = settingsOverlayEl.querySelector('.nest-organize-problems');
+    if (problems) {
+      problems.textContent = '';
+      st.problems.forEach(function (text) {
+        const li = document.createElement('li');
+        li.textContent = text;
+        problems.appendChild(li);
+      });
+      problems.hidden = st.problems.length === 0;
+    }
+    const list = settingsOverlayEl.querySelector('.nest-organize-list');
+    if (list) {
+      list.textContent = '';
+      const moves = st.kind === 'preview' ? st.moves : [];
+      moves.forEach(function (m) {
+        const li = document.createElement('li');
+        li.className = 'nest-organize-move';
+        const title = document.createElement('div');
+        title.className = 'nest-organize-move-title';
+        title.textContent = m.title || m.sessionId;
+        title.title = m.title || m.sessionId;
+        li.appendChild(title);
+        const detail = document.createElement('div');
+        detail.className = 'nest-organize-move-detail';
+        if (typeof m.to === 'string' && m.to.length > 0) {
+          const from = document.createElement('span');
+          from.className = 'nest-organize-from';
+          from.textContent = organizePathText(m.from);
+          detail.appendChild(from);
+          const arrow = document.createElement('span');
+          arrow.className = 'nest-organize-arrow';
+          arrow.setAttribute('aria-hidden', 'true');
+          arrow.textContent = '\u2192';
+          detail.appendChild(arrow);
+          const to = document.createElement('span');
+          to.className = 'nest-organize-to';
+          to.textContent = organizePathText(m.to) + (m.createsFolder ? ' (new)' : '');
+          detail.appendChild(to);
+        }
+        (m.tags || []).forEach(function (label) {
+          const chip = document.createElement('span');
+          chip.className = 'nest-organize-chip';
+          chip.textContent = '+ ' + label;
+          detail.appendChild(chip);
+        });
+        if (m.pin) {
+          const chip = document.createElement('span');
+          chip.className = 'nest-organize-chip';
+          chip.textContent = 'Star';
+          detail.appendChild(chip);
+        }
+        li.appendChild(detail);
+        list.appendChild(li);
+      });
+      if (st.kind === 'preview' && st.moreMoves > 0) {
+        const more = document.createElement('li');
+        more.className = 'nest-organize-more';
+        more.textContent = '+ ' + st.moreMoves + ' more';
+        list.appendChild(more);
+      }
+      list.hidden = list.children.length === 0;
+    }
   }
 
   // Reconcile the OPEN overlay's controls to the current state WITHOUT a rebuild, so a
@@ -4253,6 +4467,10 @@
       if (isSettingsOpen()) {
         reconcileOpenSettingsControls();
       }
+    } else if (msg.type === 'organize') {
+      organizeBusy = false;
+      organizeState = coerceOrganize(msg);
+      renderOrganize();
     } else if (msg.type === 'openSettings') {
       // The palette/view-title Settings command asked to open the in-panel overlay.
       openSettingsOverlay();

@@ -18,9 +18,33 @@
     "rules": {
       "type": "array",
       "maxItems": 200,
-      "description": "Ordered organize rules. Validated now and applied in a later release.",
+      "description": "Ordered organize rules. The first rule that matches a chat decides its folder, tags and star. Use Preview, then Apply, in Settings.",
       "items": {
         "type": "object",
+        "properties": {
+          "match": {
+            "type": "object",
+            "description": "Every condition must hold.",
+            "properties": {
+              "role": { "type": "string", "maxLength": 200 },
+              "agent": { "type": "string", "maxLength": 200 },
+              "ticket": {
+                "description": "true for any ticket, or a regular expression.",
+                "oneOf": [{ "const": true }, { "type": "string", "maxLength": 200 }]
+              },
+              "name": { "type": "string", "maxLength": 200, "description": "A regular expression." },
+              "cwd": { "type": "string", "maxLength": 200, "description": "A glob where * matches any run of characters." }
+            },
+            "additionalProperties": false
+          },
+          "folder": {
+            "type": "string",
+            "description": "A folder name. Fields: {ticket}, {title}, {agent}, {role}, {subfolder}. One slash makes a sublevel."
+          },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "pin": { "type": "boolean" }
+        },
+        "required": ["match"],
         "additionalProperties": true
       }
     },

@@ -97,6 +97,25 @@ describe('parseNestConfig', () => {
     assert.strictEqual(problems.length, 1);
   });
 
+  it('keeps a sanitized nested match object on a rule', () => {
+    const { config, problems } = parseNestConfig(
+      '{"rules":[{"match":{"role":"qa","ticket":true,"__proto__":"x","name":"' + 'a'.repeat(500) + '"},"tags":["qa"]}]}',
+    );
+    assert.deepStrictEqual(problems, []);
+    const match = config.rules[0].match as { [k: string]: string | boolean };
+    assert.strictEqual(match.role, 'qa');
+    assert.strictEqual(match.ticket, true);
+    assert.strictEqual(Object.keys(match).includes('__proto__'), false);
+    // One character past the cap survives so the rule compiler can refuse the rule.
+    assert.strictEqual(String(match.name).length, 201);
+  });
+
+  it('drops a rule whose match has a non-string, non-boolean condition and reports it', () => {
+    const { config, problems } = parseNestConfig('{"rules":[{"match":{"role":"qa","name":5},"tags":["x"]}]}');
+    assert.strictEqual(config.rules.length, 0);
+    assert.ok(problems.some((p) => p.includes('rules[0].match')));
+  });
+
   it('accepts comments, trailing commas and a BOM', () => {
     const text = '﻿{\n // note\n "groupBy": "tickets", /* x */\n "doneStages": ["a//b",],\n}';
     const { config, problems } = parseNestConfig(text);

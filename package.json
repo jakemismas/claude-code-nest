@@ -46,7 +46,10 @@
     "onCommand:claudeNest.refresh",
     "onCommand:claudeNest.linkToChat",
     "onCommand:claudeNest.unlinkChat",
-    "onCommand:claudeNest.openLayoutFile"
+    "onCommand:claudeNest.openLayoutFile",
+    "onCommand:claudeNest.organizePreview",
+    "onCommand:claudeNest.organizeApply",
+    "onCommand:claudeNest.organizeUndo"
   ],
   "contributes": {
     "viewsContainers": {
@@ -139,6 +142,21 @@
       {
         "command": "claudeNest.openLayoutFile",
         "title": "Open Layout File",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.organizePreview",
+        "title": "Organize Chats: Preview Rules",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.organizeApply",
+        "title": "Organize Chats: Apply Rules",
+        "category": "Claude Code Nest"
+      },
+      {
+        "command": "claudeNest.organizeUndo",
+        "title": "Organize Chats: Undo Last Apply",
         "category": "Claude Code Nest"
       },
       {

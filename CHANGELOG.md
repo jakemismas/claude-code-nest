@@ -8,6 +8,11 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Organize rules in the layout file (`rules`) file existing chats into your folders and
+  tags. Settings has an Organize section with Preview, Apply and Undo, and the Command
+  Palette has matching commands. Preview lists every move and writes nothing. A chat you
+  filed by hand is never moved. Apply writes through the normal store path and keeps a
+  per-device record, and Undo restores it.
 - Settings gains a Group chats by control (auto, tickets, folders, date), an Open
   layout file row and a Robin animations toggle. The grouping choice is stored per
   workspace and takes precedence over the layout file's `groupBy`. Choosing auto

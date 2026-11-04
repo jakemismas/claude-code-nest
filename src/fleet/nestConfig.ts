@@ -23,8 +23,18 @@ export const MAX_CONFIG_BYTES = 256 * 1024;
 const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-// A rule is kept as a sanitized plain object. Rules are not applied yet.
-export type NestRule = { readonly [key: string]: string | number | boolean | readonly string[] };
+// The longest regular expression or glob a match condition may carry. Coercion keeps one
+// character more so the rule compiler can tell an over-long pattern from one that fits
+// and disable that rule instead of running a silently shortened pattern.
+export const MAX_MATCH_PATTERN_LEN = 200;
+
+// The conditions of one organize rule: string and boolean values only.
+export type NestRuleMatch = { readonly [key: string]: string | boolean };
+
+// A rule is kept as a sanitized plain object. The organize rule compiler reads it.
+export type NestRule = {
+  readonly [key: string]: string | number | boolean | readonly string[] | NestRuleMatch;
+};
 
 export interface NestQueueConfig {
   readonly file: string;
@@ -151,17 +161,49 @@ function coerceStringList(
   return out;
 }
 
-function coerceRule(raw: unknown): NestRule | null {
-  if (!isPlainObject(raw)) {
-    return null;
-  }
-  const rule: { [key: string]: string | number | boolean | readonly string[] } = {};
+// Keeps the string and boolean conditions of a rule's match object. Returns null when a
+// condition has any other type: dropping it would widen the rule, so the caller drops
+// the whole rule instead.
+function coerceMatch(raw: Record<string, unknown>): NestRuleMatch | null {
+  const match: { [key: string]: string | boolean } = {};
   for (const [key, value] of Object.entries(raw)) {
     const k = cleanString(key, MAX_CONFIG_NAME_LEN);
     if (k === null || UNSAFE_KEYS.has(k)) {
       continue;
     }
-    if (typeof value === 'string') {
+    if (typeof value === 'boolean') {
+      match[k] = value;
+    } else if (typeof value === 'string') {
+      const s = cleanString(value, MAX_MATCH_PATTERN_LEN + 1);
+      if (s === null) {
+        return null;
+      }
+      match[k] = s;
+    } else {
+      return null;
+    }
+  }
+  return match;
+}
+
+function coerceRule(raw: unknown, index: number, problems: string[]): NestRule | null {
+  if (!isPlainObject(raw)) {
+    return null;
+  }
+  const rule: { [key: string]: string | number | boolean | readonly string[] | NestRuleMatch } = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const k = cleanString(key, MAX_CONFIG_NAME_LEN);
+    if (k === null || UNSAFE_KEYS.has(k)) {
+      continue;
+    }
+    if (k === 'match' && isPlainObject(value)) {
+      const match = coerceMatch(value);
+      if (match === null) {
+        problems.push(`rules[${index}].match has a condition that is not a string or a boolean; the rule was ignored.`);
+        return null;
+      }
+      rule[k] = match;
+    } else if (typeof value === 'string') {
       const s = cleanString(value, MAX_CONFIG_PATH_LEN);
       if (s !== null) {
         rule[k] = s;
@@ -222,8 +264,8 @@ export function parseNestConfig(text: string | null): ParsedNestConfig {
   if (raw.rules !== undefined) {
     if (Array.isArray(raw.rules)) {
       let dropped = 0;
-      for (const item of raw.rules) {
-        const rule = coerceRule(item);
+      for (let i = 0; i < raw.rules.length; i++) {
+        const rule = coerceRule(raw.rules[i], i, problems);
         if (rule === null) {
           dropped++;
         } else {
