@@ -16,8 +16,11 @@ const sandbox = {};
 vm.runInNewContext(fs.readFileSync(path.join(repo, 'media', 'mascot.js'), 'utf8'), sandbox);
 const mascot = sandbox.NestMascot;
 
-// The area one robin needs: the highest jump and burst reach 13 pixels above the art's top row.
-const BOX = { x: -4, y: -13, w: 34, h: 27 };
+// The rows above the branch's top row that jumps, notes and sparkles may use; the panel header
+// keeps the same room, and a unit test holds every scene to it.
+const HEADROOM = 13;
+// The area one robin needs, with that headroom above the art's top row.
+const BOX = { x: -4, y: -HEADROOM, w: 34, h: 27 };
 const STEP_MS = 50;
 // The hero loop: the robin works with two chats, then finishes and celebrates.
 const HERO = [
@@ -40,21 +43,47 @@ const SHEET = [
   ['milestone', 'queue done', 1500],
 ];
 
+// The host's timing, from the compiled extension, so the style sheet says what the host does.
+const hostFile = path.join(repo, 'out', 'fleet', 'robinState.js');
+if (!fs.existsSync(hostFile)) {
+  throw new Error('Run npm run compile first: the style sheet reads the robin timing from ' + path.relative(repo, hostFile));
+}
+const host = require(hostFile);
+const T = host.TRANSIENT_MS;
+const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+const word = (n) => (n >= 0 && n < WORDS.length ? WORDS[n] : String(n));
+const upper = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const seconds = (ms) => {
+  const n = Math.round(ms / 100) / 10;
+  return n + (n === 1 ? ' second' : ' seconds');
+};
+const clock = (h) => (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? ' AM' : ' PM');
+const sleepMinutes = host.SLEEP_AFTER_MS / 60000;
+
 // The style sheet's states, in the order the host ranks them: when two apply, the earlier one
-// shows. loop is the length of one seamless cycle in ms; a one-shot scene adds a second of rest.
-// Working shows three chats, each with its own note lane.
+// shows. loop is the length of one seamless cycle in ms, starting at from; a one-shot scene adds
+// a second of rest. Working shows three chats, each with its own note lane. Its cycle holds four
+// notes per lane, one per note color, and starts a cycle in, so the notes in flight match at the seam.
 const WORKING_NOTES = { delays: [150, 1350, 2550], minMs: 3000, spreadMs: 0 };
 const STATES = [
-  { state: 'hatch', name: 'Hatch', loop: 6300, when: 'The first time Nest opens on a computer. The egg wobbles, cracks and the robin bursts out. Plays once, for 5.3 seconds.' },
-  { state: 'rotate', name: 'Rotate', loop: 5400, when: 'A new orchestrator takes over the chain. The robin flies off to the right and a fresh one lands from the left. Plays once, for 4.4 seconds.' },
-  { state: 'error', name: 'Error', loop: 4000, when: 'A chat fails: its fleet record ends with outcome failed, or the CLI reports it failed. The robin squawks with its hackles up. Holds for 6 seconds.' },
+  { state: 'hatch', name: 'Hatch', loop: T.hatch + 1000, when: `The first time Nest opens on a computer. The egg wobbles, cracks and the robin bursts out. Plays once, for ${seconds(T.hatch)}.` },
+  { state: 'rotate', name: 'Rotate', loop: T.rotate + 1000, when: `A new orchestrator takes over the chain. The robin flies off to the right and a fresh one lands from the left. Plays once, for ${seconds(T.rotate)}.` },
+  { state: 'error', name: 'Error', loop: 4000, when: `A chat fails: its fleet record ends with outcome failed, or the CLI reports it failed. The robin squawks with its crest up. Holds for ${seconds(T.error)}.` },
   { state: 'needs', name: 'Needs you', loop: 6000, when: 'While any chat waits for you. The robin faces you, chirps and hops under a question mark until you answer.' },
-  { state: 'worm', name: 'New chat', loop: 5000, when: 'A new chat starts for a ticket. The robin catches a worm and gulps it down. Plays once, for 4 seconds.' },
-  { state: 'done', name: 'Done', loop: 4500, when: 'A chat ends with outcome done, or a ticket reaches a finished stage. The robin jumps, a check pops up and it sings three notes. Plays once, for 3.5 seconds.' },
-  { state: 'milestone', name: 'Queue done', loop: 5500, when: 'Every ticket in the queue is finished. The robin makes two jumps in a ring of sparkles and sings. Plays once, for 4.5 seconds.' },
-  { state: 'working', name: 'Working', loop: 6000, notes: WORKING_NOTES, speed: 1, when: 'While chats work. The robin taps along, and each working chat (up to six) sends a note from its beak at random moments. Three or more chats tap faster, six or more faster still.' },
-  { state: 'sleep', name: 'Sleeping', loop: 7200, when: 'Nothing has run for 10 minutes. The robin tucks its head and snores.' },
-  { state: 'night', name: 'Night', loop: 7200, when: 'The robin is asleep between 10 PM and 6 AM local time. A moon and stars come out.' },
+  { state: 'worm', name: 'New chat', loop: T.worm + 1000, when: `A new chat starts for a ticket. The robin catches a worm and gulps it down. Plays once, for ${seconds(T.worm)}.` },
+  { state: 'done', name: 'Done', loop: T.done + 1000, when: `A chat ends with outcome done, or a ticket reaches a finished stage. The robin jumps, a check pops up and it sings three notes. Plays once, for ${seconds(T.done)}.` },
+  { state: 'milestone', name: 'Queue done', loop: T.milestone + 1000, when: `Every ticket in the queue is finished. The robin makes two jumps in a ring of sparkles and sings. Plays once, for ${seconds(T.milestone)}.` },
+  {
+    state: 'working',
+    name: 'Working',
+    loop: 12000,
+    from: 12000,
+    notes: WORKING_NOTES,
+    speed: 1,
+    when: `While chats work. The robin taps along, and each working chat (up to ${word(host.MAX_NOTES)}) sends a note from its beak at a random moment, at most one every ${seconds(host.NOTE_MIN_GAP_MS)} per chat. ${upper(word(host.FAST_AT))} or more working chats tap faster, ${word(host.FASTER_AT)} or more faster still.`,
+  },
+  { state: 'sleep', name: 'Sleeping', loop: 7200, when: `No chat has worked or waited for you for ${sleepMinutes} minutes, outside night hours. The robin tucks its head and snores.` },
+  { state: 'night', name: 'Night', loop: 21600, when: `No chat has worked or waited for you for ${sleepMinutes} minutes, between ${clock(host.NIGHT_START_HOUR)} and ${clock(host.NIGHT_END_HOUR)} local time. The robin sleeps under a moon and stars.` },
   { state: 'idle', name: 'Idle', loop: 14000, when: 'Nothing else applies. The robin breathes, looks around, blinks, peeps, yawns and pecks at the branch.' },
 ];
 
@@ -144,7 +173,8 @@ function animated(pal, parts, stillState, label, scale) {
   const sprites = Sprites(pal);
   const frames = [];
   for (const part of parts) {
-    for (let t = 0; t < part.ms; t += STEP_MS) {
+    const from = part.from || 0;
+    for (let t = from; t < from + part.ms; t += STEP_MS) {
       frames.push(mascot.frame(part.state, t, part.opts));
     }
   }
@@ -194,7 +224,7 @@ function hero(pal, still) {
 
 function stateLoop(entry, pal) {
   const opts = { notes: entry.notes, speed: entry.speed };
-  const a = animated(pal, [{ state: entry.state, ms: entry.loop, opts }], entry.state, 'The robin: ' + entry.name.toLowerCase(), 5);
+  const a = animated(pal, [{ state: entry.state, ms: entry.loop, from: entry.from, opts }], entry.state, 'The robin: ' + entry.name.toLowerCase(), 5);
   return animatedSvg(a, false);
 }
 
@@ -305,7 +335,7 @@ function mascotDoc() {
     '## Rules',
     '',
     '- Every art pixel is a square. The panel draws 3 CSS pixels per art pixel, with crisp edges.',
-    `- The robin sits on a branch ${mascot.W} pixels wide and ${mascot.H} pixels tall. Jumps, notes and sparkles reach up to 13 pixels above it.`,
+    `- The robin sits on a branch ${mascot.W} pixels wide and ${mascot.H} pixels tall. Jumps, notes and sparkles stay within ${HEADROOM} pixels above it; only the robin flying away and the egg's cap leave through the top.`,
     '- Light comes from the upper left: lit edges on top, shade underneath.',
     '- Only hatch, rotate, needs you, done and queue done take the feet off the branch. In every other state the legs and body stay put and only the head and chest move.',
     '- Breathing lifts the head one pixel and swells the chest one pixel.',
@@ -314,7 +344,7 @@ function mascotDoc() {
     '',
     '## States',
     '',
-    'When two states apply at once, the one higher in this table shows.',
+    'When two states apply at once, the one higher in this table shows. A scene that plays once always plays whole: one that starts while another plays waits for it, and one that a higher state interrupts is skipped.',
     '',
     '<table>',
     '<tr><th>Animation</th><th>State</th><th>When it plays</th></tr>',
@@ -401,7 +431,9 @@ function findChrome() {
 function png(svgText, w, h, outFile) {
   const chrome = findChrome();
   if (!chrome) {
-    console.warn('No Chrome found; skipped ' + path.basename(outFile));
+    // A skipped PNG would leave a stale README fallback behind, so the run fails.
+    console.error('No Chrome found for ' + path.basename(outFile) + '; set CHROME_PATH and run again.');
+    process.exitCode = 1;
     return;
   }
   const { execFileSync } = require('child_process');
@@ -424,7 +456,16 @@ function png(svgText, w, h, outFile) {
   );
 }
 
-module.exports = { build, STATES, ROLES };
+// The PNG fallbacks: the README still hero and the state sheet, rendered at twice these sizes.
+function pngs() {
+  const light = sheet(mascot.LIGHT, TEXT.muted.light, SHEET, false, 'The robin');
+  return [
+    { file: 'media/readme/robin.png', svg: hero(mascot.LIGHT, true), w: BOX.w * 6, h: BOX.h * 6 },
+    { file: 'media/readme/robin-states.png', svg: light.text, w: light.w, h: light.h },
+  ];
+}
+
+module.exports = { build, pngs, STATES, ROLES, HEADROOM };
 
 if (require.main === module) {
   const files = build();
@@ -432,9 +473,8 @@ if (require.main === module) {
     fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
     fs.writeFileSync(path.join(repo, rel), text);
   }
-  const outDir = path.join(repo, 'media', 'readme');
-  const light = sheet(mascot.LIGHT, TEXT.muted.light, SHEET, false, 'The robin');
-  png(hero(mascot.LIGHT, true), BOX.w * 6, BOX.h * 6, path.join(outDir, 'robin.png'));
-  png(light.text, light.w, light.h, path.join(outDir, 'robin-states.png'));
+  for (const p of pngs()) {
+    png(p.svg, p.w, p.h, path.join(repo, p.file));
+  }
   console.log('Wrote ' + Object.keys(files).length + ' files, robin.png and robin-states.png.');
 }
