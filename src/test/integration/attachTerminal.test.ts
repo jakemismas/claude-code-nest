@@ -4,7 +4,8 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { NOT_FOUND_WARNING, OPEN_IN_TERMINAL_COMMAND, attachInTerminal } from '../../launch/attachLauncher';
+import { setAttachableOverrideForTests } from '../../extension';
+import { DEFAULT_TERMINAL_NAME, NOT_FOUND_WARNING, OPEN_IN_TERMINAL_COMMAND, attachInTerminal } from '../../launch/attachLauncher';
 
 // Runs only in the Extension Development Host (npm run test:integration). It proves the
 // real terminal factory gets the expected shell path and arguments, and that a missing
@@ -71,5 +72,46 @@ describe('open in terminal (host)', () => {
     assert.deepStrictEqual(opts.shellArgs, ['attach', ID]);
     await closed;
     assert.deepStrictEqual(warnings, [NOT_FOUND_WARNING]);
+  });
+
+  describe('through the registered command', () => {
+    let opened: vscode.Terminal[];
+    let sub: vscode.Disposable;
+
+    beforeEach(async () => {
+      const ext = vscode.extensions.getExtension('jakemismas.claude-code-nest');
+      assert.ok(ext, 'extension is present');
+      await ext.activate();
+      opened = [];
+      sub = vscode.window.onDidOpenTerminal((t) => void opened.push(t));
+      setAttachableOverrideForTests((id) => id === ID);
+    });
+
+    afterEach(() => {
+      setAttachableOverrideForTests(null);
+      sub.dispose();
+      for (const t of opened) {
+        t.dispose();
+      }
+    });
+
+    it('creates the attach terminal for an attachable id', async () => {
+      await vscode.commands.executeCommand(OPEN_IN_TERMINAL_COMMAND, ID, true);
+      for (let i = 0; i < 100 && opened.length === 0; i += 1) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      assert.strictEqual(opened.length, 1);
+      const opts = opened[0].creationOptions as vscode.TerminalOptions;
+      assert.strictEqual(opts.shellPath, 'claude');
+      assert.deepStrictEqual(opts.shellArgs, ['attach', ID]);
+      assert.strictEqual(opts.name, DEFAULT_TERMINAL_NAME);
+      assert.strictEqual(opened[0].name, DEFAULT_TERMINAL_NAME);
+    });
+
+    it('creates no terminal for a refused id', async () => {
+      await vscode.commands.executeCommand(OPEN_IN_TERMINAL_COMMAND, 'abc; rm -rf', true);
+      await new Promise((r) => setTimeout(r, 500));
+      assert.strictEqual(opened.length, 0);
+    });
   });
 });

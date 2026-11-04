@@ -3,6 +3,7 @@ import {
   AttachDeps,
   AttachTerminalOptions,
   NOT_FOUND_WARNING,
+  NOT_RUNNING_MESSAGE,
   OpenRunningDeps,
   TerminalHandle,
   attachInTerminal,
@@ -20,6 +21,7 @@ interface Harness {
   created: AttachTerminalOptions[];
   terminals: FakeTerminal[];
   warnings: string[];
+  informs: string[];
   opened: string[];
   offers: string[];
   closeListeners: ((t: TerminalHandle) => void)[];
@@ -40,6 +42,7 @@ function harness(over: Partial<OpenRunningDeps> & { pick?: boolean } = {}): Harn
     created: [],
     terminals: [],
     warnings: [],
+    informs: [],
     opened: [],
     offers: [],
     closeListeners: [],
@@ -58,6 +61,7 @@ function harness(over: Partial<OpenRunningDeps> & { pick?: boolean } = {}): Harn
       return { dispose: () => void (h.disposed += 1) };
     },
     warn: (m) => void h.warnings.push(m),
+    inform: (m) => void h.informs.push(m),
     isAttachable: () => true,
     isTrusted: () => true,
     chatName: () => 'Build chat',
@@ -162,6 +166,23 @@ describe('attachLauncher.openRunningChat', () => {
       assert.strictEqual(await openRunningChat(ID, h.deps, true), 'opened');
       assert.strictEqual(h.created.length + h.offers.length, 0);
     }
+  });
+
+  it('tells the user when an explicit terminal choice targets a chat that stopped running', async () => {
+    const h = harness({ isAttachable: () => false });
+    assert.strictEqual(await openRunningChat(ID, h.deps, true), 'opened');
+    assert.deepStrictEqual(h.informs, [NOT_RUNNING_MESSAGE]);
+    assert.deepStrictEqual(h.opened, [ID]);
+    assert.strictEqual(h.created.length, 0);
+  });
+
+  it('shows no message on a plain click or in an untrusted workspace', async () => {
+    const plain = harness({ isAttachable: () => false });
+    await openRunningChat(ID, plain.deps);
+    assert.strictEqual(plain.informs.length, 0);
+    const untrusted = harness({ isTrusted: () => false });
+    await openRunningChat(ID, untrusted.deps, true);
+    assert.strictEqual(untrusted.informs.length, 0);
   });
 
   it('falls back to the URI open when the notification is dismissed', async () => {
