@@ -208,9 +208,11 @@ state. Nest never writes a fleet record.
   wired from `extension.ts` and is covered by `npm run test:integration`.
 - A file watcher on a missing folder never fires. When a watched file's folder does not
   exist yet (no `dev/` before the first fleet record, no `.nest/` before the layout file),
-  `fleetWatcher.ts` watches the nearest existing folder for the next missing one, moves
-  down as folders appear, and reloads once more a second later to catch a write that lands
-  while the new watcher starts.
+  `fleetWatcher.ts` watches the nearest existing folder for the next missing one and moves
+  down as folders appear. A watcher on a removed folder stays silent too, so while the file
+  is watched its folder is also watched from the parent, and the watch starts over when that
+  folder is removed or made again. Each new watch reloads once more a second later to catch
+  a write that lands while the watcher starts.
 - The panel renders the fleet record through the fleet message described under Fleet panel.
 
 ## Layout file (.nest/config.json)
