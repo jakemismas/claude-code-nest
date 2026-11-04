@@ -558,7 +558,8 @@
     const chevron = document.createElement('span');
     chevron.className = 'nest-folder-chevron';
     chevron.setAttribute('aria-hidden', 'true');
-    chevron.textContent = collapsed ? '▸' : '▾';
+    chevron.classList.toggle('is-open', !collapsed);
+    chevron.appendChild(svgEl(12, 12, 'nest-fleet-chev', ['M4 2.5 7.5 6 4 9.5']));
     chevron.addEventListener('click', (e) => {
       e.stopPropagation();
       // The chevron toggles immediately (it is the disclosure control, not a rename
@@ -1026,7 +1027,7 @@
     header.className = 'nest-section-header';
     const labelEl = document.createElement('span');
     labelEl.className = 'nest-section-label';
-    labelEl.textContent = visible.length + ' RESULTS';
+    labelEl.textContent = visible.length + (visible.length === 1 ? ' RESULT' : ' RESULTS');
     header.appendChild(labelEl);
     listEl.appendChild(header);
 
@@ -2585,32 +2586,46 @@
         li.appendChild(title);
         const detail = document.createElement('div');
         detail.className = 'nest-organize-move-detail';
+        const route = document.createElement('div');
+        route.className = 'nest-organize-route';
         if (typeof m.to === 'string' && m.to.length > 0) {
           const from = document.createElement('span');
           from.className = 'nest-organize-from';
           from.textContent = organizePathText(m.from);
-          detail.appendChild(from);
+          route.appendChild(from);
           const arrow = document.createElement('span');
           arrow.className = 'nest-organize-arrow';
           arrow.setAttribute('aria-hidden', 'true');
           arrow.textContent = '\u2192';
-          detail.appendChild(arrow);
+          route.appendChild(arrow);
           const to = document.createElement('span');
           to.className = 'nest-organize-to';
           to.textContent = organizePathText(m.to) + (m.createsFolder ? ' (new)' : '');
-          detail.appendChild(to);
+          route.appendChild(to);
+        } else {
+          const stays = document.createElement('span');
+          stays.className = 'nest-organize-stays';
+          stays.textContent = 'Stays in ' + organizePathText(m.from) + (m.pin && !(m.tags || []).length ? ', starred' : ', tagged');
+          route.appendChild(stays);
         }
-        (m.tags || []).forEach(function (label) {
-          const chip = document.createElement('span');
-          chip.className = 'nest-organize-chip';
-          chip.textContent = '+ ' + label;
-          detail.appendChild(chip);
-        });
-        if (m.pin) {
-          const chip = document.createElement('span');
-          chip.className = 'nest-organize-chip';
-          chip.textContent = 'Star';
-          detail.appendChild(chip);
+        detail.appendChild(route);
+        const tagList = m.tags || [];
+        if (tagList.length > 0 || m.pin) {
+          const chips = document.createElement('div');
+          chips.className = 'nest-organize-chips';
+          tagList.forEach(function (label) {
+            const chip = document.createElement('span');
+            chip.className = 'nest-organize-chip';
+            chip.textContent = '+ ' + label;
+            chips.appendChild(chip);
+          });
+          if (m.pin) {
+            const chip = document.createElement('span');
+            chip.className = 'nest-organize-chip';
+            chip.textContent = 'Star';
+            chips.appendChild(chip);
+          }
+          detail.appendChild(chips);
         }
         li.appendChild(detail);
         list.appendChild(li);

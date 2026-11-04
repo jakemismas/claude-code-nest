@@ -550,7 +550,7 @@ async function main() {
         await waitForCondition(
           page,
           "(function(){var h=document.querySelector('#list .nest-section-label');" +
-            "return !!h && /RESULTS/.test(h.textContent) && document.querySelectorAll('#list .nest-row-snippet').length > 0;})()",
+            "return !!h && /RESULTS?/.test(h.textContent) && document.querySelectorAll('#list .nest-row-snippet').length > 0;})()",
           10000,
           'harness results state to render',
         );
@@ -1055,6 +1055,7 @@ async function main() {
         drive: "document.getElementById('queueBtn').click();",
         ready: "document.querySelectorAll('#queueList .nest-queue-row').length === 3",
       },
+      { name: 'fleet-markup', view: 'markup', drive: null, ready: "document.querySelectorAll('#list .nest-fleet-group').length > 0" },
     ];
     for (const state of fleetStates) {
       const fleetPage = await openPage(browser);
@@ -1086,6 +1087,81 @@ async function main() {
       );
       console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut(state.name)));
     }
+
+    // DOM checks on the fleet panel. Each failure adds one short line; any failure fails the run.
+    const domFailures = [];
+    const probe = async (view, drive, ready) => {
+      const page = await openPage(browser);
+      await renderAndCapture(page, harnessFleetUrl(view), path.join(OUT_DIR, 'dom-check-' + view + '.png'), async (p) => {
+        await waitForCondition(p, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+        await waitForCondition(
+          p,
+          "document.querySelectorAll('#list .nest-fleet-group, #list [role=treeitem]').length > 0 && !document.getElementById('activeBtn').hidden",
+          10000,
+          'harness fleet rows to render',
+        );
+        return await drive(p);
+      });
+    };
+    const ev = async (page, code) => evaluate(page, '(function(){' + code + '})()');
+    await probe('ticket', async (page) => {
+      const pressed = "document.getElementById('activeBtn').getAttribute('aria-pressed')";
+      const before = await ev(page, 'return ' + pressed);
+      await ev(page, "document.getElementById('activeBtn').click();");
+      await sleep(150);
+      const during = await ev(page, 'return ' + pressed);
+      await ev(page, "document.getElementById('activeBtn').click();");
+      await sleep(150);
+      const after = await ev(page, 'return ' + pressed);
+      if (before !== 'false' || during !== 'true' || after !== 'false') {
+        domFailures.push('Active button does not toggle aria-pressed (' + [before, during, after].join(',') + ')');
+      }
+
+      await ev(page, "document.getElementById('queueBtn').click();");
+      await waitForCondition(page, "document.querySelectorAll('#queueList .nest-queue-row').length > 0", 10000, 'the queue list');
+      const extras = await ev(
+        page,
+        "return Array.from(document.querySelectorAll('#queueList *')).filter(function(n){" +
+          "if (n.matches('.nest-queue-close, .nest-queue-back')) return false;" +
+          "return n.matches('button, input, select, textarea, a[href], summary, [role=button], [role=link], [role=menuitem], [onclick], [tabindex]:not([tabindex=\"-1\"])');" +
+          "}).length;",
+      );
+      if (extras !== 0) {
+        domFailures.push('Queue card has ' + extras + ' interactive element(s)');
+      }
+      await ev(page, "document.getElementById('queueBtn').click();");
+
+      const moved = await ev(
+        page,
+        "var rows = Array.from(document.querySelectorAll('#list [role=treeitem]'));" +
+          'if (rows.length < 2) return "too few rows";' +
+          'rows[0].focus();' +
+          'var first = document.activeElement;' +
+          "first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));" +
+          "return document.activeElement !== first && document.activeElement.getAttribute('role') === 'treeitem' ? 'ok' : 'focus did not move';",
+      );
+      if (moved !== 'ok') {
+        domFailures.push('Arrow-down in the fleet tree: ' + moved);
+      }
+    });
+    await probe('markup', async (page) => {
+      const res = await ev(
+        page,
+        "var list = document.getElementById('list');" +
+          "var q = document.getElementById('queueBtn'); q.click();" +
+          "var scope = [list, document.getElementById('queueList')];" +
+          "var injected = scope.reduce(function(n, el){ return n + el.querySelectorAll('b, i').length; }, 0);" +
+          "var literal = list.textContent.indexOf('<b>x</b>') !== -1;" +
+          'return injected + "|" + literal;',
+      );
+      if (res !== '0|true') {
+        domFailures.push('Markup in a fleet title renders as elements (injected|literal=' + res + ')');
+      }
+    });
+    if (domFailures.length > 0) {
+      throw new Error('Fleet DOM checks failed:\n  ' + domFailures.join('\n  '));
+    }
+    console.log('  fleet DOM checks passed');
 
     // The ROBIN captures: the header robin, clipped to a header strip. Each entry waits for
     // the panel to apply the state. A freeze time pauses every animation at that moment so
