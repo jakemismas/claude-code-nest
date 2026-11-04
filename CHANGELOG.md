@@ -18,7 +18,8 @@ to [Semantic Versioning](https://semver.org/).
   sessions (`claude agents --json`), fleet records and an optional queue file. A group
   shows its most urgent dot.
 - Grouping by ticket, folder or date, with an automatic mode that picks the best fit.
-  A chat you filed by hand stays where you put it.
+  A chat you filed by hand stays where you put it, and so does a chat you moved back
+  to Unsorted.
 - Layout file `.nest/config.json` (JSON with comments, read-only) for grouping, tag
   colors, linked folders, extra fleet files, a queue table and done stages, with a JSON
   schema, hot reload and an Open Layout File command.

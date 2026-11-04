@@ -2335,7 +2335,7 @@
           parts.push(st.message);
         }
         if (st.kind === 'preview' && st.skippedHandFiled > 0) {
-          parts.push(st.skippedHandFiled + (st.skippedHandFiled === 1 ? ' chat you filed by hand is left alone.' : ' chats you filed by hand are left alone.'));
+          parts.push(st.skippedHandFiled + (st.skippedHandFiled === 1 ? ' chat you filed or moved to Unsorted by hand is left alone.' : ' chats you filed or moved to Unsorted by hand are left alone.'));
         }
       }
       status.textContent = parts.join(' ');

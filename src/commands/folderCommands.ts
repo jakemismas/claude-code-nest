@@ -220,7 +220,7 @@ export async function assignChatToFolder(
   if (choice === undefined) {
     return;
   }
-  store.setChatFolder(projectKey, chatId, choice.folderId);
+  store.setChatFolder(projectKey, chatId, choice.folderId, true);
   await store.flush();
   provider.refresh();
 }

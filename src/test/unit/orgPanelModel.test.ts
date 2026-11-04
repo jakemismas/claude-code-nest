@@ -773,6 +773,15 @@ describe('orgPanelModel placement (layout file grouping)', () => {
     assert.strictEqual(s[s.length - 1].folderId, UNSORTED_FOLDER_ID);
   });
 
+  it('keeps a chat you moved to Unsorted by hand out of the fleet folder and the auto groups', () => {
+    for (const mode of ['auto', 'tickets', 'date'] as const) {
+      const s = buildSections(records, m, badge, new Map(), { ...ctx(mode), unsortedByHand: new Set(['fleet', 'today']) }).folders;
+      assert.ok(rowsOf(s, 'Unsorted').includes('fleet'), mode);
+      assert.ok(rowsOf(s, 'Unsorted').includes('today'), mode);
+      assert.ok(!names(s).includes('Fleet folder'), mode);
+    }
+  });
+
   it('groupBy folders groups by source folder', () => {
     const s = buildSections(records, m, badge, new Map(), ctx('folders')).folders;
     assert.deepStrictEqual(rowsOf(s, 'proj'), ['today']);

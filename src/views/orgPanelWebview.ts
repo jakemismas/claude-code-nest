@@ -486,8 +486,9 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
         cwdByChat.set(session.sessionId, session.cwd);
       }
     }
+    const unsortedByHand = projectKey !== undefined ? this.store.getUnsortedByHand(projectKey) : new Set<string>();
     return buildFleetSections({
-      chats: fleetModelChats(this.lastRecords, meta, cwdByChat),
+      chats: fleetModelChats(this.lastRecords, meta, cwdByChat, unsortedByHand),
       userFolders: fleetModelFolders(meta),
       fleet: this.fleetState,
       statuses: this.statusByChat,
@@ -585,7 +586,9 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     for (const entry of this.fleetState.entries) {
       fleetByChat.set(entry.sessionId, { folder: entry.folder, ticket: entry.ticket });
     }
-    return { groupBy: this.groupBy, now: Date.now(), fleetByChat, sourceByChat: this.sourceByChat };
+    const projectKey = this.getProjectKey();
+    const unsortedByHand = projectKey !== undefined ? this.store.getUnsortedByHand(projectKey) : new Set<string>();
+    return { groupBy: this.groupBy, now: Date.now(), fleetByChat, sourceByChat: this.sourceByChat, unsortedByHand };
   }
 
   // Called after any store mutation so the panel re-renders.

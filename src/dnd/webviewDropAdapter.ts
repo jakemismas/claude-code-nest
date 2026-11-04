@@ -64,7 +64,7 @@ export async function handleWebviewDrop(
 function applyIntents(store: MetadataStore, projectKey: string, intents: DropIntent[]): void {
   for (const intent of intents) {
     if (intent.kind === 'setFolder') {
-      store.setChatFolder(projectKey, intent.chatId, intent.folderId);
+      store.setChatFolder(projectKey, intent.chatId, intent.folderId, true);
     } else {
       store.addChatTag(projectKey, intent.chatId, intent.tagId);
     }

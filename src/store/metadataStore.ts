@@ -12,6 +12,8 @@ import {
   Tag,
   emptyLocalProjectMeta,
   normalizeOrganizeLedger,
+  evictOldestMarks,
+  normalizeUnsortedByHand,
   OrganizeLedger,
   clampName,
   emptyProjectMeta,
@@ -91,6 +93,8 @@ export class MetadataStore {
   // Separate chain for the local document, so each read-modify-write sees the previous write.
   // Kept resolved so one failed update cannot wedge later ones.
   private localWriteChain: Promise<void> = Promise.resolve();
+  // Unsorted marks staged on this device and not saved yet: a time, or null for a cleared mark.
+  private readonly stagedMarks = new Map<string, Map<string, number | null>>();
 
   constructor(memento: SyncMemento, options: MetadataStoreOptions) {
     this.memento = memento;
@@ -275,18 +279,96 @@ export class MetadataStore {
   }
 
   // A non-null folderId must be a safe id because it references the folders map. Null (unfile) is always allowed.
-  setChatFolder(projectKey: string, chatId: string, folderId: string | null): boolean {
+  // byHand marks an unfile as your own move to Unsorted; filing the chat anywhere clears the mark.
+  setChatFolder(projectKey: string, chatId: string, folderId: string | null, byHand = false): boolean {
     if (folderId !== null && !isSafeRecordId(folderId)) {
       return false;
     }
-    return this.mutate(projectKey, (meta) => {
+    let changed = false;
+    const ok = this.mutate(projectKey, (meta) => {
       const chat = this.ensureChat(meta, chatId);
       if (chat === null) {
         return;
       }
       chat.folderId = folderId;
       this.stampRecord(chat);
+      changed = true;
     });
+    if (ok && changed) {
+      if (folderId === null && byHand) {
+        this.stageUnsortedMark(projectKey, chatId, true);
+      } else if (folderId !== null && this.getUnsortedByHand(projectKey).has(chatId)) {
+        this.stageUnsortedMark(projectKey, chatId, false);
+      }
+    }
+    return ok;
+  }
+
+  // The chats you moved to Unsorted by hand on this device, including marks still being saved.
+  // Reads only the marks, never a copy of the whole local document.
+  getUnsortedByHand(projectKey: string): ReadonlySet<string> {
+    if (!isSafeProjectKey(projectKey)) {
+      return new Set();
+    }
+    const stored = this.memento.get<LocalProjectMeta>(localKeyFor(projectKey));
+    const marks = new Set(Object.keys(normalizeUnsortedByHand(stored?.unsortedByHand)));
+    for (const [chatId, at] of this.stagedMarks.get(projectKey) ?? []) {
+      if (at === null) {
+        marks.delete(chatId);
+      } else {
+        marks.add(chatId);
+      }
+    }
+    return marks;
+  }
+
+  // Stages the mark in memory at once, then saves it on the local chain so it never interleaves
+  // with an orphan state or ledger write. A failed save keeps the staged mark for this session.
+  private stageUnsortedMark(projectKey: string, chatId: string, on: boolean): void {
+    if (!isSafeProjectKey(projectKey) || !isSafeRecordId(chatId)) {
+      return;
+    }
+    let staged = this.stagedMarks.get(projectKey);
+    if (staged === undefined) {
+      staged = new Map();
+      this.stagedMarks.set(projectKey, staged);
+    }
+    staged.set(chatId, on ? this.now() : null);
+    let wrote: number | null | undefined;
+    void this.enqueueLocalWrite(() => {
+      wrote = this.stagedMarks.get(projectKey)?.get(chatId);
+      if (wrote === undefined) {
+        return Promise.resolve();
+      }
+      const local = this.getLocalProjectMeta(projectKey);
+      const marks = normalizeUnsortedByHand(local.unsortedByHand);
+      if (wrote === null) {
+        delete marks[chatId];
+      } else {
+        marks[chatId] = wrote;
+        evictOldestMarks(marks);
+      }
+      if (Object.keys(marks).length === 0) {
+        delete local.unsortedByHand;
+      } else {
+        local.unsortedByHand = { ...marks };
+      }
+      return this.memento.update(localKeyFor(projectKey), local);
+    }).then(
+      () => {
+        // A newer move staged while this one saved stays staged for its own write.
+        const now = this.stagedMarks.get(projectKey);
+        if (now !== undefined && now.get(chatId) === wrote) {
+          now.delete(chatId);
+          if (now.size === 0) {
+            this.stagedMarks.delete(projectKey);
+          }
+        }
+      },
+      (err: unknown) => {
+        console.warn('Nest could not save an Unsorted mark: ' + (err instanceof Error ? err.message : String(err)));
+      },
+    );
   }
 
   addChatTag(projectKey: string, chatId: string, tagId: string): boolean {
@@ -450,6 +532,13 @@ export class MetadataStore {
         const kept = this.getOrganizeLedger(projectKey);
         if (kept !== null) {
           copy.organize = kept;
+        }
+      }
+      // The same holds for the Unsorted-by-hand marks.
+      if (copy.unsortedByHand === undefined) {
+        const marks = normalizeUnsortedByHand(this.getLocalProjectMeta(projectKey).unsortedByHand);
+        if (Object.keys(marks).length > 0) {
+          copy.unsortedByHand = { ...marks };
         }
       }
       return this.memento.update(localKeyFor(projectKey), copy);
@@ -635,8 +724,14 @@ export class MetadataStore {
   }
 
   // Persists pending writes now and resolves when the chain is drained. Retry rounds are capped
-  // so a persistently failing Memento cannot hang shutdown; it never rejects.
+  // so a persistently failing Memento cannot hang shutdown; it never rejects. Local writes queued
+  // before the call (orphan state, the organize ledger, Unsorted marks) land too.
   async flush(): Promise<void> {
+    await this.flushSynced();
+    await this.localWriteChain;
+  }
+
+  private async flushSynced(): Promise<void> {
     const MAX_RETRY_ROUNDS = 5;
     let rounds = 0;
     for (;;) {

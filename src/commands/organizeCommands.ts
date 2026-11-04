@@ -53,10 +53,10 @@ export interface OrganizeReport {
   readonly message: string;
 }
 
-function chatStateOf(meta: ProjectMeta, chatId: string): PlanChatState {
+function chatStateOf(meta: ProjectMeta, chatId: string, unsortedByHand: ReadonlySet<string> = new Set()): PlanChatState {
   const chat = meta.chats[chatId];
   const folderId = chat !== undefined && chat.folderId !== null && meta.folders[chat.folderId] !== undefined ? chat.folderId : null;
-  return { folderId, tagIds: chat?.tags ?? [], starred: chat?.starred === true };
+  return { folderId, tagIds: chat?.tags ?? [], starred: chat?.starred === true, unsortedByHand: unsortedByHand.has(chatId) };
 }
 
 function emptyReport(kind: OrganizeKind, message: string, deps: OrganizeDeps, projectKey: string | undefined): OrganizeReport {
@@ -88,8 +88,9 @@ function compute(deps: OrganizeDeps, projectKey: string): Computed {
   const compiled = compileRules(deps.getRules());
   const meta = deps.store.getProjectMeta(projectKey);
   const ledger = deps.store.getOrganizeLedger(projectKey);
+  const marks = deps.store.getUnsortedByHand(projectKey);
   const plan = planOrganize({
-    chats: deps.getSubjects().map((subject) => ({ subject, state: chatStateOf(meta, subject.sessionId) })),
+    chats: deps.getSubjects().map((subject) => ({ subject, state: chatStateOf(meta, subject.sessionId, marks) })),
     folders: meta.folders,
     tags: meta.tags,
     rules: compiled.rules,

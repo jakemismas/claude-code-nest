@@ -101,7 +101,7 @@ An optional `.nest/config.json` in the first workspace folder controls the layou
 
 | Field | Description |
 | --- | --- |
-| `groupBy` | `auto`, `tickets`, `folders` or `date`. How chats you have not filed by hand are grouped. |
+| `groupBy` | `auto`, `tickets`, `folders` or `date`. How chats you have not filed, or moved to Unsorted, by hand are grouped. |
 | `rules` | Organize rules. See below. |
 | `tags` | Tag name to `#rrggbb` color. Also colors stage pills with the same name. |
 | `linkedFolders` | Other folders whose chats and fleet records appear here. `~` is allowed, and `*` in the last segment. |
@@ -151,7 +151,7 @@ A regular expression in `name` or `ticket` is at most 200 characters and matches
 
 1. Open **Settings** and find **Organize**.
 2. Choose **Preview** to list every move. Preview writes nothing.
-3. Choose **Apply** to make the moves. A chat you filed by hand is never moved.
+3. Choose **Apply** to make the moves. A chat you filed by hand, or moved to Unsorted by hand, is never moved.
 4. Choose **Undo** to restore the state from before the last Apply.
 
 ### Robin

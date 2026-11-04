@@ -345,6 +345,13 @@ describe('planOrganize', () => {
   const base = (chats: { subject: RuleSubject; state: PlanChatState }[], extra: Partial<Parameters<typeof planOrganize>[0]> = {}) =>
     planOrganize({ chats, folders: {}, tags: {}, rules, applied: {}, homedir: '/h', ...extra });
 
+  it('skips a chat you moved to Unsorted by hand, as it skips a hand-filed chat', () => {
+    const plan = base([{ subject: subject({ sessionId: 'a', role: 'qa' }), state: { ...free, unsortedByHand: true } }]);
+    assert.strictEqual(plan.matched, 1);
+    assert.strictEqual(plan.moves.length, 0);
+    assert.strictEqual(plan.skippedHandFiled, 1);
+  });
+
   it('lists every move, marks folders that do not exist yet and writes nothing', () => {
     const plan = base([
       { subject: subject({ sessionId: 'a', role: 'qa' }), state: free },

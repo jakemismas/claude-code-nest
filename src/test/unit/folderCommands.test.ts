@@ -502,6 +502,7 @@ describe('assignChatToFolder', () => {
     const ui = makeUi({ picks: [{ folderId: null }] });
     await assignChatToFolder(makeDeps(store, provider, ui, PK), chatArg('chatX'));
     assert.strictEqual(store.getProjectMeta(PK).chats.chatX.folderId, null);
+    assert.ok(store.getUnsortedByHand(PK).has('chatX'), 'the move to Unsorted is a hand move');
     assert.strictEqual(refreshCount(), 1);
     // The picker offered the Unfiled choice first.
     assert.strictEqual(ui.pickCalls[0].items[0].folderId, null);

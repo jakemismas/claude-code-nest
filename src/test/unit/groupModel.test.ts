@@ -125,6 +125,21 @@ describe('groupModel precedence', () => {
     }
   });
 
+  it('keeps a chat you moved to Unsorted by hand in Unsorted in every mode, over a fleet organize folder', () => {
+    const e = entry('eeee0005', { ticket: 'TKT-1', folder: 'Virtual', cwd: '/ws/api', role: 'orchestrator' });
+    for (const mode of ['tickets', 'folders', 'date', 'auto'] as const) {
+      const out = build({ groupBy: mode, chats: [chat('eeee0005', { unsortedByHand: true })], fleet: fleet([e], e) });
+      assert.deepStrictEqual(out.unsorted.map((r) => r.sessionId), ['eeee0005'], mode);
+      assert.strictEqual(out.groups.length, 0, mode);
+      assert.strictEqual(out.orchestrator, null, mode);
+    }
+    const worker = entry('eeee0006', { ticket: 'TKT-1', folder: 'Virtual' });
+    const marked = build({ chats: [chat('eeee0006', { unsortedByHand: true })], fleet: fleet([worker]) });
+    assert.deepStrictEqual(marked.unsorted.map((r) => r.sessionId), ['eeee0006']);
+    const unmarked = build({ chats: [chat('eeee0006')], fleet: fleet([worker]) });
+    assert.strictEqual(unmarked.groups[0].label, 'Virtual', 'without the hand move the fleet folder still wins');
+  });
+
   it('a stale hand-filed folder id does not hide the chat', () => {
     const out = build({ chats: [chat('eeee0002', { handFiledFolderId: 'gone' })] });
     assert.strictEqual(out.unsorted.length, 1);
