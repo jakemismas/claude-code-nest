@@ -8,6 +8,7 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A README Fleet view section and `docs/fleet-record.md`, the record contract an orchestrator can write against.
 - Organize rules in the layout file (`rules`) file existing chats into your folders and
   tags. Settings has an Organize section with Preview, Apply and Undo, and the Command
   Palette has matching commands. Preview lists every move and writes nothing. A chat you
