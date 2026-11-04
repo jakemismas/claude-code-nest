@@ -40,6 +40,7 @@ import { asksSomething } from '../model/questionHeuristic';
 import { clampFolderDepth } from '../model/folderTree';
 import { GroupBy } from '../fleet/nestConfig';
 import { Placement, resolvePlacement } from '../fleet/placement';
+import type { ModelChat, ModelUserFolder } from '../fleet/groupModel';
 
 // The synthetic catch-all bucket id for chats with no (or an unresolvable) home
 // folder. Duplicated as a literal here rather than imported from folderTree.ts so
@@ -756,4 +757,35 @@ function compareFolders(a: Folder, b: Folder): number {
   }
   const byName = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   return byName !== 0 ? byName : a.id.localeCompare(b.id);
+}
+
+// The chats the fleet group model reads: hand-filed folder (only when the folder still
+// exists), archived flag, and a working directory when one is known (live session first, else the
+// transcript's).
+export function fleetModelChats(
+  records: readonly ChatRecord[],
+  meta: ProjectMeta | undefined,
+  cwdByChat: ReadonlyMap<string, string>,
+): ModelChat[] {
+  return records.map((r) => {
+    const home = resolveHomeFolderId(r.sessionId, meta);
+    return {
+      sessionId: r.sessionId,
+      title: r.title,
+      timestamp: r.timestamp,
+      cwd: cwdByChat.get(r.sessionId) ?? r.cwd ?? null,
+      handFiledFolderId: home === UNSORTED_FOLDER_ID ? null : home,
+      archived: isArchived(r.sessionId, meta),
+    };
+  });
+}
+
+// The user's folders in stored order, for the fleet group model.
+export function fleetModelFolders(meta: ProjectMeta | undefined): ModelUserFolder[] {
+  if (meta === undefined) {
+    return [];
+  }
+  return Object.values(meta.folders)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+    .map((f) => ({ folderId: f.id, name: f.name }));
 }

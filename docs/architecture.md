@@ -39,6 +39,7 @@ modules.
 | `src/fleet/` | Read-only fleet input: `types`, `fleetRecord` (pure parse and fold), `fleetSource` (the only reader of `dev/fleet.jsonl`), `fleetReloader` (debounce), `fleetWatcher` (the one file that imports `vscode`). |
 | `src/fleet/` (layout file) | `nestConfig` (pure parse and validate), `configSource` (the only reader of `.nest/config.json`, with a debounced reloader), `placement` (pure group precedence). |
 | `src/claude/agentsCli.ts` | The only module that imports `child_process`. Runs `claude agents --json` through `execFile` and parses the output. |
+| `src/fleet/` (group model) | `groupModel` (pure: turns chats, fleet state, statuses, the queue and the group-by mode into panel sections), `suffix` (pure: the short text after a chat row's agent tag). |
 | `src/fleet/` (live status) | `status` (pure status mapping and rollup), `queueTable` (pure Markdown table parser), `queueSource` (the only reader of the queue file), `agentsPoller` (poll scheduler with an injected clock and runner). |
 | `src/commands/openLayoutFile.ts` | Opens the layout file in the editor. Writes nothing. |
 | `schemas/nest-config.schema.json` | JSON schema for the layout file, shipped in the extension. |
@@ -261,3 +262,17 @@ nothing. Colors that the panel hardcodes do not change by theme.
 The harness HTML (`scripts/fidelity/harness.html`) copies the static shell built
 in `orgPanelWebview.renderHtml`. If you change the shell, change the harness to
 match, or the panel will render nothing there.
+
+## Group model
+
+`src/fleet/groupModel.ts` is pure and clock-free. `buildFleetSections` takes the chats, the user folders, the fleet state, the statuses, the queue rows, the group-by mode, the workspace root and the current time, and returns the sections the panel shows. It writes nothing. The webview host exposes it through `getFleetSections`; no message carries the result yet.
+
+- Tickets mode returns the pinned current orchestrator, past orchestrators newest first, one group per ticket (id, title, stage, chats, rollup status), your folders, Unsorted and the archived count. A ticket title comes from the queue title column, else the newest chat name with the ticket id removed. A ticket stage comes from the queue, else the newest fleet organize stage.
+- Folders mode groups by the working subfolder relative to the workspace root, from the fleet `cwd`, else the live session `cwd`, else the `cwd` read from the transcript and carried on the chat record. A chat launched by another chat in the same group nests one level under its parent. A launch cycle leaves its members unnested.
+- Date mode groups by last activity into Today, Earlier this week and Older. The local calendar week starts on Monday.
+- Auto mode resolves to tickets when any fleet entry has a ticket, else folders when chats span more than one working subfolder, else date.
+- A chat you filed by hand stays in its folder in every mode. A fleet organize folder is a virtual group and never writes to the store.
+- The Active projection keeps working and needs chats, forces open every group that holds one, and hides the rest. The Active count includes the orchestrator.
+- The queue projection lists queue rows in file order and marks rows whose ticket has a working or needs chat.
+- Group ids use a kind prefix and replace `:`, `#` and `>`, so they never collide with the reserved sentinels in `idFactory`.
+- `suffix.ts` removes the ticket id, the ticket title words and the agent word from a chat name and trims the result to 24 characters.

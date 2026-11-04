@@ -4,6 +4,7 @@ import { ProjectMeta } from '../../store/schema';
 import {
   buildSections,
   buildArchivedRows,
+  fleetModelChats,
   FolderSection,
   UNSORTED_FOLDER_ID,
 } from '../../views/orgPanelModel';
@@ -30,6 +31,7 @@ function record(over: Partial<ChatRecord> & { sessionId: string }): ChatRecord {
     prUrl: null,
     prRepository: null,
     gitBranch: null,
+    cwd: over.cwd ?? null,
     leadingMessageUuids: [],
     messageCount: over.messageCount ?? 0,
     firstMessageText: over.firstMessageText ?? null,
@@ -800,5 +802,20 @@ describe('orgPanelModel placement (layout file grouping)', () => {
   it('groupBy folders groups by source folder', () => {
     const s = buildSections(records, m, badge, new Map(), ctx('folders')).folders;
     assert.deepStrictEqual(rowsOf(s, 'proj'), ['today']);
+  });
+});
+
+describe('fleetModelChats cwd', () => {
+  it('uses the live session cwd, else the transcript cwd, else null', () => {
+    const chats = fleetModelChats(
+      [
+        record({ sessionId: 'a', cwd: '/t/a' }),
+        record({ sessionId: 'b', cwd: '/t/b' }),
+        record({ sessionId: 'c' }),
+      ],
+      undefined,
+      new Map([['a', '/live/a']]),
+    );
+    assert.deepStrictEqual(chats.map((c) => c.cwd), ['/live/a', '/t/b', null]);
   });
 });

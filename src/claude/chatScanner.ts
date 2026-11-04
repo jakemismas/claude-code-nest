@@ -143,6 +143,7 @@ export function readChat(filePath: string): ChatRecord | null {
     prUrl: scan.prUrl,
     prRepository: scan.prRepository,
     gitBranch: scan.gitBranch,
+    cwd: scan.cwd ?? null,
     leadingMessageUuids: scan.leadingMessageUuids,
     // Compact summary fields, carried through with no additional file read.
     messageCount: scan.messageCount,
