@@ -171,7 +171,7 @@ Nest keeps data in three places, chosen by how it should travel.
 | Store | Holds | Synced |
 | --- | --- | --- |
 | Synced `globalState`, key `nest.meta.v1::<projectKey>` | Folders, tags, per-chat folder, tags, links, stars, archive flags. One document per project. | Yes, through VS Code Settings Sync. |
-| Per-device state: `nest.local.v1`, `nest.shadow.v1`, `nest.deviceId.v1`, and `workspaceState` | Orphaned records, the last organize Apply (for Undo), the shadow copy used to merge remote edits, the device id, sort and layout choices, read markers. | No. |
+| Per-device state: `nest.local.v1`, `nest.shadow.v1`, `nest.deviceId.v1`, and `workspaceState` | Orphaned records, the last organize Apply (for Undo), the chats you moved to Unsorted by hand, the shadow copy used to merge remote edits, the device id, sort and layout choices, read markers. | No. |
 | `globalStorage` files | The search index and Nest's copies of archived chat bodies. | No. |
 
 Only `nest.meta.v1::*` keys are registered for sync. Keeping one document per
@@ -400,7 +400,7 @@ match, or the panel will render nothing there.
 - Folders mode groups by the working subfolder relative to the workspace root, from the fleet `cwd`, else the live session `cwd`, else the `cwd` read from the transcript and carried on the chat record. A chat launched by another chat in the same group nests one level under its parent. A launch cycle leaves its members unnested.
 - Date mode groups by last activity into Today, Earlier this week and Older. The local calendar week starts on Monday.
 - Auto mode resolves to tickets when any fleet entry has a ticket, else folders when chats span more than one working subfolder, else date.
-- A chat you filed by hand stays in its folder in every mode. A chat you moved to Unsorted by hand (a drag to Unsorted or the move command's Unsorted choice) stays in Unsorted in every mode, over a fleet organize folder, a ticket and the auto groups. The mark lives in the per-device local document (`unsortedByHand`), never in the synced one; filing the chat in any folder clears it. A fleet organize folder is a virtual group and never writes to the store.
+- A chat you filed by hand stays in its folder in every mode. A chat you moved to Unsorted by hand (a drag to Unsorted or the move command's Unsorted choice) stays in Unsorted in every mode, over a fleet organize folder, a ticket and the auto groups. The mark lives in the per-device local document (`unsortedByHand`), never in the synced one; filing the chat in any folder on this device clears it, and at most 20,000 marks are kept, newest first. Deleting a folder does not mark its chats. A fleet organize folder is a virtual group and never writes to the store.
 - The Active projection keeps working and needs chats, forces open every group that holds one, and hides the rest. The Active count includes the orchestrator.
 - The queue projection lists queue rows in file order and marks rows whose ticket has a working or needs chat.
 - Group ids use a kind prefix and replace `:`, `#` and `>`, so they never collide with the reserved sentinels in `idFactory`.

@@ -13,7 +13,7 @@
       "type": "string",
       "enum": ["auto", "tickets", "folders", "date"],
       "default": "auto",
-      "description": "How chats you have not filed by hand are grouped."
+      "description": "How chats you have not filed, or moved to Unsorted, by hand are grouped."
     },
     "rules": {
       "type": "array",

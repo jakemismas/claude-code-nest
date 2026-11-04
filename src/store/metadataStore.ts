@@ -12,6 +12,7 @@ import {
   Tag,
   emptyLocalProjectMeta,
   normalizeOrganizeLedger,
+  evictOldestMarks,
   normalizeUnsortedByHand,
   OrganizeLedger,
   clampName,
@@ -92,6 +93,8 @@ export class MetadataStore {
   // Separate chain for the local document, so each read-modify-write sees the previous write.
   // Kept resolved so one failed update cannot wedge later ones.
   private localWriteChain: Promise<void> = Promise.resolve();
+  // Unsorted marks staged on this device and not saved yet: a time, or null for a cleared mark.
+  private readonly stagedMarks = new Map<string, Map<string, number | null>>();
 
   constructor(memento: SyncMemento, options: MetadataStoreOptions) {
     this.memento = memento;
@@ -291,33 +294,59 @@ export class MetadataStore {
       this.stampRecord(chat);
       changed = true;
     });
-    if (ok && changed && (folderId !== null || byHand)) {
-      void this.setUnsortedByHand(projectKey, chatId, folderId === null);
+    if (ok && changed) {
+      if (folderId === null && byHand) {
+        this.stageUnsortedMark(projectKey, chatId, true);
+      } else if (folderId !== null && this.getUnsortedByHand(projectKey).has(chatId)) {
+        this.stageUnsortedMark(projectKey, chatId, false);
+      }
     }
     return ok;
   }
 
-  // The chats you moved to Unsorted by hand on this device.
+  // The chats you moved to Unsorted by hand on this device, including marks still being saved.
+  // Reads only the marks, never a copy of the whole local document.
   getUnsortedByHand(projectKey: string): ReadonlySet<string> {
-    return new Set(Object.keys(normalizeUnsortedByHand(this.getLocalProjectMeta(projectKey).unsortedByHand)));
+    if (!isSafeProjectKey(projectKey)) {
+      return new Set();
+    }
+    const stored = this.memento.get<LocalProjectMeta>(localKeyFor(projectKey));
+    const marks = new Set(Object.keys(normalizeUnsortedByHand(stored?.unsortedByHand)));
+    for (const [chatId, at] of this.stagedMarks.get(projectKey) ?? []) {
+      if (at === null) {
+        marks.delete(chatId);
+      } else {
+        marks.add(chatId);
+      }
+    }
+    return marks;
   }
 
-  // Runs on the local chain, so it never interleaves with an orphan state or ledger write.
-  private setUnsortedByHand(projectKey: string, chatId: string, on: boolean): Promise<void> {
+  // Stages the mark in memory at once, then saves it on the local chain so it never interleaves
+  // with an orphan state or ledger write. A failed save keeps the staged mark for this session.
+  private stageUnsortedMark(projectKey: string, chatId: string, on: boolean): void {
     if (!isSafeProjectKey(projectKey) || !isSafeRecordId(chatId)) {
-      return Promise.resolve();
+      return;
     }
-    const at = this.now();
-    return this.enqueueLocalWrite(() => {
-      const local = this.getLocalProjectMeta(projectKey);
-      const marks = normalizeUnsortedByHand(local.unsortedByHand);
-      if (on === Object.prototype.hasOwnProperty.call(marks, chatId)) {
+    let staged = this.stagedMarks.get(projectKey);
+    if (staged === undefined) {
+      staged = new Map();
+      this.stagedMarks.set(projectKey, staged);
+    }
+    staged.set(chatId, on ? this.now() : null);
+    let wrote: number | null | undefined;
+    void this.enqueueLocalWrite(() => {
+      wrote = this.stagedMarks.get(projectKey)?.get(chatId);
+      if (wrote === undefined) {
         return Promise.resolve();
       }
-      if (on) {
-        marks[chatId] = at;
-      } else {
+      const local = this.getLocalProjectMeta(projectKey);
+      const marks = normalizeUnsortedByHand(local.unsortedByHand);
+      if (wrote === null) {
         delete marks[chatId];
+      } else {
+        marks[chatId] = wrote;
+        evictOldestMarks(marks);
       }
       if (Object.keys(marks).length === 0) {
         delete local.unsortedByHand;
@@ -325,7 +354,21 @@ export class MetadataStore {
         local.unsortedByHand = { ...marks };
       }
       return this.memento.update(localKeyFor(projectKey), local);
-    });
+    }).then(
+      () => {
+        // A newer move staged while this one saved stays staged for its own write.
+        const now = this.stagedMarks.get(projectKey);
+        if (now !== undefined && now.get(chatId) === wrote) {
+          now.delete(chatId);
+          if (now.size === 0) {
+            this.stagedMarks.delete(projectKey);
+          }
+        }
+      },
+      (err: unknown) => {
+        console.warn('Nest could not save an Unsorted mark: ' + (err instanceof Error ? err.message : String(err)));
+      },
+    );
   }
 
   addChatTag(projectKey: string, chatId: string, tagId: string): boolean {

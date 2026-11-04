@@ -125,22 +125,31 @@ function ledgerIdList(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((v): v is string => isSafeRecordId(v)).slice(0, MAX_LEDGER_CHATS) : [];
 }
 
-// Lifts a stored Unsorted-by-hand map of unknown shape to safe ids and finite times, capped.
+// Keeps the newest Unsorted marks when there are more than the cap allows.
+export function evictOldestMarks(marks: { [chatId: string]: number }): void {
+  const ids = Object.keys(marks);
+  if (ids.length <= MAX_LEDGER_CHATS) {
+    return;
+  }
+  ids.sort((a, b) => marks[a] - marks[b]);
+  for (const id of ids.slice(0, ids.length - MAX_LEDGER_CHATS)) {
+    delete marks[id];
+  }
+}
+
+// Lifts a stored Unsorted-by-hand map of unknown shape to safe ids and finite times, keeping
+// the newest marks up to the cap.
 export function normalizeUnsortedByHand(raw: unknown): { [chatId: string]: number } {
   const out: { [chatId: string]: number } = Object.create(null) as { [chatId: string]: number };
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return out;
   }
-  let count = 0;
   for (const [id, at] of Object.entries(raw as Record<string, unknown>)) {
-    if (count >= MAX_LEDGER_CHATS) {
-      break;
-    }
     if (isSafeRecordId(id) && typeof at === 'number' && Number.isFinite(at)) {
       out[id] = at;
-      count++;
     }
   }
+  evictOldestMarks(out);
   return out;
 }
 

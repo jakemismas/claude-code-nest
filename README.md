@@ -101,7 +101,7 @@ An optional `.nest/config.json` in the first workspace folder controls the layou
 
 | Field | Description |
 | --- | --- |
-| `groupBy` | `auto`, `tickets`, `folders` or `date`. How chats you have not filed by hand are grouped. |
+| `groupBy` | `auto`, `tickets`, `folders` or `date`. How chats you have not filed, or moved to Unsorted, by hand are grouped. |
 | `rules` | Organize rules. See below. |
 | `tags` | Tag name to `#rrggbb` color. Also colors stage pills with the same name. |
 | `linkedFolders` | Other folders whose chats and fleet records appear here. `~` is allowed, and `*` in the last segment. |
