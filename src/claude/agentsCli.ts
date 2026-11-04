@@ -25,8 +25,9 @@ export interface AgentSession {
   readonly pid: number | null;
 }
 
-// Runs the CLI in `cwd` and resolves with its stdout. Rejects on a missing binary, a
-// non-zero exit, a timeout or output over the cap.
+// Runs the CLI and resolves with its stdout. The real runner ignores `cwd` and runs from
+// the home folder, since the session list does not depend on it. Rejects on a missing
+// binary, a non-zero exit, a timeout or output over the cap.
 export type AgentsRunner = (cwd: string) => Promise<string>;
 
 export type AgentsResult =
