@@ -4010,6 +4010,10 @@
     while (next.noteDelaysMs.length < next.noteBudget) {
       next.noteDelaysMs.push(next.noteMinMs);
     }
+    // The host may resend an identical message; restarting timers would wipe notes in flight.
+    if (robinMsg && JSON.stringify(robinMsg) === JSON.stringify(next)) {
+      return;
+    }
     robinMsg = next;
     robinState = msg.state;
     applyRobin();

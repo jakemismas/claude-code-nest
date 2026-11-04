@@ -17,7 +17,7 @@
     G: '#357544', // leaf shade
     l: '#7CC06A', // leaf light
     x: '#C8462E', // berry and the exclamation mark
-    s: '#DDBE7E', // egg speckle
+    s: '#C9A66A', // egg speckle
     E: '#E6D3AA', // egg shell
     n: '#C2571A', // note orange
     p: '#8C6FE0', // note purple and sparkle

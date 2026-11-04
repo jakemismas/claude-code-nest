@@ -105,18 +105,28 @@ type RobinProvider = {
   setLayout(layout: unknown): void;
   setRobinOptions(options: unknown): void;
   disposeRobin(): void;
+  refresh(): void;
 };
 
-function makeRobinView(visible = true): { view: unknown; posted: { type: string; state?: string }[]; dispose: () => void } {
+function makeRobinView(visible = true): {
+  view: unknown;
+  posted: { type: string; state?: string }[];
+  dispose: () => void;
+  ready: () => void;
+} {
   const posted: { type: string; state?: string }[] = [];
   let onDispose: (() => void) | undefined;
+  let onMessage: ((raw: unknown) => void) | undefined;
   const view = {
     webview: {
       options: {},
       cspSource: 'x:',
       asWebviewUri: (u: unknown): unknown => u,
       html: '',
-      onDidReceiveMessage: (): { dispose(): void } => ({ dispose: (): void => undefined }),
+      onDidReceiveMessage: (cb: (raw: unknown) => void): { dispose(): void } => {
+        onMessage = cb;
+        return { dispose: (): void => undefined };
+      },
       postMessage: (m: unknown): Thenable<boolean> => {
         posted.push(m as { type: string });
         return Promise.resolve(true);
@@ -129,7 +139,7 @@ function makeRobinView(visible = true): { view: unknown; posted: { type: string;
       return { dispose: (): void => undefined };
     },
   };
-  return { view, posted, dispose: () => onDispose?.() };
+  return { view, posted, dispose: () => onDispose?.(), ready: () => onMessage?.({ type: 'ready' }) };
 }
 
 function makeRobinProvider(hatched: { get: () => boolean; set: () => void }): RobinProvider {
@@ -185,12 +195,14 @@ describe('org panel robin after the view is resolved again', () => {
       const provider = makeRobinProvider({ get: () => false, set: () => undefined });
       const first = makeRobinView();
       provider.resolveWebviewView(first.view);
+      first.ready();
       assert.ok(first.posted.some((m) => m.type === 'robin'), 'the first view gets the robin');
 
       first.dispose();
       const before = armed.length;
       const second = makeRobinView();
       provider.resolveWebviewView(second.view);
+      second.ready();
       assert.ok(second.posted.some((m) => m.type === 'robin'), 'the second view gets the robin');
       assert.ok(
         armed.slice(before).some((ms) => ms >= 50 && ms <= 2400),
@@ -206,10 +218,14 @@ describe('org panel robin after the view is resolved again', () => {
       const provider = makeRobinProvider({ get: () => false, set: () => (hatched += 1) });
       const hidden = makeRobinView(false);
       provider.resolveWebviewView(hidden.view);
+      hidden.ready();
       assert.strictEqual(hatched, 0, 'a hidden view does not consume the egg');
       const shown = makeRobinView(true);
       provider.resolveWebviewView(shown.view);
-      assert.strictEqual(hatched, 1, 'a visible view does');
+      assert.strictEqual(hatched, 0, 'a view that is not ready yet does not consume it');
+      assert.strictEqual(shown.posted.filter((m) => m.type === 'robin').length, 0, 'nothing is posted before ready');
+      shown.ready();
+      assert.strictEqual(hatched, 1, 'a ready visible view does');
       provider.disposeRobin();
     });
   });
@@ -219,6 +235,7 @@ describe('org panel robin after the view is resolved again', () => {
       const provider = makeRobinProvider({ get: () => true, set: () => undefined });
       const view = makeRobinView();
       provider.resolveWebviewView(view.view);
+      view.ready();
       provider.disposeRobin();
       const posts = view.posted.length;
       const timers = armed.length;
@@ -226,6 +243,22 @@ describe('org panel robin after the view is resolved again', () => {
       provider.setAgentSessions([]);
       assert.strictEqual(view.posted.filter((m) => m.type === 'robin').length, view.posted.slice(0, posts).filter((m) => m.type === 'robin').length);
       assert.strictEqual(armed.length, timers);
+    });
+  });
+
+  it('does not resend an unchanged robin message when the panel refreshes', () => {
+    withRecordedTimers(() => {
+      const provider = makeRobinProvider({ get: () => true, set: () => undefined });
+      const view = makeRobinView();
+      provider.resolveWebviewView(view.view);
+      view.ready();
+      const count = (): number => view.posted.filter((m) => m.type === 'robin').length;
+      const before = count();
+      assert.ok(before >= 1);
+      provider.refresh();
+      provider.refresh();
+      assert.strictEqual(count(), before);
+      provider.disposeRobin();
     });
   });
 });
