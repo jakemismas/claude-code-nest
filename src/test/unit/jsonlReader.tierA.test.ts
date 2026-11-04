@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { scanTranscript } from '../../claude/jsonlReader';
 
-// Pure-logic unit tests for the Sprint 2 tier-A summary absorbers on the
+// Pure-logic unit tests for the summary absorbers on the
 // tolerant transcript reader. No filesystem and no vscode import; the reader
 // operates on raw JSONL text. These cover the additive fields only; the
 // title/timestamp/PR/branch/uuid behavior is covered by jsonlReader.test.ts and

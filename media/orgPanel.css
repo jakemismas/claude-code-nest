@@ -1,13 +1,8 @@
-/* Primary org-panel webview styling. Sprint 3 slice s3a-design-shell (issue #80)
-   re-skinned the panel to the Claude handoff at media/design/ (UI-SPEC.md); issue
-   #118 (UI-SPEC deviation 13, owner verify-gate decision) then moved every SURFACE,
-   TEXT, and BORDER token onto the active VS Code theme so the panel matches the
-   editor chrome in light and dark themes alike. The accent family stays the
-   hardcoded Claude orange. Each theme-driven token falls back to the original
-   handoff value: the fidelity harness defines no --vscode-* variables, so harness
-   captures still render the handoff palette and stay comparable to the committed
-   baselines. Spacing, type, radii, shadows, and the focus glows still follow
-   media/design/README.md. */
+/* Primary org-panel webview styling. Every SURFACE, TEXT, and BORDER token follows
+   the active VS Code theme so the panel matches the editor chrome in light and dark
+   themes alike. The accent family stays the hardcoded Claude orange. Each
+   theme-driven token falls back to a default light value: the screenshot harness
+   defines no --vscode-* variables, so it renders those defaults. */
 
 :root {
   /* Accent (Claude orange): theme-independent by design. */
@@ -16,7 +11,7 @@
   --nest-accent-deep: #C15F3C;
   --nest-accent-soft: rgba(217, 119, 87, 0.16);
 
-  /* Surfaces: the active VS Code theme, falling back to the handoff palette. */
+  /* Surfaces: the active VS Code theme, falling back to a light default. */
   --nest-panel: var(--vscode-sideBar-background, #FCFBF8);
   --nest-input: var(--vscode-input-background, #FBFAF6);
   --nest-hover-row: var(--vscode-list-hoverBackground, #F0EEE6);
@@ -53,10 +48,9 @@
 
 /* The Newsreader serif for later sub-page headings (Settings/Archive overlays,
    s3b). Bundled in the VSIX and loaded from the extension's own media resources,
-   NEVER from the network (UI-SPEC.md "Fidelity rules"; CSP font-src is cspSource
-   and the telemetry-free rule both forbid a Google Fonts fetch). The url() is
+   NEVER from the network. The url is
    relative to this stylesheet's webview URI, which resolves under the pinned media
-   localResourceRoots. No heading consumes the serif in THIS slice; the packaging
+   localResourceRoots. No heading consumes the serif in this stylesheet; the packaging
    proof (media/fonts/*.woff2 present in the .vsix) is the gate. A local serif stack
    is the fallback if the face fails to load. */
 @font-face {
@@ -247,11 +241,11 @@ body {
   position: absolute;
   left: 19px;
   /* 10px centers the 13px glyph against the input's placeholder text; the old 7px
-     sat it visibly high (issue #119). */
+     sat it visibly high. */
   top: 10px;
   pointer-events: none;
   display: inline-flex;
-  /* Drives the glyph's currentColor stroke (issue #118 theming). */
+  /* Drives the glyph's currentColor stroke. */
   color: var(--nest-text-muted);
 }
 
@@ -272,7 +266,7 @@ body {
   color: var(--nest-text-secondary);
 }
 
-/* Orange focus glow (design README line 30). */
+/* Orange focus glow. */
 .nest-filter:focus {
   border-color: var(--nest-accent);
   box-shadow: 0 0 0 1px var(--nest-accent), 0 0 14px 2px rgba(217, 119, 87, 0.35);
@@ -403,9 +397,9 @@ body {
 }
 
 /* The FOLDERS header carries the + (new folder) and ^ (collapse one level)
-   buttons flush right (design README line 44). Its label must read at the SAME
+   buttons flush right. Its label must read at the SAME
    10px/600 uppercase muted scale as the cross-cutting and UNSORTED headers
-   (media/design/ChatSidebar.dc.html line 160: font-size:10px; letter-spacing:0.7px;
+   (font-size:10px; letter-spacing:0.7px;
    color:#AEA99C; font-weight:600). The base .nest-section-header rule sets that type
    on its own header element, but this header is .nest-folders-header (not
    .nest-section-header), so the label span must carry the type itself or it inherits
@@ -514,7 +508,7 @@ body {
 }
 
 /* The synthetic UNSORTED header: a plain section label that is also a drop target.
-   The margin-top separates UNSORTED from the FOLDERS section above it (issue #120);
+   The margin-top separates UNSORTED from the FOLDERS section above it;
    margin rather than padding so the drop-target highlight box stays tight. */
 .nest-unsorted-header {
   margin-top: 10px;
@@ -546,10 +540,10 @@ body {
   outline: none;
 }
 
-/* ---- In-panel folder color-swatch picker (issue #82 AC2) ---- */
+/* ---- In-panel folder color-swatch picker ---- */
 
 /* The floating swatch popover, opened from the folder menu's "Set color". Replaces
-   the native <input type=color>. Popover shadow + radius per design README line 101. */
+   the native <input type=color>. Popover shadow + radius per. */
 .nest-color-popover {
   position: fixed;
   z-index: 60;
@@ -561,8 +555,7 @@ body {
   width: 170px;
 }
 
-/* The 8-swatch grid: flex-wrap so it lays out 22px swatches into rows (prototype
-   ChatSidebar.dc.html FOLDER COLOR block: display:flex; flex-wrap:wrap; gap:7px). */
+/* The 8-swatch grid: flex-wrap so it lays out 22px swatches into rows. */
 .nest-swatch-grid {
   display: flex;
   flex-wrap: wrap;
@@ -570,9 +563,9 @@ body {
 }
 
 /* One color swatch: 22x22, radius 5, filled with its palette color. Unselected
-   swatches carry a hairline inset border; the selected swatch shows the handoff's
-   double ring (white gap + a ring in the swatch's own color), matching the prototype
-   swatch() box-shadow. */
+   swatches carry a hairline inset border; the selected swatch shows a
+   double ring (white gap + a ring in the swatch's own color), matching the
+   swatch box-shadow. */
 .nest-swatch {
   --swatch-color: var(--nest-accent);
   width: 22px;
@@ -620,11 +613,11 @@ body {
   outline-offset: 1px;
 }
 
-/* ---- New-folder popover (issue #82 AC3) ---- */
+/* ---- New-folder popover ---- */
 
 /* The floating "New folder" popover opened by the FOLDERS header + button: a name
-   input plus Create / Cancel. Mirrors the prototype NEW FOLDER block styling and the
-   design popover shadow (README line 101). */
+   input plus Create / Cancel. Mirrors the folder color swatch styling and the
+   popover shadow. */
 .nest-newfolder-popover {
   position: fixed;
   z-index: 60;
@@ -669,7 +662,7 @@ body {
   padding-top: 9px;
 }
 
-/* Create: accent-filled primary; Cancel: quiet text button. Matches the prototype's
+/* Create: accent-filled primary; Cancel: quiet text button. Matches the
    Create (background #d97757, white) + Cancel (muted text) pair. */
 .nest-newfolder-create {
   flex: 1;
@@ -740,8 +733,7 @@ body {
 }
 
 /* Active row (currently open): warm tint + inset left border. The ONLY row
-   highlight; starred rows are NOT tinted. Best-effort (tab label heuristic,
-   UI-SPEC.md deviation 4); wired in a later slice. */
+   highlight; starred rows are NOT tinted. Best-effort (tab label heuristic). */
 .nest-row.nest-active {
   background: var(--nest-active-row);
   border-left-color: var(--nest-accent);
@@ -759,7 +751,7 @@ body {
   width: 100%;
 }
 
-/* The left status slot (design README line 51): a fixed 15px slot so titles align
+/* The left status slot: a fixed 15px slot so titles align
    whether or not a row carries a status; the glyph inside is a solid 8px dot for
    status 'done' or a 14px blinking circle with a white '?' for 'question'. The slot
    is aria-hidden; the row's aria-label carries the meaning. */
@@ -793,7 +785,7 @@ body {
   animation: ccblink 1.15s ease-in-out infinite;
 }
 
-/* UI-SPEC.md deviation 3: honor prefers-reduced-motion. The question badge stops
+/* Honor prefers-reduced-motion. The question badge stops
    blinking (a static badge) and every panel transition and animation is neutralized so
    no motion plays for a user who asked for none: the settings switch thumb slide and its
    track color fade, and the focus-glow border/shadow eases on the search boxes. Kept as
@@ -804,7 +796,7 @@ body {
     animation: none;
   }
 
-  /* The overflowed tag strip stays static (issue #122): the clipped tail remains
+  /* The overflowed tag strip stays static: the clipped tail remains
      reachable via the chat menu's full tag list. */
   .nest-tags-overflow .nest-row-tags-strip {
     animation: none;
@@ -850,7 +842,7 @@ body {
   text-overflow: ellipsis;
 }
 
-/* The pill clip box (issue #121): bounded and overflow-hidden so a chat with more
+/* The pill clip box: bounded and overflow-hidden so a chat with more
    tags than fits clips on one line instead of squeezing the title or the time. The
    strip inside carries the pills at their natural width. */
 .nest-row-tags {
@@ -869,7 +861,7 @@ body {
   flex: none;
 }
 
-/* Slow back-and-forth drift for a strip that overflows its clip box (issue #122):
+/* Slow back-and-forth drift for a strip that overflows its clip box:
    translate to the measured overflow (--tag-scroll, set by armTagMarquee in JS) and
    back, with dwell at each end so both the head and the tail get read. Duration
    scales with the overflow (--tag-scroll-duration). Hovering the box pauses the
@@ -900,7 +892,7 @@ body {
   animation-play-state: paused;
 }
 
-/* The add-tag + control (issue #121): quiet, revealed on row hover or keyboard
+/* The add-tag + control: quiet, revealed on row hover or keyboard
    focus, opens the chat menu's tag section anchored under itself. */
 .nest-tag-add {
   flex: 0 0 auto;
@@ -1088,10 +1080,10 @@ body {
   background: var(--nest-surface-hover);
 }
 
-/* ---- Chat row context menu (slice s3b-context-menu, issue #85) ---- */
+/* ---- Chat row context menu ---- */
 
-/* The chat menu reuses .nest-menu (surface, radius, the design context-menu shadow
-   0 12px 32px rgba(40,33,20,0.18)); this widens it to the prototype's ~200px min and
+/* The chat menu reuses .nest-menu (surface, radius, the context-menu shadow
+   0 12px 32px rgba(40,33,20,0.18)); this widens it to a ~200px min and
    pins a z-index above the tree/popovers so it sits over a row. */
 .nest-chat-menu {
   min-width: 200px;
@@ -1099,8 +1091,7 @@ body {
   z-index: 61;
 }
 
-/* Muted uppercase caption (TAGS / NEW TAG), matching the section-label treatment
-   (prototype ChatSidebar.dc.html:381/405). */
+/* Muted uppercase caption (TAGS / NEW TAG), matching the section-label treatment. */
 .nest-menu-caption {
   padding: 5px 10px 6px;
   font-size: 10px;
@@ -1109,7 +1100,7 @@ body {
   color: var(--nest-text-label);
 }
 
-/* A hairline divider between menu groups (prototype #EEEBE2 rule with 5px 6px margin). */
+/* A hairline divider between menu groups. */
 .nest-menu-divider {
   height: 1px;
   margin: 5px 6px;
@@ -1145,13 +1136,13 @@ body {
   text-align: right;
 }
 
-/* The accented "Create new tag" entry (prototype: color #d97757, weight 600). */
+/* The accented "Create new tag" entry. */
 .nest-menu-create {
   color: var(--nest-accent);
   font-weight: 600;
 }
 
-/* The starred-chat "kept and never archived" note (prototype ChatSidebar.dc.html:400):
+/* The starred-chat "kept and never archived" note:
    muted, non-interactive text in place of the Archive entry. */
 .nest-menu-note {
   padding: 6px 10px;
@@ -1198,7 +1189,7 @@ body {
   padding: 8px 0 6px;
 }
 
-/* Add tag: accent-filled primary; Cancel: quiet text button (prototype:189 line 414). */
+/* Add tag: accent-filled primary; Cancel: quiet text button. */
 .nest-menu-newtag-add {
   flex: 1;
   padding: 6px 0;
@@ -1243,8 +1234,8 @@ body {
   outline-offset: 1px;
 }
 
-/* ---- Settings overlay (slice s3b-settings-overlay, issue #86) ----
-   A full-panel sub-page over the tree/toolbar (design ChatSidebar.dc.html:263). It is
+/* ---- Settings overlay ----
+   A full-panel sub-page over the tree/toolbar It is
    position:fixed;inset:0 (appended to document.body) so it covers the 320px panel, on
    the #FCFBF8 overlay surface. A back chevron + Newsreader 16px/600 heading, then a
    scrolling body with the ARCHIVING group and the SIDEBAR SECTIONS pill switches. */
@@ -1291,8 +1282,7 @@ body {
   outline-offset: 1px;
 }
 
-/* Sub-page headings use the Newsreader serif at 16px/600 (design tokens: "sub-page
-   titles use Newsreader serif 16px/600"). The bundled face loads via @font-face; the
+/* Sub-page headings use the Newsreader serif at 16px/600. The bundled face loads via @font-face; the
    local serif stack is the fallback. */
 .nest-overlay-title {
   font-family: 'Newsreader', Georgia, serif;
@@ -1380,7 +1370,7 @@ body {
   margin-top: 1px;
 }
 
-/* The pill switch (design: track 34x19 radius 999, thumb 15x15 sliding 15px; on =
+/* The pill switch (track 34x19 radius 999, thumb 15x15 sliding 15px; on =
    #d97757, off = #D6D0C2). A role="switch" button; .nest-switch-on paints the on
    state and slides the thumb. */
 .nest-switch {
@@ -1424,13 +1414,13 @@ body {
   transform: translateX(15px);
 }
 
-/* ---- Archive overlay (slice s3b-archive-overlay, issue #87) ----
-   A full-panel sub-page over the tree/toolbar (design ChatSidebar.dc.html:302), reusing
+/* ---- Archive overlay ----
+   A full-panel sub-page over the tree/toolbar reusing
    the .nest-overlay chrome, back chevron, and Newsreader heading from the Settings overlay.
    Its "Search archived" box uses a GRAY focus glow (#A6A294 ring / rgba(120,114,102,0.30)
-   bloom), deliberately distinct from the main orange search glow (AC #2). Each row shows a
+   bloom), deliberately distinct from the main orange search glow. Each row shows a
    title over a folder . age meta line, a star (star-unarchive), an export button, and a
-   Restore button whose hover fills #d97757 (AC #3). */
+   Restore button whose hover fills #d97757. */
 
 .nest-archive-count {
   font-size: 11.5px;
@@ -1462,17 +1452,17 @@ body {
 .nest-archive-search-icon {
   position: absolute;
   left: 21px;
-  /* Same 10px optical centering as the main search icon (issue #119 class sweep):
+  /* Same 10px optical centering as the main search icon:
      identical input padding, font size, and border. */
   top: 10px;
   pointer-events: none;
   display: inline-flex;
-  /* Drives the glyph's currentColor stroke (issue #118 theming). */
+  /* Drives the glyph's currentColor stroke. */
   color: var(--nest-text-muted);
 }
 
 /* The gray-glow search box: a distinct focus token from the main orange search glow
-   (AC #2). Ring #A6A294, bloom rgba(120,114,102,0.30). */
+  . Ring #A6A294, bloom rgba(120,114,102,0.30). */
 .nest-archive-search-input {
   width: 100%;
   box-sizing: border-box;
@@ -1561,7 +1551,7 @@ body {
   color: var(--nest-text-breadcrumb);
 }
 
-/* The archived-row star (star-unarchive, AC #4). Hollow muted star; hover fills the
+/* The archived-row star (star-unarchive). Hollow muted star; hover fills the
    accent like the main-row star. Reuses the .nest-star sizing from the row anatomy. */
 .nest-archive-star {
   flex: none;
@@ -1572,7 +1562,7 @@ body {
   color: var(--nest-accent);
 }
 
-/* The export icon button (AC #3). */
+/* The export icon button. */
 .nest-archive-export {
   flex: none;
   width: 25px;
@@ -1600,7 +1590,7 @@ body {
   outline-offset: 1px;
 }
 
-/* The Restore button (AC #3): outlined pill; hover fills #d97757 with white text. */
+/* The Restore button: outlined pill; hover fills #d97757 with white text. */
 .nest-archive-restore {
   flex: none;
   padding: 3px 10px;

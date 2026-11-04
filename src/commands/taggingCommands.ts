@@ -1,18 +1,15 @@
 import { MetadataStore } from '../store/metadataStore';
 import { effectiveTagIds } from '../model/untagged';
 
-// taggingCommands: the multi-select tag command driven by the canPickMany
-// QuickPick (the slice's primary tagging affordance), plus the pure tag-diff that
-// turns a chosen tag-id set into the adds and removes to stage. Applying a
-// multi-tag, multi-chat change is batched into ONE store write (N synchronous
-// store calls coalesced by the store's debounce) and a SINGLE refresh, matching
-// the drag-and-drop drop path and the deleteFolder cascade (ARCHITECTURE.md
-// "Refresh coalescing").
-//
-// The command depends only on injectable seams (a tag-multi-pick presenter, a
-// project-key resolver, a refreshable provider, the store), so its orchestration
-// is exercisable headless; the concrete QuickPick lives in ui/tagQuickPick.ts.
-// The pure tagSetDiff is exported and unit-tested directly.
+// taggingCommands: the multi-select tag command driven by the canPickMany QuickPick, plus
+// the pure tag-diff that turns a chosen tag-id set into the adds and removes to stage.
+// Applying a multi-tag, multi-chat change is batched into ONE store write (N synchronous
+// store calls coalesced by the store's debounce) and a SINGLE refresh, matching the
+// drag-and-drop drop path and the deleteFolder cascade.  The command depends only on
+// injectable seams (a tag-multi-pick presenter, a project-key resolver, a refreshable
+// provider, the store), so its orchestration is exercisable headless; the concrete
+// QuickPick lives in ui/tagQuickPick.ts. The pure tagSetDiff is exported and unit-tested
+// directly.
 
 export const TAG_CHATS_COMMAND = 'claudeNest.tagChats';
 

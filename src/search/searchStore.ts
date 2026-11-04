@@ -10,28 +10,21 @@ import {
 } from './searchIndex';
 import * as exportIO from '../store/exportIO';
 
-// vscode-THIN persistence for the full-text search index (slice
-// s2-fulltext-search). It persists and loads the index ONLY through
-// exportIO.writeTextFile / readTextFile against context.globalStorageUri, and
-// falls back to an in-memory rebuild when no persisted file is present or it
-// cannot be read/parsed. It introduces NO new fs write path (DECISIONS.md
-// 2026-06-19 Slice s2-fulltext-search fold-in 1): every write goes through
-// exportIO, which runtime-asserts assertNotUnderClaudeProjects before touching
-// the disk, so the index can never be written under ~/.claude/projects/.
-//
-// NEVER SYNCED (sprint-wide hard rule, SPRINT-2-PLAN.md:67; review checkpoint 2):
-// the index is a FILE in extension globalStorage, not a globalState key, so it is
-// structurally outside the MetadataStore sync surface and is never registered
-// with setKeysForSync. The only synced surface stays nest.meta.v1::<key>.
-//
-// PERSISTED INDEX = TIER-A FIELDS ONLY (ARCHITECTURE.md "search-index location";
-// DECISIONS.md fold-in 3): the index this module BUILDS and PERSISTS is built
-// from the tier-A fields (title, lastMessageText, filesTouched) only, so no
-// body-derived token is ever written to disk. Full-body search is an in-memory
-// concern: the caller builds a body-indexed index in memory (searchIndex.buildIndex
-// with a bodyText fed in by bodyReader and discarded) and never hands it here.
-// This keeps the "bounded reductions on the snapshot, full body never persisted"
-// invariant honest.
+// vscode-THIN persistence for the full-text search index. It persists and loads the index
+// ONLY through exportIO.writeTextFile / readTextFile against context.globalStorageUri,
+// and falls back to an in-memory rebuild when no persisted file is present or it cannot
+// be read/parsed. It introduces NO new fs write path: every write goes through exportIO,
+// which runtime-asserts assertNotUnderClaudeProjects before touching the disk, so the
+// index can never be written under ~/.claude/projects/.  NEVER SYNCED: the index is a
+// FILE in extension globalStorage, not a globalState key, so it is structurally outside
+// the MetadataStore sync surface and is never registered with setKeysForSync. The only
+// synced surface stays nest.meta.v1::<key>.  PERSISTED INDEX = TIER-A FIELDS ONLY: the
+// index this module BUILDS and PERSISTS is built from the summary fields (title,
+// lastMessageText, filesTouched) only, so no body-derived token is ever written to disk.
+// Full-body search is an in-memory concern: the caller builds a body-indexed index in
+// memory (searchIndex.buildIndex with a bodyText fed in by bodyReader and discarded) and
+// never hands it here. This keeps the "bounded reductions on the snapshot, full body
+// never persisted" invariant honest.
 
 // The fixed filename of the persisted index under the globalStorage search
 // directory. A single file (the index is per-extension, scoped by the documents'
@@ -65,7 +58,7 @@ function indexFileUri(globalStorageUri: vscode.Uri): vscode.Uri {
 // indexOptions), so the loaded index searches identically; it reuses the SAME
 // exported FIELDS/STORE_FIELDS so the shape cannot drift from the build side.
 // bodyText/bodySnippetSource are listed for shape-compatibility, but a PERSISTED
-// document never carried body text (tier-A only), so they contribute nothing.
+// document never carried body text (summary only), so they contribute nothing.
 function loadOptions(): ConstructorParameters<typeof MiniSearch<SearchDoc>>[0] {
   return {
     fields: FIELDS,
@@ -85,8 +78,8 @@ export function tierADocs(records: ChatRecord[]): SearchDoc[] {
   return records.map((r) => docFromRecord(r));
 }
 
-// Persist the tier-A index built from the given records to globalStorage. Builds
-// the index from tier-A fields ONLY (no bodies), serializes it, and writes it
+// Persist the summary index built from the given records to globalStorage. Builds
+// the index from summary fields ONLY (no bodies), serializes it, and writes it
 // through exportIO (which asserts the target is not under ~/.claude/projects/).
 // Best-effort: a write failure is swallowed (the index is a derived cache that a
 // rebuild reconstructs), so a storage hiccup never breaks search or activation.
@@ -108,10 +101,10 @@ export async function persistTierAIndex(
   }
 }
 
-// Load the persisted tier-A index from globalStorage, or rebuild it in memory
+// Load the persisted summary index from globalStorage, or rebuild it in memory
 // from the given records when no valid persisted file is present. NEVER throws:
 // an absent file, an unreadable file, malformed JSON, a version mismatch, or a
-// loadJSON failure all fall back to a fresh in-memory rebuild from tier-A docs.
+// loadJSON failure all fall back to a fresh in-memory rebuild from summary docs.
 // The returned index is searchable immediately via searchIndex.search.
 export async function loadOrRebuildTierAIndex(
   globalStorageUri: vscode.Uri,

@@ -1,11 +1,10 @@
-// orgPanelCollapse: the PURE, vscode-free logic behind the org panel's "collapse
-// one level" toolbar control (issue #64). Kept separate from the webview DOM so
-// the deepest-open-level computation is covered by the headless unit gate, the
-// same split that keeps orgPanelModel.ts and dropReducer.ts vscode-free.
-//
-// The webview owns the DOM and the collapsed Set; it projects the folder
-// hierarchy to this plain shape, asks which ids the action should collapse, then
-// mutates its own Set and re-renders. This module never touches the DOM.
+// orgPanelCollapse: the PURE, vscode-free logic behind the org panel's "collapse one
+// level" toolbar control. Kept separate from the webview DOM so the deepest-open-level
+// computation is covered by the headless unit gate, the same split that keeps
+// orgPanelModel.ts and dropReducer.ts vscode-free.  The webview owns the DOM and the
+// collapsed Set; it projects the folder hierarchy to this plain shape, asks which ids the
+// action should collapse, then mutates its own Set and re-renders. This module never
+// touches the DOM.
 
 // One folder node projected from the rendered hierarchy. depth is the nesting
 // depth (0 for a root folder section). hasChildFolder is true when the folder has
@@ -57,8 +56,8 @@ export function deepestOpenLevelToCollapse(folders: readonly CollapseFolderNode[
 
 // The outcome of one "collapse one level" (^) click, so the webview knows whether
 // to add ids to its collapsed Set, clear the Set entirely (re-expand all), or do
-// nothing. This wraps deepestOpenLevelToCollapse to add the design's terminal
-// branch (README line 72, prototype ChatSidebar.dc.html collapseLevel): repeated
+// nothing. This wraps deepestOpenLevelToCollapse to add a terminal
+// branch: repeated
 // clicks fold the innermost visible open tier upward, and "once all folded, the
 // next click re-expands all".
 //   { action: 'collapse', ids } -> collapse the deepest visible open tier

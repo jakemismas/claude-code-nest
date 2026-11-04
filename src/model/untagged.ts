@@ -1,19 +1,15 @@
 // untagged: the PURE model for the Tags view's synthetic Untagged bucket and the
-// many-to-many tag-tree assembly. A chat falls into Untagged when its EFFECTIVE
-// tag set is empty: its stored tags array is empty, OR every tag id it references
-// no longer resolves to a real Tag (a dangling reference). This mirrors how
-// folderTree.assembleFolderTree routes a chat whose home folderId no longer
-// resolves to a real Folder into the synthetic Unfiled bucket: a dangling
-// reference is treated as "no membership," never lost.
-//
-// This module is vscode-free (build contract): no vscode import, no filesystem.
-//
-// The Untagged tag id is the '__untagged__' sentinel, which is excluded from the
-// id factory's mintable space (idFactory.RESERVED_SENTINELS), so a real tag id can
-// never collide with it. The view memoizes the Untagged node by this stable id
+// many-to-many tag-tree assembly. A chat falls into Untagged when its EFFECTIVE tag set
+// is empty: its stored tags array is empty, OR every tag id it references no longer
+// resolves to a real Tag (a dangling reference). This mirrors how
+// folderTree.assembleFolderTree routes a chat whose home folderId no longer resolves to a
+// real Folder into the synthetic Unfiled bucket: a dangling reference is treated as "no
+// membership," never lost.  This module is vscode-free (build contract): no vscode
+// import, no filesystem.  The Untagged tag id is the '__untagged__' sentinel, which is
+// excluded from the id factory's mintable space (idFactory.RESERVED_SENTINELS), so a real
+// tag id can never collide with it. The view memoizes the Untagged node by this stable id
 // across refreshes exactly like a real tag, so it is "recomputed and memoized on
-// refresh" (slice 3 plan): the membership is recomputed each assembly, the node
-// object is reused by id.
+// refresh": the membership is recomputed each assembly, the node object is reused by id.
 
 import { Tag } from '../store/schema';
 import { ChatOccurrence, makeOccurrence } from './occurrence';

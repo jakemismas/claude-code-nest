@@ -1,30 +1,24 @@
 import { ChatRecord } from '../model/types';
 import { relativeTime } from './relativeTime';
 
-// The PURE builder for the rich hover-preview card (slice 1). It returns plain
-// MARKDOWN text and takes only plain data (a ChatRecord plus the chat's resolved
-// folder name and full tag set); the provider wraps the result in a
-// vscode.MarkdownString. This split keeps the builder vscode-free so the headless
-// unit gate covers it, mirroring the occurrence.ts / tagsProvider.ts and
-// dropReducer.ts / dndController.ts vscode-free-builder convention (ARCHITECTURE.md
-// "the unit test that imports the reducer must not transitively require vscode").
-//
-// The card is built to the BINDING UI-SPEC.md hover card (DECISIONS.md 2026-06-19
-// Slice 1 reconcile): folder, age (relative time), ~token total, full tag set, and
-// BOTH a first AND a last message snippet. Models and the files-touched COUNT are
-// additive context below that, not a substitute for the spec fields. It is a
-// PREVIEW, not a transcript renderer: it shows the bounded tier-A snippets that
-// ride the scan snapshot (firstMessageText/lastMessageText), never the full body.
-// The full body is read on demand by bodyReader.ts behind the "Preview Full Chat"
-// command and is never held by a provider.
-//
-// The metadata field block is emitted with CommonMark HARD breaks (two trailing
-// spaces + newline) between fields so VS Code's hover renderer (markdown-it,
-// breaks:false) shows each field on its own line rather than collapsing the soft
-// line breaks into one run-together paragraph.
+// The PURE builder for the rich hover-preview card. It returns plain MARKDOWN text and
+// takes only plain data (a ChatRecord plus the chat's resolved folder name and full tag
+// set); the provider wraps the result in a vscode.MarkdownString. This split keeps the
+// builder vscode-free so the headless unit gate covers it, mirroring the occurrence.ts /
+// tagsProvider.ts and dropReducer.ts / dndController.ts vscode-free-builder convention.
+// The card shows: folder, age (relative time), ~token total,
+// full tag set, and BOTH a first AND a last message snippet. Models and the files-touched
+// COUNT are additive context below that, not a substitute for the spec fields. It is a
+// PREVIEW, not a transcript renderer: it shows the bounded summary snippets that ride the
+// scan snapshot (firstMessageText/lastMessageText), never the full body. The full body is
+// read on demand by bodyReader.ts behind the "Preview Full Chat" command and is never
+// held by a provider.  The metadata field block is emitted with CommonMark HARD breaks
+// (two trailing spaces + newline) between fields so VS Code's hover renderer
+// (markdown-it, breaks:false) shows each field on its own line rather than collapsing the
+// soft line breaks into one run-together paragraph.
 
 // A short ~token badge string for a chat row description, e.g. "~12.3k tokens".
-// Sums the four trusted tier-A token counts (input + output + cache creation +
+// Sums the four trusted summary token counts (input + output + cache creation +
 // cache read) into one human figure. Returns '' when the total is 0 (no usage was
 // recorded), so a usage-less chat shows no badge rather than a misleading "~0".
 // Exported so the providers set the row description from the same rule the hover
@@ -60,14 +54,14 @@ export function buildChatTooltip(
 
   const fields: string[] = [];
 
-  // The binding UI-SPEC card fields: folder, age, ~tokens, full tag set.
+  // The card fields: folder, age, ~tokens, full tag set.
   fields.push('Folder: ' + escapeMarkdown(displayFolder(folderName)));
   fields.push('Age: ' + escapeMarkdown(displayAge(record.timestamp)));
   fields.push('Tokens: ' + escapeMarkdown(displayTokens(record)));
   fields.push('Tags: ' + escapeMarkdown(displayTags(tags)));
 
-  // Additive context (slice plan): the distinct models and the files-touched
-  // COUNT. Omitted entirely when empty so a sparse chat's card stays clean.
+  // Additive context: the distinct models and the files-touched COUNT. Omitted entirely
+  // when empty so a sparse chat's card stays clean.
   if (record.models.length > 0) {
     fields.push('Models: ' + escapeMarkdown(record.models.join(', ')));
   }
@@ -83,11 +77,11 @@ export function buildChatTooltip(
   sections.push('**' + escapeMarkdown(record.title) + '**');
   sections.push(fields.join(HARD_BREAK));
 
-  // The binding UI-SPEC first/last message snippet (DECISIONS.md 2026-06-19): BOTH
-  // the first and the last genuine turn, each a bounded tier-A reduction (never the
-  // full body). Rendered under a rule so the block reads as a preview. Each present
-  // snippet is its own hard-broken line; the whole block is omitted when neither
-  // was captured. First then last, so the card reads chronologically.
+  // The first/last message snippet: BOTH the first and the last genuine
+  // turn, each a bounded summary reduction (never the full body). Rendered under a rule so
+  // the block reads as a preview. Each present snippet is its own hard-broken line; the
+  // whole block is omitted when neither was captured. First then last, so the card reads
+  // chronologically.
   const snippetLines: string[] = [];
   const first = record.firstMessageText;
   if (first !== null && first.trim().length > 0) {
@@ -131,9 +125,8 @@ function displayTokens(record: ChatRecord): string {
   return '~' + formatTokens(total);
 }
 
-// The FULL tag set, deduped and rendered comma-separated. Empty labels are
-// dropped; an empty effective set renders "none" so the card always shows the tag
-// line (the UI-SPEC card lists the full tag set).
+// The FULL tag set, deduped and rendered comma-separated. Empty labels are dropped; an
+// empty effective set renders "none" so the card always shows the tag line.
 function displayTags(tags: readonly string[]): string {
   const seen = new Set<string>();
   const out: string[] = [];

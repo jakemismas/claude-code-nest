@@ -1,17 +1,14 @@
-// The ProjectMeta document schema for Claude Code Nest, plus the per-project
-// globalState key encoding and the schema-version migration entry point.
-//
-// This module is PURE DATA and pure logic: no vscode import, no filesystem. It
-// defines the self-contained ProjectMeta shape that is stored once per project
-// under the synced globalState key `nest.meta.v1::<projectKey>`, the Folder,
-// Tag, ChatMeta, and Link sub-shapes, and the migration that lifts an older
-// stored document to the current schemaVersion.
-//
-// Sync boundary (ARCHITECTURE.md): the synced document carries folders, tags,
-// chat folder/tags/links, and the updatedAt + deviceId stamps. Orphan-reconcile
-// state (missingSince, archived, tombstone) is LOCAL ONLY and must never be
-// synced. It is therefore modeled on a SEPARATE local document (LocalProjectMeta
-// below), not on the synced ProjectMeta, so a synced write can never carry it.
+// The ProjectMeta document schema for Claude Code Nest, plus the per-project globalState
+// key encoding and the schema-version migration entry point.  This module is PURE DATA
+// and pure logic: no vscode import, no filesystem. It defines the self-contained
+// ProjectMeta shape that is stored once per project under the synced globalState key
+// `nest.meta.v1::<projectKey>`, the Folder, Tag, ChatMeta, and Link sub-shapes, and the
+// migration that lifts an older stored document to the current schemaVersion.  Sync
+// boundary: the synced document carries folders, tags, chat folder/tags/links, and the
+// updatedAt + deviceId stamps. Orphan-reconcile state (missingSince, archived, tombstone)
+// is LOCAL ONLY and must never be synced. It is therefore modeled on a SEPARATE local
+// document (LocalProjectMeta below), not on the synced ProjectMeta, so a synced write can
+// never carry it.
 
 // The current schema version. Bump when the stored shape changes and add a step
 // to migrateProjectMeta.
@@ -72,27 +69,24 @@ export interface Link {
   kind: 'parent' | 'related';
 }
 
-// The SYNCED per-chat metadata. folderId is the chat's single home folder (null
-// when unfiled). tags references Tag ids. links are this chat's outbound links.
-// updatedAt + deviceId are the per-record stamps used for last-writer-wins
-// reconcile. This shape carries NO orphan state; that lives in LocalChatState.
-//
-// starred, userArchived, and archivedAt are optional curation scalars (Slice 3).
-// They are SYNCED and arbitrated by the single per-record updatedAt stamp (there
-// is no per-scalar stamp). archivedAt travels COUPLED to userArchived: when the
-// LWW arbitration takes one side's archive state it takes that side's archivedAt
-// with it, so the timestamp never desynchronizes from the flag. userArchived is
-// the LOCAL user's archive decision and is distinct from the local-only
+// The SYNCED per-chat metadata. folderId is the chat's single home folder (null when
+// unfiled). tags references Tag ids. links are this chat's outbound links. updatedAt +
+// deviceId are the per-record stamps used for last-writer-wins reconcile. This shape
+// carries NO orphan state; that lives in LocalChatState.  starred, userArchived, and
+// archivedAt are optional curation scalars. They are SYNCED and arbitrated by the single
+// per-record updatedAt stamp (there is no per-scalar stamp). archivedAt travels COUPLED
+// to userArchived: when the LWW arbitration takes one side's archive state it takes that
+// side's archivedAt with it, so the timestamp never desynchronizes from the flag.
+// userArchived is the LOCAL user's archive decision and is distinct from the local-only
 // orphan-reconcile archive in LocalChatState (that one is missing-on-disk driven,
-// non-synced); userArchived is a deliberate, synced curation choice.
-// restoredAt is the third member of the archive group: the epoch ms of the user's
-// last DELIBERATE restore (unarchive). It exists so automation can tell a restored
-// chat apart from one that merely aged past the auto-archive window: the policy
-// treats restoredAt as activity for the archive decision, so a restore is not
-// silently re-archived on the next pass. It travels COUPLED to the archive pair
-// (the side that supplies userArchived supplies both timestamps): archiving sets
-// archivedAt and clears restoredAt; unarchiving clears archivedAt and stamps
-// restoredAt.
+// non-synced); userArchived is a deliberate, synced curation choice. restoredAt is the
+// third member of the archive group: the epoch ms of the user's last DELIBERATE restore
+// (unarchive). It exists so automation can tell a restored chat apart from one that
+// merely aged past the auto-archive window: the policy treats restoredAt as activity for
+// the archive decision, so a restore is not silently re-archived on the next pass. It
+// travels COUPLED to the archive pair (the side that supplies userArchived supplies both
+// timestamps): archiving sets archivedAt and clears restoredAt; unarchiving clears
+// archivedAt and stamps restoredAt.
 export interface ChatMeta {
   folderId: string | null;
   tags: string[];
@@ -105,10 +99,9 @@ export interface ChatMeta {
   restoredAt?: number;
 }
 
-// The SYNCED, self-contained per-project document stored under the meta key.
-// Per ARCHITECTURE.md this is the unit of Settings Sync: an opaque value that a
-// foreign device can wholesale-replace, so it is kept self-contained and free of
-// any local-only orphan state.
+// The SYNCED, self-contained per-project document stored under the meta key. Per this is
+// the unit of Settings Sync: an opaque value that a foreign device can wholesale-replace,
+// so it is kept self-contained and free of any local-only orphan state.
 export interface ProjectMeta {
   schemaVersion: number;
   folders: { [folderId: string]: Folder };
@@ -671,10 +664,10 @@ function normalizeChat(
     deviceId:
       typeof value.deviceId === 'string' ? clampDeviceId(value.deviceId) : deviceId,
   };
-  // Optional curation scalars (Slice 3): carry them through when present so they
-  // are not stripped on every read/migrate. archivedAt is carried independently
-  // of userArchived here (a defensive normalize must not drop a stored field);
-  // the LWW merge is what keeps the pair coupled on arbitration.
+  // Optional curation scalars: carry them through when present so they are not stripped
+  // on every read/migrate. archivedAt is carried independently of userArchived here (a
+  // defensive normalize must not drop a stored field); the LWW merge is what keeps the
+  // pair coupled on arbitration.
   if (typeof value.starred === 'boolean') {
     chat.starred = value.starred;
   }

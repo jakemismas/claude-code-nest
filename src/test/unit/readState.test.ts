@@ -150,10 +150,10 @@ describe('ReadStateStore markSeen id gate (safe record-id shape at the sink)', (
   });
 });
 
-// The one-time first-run seed (issue #123): every chat present at the first scan is
-// marked read at its own last-activity timestamp, exactly once, so pre-existing
-// chats never light the unread dot while later assistant activity still does.
-describe('ReadStateStore first-run seed (issue #123)', () => {
+// The one-time first-run seed: every chat present at the first scan is marked read at its
+// own last-activity timestamp, exactly once, so pre-existing chats never light the unread
+// dot while later assistant activity still does.
+describe('ReadStateStore first-run seed', () => {
   const records = [
     { sessionId: 'old-1', timestamp: 1000 },
     { sessionId: 'old-2', timestamp: 2000 },

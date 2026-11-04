@@ -1,12 +1,10 @@
 // Branch signal (best-effort): group chats by the gitBranch carried on their
-// user/assistant lines. In this user's real data the branch is almost always
-// "HEAD" (ARCHITECTURE.md "gitBranch is almost always HEAD"), so this signal
-// typically yields a single large "HEAD" bucket and is of limited value; it is
-// built best-effort and the noisy "HEAD" bucket is deliberately SUPPRESSED so the
-// section is not dominated by a meaningless group. A chat with no branch, or only
-// the "HEAD" branch, joins no bucket.
-//
-// This module is PURE and vscode-free (unit-gate rule): no vscode import, no fs.
+// user/assistant lines. In this user's real data the branch is almost always "HEAD", so
+// this signal typically yields a single large "HEAD" bucket and is of limited value; it
+// is built best-effort and the noisy "HEAD" bucket is deliberately SUPPRESSED so the
+// section is not dominated by a meaningless group. A chat with no branch, or only the
+// "HEAD" branch, joins no bucket.  This module is PURE and vscode-free (unit-gate rule):
+// no vscode import, no fs.
 
 import { SmartSignalsInput } from '../../model/types';
 import { SmartBucket, sortMembersInput } from './bucket';

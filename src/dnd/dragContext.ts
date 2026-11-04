@@ -1,29 +1,23 @@
-// dragContext: the in-process shared carrier for a Nest drag, and the RELIABLE
-// path for a CROSS-VIEW (cross-tree) drop. It is vscode-free (ARCHITECTURE.md
-// unit-gate rule) so the unit suite can exercise the stash/take/clear contract
-// without the host.
-//
-// WHY this exists (corrects the Slice 3 DECISIONS.md assumption): VSCode 1.66
-// does NOT deliver a source controller's custom DataTransferItem to a DIFFERENT
-// controller's handleDrop. Verified against the pinned source: extHostTreeViews
-// $handleDrop only re-applies the source handleDrag items
-// (addAdditionalTransferItems) when `sourceViewId === destinationViewId`; on a
-// cross-tree drop only the base transfer DTO crosses, so the chat-id JSON the
-// source controller writes under its own reserved MIME never reaches the peer
-// controller. The @types/vscode 1.66 docs say the same: a custom MIME added in
-// handleDrag "will only be included in the handleDrop when the drag was initiated
-// from an element in the same drag and drop controller," and a custom item "will
-// be preserved [only] when the items are dropped on another tree item in the same
-// tree." So the DataTransfer carrier is correct ONLY for a within-view drop.
-//
-// The within-view path still rides the DataTransfer (the host preserves the
-// custom item there, and a value that survived a host round-trip is the
-// authoritative source). This module is the cross-view fallback: handleDrag
-// stashes the dragged chat ids here keyed by a monotonic drag token; handleDrop
-// consults the DataTransfer FIRST (within-view) and falls back to the most-recent
-// stash when no recognized payload arrived (cross-view). The stash is cleared
-// when consumed and is single-entry (a new drag overwrites the previous), so a
-// stale stash cannot leak chat ids into an unrelated later drop.
+// dragContext: the in-process shared carrier for a Nest drag, and the RELIABLE path for a
+// CROSS-VIEW (cross-tree) drop. It is vscode-free so the unit suite can exercise the
+// stash/take/clear contract without the host.  WHY this exists (corrects the assumption):
+// VSCode 1.66 does NOT deliver a source controller's custom DataTransferItem to a
+// DIFFERENT controller's handleDrop. Verified against the pinned source: extHostTreeViews
+// $handleDrop only re-applies the source handleDrag items (addAdditionalTransferItems)
+// when `sourceViewId === destinationViewId`; on a cross-tree drop only the base transfer
+// DTO crosses, so the chat-id JSON the source controller writes under its own reserved
+// MIME never reaches the peer controller. The @types/vscode 1.66 docs say the same: a
+// custom MIME added in handleDrag "will only be included in the handleDrop when the drag
+// was initiated from an element in the same drag and drop controller," and a custom item
+// "will be preserved [only] when the items are dropped on another tree item in the same
+// tree." So the DataTransfer carrier is correct ONLY for a within-view drop.  The
+// within-view path still rides the DataTransfer (the host preserves the custom item
+// there, and a value that survived a host round-trip is the authoritative source). This
+// module is the cross-view fallback: handleDrag stashes the dragged chat ids here keyed
+// by a monotonic drag token; handleDrop consults the DataTransfer FIRST (within-view) and
+// falls back to the most-recent stash when no recognized payload arrived (cross-view).
+// The stash is cleared when consumed and is single-entry (a new drag overwrites the
+// previous), so a stale stash cannot leak chat ids into an unrelated later drop.
 
 // One live drag's payload: the dragged chats' sessionIds and a monotonic token
 // identifying the drag, so a drop can confirm it is consuming the CURRENT drag's

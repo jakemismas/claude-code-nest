@@ -7,17 +7,15 @@ import {
   linksFromChats,
 } from '../model/links';
 
-// linkCommands: the link-to-chat and unlink commands that manage a chat's links[]
-// (kind 'parent' or 'related'). A kind:'parent' link on a SOURCE chat pointing at a
-// TARGET chat makes the target render nested beneath the source in the Folders tree
-// as a linkedChild (links.ts). Every mutation runs through MetadataStore.addLink /
-// removeLink (the synced ProjectMeta) and the Folders view is refreshed ONCE after
-// the store flush (refresh coalescing, ARCHITECTURE.md).
-//
-// The injectable LinkCommandUi seam mirrors TagCommandUi so the command logic is
-// exercisable without the real vscode UI; extension.ts wires the real window
-// methods. The pick lists are built from the SCANNED chat records (a link target
-// must be a real, present chat), so the command never offers a broken target.
+// linkCommands: the link-to-chat and unlink commands that manage a chat's links[] (kind
+// 'parent' or 'related'). A kind:'parent' link on a SOURCE chat pointing at a TARGET chat
+// makes the target render nested beneath the source in the Folders tree as a linkedChild
+// (links.ts). Every mutation runs through MetadataStore.addLink / removeLink (the synced
+// ProjectMeta) and the Folders view is refreshed ONCE after the store flush (refresh
+// coalescing).  The injectable LinkCommandUi seam mirrors TagCommandUi so the command
+// logic is exercisable without the real vscode UI; extension.ts wires the real window
+// methods. The pick lists are built from the SCANNED chat records (a link target must be
+// a real, present chat), so the command never offers a broken target.
 
 export const LINK_TO_CHAT_COMMAND = 'claudeNest.linkToChat';
 export const UNLINK_CHAT_COMMAND = 'claudeNest.unlinkChat';
@@ -120,12 +118,12 @@ export async function linkToChat(
   provider.refresh();
 }
 
-// The PALETTE entry for "Link to Chat..." (slice s3a-view-consolidation): with the
-// flat Chats tree retired, no tree row supplies the source chat any more, so a
-// palette invocation arrives with NO argument. This path first picks the SOURCE
-// chat from the same scanned records the target pick uses, then delegates to
-// linkToChat (which picks the kind and the target). Requires at least two present
-// chats (a source and a distinct target); with fewer there is nothing linkable.
+// The PALETTE entry for "Link to Chat...": with the flat Chats tree retired, no tree row
+// supplies the source chat any more, so a palette invocation arrives with NO argument.
+// This path first picks the SOURCE chat from the same scanned records the target pick
+// uses, then delegates to linkToChat (which picks the kind and the target). Requires at
+// least two present chats (a source and a distinct target); with fewer there is nothing
+// linkable.
 export async function linkToChatFromPalette(deps: LinkCommandDeps): Promise<void> {
   const { ui } = deps;
   const projectKey = deps.getProjectKey();
@@ -153,13 +151,13 @@ export async function linkToChatFromPalette(deps: LinkCommandDeps): Promise<void
   await linkToChat(deps, choice.chatId);
 }
 
-// The PALETTE entry for "Unlink" (slice s3a-view-consolidation): with the Folders
-// tree retired nothing mints a linked-child row, so a palette invocation arrives
-// with NO argument. This path enumerates the project's CURRENT parent links as one
-// pick entry per linked CHILD, labeled with its DESIGNATED parent (the exact
-// nesting unlinkChat removes), then delegates to unlinkChat with the chosen child.
-// A broken child (its target chat is no longer on disk) is still offered so a
-// dangling link stays cleanable, mirroring the retired tree's broken-row Unlink.
+// The PALETTE entry for "Unlink": with the Folders tree retired nothing mints a
+// linked-child row, so a palette invocation arrives with NO argument. This path
+// enumerates the project's CURRENT parent links as one pick entry per linked CHILD,
+// labeled with its DESIGNATED parent (the exact nesting unlinkChat removes), then
+// delegates to unlinkChat with the chosen child. A broken child (its target chat is no
+// longer on disk) is still offered so a dangling link stays cleanable, mirroring the
+// retired tree's broken-row Unlink.
 export async function unlinkChatFromPalette(deps: LinkCommandDeps): Promise<void> {
   const { store, ui } = deps;
   const projectKey = deps.getProjectKey();

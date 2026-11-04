@@ -27,7 +27,7 @@ import { resolveFolderName, resolveStarred, resolveTagLabels } from './chatMeta'
 // node whose id is the composite `${tagId}:${chatId}`, every one dereferencing the
 // ONE shared ChatRecord resolved from a records map.
 //
-// Binding rules honored (ARCHITECTURE.md "Tree and VSCode API binding rules"):
+// Rules this module follows:
 // - Composite ids: a tag node id is the separator-free tag id (or the
 //   '__untagged__' sentinel); an occurrence node id is `${tagId}:${chatId}`,
 //   unique tree-wide because the (tagId, chatId) pair is unique.
@@ -38,8 +38,7 @@ import { resolveFolderName, resolveStarred, resolveTagLabels } from './chatMeta'
 // - getParent returns EXACTLY one parent: an occurrence node's parent is its one
 //   owning tag (recovered from the FIRST ':' of its composite id); a tag node has
 //   no parent. The Tags view reveals a specific OCCURRENCE only; the chat's
-//   single-home reveal-by-chat target is the Folders view (ARCHITECTURE.md line
-//   102), so this provider deliberately exposes NO memberNodeForChat-style reveal.
+//   single-home reveal-by-chat target is the Folders view, so this provider deliberately exposes NO memberNodeForChat-style reveal.
 // - getChildren(undefined) returns [] when there are no sessions; never throws out
 //   of getChildren. The viewsWelcome contribution shows the no-sessions message.
 
@@ -89,10 +88,10 @@ export class ChatOccurrenceItem extends vscode.TreeItem {
     super(record.title, vscode.TreeItemCollapsibleState.None);
     this.id = occurrence.id;
     this.description = chatRowDescription(record);
-    // The rich slice-1 hover card built to the binding UI-SPEC. The Tags view
+    // The rich hover card. The Tags view
     // shows EACH occurrence of a chat, so every occurrence's card lists the chat's
-    // FULL tag set (not just the tag under which this occurrence renders), matching
-    // the spec's "full tag set" card field. folderName/tags are resolved by the
+    // FULL tag set (not just the tag under which this occurrence renders), as the
+    // card's "full tag set" field. folderName/tags are resolved by the
     // provider from the meta it already reads; buildChatTooltip stays vscode-free.
     this.tooltip = new vscode.MarkdownString(buildChatTooltip(record, folderName, tags));
     this.contextValue = 'claudeNest.tagChat';
@@ -114,8 +113,8 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
   readonly onDidChangeTreeData = this.emitter.event;
 
   // Memoized node objects by tree-wide-unique id (tag id, or `${tagId}:${chatId}`).
-  // Reused across refreshes so VSCode's reference-keyed element cache keeps reveal
-  // and selection stable (ARCHITECTURE.md "Memoize node objects by id").
+  // Reused across refreshes so VSCode's reference-keyed element cache keeps reveal and
+  // selection stable.
   private readonly nodesById = new Map<string, TagTreeNode>();
 
   // A transient per-rebuild scan-options overlay (onProgress/shouldCancel) used by
@@ -205,10 +204,10 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
     return children;
   }
 
-  // getParent returns the SINGLE parent of a node (ARCHITECTURE.md line 100). An
-  // occurrence node's parent is its ONE owning tag (recovered from the first ':'
-  // of its composite id, so even a many-to-many chat resolves to exactly the tag
-  // under which THIS occurrence renders); a tag node has no parent.
+  // getParent returns the SINGLE parent of a node. An occurrence node's parent is its ONE
+  // owning tag (recovered from the first ':' of its composite id, so even a many-to-many
+  // chat resolves to exactly the tag under which THIS occurrence renders); a tag node has
+  // no parent.
   getParent(element: TagTreeNode): TagTreeNode | undefined {
     this.ensureSnapshot();
     if (element instanceof ChatOccurrenceItem) {
@@ -354,7 +353,7 @@ export class TagsProvider implements vscode.TreeDataProvider<TagTreeNode>, ScanP
 }
 
 // An occurrence row's description: relative time plus the ~token badge (from the
-// tier-A token totals on the snapshot record; no body read). Matches the folders
+// summary token totals on the snapshot record; no body read). Matches the folders
 // members so every row builder reads identically.
 function chatRowDescription(record: ChatRecord): string {
   const rel = relativeTime(record.timestamp);

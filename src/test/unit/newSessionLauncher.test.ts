@@ -1,11 +1,10 @@
 import * as assert from 'assert';
 import { launchNewSession, NEW_SESSION_COMMANDS } from '../../launch/newSessionLauncher';
 
-// Headless unit tests for the vscode-free New session launcher (slice
-// s3a-design-shell, issue #80). It imports no vscode module (only an injected
-// command runner), so this test never transitively requires vscode (ARCHITECTURE.md
-// unit-gate rule). It covers the probed command order, the fallback-on-reject chain,
-// and the total-failure signal that drives the host's graceful toast.
+// Headless unit tests for the vscode-free New session launcher. It imports no vscode
+// module (only an injected command runner), so this test never transitively requires
+// vscode. It covers the probed command order, the fallback-on-reject chain, and the
+// total-failure signal that drives the host's graceful toast.
 
 describe('newSessionLauncher.NEW_SESSION_COMMANDS', () => {
   it('probes the verified new-chat command first, then the sidebar fallback', () => {

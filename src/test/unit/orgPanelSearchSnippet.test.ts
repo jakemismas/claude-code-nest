@@ -9,9 +9,9 @@ import { ROLE_LABEL_USER, ROLE_LABEL_ASSISTANT } from '../../search/searchIndex'
 // Behavior tests for the host content-search reply the PRIMARY org panel posts
 // (src/views/orgPanelWebview.ts rankRows / postSearchResults), driving the REAL
 // provider through its message handler exactly as the search-race regression test
-// does. Two things this slice added are pinned here (issue #83):
+// does. Two things are pinned here:
 //
-//   - AC #1 snippet gating: a TITLE match sends snippet:null (no snippet row); a
+//   - Snippet gating: a TITLE match sends snippet:null (no snippet row); a
 //     BODY-only match sends a role-prefixed snippet ("You: " / "Claude: ").
 //   - The body feed threads role INTO the snippet source, so the emitted body-match
 //     snippet begins with the matched line's role label.
@@ -151,7 +151,7 @@ function makeProvider(workspacePath: string): { resolveWebviewView(view: unknown
   );
 }
 
-describe('orgPanelWebview content-search snippet gating (issue #83 AC #1)', () => {
+describe('orgPanelWebview content-search snippet gating', () => {
   afterEach(() => {
     chatScanner.scanChats = realScanChats;
     bodyReader.readTranscriptBodies = realReadBodies;

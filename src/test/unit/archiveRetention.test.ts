@@ -6,10 +6,10 @@ import {
   decideRetention,
 } from '../../store/archiveRetention';
 
-// Pure-logic unit tests for the Slice 4 archive keep-window retention policy. The
-// policy decides keep|prune purely from {archivedAt, starred, keepWindowDays, now}
-// with no clock or config access, so every case here is deterministic (the boundary
-// case in particular: age exactly == window). No vscode, no filesystem.
+// Pure-logic unit tests for the archive keep-window retention policy. The policy decides
+// keep|prune purely from {archivedAt, starred, keepWindowDays, now} with no clock or
+// config access, so every case here is deterministic (the boundary case in particular:
+// age exactly == window). No vscode, no filesystem.
 
 const NOW = 1_700_000_000_000;
 

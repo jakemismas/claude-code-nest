@@ -38,7 +38,7 @@ import { resolveFolderName, resolveStarred, resolveTagLabels } from './chatMeta'
 // or the synthetic Unfiled bucket) as a leaf chat-member node whose id is the
 // composite `${folderId}#${chatId}`.
 //
-// Binding rules honored (ARCHITECTURE.md "Tree and VSCode API binding rules"):
+// Rules this module follows:
 // - Composite ids: a folder node id is the separator-free folder id (or the
 //   '__unfiled__' sentinel); a chat-member node id is `${folderId}#${chatId}`,
 //   unique tree-wide because a chat has exactly one home.
@@ -78,11 +78,11 @@ export class FolderItem extends vscode.TreeItem {
   }
 }
 
-// A chat occurrence under a folder. Its id is the composite `${folderId}#${chatId}`.
-// It becomes COLLAPSIBLE (rather than a leaf) when the chat is the designated parent
-// of one or more linked children (slice 5): getChildren then returns those
-// linkedChild nodes. hasLinks records whether it has children so the memoization
-// predicate rebuilds the item when its collapsible state must flip.
+// A chat occurrence under a folder. Its id is the composite `${folderId}#${chatId}`. It
+// becomes COLLAPSIBLE (rather than a leaf) when the chat is the designated parent of one
+// or more linked children: getChildren then returns those linkedChild nodes. hasLinks
+// records whether it has children so the memoization predicate rebuilds the item when its
+// collapsible state must flip.
 export class ChatMemberItem extends vscode.TreeItem {
   // The folder name and tag-label signature the hover card was built from, used by
   // the provider's reuse check so a re-file or tag edit rebuilds the node and its
@@ -110,7 +110,7 @@ export class ChatMemberItem extends vscode.TreeItem {
     );
     this.id = chatNodeId(folderId, record.sessionId);
     this.description = chatRowDescription(record);
-    // The rich slice-1 hover card built to the binding UI-SPEC (folder, age,
+    // The rich hover card (folder, age,
     // ~tokens, full tag set, snippet). folderName/tags are resolved by the provider
     // from the meta it already reads in ensureSnapshot; buildChatTooltip stays
     // vscode-free and the provider wraps the markdown here.
@@ -288,19 +288,17 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return children;
   }
 
-  // getParent returns the SINGLE parent of a node (ARCHITECTURE.md). A chat
-  // member's parent is its one owning folder; a folder's parent is its parent
-  // folder, or undefined for a root or the Unfiled bucket. The Folders view is the
-  // reveal target for a chat (its single home).
+  // getParent returns the SINGLE parent of a node. A chat member's parent is its one
+  // owning folder; a folder's parent is its parent folder, or undefined for a root or the
+  // Unfiled bucket. The Folders view is the reveal target for a chat (its single home).
   getParent(element: FolderTreeNode): FolderTreeNode | undefined {
     this.ensureSnapshot();
     if (element instanceof LinkedChildItem) {
-      // A linked child's single parent is the PARENT CHAT-MEMBER occurrence (the
-      // parent chat where it nests), NOT a folder. Recover the parent chat id from
-      // the composite id by splitting on the FIRST '>' (parseLinkedChildId), then
-      // resolve that parent chat's member node in its own folder home. This mirrors
-      // occurrence.ts/folderTree.ts first-separator recovery and ARCHITECTURE.md's
-      // one-parent-per-node rule.
+      // A linked child's single parent is the PARENT CHAT-MEMBER occurrence (the parent
+      // chat where it nests), NOT a folder. Recover the parent chat id from the composite
+      // id by splitting on the FIRST '>' (parseLinkedChildId), then resolve that parent
+      // chat's member node in its own folder home. This mirrors
+      // occurrence.ts/folderTree.ts first-separator recovery's one-parent-per-node rule.
       // element.child.id is the same composite the TreeItem.id carries, but is typed
       // string (TreeItem.id is string | undefined), so parse that one.
       const parsed = parseLinkedChildId(element.child.id);
@@ -339,14 +337,13 @@ export class FoldersProvider implements vscode.TreeDataProvider<FolderTreeNode>,
     return out;
   }
 
-  // Expose the current scanned chats' tier-A token totals (sessionId -> TokenTotals)
-  // for the Slice 5 rollup. chatRecords() above projects the record down to
-  // {title, timestamp} and DROPS tokenTotals, so the rollup needs this narrow seam;
-  // it surfaces only the bounded tier-A token reductions that already ride the scan
-  // snapshot (never a body). Ensures a fresh snapshot first and returns a NEW map so
-  // a caller cannot mutate the provider's internal record cache. The pure
-  // tokenRollup reducer consumes this plain map plus the ProjectMeta membership and
-  // never reads the provider (ARCHITECTURE.md vscode-free-reducer convention).
+  // Expose the current scanned chats' summary token totals (sessionId -> TokenTotals) for
+  // the rollup. chatRecords above projects the record down to {title, timestamp} and
+  // DROPS tokenTotals, so the rollup needs this narrow seam; it surfaces only the bounded
+  // summary token reductions that already ride the scan snapshot (never a body). Ensures a
+  // fresh snapshot first and returns a NEW map so a caller cannot mutate the provider's
+  // internal record cache. The pure tokenRollup reducer consumes this plain map plus the
+  // ProjectMeta membership and never reads the provider.
   tokenTotalsByChat(): Map<string, TokenTotals> {
     this.ensureSnapshot();
     const out = new Map<string, TokenTotals>();
@@ -678,7 +675,7 @@ function collectLiveIdsForNode(
 }
 
 // A chat-member row's description: relative time plus the ~token badge (from the
-// tier-A token totals on the snapshot record; no body read). Matches the flat
+// summary token totals on the snapshot record; no body read). Matches the flat
 // view's row description so the two surfaces read identically.
 function chatRowDescription(record: ChatRecord): string {
   const rel = relativeTime(record.timestamp);

@@ -1,18 +1,14 @@
-// Orchestration-level tests for reconcileAllProjects -- the multi-project loop
-// that actually runs on activation and onDidChangeWindowState. The pure per-project
-// decision (reconcileProjectSync) is covered by reconcileSync.test.ts; this file
-// pins the loop's hardest logic: the acceptedKeys-vs-mergedKeys split (lines
-// 244-309 of exportImportCommands.ts).
-//
-// The hazard guarded here (per the code comments at lines 246-253 and 280-283, and
-// the TESTING.md step-4 manual check): a foreign-merge that produces changed:false
-// must STILL advance the shadow (acceptedKeys), and a changed:true merge must
-// finalize the shadow from the POST-FLUSH re-stamped value (mergedKeys). Either
-// gap re-classifies the same live value as foreign on the next focus poll, re-runs
-// the merge, and re-fires the LWW warning toast on EVERY focus-gain.
-//
-// vscodeStub MUST be imported first so require('vscode') resolves before the
-// command module's top-level import runs.
+// Orchestration-level tests for reconcileAllProjects -- the multi-project loop that
+// actually runs on activation and onDidChangeWindowState. The pure per-project decision
+// (reconcileProjectSync) is covered by reconcileSync.test.ts; this file pins the loop's
+// hardest logic: the acceptedKeys-vs-mergedKeys split (lines 244-309 of
+// exportImportCommands.ts).  The hazard guarded here (per the code comments at lines
+// 246-253 and 280-283, and the step-4 manual check): a foreign-merge that produces
+// changed:false must STILL advance the shadow (acceptedKeys), and a changed:true merge
+// must finalize the shadow from the POST-FLUSH re-stamped value (mergedKeys). Either gap
+// re-classifies the same live value as foreign on the next focus poll, re-runs the merge,
+// and re-fires the LWW warning toast on EVERY focus-gain.  vscodeStub MUST be imported
+// first so require('vscode') resolves before the command module's top-level import runs.
 import './vscodeStub';
 import { vscodeHarness } from './vscodeStub';
 

@@ -1,10 +1,8 @@
 // Ticket signal (best-effort): group chats whose resolved title begins with a
-// ticket-style prefix (e.g. "ABC-123", "JIRA-42", "PROJ-7: do the thing"). This
-// signal is essentially absent in this user's real data (ARCHITECTURE.md
-// "Ticket-prefixed titles are essentially absent"), so it is expected to produce
-// zero buckets and must render empty cleanly.
-//
-// This module is PURE and vscode-free (unit-gate rule): no vscode import, no fs.
+// ticket-style prefix (e.g. "ABC-123", "JIRA-42", "PROJ-7: do the thing"). This signal is
+// essentially absent in this user's real data, so it is expected to produce zero buckets
+// and must render empty cleanly.  This module is PURE and vscode-free (unit-gate rule):
+// no vscode import, no fs.
 
 import { SmartSignalsInput } from '../../model/types';
 import { SmartBucket, sortMembersInput } from './bucket';

@@ -11,9 +11,9 @@ import {
 
 describe('projectKeyResolver.encodeProjectKey (verified exact encoding table)', () => {
   const table: Array<[string, string]> = [
-    // The ARCHITECTURE.md canonical example: lowercase the leading drive letter,
-    // replace every non-[A-Za-z0-9-] character with one hyphen, preserving
-    // existing hyphens. "Code - Nest" -> "Code---Nest".
+    // The canonical example: lowercase the leading drive letter, replace every
+    // non-[A-Za-z0-9-] character with one hyphen, preserving existing hyphens. "Code -
+    // Nest" -> "Code---Nest".
     [
       'c:\\Users\\JakeMismas\\Documents\\Claude Code - Nest',
       'c--Users-JakeMismas-Documents-Claude-Code---Nest',

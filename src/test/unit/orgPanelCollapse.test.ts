@@ -5,12 +5,11 @@ import {
   foldOneLevel,
 } from '../../views/orgPanelCollapse';
 
-// Headless unit tests for the PURE "collapse one level" logic (issue #64). It
-// imports no vscode types, so this test never transitively requires the vscode
-// module (ARCHITECTURE.md unit-gate rule). It covers the deepest-open-level
-// selection: only expanded folders that have a descendant folder qualify, the
-// max-depth tier is chosen, all candidates at that tier collapse together, and the
-// no-op cases.
+// Headless unit tests for the PURE "collapse one level" logic. It imports no vscode
+// types, so this test never transitively requires the vscode module. It covers the
+// deepest-open-level selection: only expanded folders that have a descendant folder
+// qualify, the max-depth tier is chosen, all candidates at that tier collapse together,
+// and the no-op cases.
 
 function node(over: Partial<CollapseFolderNode> & { id: string }): CollapseFolderNode {
   return {

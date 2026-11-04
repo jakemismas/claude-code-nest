@@ -8,18 +8,18 @@
 // vscode://<publisher>.<name> to that extension's registered UriHandler); it is
 // NOT lowercased. The sessionId is the .jsonl filename with the extension
 // stripped; it is a bare UUID and needs no encoding beyond standard query
-// encoding. See DECISIONS.md (slice 0).
+// encoding. See.
 //
 // openExternal is injected so the launcher is unit-testable with a spy and never
 // imports the vscode module here. The extension host passes
 // vscode.env.openExternal and builds the Uri via vscode.Uri.from.
 
-// The open-chat command id. It lives here, next to the launcher that implements
-// it, since slice s3a-view-consolidation deleted its original home (the retired
-// flat Chats tree's flatProvider.ts). Every surface that opens a chat (the org
-// panel, the Archive view, the kept non-view services' node builders) references
-// this constant; extension.ts registers the handler that composes openChat with
-// vscode.env.openExternal. A bare string constant keeps this module vscode-free.
+// The open-chat command id. It lives here, next to the launcher that implements it, since
+// deleted its original home (the retired flat Chats tree's flatProvider.ts). Every
+// surface that opens a chat (the org panel, the Archive view, the kept non-view services'
+// node builders) references this constant; extension.ts registers the handler that
+// composes openChat with vscode.env.openExternal. A bare string constant keeps this
+// module vscode-free.
 export const OPEN_CHAT_COMMAND = 'claudeNest.openChat';
 
 // The minimal Uri shape the launcher constructs and the opener consumes. It

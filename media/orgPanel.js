@@ -1,32 +1,23 @@
 // The PRIMARY org-panel webview script. Renders the host-assembled section model
-// (Starred, Questions heuristic, the folder hierarchy with per-folder color,
-// Unsorted, and the bottom Archived row) as an ARIA tree, supports tag filter
-// chips, sort via a popover, folder rename, folder color, drag-and-drop that posts
-// a self-describing drop message the host maps to the unchanged pure reducer, full
-// keyboard navigation, and a title filter.
-//
-// Sprint 3 slice s3a-design-shell (issue #80) re-skins the shell to the design
-// handoff (media/design/, UI-SPEC.md): the New session pill, the gear, the sort
-// POPOVER (replacing the native select), the search box with a clear button, the
-// FOLDERS header + / ^ buttons, and the Archived (N) row. Density is removed (the
-// design has a single row density). Content-search mode is not surfaced this slice
-// (the AC permits title-filtering until the search slice); the host's content-search
-// plumbing stays intact for that later slice.
-//
-// Accessibility is an ACCEPTANCE CRITERION, not polish (UI-SPEC.md deviation 5): the
-// list is role="tree" with role="treeitem" rows grouped under role="group"
-// sections, a single roving tabindex, arrow-key navigation, Enter/Space activation,
-// and a visible focus ring (CSS). The new sort popover and the toolbar buttons
-// (New session, gear, sort) are keyboard operable with focus handling and
+// (Starred, Questions heuristic, the folder hierarchy with per-folder color, Unsorted,
+// and the bottom Archived row) as an ARIA tree, supports tag filter chips, sort via a
+// popover, folder rename, folder color, drag-and-drop that posts a self-describing drop
+// message the host maps to the unchanged pure reducer, full keyboard navigation, and a
+// title filter. The shell has a New session pill, the gear, the sort popover, the search
+// box with a clear button, the FOLDERS header + / ^ buttons, and the Archived (N) row.
+// Accessibility is a requirement, not polish: the list is role="tree" with role="treeitem" rows
+// grouped under role="group" sections, a single roving tabindex, arrow-key navigation,
+// Enter/Space activation, and a visible focus ring (CSS). The new sort popover and the
+// toolbar buttons (New session, gear, sort) are keyboard operable with focus handling and
 // aria-labels so the ARIA story does not regress.
 (function () {
   const vscode = acquireVsCodeApi();
 
-  // The 8-color handoff palette (media/design/README.md line 98; the tag AND folder
-  // color choices). Used by the in-panel folder color-swatch picker (issue #82 AC2),
-  // which replaces the native <input type=color>. These are compile-time literals; a
-  // chosen value is still re-validated at the host boundary (orgPanelWebview coerce ->
-  // isValidColor) before it can reach any style sink.
+  // The 8-color palette (the tag AND folder color
+  // choices). Used by the in-panel folder color-swatch picker, which replaces the native
+  // <input type=color>. These are compile-time literals; a chosen value is still
+  // re-validated at the host boundary (orgPanelWebview coerce -> isValidColor) before it
+  // can reach any style sink.
   const HANDOFF_PALETTE = [
     '#d97757',
     '#c6613f',
@@ -47,63 +38,60 @@
   const sortBtnEl = document.getElementById('sortBtn');
   const sortPopoverEl = document.getElementById('sortPopover');
 
-  // The latest host-posted section model. allTags is the FULL project tag list (every
-  // tag with id/label/color/count), distinct from tags (the filter-chip row, which omits
-  // zero-chat tags); the chat context menu (issue #85 AC #1) lists allTags so a zero-chat
-  // tag can still be checked/toggled.
+  // The latest host-posted section model. allTags is the FULL project tag list (every tag
+  // with id/label/color/count), distinct from tags (the filter-chip row, which omits
+  // zero-chat tags); the chat context menu lists allTags so a zero-chat tag can still be
+  // checked/toggled.
   let sections = { starred: [], questions: [], folders: [], tags: [], allTags: [], archivedCount: 0 };
   // The set of active tag-id filters (AND across selected chips: a row must carry
   // every selected tag to show).
   const activeTags = new Set();
   // The current text filter (normalized: trimmed + lowercased). Text MATCHING is
-  // HOST-side (the MiniSearch content index over titles + on-demand bodies): the
-  // client posts { type:'search', query } and the host replies with { type:
-  // 'searchResults' }; the client never re-implements a text index (ARCHITECTURE.md
-  // "search-index location": the index is HOST-ONLY, in globalStorage or memory,
-  // never synced, never under ~/.claude/projects).
+  // HOST-side (the MiniSearch content index over titles + on-demand bodies): the client
+  // posts { type:'search', query } and the host replies with { type: 'searchResults' };
+  // the client never re-implements a text index.
   let textFilter = '';
 
-  // The host content-search results for the CURRENT text query. searchHitSnippets
-  // maps sessionId -> the host snippet (a role-prefixed body-match snippet, or null
-  // on a title match, issue #83 AC #1); searchHitOrder is the host-ranked id list;
-  // searchResultsQuery is the normalized query those results correspond to, so a
-  // late reply for a stale query is ignored (the host posts twice per query as the
-  // two-phase warm-then-body index refines, and keystrokes can interleave). Text
-  // hits are trusted ONLY when searchResultsQuery === textFilter.
+  // The host content-search results for the CURRENT text query. searchHitSnippets maps
+  // sessionId -> the host snippet (a role-prefixed body-match snippet, or null on a title
+  // match); searchHitOrder is the host-ranked id list; searchResultsQuery is the
+  // normalized query those results correspond to, so a late reply for a stale query is
+  // ignored (the host posts twice per query as the two-phase warm-then-body index
+  // refines, and keystrokes can interleave). Text hits are trusted ONLY when
+  // searchResultsQuery === textFilter.
   let searchHitSnippets = new Map();
   let searchHitOrder = [];
   let searchResultsQuery = null;
 
-  // The debounce timer for the outbound { type:'search' } post (issue #83 AC #4:
-  // typing stays responsive; the query post is debounced while a chip toggle stays
-  // immediate). Cleared and re-armed on each keystroke.
+  // The debounce timer for the outbound { type:'search' } post. Cleared and re-armed on
+  // each keystroke.
   let searchDebounceTimer = null;
   const SEARCH_DEBOUNCE_MS = 140;
 
   // Sort, hydrated from the host's persisted state on 'state'.
   let sortMode = 'newest';
 
-  // The collapsed-folder id set (issue #64), seeded from the host's persisted state
-  // on 'state' and posted back via setState whenever it changes. A folder id here
-  // renders its header with aria-expanded="false", hides its role="group" body, and
-  // hides every descendant folder section so the hidden rows are never in the DOM
-  // (so they cannot receive the roving tabindex). Workspace-local and never synced.
+  // The collapsed-folder id set, seeded from the host's persisted state on 'state' and
+  // posted back via setState whenever it changes. A folder id here renders its header
+  // with aria-expanded="false", hides its role="group" body, and hides every descendant
+  // folder section so the hidden rows are never in the DOM (so they cannot receive the
+  // roving tabindex). Workspace-local and never synced.
   const collapsedFolders = new Set();
 
   // The dragged chat ids for an in-flight in-panel drag (fully in-process; the drop
   // posts these straight to the host). Cleared on dragend.
   let draggingChatIds = [];
 
-  // The currently-open chat's sessionId (best-effort tab-label match, posted by the
-  // host as an 'active' message). Its row gets the .nest-active tint, the ONLY row
-  // highlight (starred rows are NOT tinted; UI-SPEC.md deviation 4). null tints no row.
+  // The currently-open chat's sessionId (best-effort tab-label match, posted by the host
+  // as an 'active' message). Its row gets the .nest-active tint, the ONLY row highlight
+  // (starred rows are NOT tinted). null tints no row.
   let activeId = null;
 
   // The roving-tabindex focus target: the dataset.id of the row that holds the
   // single tabindex="0". Kept stable across re-renders by id when possible.
   let focusedId = null;
 
-  // ---- Settings overlay (slice s3b-settings-overlay, issue #86) ----
+  // ---- Settings overlay ----
 
   // The auto-archive window in DAYS (0 = Never), hydrated from the host 'settings'
   // message. Persisted on workspaceState by the host; the client only reflects and
@@ -118,7 +106,7 @@
     { days: 0, label: 'Never archive' },
   ];
 
-  // The four section-visibility toggles (all ON by default, AC #3). Client-side
+  // The four section-visibility toggles (all ON by default). Client-side
   // render gates only: hiding a section never removes a chat from the model, and
   // search + chips still reach every chat, so no chat is ever made unreachable.
   const sectionsVisible = { starred: true, questions: true, folders: true, unsorted: true };
@@ -131,14 +119,14 @@
   let settingsOverlayEl = null;
   let settingsReturnFocusEl = null;
 
-  // ---- Archive overlay (slice s3b-archive-overlay, issue #87) ----
+  // ---- Archive overlay ----
 
   // The archived rows the host posted for the OPEN overlay (an ArchivedRow[] carrying
-  // sessionId, title, folder, relativeTime, starred, present). Held only while the overlay
-  // is open; the host re-posts on every open and after a Restore. The archive-search box
-  // filters this set CLIENT-SIDE by title substring (the prototype's
-  // c.title.includes(aq)); text is a tiny local filter over a small posted set, NOT the
-  // host MiniSearch index (which deliberately excludes archived chats).
+  // sessionId, title, folder, relativeTime, starred, present). Held only while the
+  // overlay is open; the host re-posts on every open and after a Restore. The
+  // archive-search box filters this set CLIENT-SIDE by title substring; text is a tiny
+  // local filter over a small posted set, NOT the host MiniSearch index (which
+  // deliberately excludes archived chats).
   let archivedRows = [];
   // The archive overlay element (position:fixed;inset:0), or null when closed. Like the
   // Settings overlay it is a PERSISTENT sub-page (stays open until the back chevron or
@@ -149,13 +137,12 @@
   // The current archive-search text (normalized: trimmed + lowercased), client-side only.
   let archiveSearchText = '';
 
-  // Convert a strict #rrggbb hex color to an rgba() string at the given alpha. Used
-  // for the tag-pill @15% background and the active-chip @15%/@45% background/border
-  // (design README). Computed here rather than via CSS color-mix(), which needs
-  // Chromium 111+ and would be INVALID on the engines floor (VS Code 1.66 ships
-  // Chromium 98). Colors reaching here are already validated to #rrggbb at the store
-  // normalize boundary (schema.isValidColor); a non-matching value returns null so
-  // the caller keeps the CSS fallback tint.
+  // Convert a strict #rrggbb hex color to an rgba string at the given alpha. Used for the
+  // tag-pill @15% background and the active-chip @15%/@45% background/border. Computed
+  // here rather than via CSS color-mix, which needs Chromium 111+ and would be INVALID on
+  // the engines floor (VS Code 1.66 ships Chromium 98). Colors reaching here are already
+  // validated to #rrggbb at the store normalize boundary (schema.isValidColor); a
+  // non-matching value returns null so the caller keeps the CSS fallback tint.
   function hexToRgba(hex, alpha) {
     if (typeof hex !== 'string') {
       return null;
@@ -192,8 +179,8 @@
       if (chip.color) {
         el.style.setProperty('--chip-color', chip.color);
         if (active) {
-          // Active chip: color @15% background, color @45% border (design README
-          // line 36), computed as rgba() so no CSS color-mix() is needed.
+          // Active chip: color @15% background, color @45% border, computed as rgba so no
+          // CSS color-mix is needed.
           const bg = hexToRgba(chip.color, 0.15);
           const border = hexToRgba(chip.color, 0.45);
           if (bg) {
@@ -247,8 +234,8 @@
     return true;
   }
 
-  // Whether any tag chip or text filter is active. When filtering, the sectioned
-  // list is replaced by a flat "N RESULTS" list (design README line 47).
+  // Whether any tag chip or text filter is active. When filtering, the sectioned list is
+  // replaced by a flat "N RESULTS" list.
   function isFiltering() {
     return activeTags.size > 0 || textFilter.length > 0;
   }
@@ -274,8 +261,8 @@
   function makeRow(row, depth, opts) {
     const el = document.createElement('div');
     el.className = 'nest-row';
-    // The active row (currently-open chat) is the ONLY tint; starred rows are NOT
-    // tinted (design README line 57). Best-effort tab-label match from the host.
+    // The active row (currently-open chat) is the ONLY tint; starred rows are NOT tinted.
+    // Best-effort tab-label match from the host.
     if (activeId && row.sessionId === activeId) {
       el.classList.add('nest-active');
     }
@@ -284,18 +271,17 @@
     el.setAttribute('tabindex', '-1');
     el.dataset.kind = 'chat';
     el.dataset.id = row.sessionId;
-    // Depth indents: top-level 11px, subfolder child 29px, deeper 47px (design README
-    // line 50; step 18). Base 11 keeps the row's status glyph aligned with the design.
+    // Depth indents: top-level 11px, subfolder child 29px, deeper 47px. Base 11 keeps the
+    // row's status glyph aligned across rows.
     el.style.paddingLeft = 11 + depth * 18 + 'px';
     el.draggable = true;
 
     const main = document.createElement('div');
     main.className = 'nest-row-main';
 
-    // The left status slot (design README line 51): a solid dot for status 'done'
-    // or a blinking '?' badge for status 'question'. Always present (even when
-    // empty) so titles align down the column. The meaning rides the aria-label; the
-    // glyph is decorative.
+    // The left status slot: a solid dot for status 'done' or a blinking '?' badge for
+    // status 'question'. Always present (even when empty) so titles align down the
+    // column. The meaning rides the aria-label; the glyph is decorative.
     const status = document.createElement('span');
     status.className = 'nest-status';
     status.setAttribute('aria-hidden', 'true');
@@ -316,9 +302,9 @@
     titleText.textContent = row.title;
     main.appendChild(titleText);
 
-    // Folder breadcrumb (Questions and search/filter results only), muted, on the
-    // right of the title (design README lines 42, 54). Rendered only when the caller
-    // asks for it AND the chat is filed (row.breadcrumb non-null).
+    // Folder breadcrumb (Questions and search/filter results only), muted, on the right
+    // of the title. Rendered only when the caller asks for it AND the chat is filed
+    // (row.breadcrumb non-null).
     if (opts && opts.showBreadcrumb && row.breadcrumb) {
       const crumb = document.createElement('span');
       crumb.className = 'nest-row-breadcrumb';
@@ -328,10 +314,9 @@
 
     if (row.tags && row.tags.length > 0) {
       // The clip box (.nest-row-tags, overflow hidden, bounded width) holds a strip
-      // (.nest-row-tags-strip) carrying the pills, so a chat with more tags than the
-      // row can show clips on one line instead of squeezing the title or time
-      // (issue #121). The strip is a separate node so overflow behavior can act on
-      // it without touching the pills.
+      // (.nest-row-tags-strip) carrying the pills, so a chat with more tags than the row
+      // can show clips on one line instead of squeezing the title or time. The strip is a
+      // separate node so overflow behavior can act on it without touching the pills.
       const tagRow = document.createElement('span');
       tagRow.className = 'nest-row-tags';
       const tagStrip = document.createElement('span');
@@ -342,8 +327,8 @@
         const tagColor = row.tagColors && row.tagColors[i];
         if (tagColor) {
           t.style.setProperty('--tag-color', tagColor);
-          // Tag pill @15% background (design README line 54), computed as rgba() so
-          // no CSS color-mix() is needed on the engines floor.
+          // Tag pill @15% background, computed as rgba so no CSS color-mix is needed on
+          // the engines floor.
           const bg = hexToRgba(tagColor, 0.15);
           if (bg) {
             t.style.background = bg;
@@ -356,12 +341,11 @@
       main.appendChild(tagRow);
     }
 
-    // The add-tag control (issue #121): a small + after the last pill (or where the
-    // pills would sit), shown on row hover or focus. Opens the SAME chat menu the
-    // right-click opens (tag toggles + create new tag), anchored under the control,
-    // so tagging reuses the existing validated toggleTag/createTagWithColor paths.
-    // A <button> like the star, so it is keyboard-focusable and its click does not
-    // bubble to the row's open handler.
+    // The add-tag control: a small + after the last pill (or where the pills would sit),
+    // shown on row hover or focus. Opens the SAME chat menu the right-click opens (tag
+    // toggles + create new tag), anchored under the control, so tagging reuses the
+    // existing validated toggleTag/createTagWithColor paths. A <button> like the star, so
+    // it is keyboard-focusable and its click does not bubble to the row's open handler.
     const addTag = document.createElement('button');
     addTag.type = 'button';
     addTag.className = 'nest-tag-add';
@@ -381,11 +365,11 @@
     time.textContent = relative(row.timestamp);
     main.appendChild(time);
 
-    // Star affordance: filled accent star when starred, hollow muted star otherwise
-    // (design README line 56). Clicking toggles it and persists immediately through the
-    // store (the host routes it to the star/unstar curation commands). A <button> so it
-    // is independently keyboard-focusable and screen-reader labelled; its click is
-    // stopped from bubbling to the row's open handler.
+    // Star affordance: filled accent star when starred, hollow muted star otherwise.
+    // Clicking toggles it and persists immediately through the store (the host routes it
+    // to the star/unstar curation commands). A <button> so it is independently
+    // keyboard-focusable and screen-reader labelled; its click is stopped from bubbling
+    // to the row's open handler.
     const star = document.createElement('button');
     star.type = 'button';
     star.className = row.starred ? 'nest-star' : 'nest-star nest-star-empty';
@@ -408,10 +392,10 @@
     }
 
     el.addEventListener('click', () => activateRow(row.sessionId));
-    // Right-click a chat row to open its context menu (issue #85): tag toggles, create
-    // tag, export, archive. The row model carries everything the menu needs (tagIds,
-    // starred); a fresh sections model may replace this row object, so the menu resolves
-    // the LIVE row by sessionId on open rather than closing over this stale one.
+    // Right-click a chat row to open its context menu: tag toggles, create tag, export,
+    // archive. The row model carries everything the menu needs (tagIds, starred); a fresh
+    // sections model may replace this row object, so the menu resolves the LIVE row by
+    // sessionId on open rather than closing over this stale one.
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       openChatMenu(e, row.sessionId);
@@ -438,8 +422,7 @@
   }
 
   // Build a cross-cutting section header (Starred, Questions): a bare muted uppercase
-  // label. The design authority (media/design/ChatSidebar.dc.html lines 117, 138 and
-  // the frozen media/design/reference/prototype-320.png) draws these headers with NO
+  // label. These headers carry NO
   // count and NO badge, matching the FOLDERS and UNSORTED labels; do not add either.
   function makeSectionHeader(text) {
     const header = document.createElement('div');
@@ -451,9 +434,9 @@
     return header;
   }
 
-  // Render a flat cross-cutting section (Starred / Questions). Hidden entirely when
-  // it has no visible rows (UI-SPEC). opts is passed through to makeRow (Questions
-  // rows carry showBreadcrumb per the design).
+  // Render a flat cross-cutting section (Starred / Questions). Hidden entirely when it
+  // has no visible rows. opts is passed through to makeRow (Questions rows carry
+  // showBreadcrumb).
   function renderCrossCuttingSection(label, rows, opts) {
     const visible = sortRows(rows.filter(rowMatches));
     if (visible.length === 0) {
@@ -489,11 +472,10 @@
       listEl.appendChild(header);
     } else {
       // The header count is the rolled-up count (chats in this folder + all its
-      // subfolders; design README line 66, issue #82 AC1), a stable structural count
-      // from the model, NOT the post-filter visible.length. Folder headers render
-      // only in the unfiltered tree (filtering swaps to the flat results list), so
-      // the unfiltered rollup is the right number. Fall back to the visible count
-      // only if the model did not supply one (older host).
+      // subfolders;), a stable structural count from the model, NOT the post-filter
+      // visible.length. Folder headers render only in the unfiltered tree (filtering
+      // swaps to the flat results list), so the unfiltered rollup is the right number.
+      // Fall back to the visible count only if the model did not supply one (older host).
       const count =
         typeof folder.rolledUpCount === 'number' ? folder.rolledUpCount : visible.length;
       const header = makeFolderHeader(folder, collapsed, count);
@@ -509,9 +491,8 @@
     // Real folders nest their chats one level under the folder HEADER (depth + 1: a
     // top-level folder's chats sit at the 29px child indent). The synthetic Unsorted
     // bucket has NO header row to nest under; its chats are unparented, top-level rows
-    // and must align with the Starred/Questions rows at the 11px top-level indent
-    // (design README line 50). So render synthetic-bucket rows at the bucket's own
-    // depth (0), not depth + 1.
+    // and must align with the Starred/Questions rows at the 11px top-level indent. So
+    // render synthetic-bucket rows at the bucket's own depth (0), not depth + 1.
     const rowDepth = synthetic ? depth : depth + 1;
     for (const row of visible) {
       const rowEl = makeRow(row, rowDepth);
@@ -530,8 +511,7 @@
     const { folderId, name, color, depth } = folder;
     const header = document.createElement('div');
     header.className = 'nest-folder-row';
-    // Depth indents match the chat rows: top-level 11px, subfolder 29px (design README
-    // line 50; step 18).
+    // Depth indents match the chat rows: top-level 11px, subfolder 29px.
     header.style.paddingLeft = 11 + depth * 18 + 'px';
     header.dataset.dropFolderId = folderId;
     header.dataset.renameFolderId = folderId;
@@ -571,13 +551,12 @@
     countEl.textContent = String(count);
     header.appendChild(countEl);
 
-    // Collapse toggles on a plain header-row click (issue #82 AC2, design README
-    // line 63), in addition to the chevron and keyboard ArrowLeft/Right. The click
-    // is DEFERRED by a double-click window (onFolderRowClick) so it does not race the
-    // double-click rename: without the defer, the first click of a double-click would
-    // toggle collapse, re-render the tree (listEl.textContent = ''), detach this
-    // header, and the dblclick would never open rename. A dblclick cancels the armed
-    // toggle and opens rename instead.
+    // Collapse toggles on a plain header-row click, in addition to the chevron and
+    // keyboard ArrowLeft/Right. The click is DEFERRED by a double-click window
+    // (onFolderRowClick) so it does not race the double-click rename: without the defer,
+    // the first click of a double-click would toggle collapse, re-render the tree
+    // (listEl.textContent = ''), detach this header, and the dblclick would never open
+    // rename. A dblclick cancels the armed toggle and opens rename instead.
     header.addEventListener('click', () => onFolderRowClick(folderId));
     header.addEventListener('dblclick', () => {
       cancelPendingFolderToggle();
@@ -637,7 +616,7 @@
   }
 
   // The FOLDERS section header with the + (new folder) and ^ (collapse one level)
-  // buttons (design README line 44).
+  // buttons.
   function renderFoldersHeader() {
     const header = document.createElement('div');
     header.className = 'nest-folders-header';
@@ -712,8 +691,8 @@
   }
 
   // The default render: cross-cutting sections then the folder hierarchy, plus the
-  // Archived row. When a filter is active, a flat "N RESULTS" list replaces the
-  // sectioned view (design README line 47).
+  // Archived row. When a filter is active, a flat "N RESULTS" list replaces the sectioned
+  // view.
   function render() {
     // render() is the SINGLE choke point for every tree re-render: it is the only
     // site that clears listEl, and all re-render paths (the inbound 'sections'/'state'
@@ -750,13 +729,13 @@
       return;
     }
 
-    // Section-visibility gates (issue #86 AC #3): each toggle hides only the SECTION's
-    // rendering; the model, search, and chips are untouched, so a hidden section's
-    // chats stay reachable via search and the tag chips. Starred/Questions also hide
-    // when empty (unchanged). Folders hidden -> skip the FOLDERS header and every real
-    // folder; Unsorted hidden -> skip the synthetic Unsorted bucket. Disabling Unsorted
-    // can never strand an unfiled chat: it remains reachable through search/chips (and
-    // through any other section it also belongs to).
+    // Section-visibility gates: each toggle hides only the SECTION's rendering; the
+    // model, search, and chips are untouched, so a hidden section's chats stay reachable
+    // via search and the tag chips. Starred/Questions also hide when empty (unchanged).
+    // Folders hidden -> skip the FOLDERS header and every real folder; Unsorted hidden ->
+    // skip the synthetic Unsorted bucket. Disabling Unsorted can never strand an unfiled
+    // chat: it remains reachable through search/chips (and through any other section it
+    // also belongs to).
     if (sectionsVisible.starred) {
       renderCrossCuttingSection('Starred', sections.starred);
     }
@@ -771,11 +750,11 @@
     armTagMarquee();
   }
 
-  // Measure each row's tag strip and arm the slow back-and-forth marquee on the ones
-  // that overflow their clip box (issue #122). Runs on a rAF after a render commits
-  // (layout must exist to measure) and again on panel resize. Pure presentation: no
-  // state, no host message. The animation itself lives in CSS, where hovering the
-  // strip pauses it and prefers-reduced-motion disables it.
+  // Measure each row's tag strip and arm the slow back-and-forth marquee on the ones that
+  // overflow their clip box. Runs on a rAF after a render commits (layout must exist to
+  // measure) and again on panel resize. Pure presentation: no state, no host message. The
+  // animation itself lives in CSS, where hovering the strip pauses it and
+  // prefers-reduced-motion disables it.
   let tagMarqueePending = false;
   function armTagMarquee() {
     if (tagMarqueePending) {
@@ -941,7 +920,7 @@
   }
 
   // The flat filtered view: a "N RESULTS" label then the flat matching rows, with a
-  // body-match snippet and a folder breadcrumb. Two combine modes (issue #83):
+  // body-match snippet and a folder breadcrumb. Two combine modes:
   //   - TEXT present: the result set is the HOST text-hit ids (searchHitOrder)
   //     intersected with the CLIENT tag AND-filter (rowMatches). Row content comes
   //     from the client section row; the snippet is the HOST snippet for that id
@@ -949,9 +928,8 @@
   //     client-side, the combined result is one flat list.
   //   - TAG-ONLY (chips, no text): the existing pure client-side tag-AND flat view,
   //     unchanged (no host round-trip).
-  // The bottom "Archived (N)" row renders in this view too, matching the handoff
-  // (media/design/ChatSidebar.dc.html: the Archived block is a sibling after both
-  // the filtering and non-filtering blocks).
+  // The bottom "Archived (N)" row renders in this view too, as in the unfiltered view: the Archived block is a sibling
+  // after both the filtering and non-filtering blocks.
   function renderFiltered() {
     const withText = textFilter.length > 0;
     let visible = [];
@@ -960,11 +938,11 @@
     const rowSnippets = new Map();
 
     if (withText) {
-      // Host text hits joined with the client tag filter, in host rank order, then
-      // sorted by the panel's sort control (design README "Sort applies to every
-      // list"): host rank decides MEMBERSHIP, the chosen sort decides ORDER. The
-      // join/dedup/snippet-collect + sort is the shared joinTextHits mirror. Only a
-      // FRESH host reply is joined; a stale/absent reply yields an empty set.
+      // Host text hits joined with the client tag filter, in host rank order, then sorted
+      // by the panel's sort control: host rank decides MEMBERSHIP, the chosen sort
+      // decides ORDER. The join/dedup/snippet-collect + sort is the shared joinTextHits
+      // mirror. Only a FRESH host reply is joined; a stale/absent reply yields an empty
+      // set.
       if (haveFreshTextResults()) {
         const byId = rowsBySessionId();
         const joined = joinTextHits(
@@ -978,7 +956,7 @@
         joined.snippets.forEach((snip, id) => rowSnippets.set(id, snip));
       }
     } else {
-      // Tag-only flat view: pure client-side, unchanged from the prior slice.
+      // Tag-only flat view: pure client-side, unchanged (no host round-trip).
       const seen = new Set();
       const collect = (rows) => {
         for (const row of rows || []) {
@@ -1015,7 +993,7 @@
       group.setAttribute('aria-label', 'Filter results');
       for (const row of visible) {
         const snip = rowSnippets.get(row.sessionId);
-        // A body-match snippet OVERRIDES the row's tier-A snippet; a title match (or
+        // A body-match snippet OVERRIDES the row's summary snippet; a title match (or
         // tag-only) shows none. Pass it through a shallow row copy so makeRow's
         // row.snippet contract is untouched and the section row object is not mutated.
         const rowForRender = snip ? Object.assign({}, row, { snippet: snip }) : row;
@@ -1026,13 +1004,13 @@
       listEl.appendChild(group);
     }
 
-    // The Archived (N) row is present in the filtered view too (handoff parity).
+    // The Archived (N) row is present in the filtered view too.
     renderArchivedRow();
   }
 
 
 
-  // ---- collapse / expand (issue #64) ----
+  // ---- collapse / expand ----
 
   function persistCollapsed() {
     vscode.postMessage({ type: 'setState', collapsedFolders: Array.from(collapsedFolders).sort() });
@@ -1076,11 +1054,10 @@
   }
 
   // "Collapse one level" (the ^ button): collapse the deepest currently-open VISIBLE
-  // folder tier; repeated clicks fold upward; once all folded, the next click
-  // re-expands ALL (design README line 72, prototype ChatSidebar.dc.html
-  // collapseLevel). Mirrors the unit-tested pure helper foldOneLevel: it computes the
-  // deepest visible open tier and, when nothing is collapsible but real folders
-  // exist, clears the collapsed set instead of no-opping.
+  // folder tier; repeated clicks fold upward; once all folded, the next click re-expands
+  // ALL. Mirrors the unit-tested pure helper foldOneLevel: it computes the deepest
+  // visible open tier and, when nothing is collapsible but real folders exist, clears the
+  // collapsed set instead of no-opping.
   function collapseDeepestOpenLevel() {
     if (isFiltering()) {
       return;
@@ -1232,18 +1209,16 @@
     }
   }
 
-  // Folder-row single- vs double-click arbitration (issue #82 AC2 / design README
-  // line 63: "Click toggles expand/collapse. Double-click enters inline rename").
-  // A click that toggles collapse re-renders the whole tree, detaching the node a
-  // following dblclick needs, so a per-click toggle would race the rename: the
-  // first click of a double-click would fire the toggle, re-render, and the dblclick
-  // would never open rename. The browser fires click, click, dblclick, so the toggle
-  // is DEFERRED by a double-click window and cancelled if a second click / dblclick
-  // arrives first. This mirrors src/views/orgPanelInteractions.ts (registerFolder-
-  // Click / registerFolderDblClick, DOUBLE_CLICK_MS): lastFolderClickAt is the arm
-  // stamp, folderToggleTimer is the pending timer, folderToggleArmedId is the folder
-  // the armed toggle targets (so a click on a DIFFERENT folder cancels the stale arm
-  // rather than toggling the wrong one).
+  // Folder-row single- vs double-click arbitration. A click that toggles collapse
+  // re-renders the whole tree, detaching the node a following dblclick needs, so a
+  // per-click toggle would race the rename: the first click of a double-click would fire
+  // the toggle, re-render, and the dblclick would never open rename. The browser fires
+  // click, click, dblclick, so the toggle is DEFERRED by a double-click window and
+  // cancelled if a second click / dblclick arrives first. This mirrors
+  // src/views/orgPanelInteractions.ts (registerFolder- Click / registerFolderDblClick,
+  // DOUBLE_CLICK_MS): lastFolderClickAt is the arm stamp, folderToggleTimer is the
+  // pending timer, folderToggleArmedId is the folder the armed toggle targets (so a click
+  // on a DIFFERENT folder cancels the stale arm rather than toggling the wrong one).
   const DOUBLE_CLICK_MS = 250;
   let lastFolderClickAt = null;
   let folderToggleTimer = null;
@@ -1354,11 +1329,10 @@
     input.addEventListener('blur', commit);
   }
 
-  // Right-click a folder header to open the folder actions menu.
-  // Wire ArrowUp/ArrowDown cyclic roving focus and Enter/Space activation across the
-  // .nest-menu-item buttons of a role="menu" overlay, matching the sort popover
-  // (wireSortPopover) so every ARIA menu in the panel honors the same keyboard pattern
-  // it advertises (issue #85 AC #5, "fully keyboard operable"). Native buttons already
+  // Right-click a folder header to open the folder actions menu. Wire ArrowUp/ArrowDown
+  // cyclic roving focus and Enter/Space activation across the .nest-menu-item buttons of
+  // a role="menu" overlay, matching the sort popover (wireSortPopover) so every ARIA menu
+  // in the panel honors the same keyboard pattern it advertises. Native buttons already
   // fire click on Enter/Space, but keeping an explicit handler is harmless and keeps the
   // affordance uniform with the sort popover. Call after all items are appended and
   // BEFORE focusing the first item.
@@ -1409,7 +1383,7 @@
       menu.appendChild(b);
     };
     item('Rename', () => beginRename(headerEl, folderId, label));
-    // "Set color" opens the in-panel 8-swatch picker (AC2), anchored under the folder
+    // "Set color" opens the in-panel 8-swatch picker, anchored under the folder
     // header so the swatches read next to the folder they recolor, seeded with the
     // folder's current color. The native <input type=color> is retired.
     item('Set color', () => beginColor(folderId, headerEl, currentColor || null));
@@ -1425,7 +1399,7 @@
       first.focus();
     }
   }
-  // ---- chat context menu (issue #85: tags, create tag, export, archive) ----
+  // ---- chat context menu ----
 
   // The right-click menu on a chat row. Body-level position:fixed, in the SAME transient-
   // overlay class as the folder menu / color picker / new-folder popover, so a tree
@@ -1498,8 +1472,7 @@
     menu.addEventListener('contextmenu', function (ev) {
       ev.preventDefault();
     });
-    // Clamp near the click point so the menu never overflows (prototype openCtx clamp:
-    // width ~210, height allowance ~320 for the tag list).
+    // Clamp near the click point so the menu never overflows.
     var left = Math.max(6, Math.min((e && e.clientX) || 0, window.innerWidth - 214));
     var top = Math.max(6, Math.min((e && e.clientY) || 0, window.innerHeight - 320));
     menu.style.left = left + 'px';
@@ -1642,10 +1615,8 @@
     });
     menu.appendChild(exportJson);
 
-    // Archive is shown ONLY when the chat is neither starred nor archived (issue #85
-    // AC #4; the archived flag lives behind the archived-exclusion, so a visible row is
-    // never already archived, but a starred row must instead show the keep note). A
-    // starred chat shows the "kept and never archived" note in its place.
+    // Archive is shown ONLY when the chat is neither starred nor archived. A starred chat
+    // shows the "kept and never archived" note in its place.
     if (row.starred) {
       menu.appendChild(chatMenuDivider());
       var note = document.createElement('div');
@@ -1786,7 +1757,7 @@
     });
     cancelBtn.addEventListener('click', function (ev) {
       ev.stopPropagation();
-      // Cancel returns to the tag LIST (the prototype's cancelNewTag), not closing the
+      // Cancel returns to the tag LIST, not closing the
       // whole menu.
       chatMenuNewTagMode = false;
       chatMenuNewTagName = '';
@@ -1822,9 +1793,9 @@
     }
   });
 
-  // The in-panel 8-swatch folder color picker (issue #82 AC2), replacing the native
+  // The in-panel 8-swatch folder color picker, replacing the native
   // <input type=color>. It floats near the anchor (the folder header row or the
-  // right-click point), paints one swatch per handoff-palette color plus a "Default"
+  // right-click point), paints one swatch per palette color plus a "Default"
   // (clear) chip, marks the folder's current color, and posts setFolderColor on a
   // pick. Only palette literals (or null) are ever sent; the host re-validates.
   let openColorEl = null;
@@ -1836,7 +1807,7 @@
     }
     // Restore focus to the folder header the picker was opened from, so keyboard
     // focus is never dropped to <body> on close (mirrors the sort popover's
-    // focus-restore; s3a-design-shell ARIA rule).
+    // focus-restore; ARIA rule).
     if (colorReturnFocusEl) {
       const el = colorReturnFocusEl;
       colorReturnFocusEl = null;
@@ -1937,10 +1908,10 @@
     }
   }
 
-  // ---- new-folder popover (issue #82 AC3) ----
+  // ---- new-folder popover ----
 
   // The in-panel "New folder" popover the FOLDERS header + button opens, replacing
-  // the bare createFolder handoff to the native input box. A name input plus Create /
+  // the bare createFolder prompt in the native input box. A name input plus Create /
   // Cancel; Create posts { type:'createFolder', name } (the host runs the same
   // createFolder command with the name as presetName, so slash-path expansion and
   // the one-sublevel depth cap still apply). Enter commits, Escape cancels; an
@@ -1976,7 +1947,7 @@
     closeColorPicker();
     closeNewFolderPopover();
     closeFolderMenu();
-    // The chat context menu (issue #85) is another body-level position:fixed overlay in
+    // The chat context menu is another body-level position:fixed overlay in
     // this class; a tree re-render or Escape must tear it down too so its captured-closure
     // items cannot post a toggle/export/archive for a row a refresh removed.
     closeChatMenu();
@@ -2073,10 +2044,9 @@
     input.focus();
   }
 
-  // ---- Settings overlay (slice s3b-settings-overlay, issue #86) ----
+  // ---- Settings overlay ----
 
-  // The four section toggles, in the design's order, with their sub-labels
-  // (media/design/ChatSidebar.dc.html:281-299). Each drives sectionsVisible[key] and
+  // The four section toggles, with their sub-labels. Each drives sectionsVisible[key] and
   // posts { type:'setSectionsVisible', [key]:next }.
   const SECTION_TOGGLES = [
     { key: 'starred', label: 'Starred', sub: 'Show starred chats at the top' },
@@ -2303,7 +2273,7 @@
 
     overlay.appendChild(body);
     // Append INSIDE the panel body (not document.body) so it overlays the tree/toolbar
-    // area exactly like the design's inset:0 sub-page and inherits the panel width.
+    // area as an inset:0 sub-page and inherits the panel width.
     document.body.appendChild(overlay);
     settingsOverlayEl = overlay;
     wireDialogFocusTrap(overlay);
@@ -2338,7 +2308,7 @@
     });
   }
 
-  // ---- Archive overlay (slice s3b-archive-overlay, issue #87) ----
+  // ---- Archive overlay ----
 
   function isArchiveOpen() {
     return archiveOverlayEl !== null;
@@ -2376,7 +2346,7 @@
   }
 
   // The archived rows to render, filtered by the client-side archive-search text (title
-  // substring, the prototype's c.title.includes(aq)). An empty search shows all rows.
+  // substring, c.title.includes(aq)). An empty search shows all rows.
   function filteredArchivedRows() {
     if (archiveSearchText.length === 0) {
       return archivedRows.slice();
@@ -2387,7 +2357,7 @@
     });
   }
 
-  // Build and open the full-panel Archive overlay (issue #87 AC #1): a back chevron +
+  // Build and open the full-panel Archive overlay: a back chevron +
   // Newsreader heading + count, a note, the GRAY-glow "Search archived" box, and the archived
   // rows (title, folder . age, an export button, a Restore button). Reuses the .nest-overlay
   // chrome, back chevron, and Newsreader heading from the Settings overlay verbatim.
@@ -2487,7 +2457,7 @@
       'Chats kept past your archive window. Starred chats are never archived.';
     wrap.appendChild(note);
 
-    // The gray-glow "Search archived" box (AC #2): the gray focus ring is a distinct token
+    // The gray-glow "Search archived" box: the gray focus ring is a distinct token
     // from the main orange glow (CSS .nest-archive-search-input:focus).
     var searchRow = document.createElement('div');
     searchRow.className = 'nest-archive-search';
@@ -2557,7 +2527,7 @@
   // One archived-chat row: title over a "folder . age" meta line, an export button, and a
   // Restore button. Every label is textContent (untrusted transcript title/folder). Export
   // routes to the exportIO-guarded exportChat seam; Restore clears the synced userArchived
-  // flag (keeps the star); a click on the row body previews the archived copy (AC #6). A
+  // flag (keeps the star); a click on the row body previews the archived copy. A
   // starred archived row (rare, e.g. star-unarchive raced a refresh) still shows Restore.
   function makeArchivedRow(row) {
     var el = document.createElement('div');
@@ -2567,7 +2537,7 @@
     var textCol = document.createElement('button');
     textCol.type = 'button';
     textCol.className = 'nest-archive-row-text';
-    // The row body previews the archived copy (AC #6): a cleaned-up chat is reachable from
+    // The row body previews the archived copy: a cleaned-up chat is reachable from
     // the overlay row, and a present chat previews its saved copy too.
     textCol.setAttribute(
       'aria-label',
@@ -2613,7 +2583,7 @@
     textCol.appendChild(meta);
     el.appendChild(textCol);
 
-    // Star affordance (AC #4: starring an archived chat un-archives it). A hollow star
+    // Star affordance (starring an archived chat un-archives it). A hollow star
     // (archived rows are not starred, since starred chats are never archived); clicking it
     // posts starUnarchive, which sets the synced star AND clears userArchived through the
     // existing seams, so the chat leaves the overlay and reappears in the list, starred. A
@@ -2883,7 +2853,7 @@
   // ---- search input ----
 
   // Post the current text query to the host content-search seam. Debounced by
-  // onFilterInput (issue #83 AC #4) so a fast typist does not fire a query per
+  // onFilterInput so a fast typist does not fire a query per
   // keystroke; the host's body-index build already yields to the event loop
   // (BODY_READ_CHUNK) so neither side blocks the UI thread.
   function postSearchQuery() {
@@ -3093,7 +3063,7 @@
       }
       render();
     } else if (msg.type === 'searchResults') {
-      // Host content-search reply (issue #83 AC #1/#3). Adopt the ranked ids and the
+      // Host content-search reply. Adopt the ranked ids and the
       // per-id snippet ONLY for the query still in the box; a reply for a stale query
       // (the host posts twice per query as its two-phase index refines, and
       // keystrokes interleave) is dropped. The host echoes its RAW trimmed query;
@@ -3124,7 +3094,7 @@
         render();
       }
     } else if (msg.type === 'settings') {
-      // The host posted the Settings overlay state (issue #86): the auto-archive window
+      // The host posted the Settings overlay state: the auto-archive window
       // and the four section-visibility toggles. Adopt them and re-render the tree so
       // the section gates apply. We do NOT rebuild an OPEN overlay here: the host posts
       // 'settings' after every setAutoArchiveWindow / setSectionsVisible the user just
@@ -3152,7 +3122,7 @@
       // The palette/view-title Settings command asked to open the in-panel overlay.
       openSettingsOverlay();
     } else if (msg.type === 'archivedRows') {
-      // The host posted the archived rows for the Archive overlay (issue #87), in response
+      // The host posted the archived rows for the Archive overlay, in response
       // to an openArchive request (the Archived (N) row, the auto-archive toast, or a
       // Restore that re-posts the trimmed set). Adopt them and open-or-refresh the overlay.
       archivedRows = Array.isArray(msg.rows) ? msg.rows.filter(isArchivedRow) : [];

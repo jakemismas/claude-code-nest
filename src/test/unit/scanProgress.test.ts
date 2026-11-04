@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { scanChats } from '../../claude/chatScanner';
 
-// The Polish slice adds a vscode-free progress/cancellation seam to scanChats
+// The scanner has a vscode-free progress/cancellation seam to scanChats
 // (ScannerOptions.onProgress / shouldCancel). These run against a scratch fixture
 // tree under the OS temp dir, never the real ~/.claude files, and import no
 // vscode (unit-gate rule). They prove the scanner reports per-file progress and

@@ -1,21 +1,16 @@
-// Launches a NEW Claude Code chat, best-effort (UI-SPEC.md data mapping, deviation
-// 6; slice s3a-design-shell, issue #80). The org panel's New session pill posts a
-// message the host routes here.
-//
-// BUILD-TIME PROBE of the actual new-chat entry point (2026-07-02, against the
-// installed anthropic.claude-code 2.1.197 and 2.1.198 package.json contributes):
-// the extension contributes the command "claude-vscode.newConversation" ("Claude
-// Code: New Conversation", keybound cmd+n). That is the real NEW-chat entry point.
-// The public URI handler's "/open?session=<id>" path (src/launch/uriLauncher.ts)
-// only RESUMES an existing session and cannot start a fresh one, so it is not used
-// here. "claude-vscode.sidebar.open" ("Claude Code: Open in Side Bar") is the
-// fallback: if newConversation is absent or throws (a different Claude Code build,
-// or the extension not installed), opening the sidebar at least surfaces Claude so
+// Launches a NEW Claude Code chat, best-effort. The org panel's New session pill posts a
+// message the host routes here.  BUILD-TIME PROBE of the actual new-chat entry point
+// (2026-07-02, against the installed anthropic.claude-code 2.1.197 and 2.1.198
+// package.json contributes): the extension contributes the command
+// "claude-vscode.newConversation" ("Claude Code: New Conversation", keybound cmd+n). That
+// is the real NEW-chat entry point. The public URI handler's "/open?session=<id>" path
+// (src/launch/uriLauncher.ts) only RESUMES an existing session and cannot start a fresh
+// one, so it is not used here. "claude-vscode.sidebar.open" ("Claude Code: Open in Side
+// Bar") is the fallback: if newConversation is absent or throws (a different Claude Code
+// build, or the extension not installed), opening the sidebar at least surfaces Claude so
 // the user is not left with a dead button. When both fail, the host shows a graceful
-// toast (UI-SPEC.md deviation 6). See DECISIONS.md slice s3a-design-shell.
-//
-// The command runner is INJECTED so this module is unit-testable with a spy and
-// imports no vscode here, mirroring uriLauncher.ts's injected openExternal. The
+// toast. See.  The command runner is INJECTED so this module is unit-testable with a spy
+// and imports no vscode here, mirroring uriLauncher.ts's injected openExternal. The
 // extension host passes vscode.commands.executeCommand.
 
 // The probed contributed commands, most-specific first. The launcher tries each in

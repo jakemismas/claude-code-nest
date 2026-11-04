@@ -21,13 +21,13 @@ import {
 } from '../../commands/previewChatCommand';
 import { writeArchivedBody, readArchivedBody } from '../../store/archiveBodyStore';
 
-// Headless unit tests for the Slice 4 curation commands and the archived-copy read path.
-// The commands run against a real MetadataStore over the FakeMemento double, with the
+// Headless unit tests for the curation commands and the archived-copy read path. The
+// commands run against a real MetadataStore over the FakeMemento double, with the
 // archive-body IO seams stubbed in memory. The archived-row membership + sort + fallback-
 // title logic that once lived on the Archive tree provider moved to the pure
-// buildArchivedRows (issue #87), tested in orgPanelModel.test.ts; the SYNCED-userArchived-
-// only membership rule (never the local orphan flag) is asserted there. What remains here
-// is the cleanup-survival read path: the Nest-owned body copy is still readable after the
+// buildArchivedRows, tested in orgPanelModel.test.ts; the SYNCED-userArchived- only
+// membership rule (never the local orphan flag) is asserted there. What remains here is
+// the cleanup-survival read path: the Nest-owned body copy is still readable after the
 // transcript is gone. No vscode host beyond the stub.
 
 const DEVICE = 'dev-curation';
@@ -237,12 +237,12 @@ describe('curationCommands.restoreChat', () => {
   });
 });
 
-// ---- The archived-copy READ path (survives the Archive-tree retirement, issue #87).
-// The Archive tree provider is retired; its membership + sort + fallback-title logic moved
-// to the pure buildArchivedRows (covered in orgPanelModel.test.ts). What still lives here is
-// the cleanup-survival read: once Claude deletes the live transcript, the Nest-owned body
-// copy must still be readable via previewArchivedBody, the command the Archive overlay row
-// and the palette both call.
+// ---- The archived-copy READ path (survives the Archive-tree retirement). The Archive
+// tree provider is retired; its membership + sort + fallback-title logic moved to the
+// pure buildArchivedRows (covered in orgPanelModel.test.ts). What still lives here is the
+// cleanup-survival read: once Claude deletes the live transcript, the Nest-owned body
+// copy must still be readable via previewArchivedBody, the command the Archive overlay
+// row and the palette both call.
 
 describe('archived-copy read path survives transcript cleanup', () => {
   it('end to end: a saved copy is readable AFTER the transcript is gone', async () => {

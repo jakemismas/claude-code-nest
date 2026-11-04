@@ -1,20 +1,14 @@
-// Read state: the per-device, per-chat lastSeenAt map that powers the org panel's
-// unread affordances (the Questions '?' badge and the solid unread dot). It is a
-// LOCAL, NEVER-SYNCED concern (UI-SPEC.md "Read state": "Per-device lastSeenAt per
-// chat, stored in workspace/global Memento state, NEVER synced", like sort and the
-// collapsed set).
-//
-// This module is VSCODE-THIN by design: it takes an injected Memento-shaped store
-// (get/update over a JSON string), so the pure orgPanelModel.ts stays vscode-free
-// and never imports or reads a store (ARCHITECTURE.md unit-gate rule; patch item 1).
-// The extension host backs the injected store with context.workspaceState, which is
-// structurally NEVER part of Settings Sync, so lastSeenAt can never widen the synced
-// surface (which stays exactly nest.meta.v1::<projectKey>). This module also NEVER
-// calls setKeysForSync.
-//
-// The persisted shape is a single Memento key holding a JSON object
-// { [sessionId]: epochMs }. One key (not one per chat) keeps the write coalesced and
-// the read a single parse, mirroring the collapsed-folder set's storage shape.
+// Read state: the per-device, per-chat lastSeenAt map that powers the org panel's unread
+// affordances (the Questions '?' badge and the solid unread dot). It is a LOCAL,
+// NEVER-SYNCED concern.  This module is VSCODE-THIN by design: it takes an injected
+// Memento-shaped store (get/update over a JSON string), so the pure orgPanelModel.ts
+// stays vscode-free and never imports or reads a store. The extension host backs the
+// injected store with context.workspaceState, which is structurally NEVER part of
+// Settings Sync, so lastSeenAt can never widen the synced surface (which stays exactly
+// nest.meta.v1::<projectKey>). This module also NEVER calls setKeysForSync.  The
+// persisted shape is a single Memento key holding a JSON object { [sessionId]: epochMs }.
+// One key (not one per chat) keeps the write coalesced and the read a single parse,
+// mirroring the collapsed-folder set's storage shape.
 
 import { isSafeRecordId } from '../store/schema';
 
@@ -22,11 +16,10 @@ import { isSafeRecordId } from '../store/schema';
 // never synced, exactly like claudeNest.orgPanel.sort / .collapsedFolders.
 export const READ_STATE_KEY = 'claudeNest.orgPanel.lastSeenAt';
 
-// The one-time-seed flag (issue #123). Before the seed, every chat predating the
-// read-state store read as unread ("old af and already read"). The first scan after
-// this flag is absent marks every scanned chat seen once; the flag then prevents
-// re-seeding, so only genuinely new assistant activity shows unread afterward.
-// Local and never synced, like the map itself.
+// The one-time-seed flag. Before the seed, every chat predating the read-state store read
+// as unread ("old af and already read"). The first scan after this flag is absent marks
+// every scanned chat seen once; the flag then prevents re-seeding, so only genuinely new
+// assistant activity shows unread afterward. Local and never synced, like the map itself.
 export const READ_STATE_SEEDED_KEY = 'claudeNest.orgPanel.readStateSeeded';
 
 // The minimal Memento surface this adapter needs, injected so the module stays
@@ -74,15 +67,15 @@ export class ReadStateStore {
     this.memento.update(READ_STATE_KEY, serializeMap(map));
   }
 
-  // One-time seed (issue #123): treat every chat that exists at first activation as
-  // already read. Chats predating the read-state store have no lastSeenAt entry, so
-  // they all showed the unread dot regardless of age. On the FIRST scan after this
-  // store version lands, stamp each scanned chat seen at its own last-activity
-  // timestamp (so an assistant message arriving later is still newer than seenAt and
-  // reads unread per the existing heuristics); a null timestamp falls back to `now`.
-  // The seeded flag makes this a no-op on every later call, and existing (higher)
-  // stamps are preserved by markSeen's no-regress rule. Returns true when the seed
-  // ran. Coalesces to ONE map write for the whole batch.
+  // One-time seed: treat every chat that exists at first activation as already read.
+  // Chats predating the read-state store have no lastSeenAt entry, so they all showed the
+  // unread dot regardless of age. On the FIRST scan after this store version lands, stamp
+  // each scanned chat seen at its own last-activity timestamp (so an assistant message
+  // arriving later is still newer than seenAt and reads unread per the existing
+  // heuristics); a null timestamp falls back to `now`. The seeded flag makes this a no-op
+  // on every later call, and existing (higher) stamps are preserved by markSeen's
+  // no-regress rule. Returns true when the seed ran. Coalesces to ONE map write for the
+  // whole batch.
   seedIfFirstRun(
     records: ReadonlyArray<{ sessionId: string; timestamp: number | null }>,
     now: number = Date.now(),

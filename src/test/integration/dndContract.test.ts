@@ -28,9 +28,8 @@ import {
 import { makeOccurrence } from '../../model/occurrence';
 import { ChatRecord } from '../../model/types';
 
-// The DEFERRED electron-host integration test PLAN.md Slice 4 calls for: "one
-// electron test asserting controllers register and MIME types match
-// package.json", expanded per TESTING.md to also drive a real cross-tree drag and
+// The electron-host integration test: asserts controllers register and
+// MIME types match package.json, and also drives a real cross-tree drag and
 // assert the store mutation lands. It runs ONLY in the Extension Development Host
 // (out/test/integration via runTest.js), never in the headless `npm test` gate,
 // because the things it verifies CANNOT be reached headless:
@@ -51,7 +50,7 @@ import { ChatRecord } from '../../model/types';
 //   3. The reserved-MIME literals equaling the value VSCode auto-derives from a
 //      view id (application/vnd.code.tree.<id>), cross-checked against the FROZEN
 //      DropTargetView literals in dropReducer.ts. The native Folders and Tags trees
-//      were RETIRED in slice 6 (the org panel webview owns drag-and-drop now), so
+//      were RETIRED in (the org panel webview owns drag-and-drop now), so
 //      those view ids are no longer contributed in the manifest; the native
 //      controller and its reserved MIMEs are KEPT and still derive from the frozen
 //      'claudeNest.folders' / 'claudeNest.tags' target-view strings.
@@ -89,11 +88,11 @@ function reservedMimeForViewId(viewId: string): string {
   return 'application/vnd.code.tree.' + viewId.toLowerCase();
 }
 
-// The FROZEN drop-target view ids the native controller uses. The native Folders
-// and Tags trees were retired in slice 6, so these are no longer contributed in
-// package.json; they live on as the dropReducer DropTargetView contract, and the
-// native controller's reserved MIMEs are still derived from them. The annotation
-// pins them to the frozen union, so a change to DropTargetView fails the build here.
+// The FROZEN drop-target view ids the native controller uses. The native Folders and Tags
+// trees were retired in, so these are no longer contributed in package.json; they live on
+// as the dropReducer DropTargetView contract, and the native controller's reserved MIMEs
+// are still derived from them. The annotation pins them to the frozen union, so a change
+// to DropTargetView fails the build here.
 const FROZEN_TARGET_VIEWS: { folders: DropTargetView; tags: DropTargetView } = {
   folders: 'claudeNest.folders',
   tags: 'claudeNest.tags',
@@ -157,14 +156,13 @@ function buildHarness() {
   return { store, foldersDnd, tagsDnd };
 }
 
-describe('Slice 4 drag-and-drop controller registration and MIME contract (electron host)', () => {
+describe('drag-and-drop controller registration and MIME contract (electron host)', () => {
   it('both controllers expose a valid TreeDragAndDropController shape (native trees retired)', () => {
-    // Slice 6 retired the native Folders and Tags trees (the org panel webview owns
-    // drag-and-drop now), so the controllers are no longer attached via
-    // createTreeView; createTreeView on the uncontributed view ids would throw. The
-    // controllers themselves are KEPT and unit-tested, so assert the host accepts
-    // their shape: the drag and drop MIME arrays plus the handleDrag/handleDrop
-    // methods.
+    // retired the native Folders and Tags trees (the org panel webview owns drag-and-drop
+    // now), so the controllers are no longer attached via createTreeView; createTreeView
+    // on the uncontributed view ids would throw. The controllers themselves are KEPT and
+    // unit-tested, so assert the host accepts their shape: the drag and drop MIME arrays
+    // plus the handleDrag/handleDrop methods.
     const { foldersDnd, tagsDnd } = buildHarness();
     for (const ctrl of [foldersDnd, tagsDnd]) {
       assert.ok(Array.isArray(ctrl.dragMimeTypes), 'dragMimeTypes is an array');
@@ -210,7 +208,7 @@ describe('Slice 4 drag-and-drop controller registration and MIME contract (elect
   });
 });
 
-describe('Slice 4 cross-tree drag carrier (electron host, real DataTransfer)', () => {
+describe('cross-tree drag carrier (electron host, real DataTransfer)', () => {
   // Reproduce the host's REAL cross-tree drop. VSCode 1.66 does NOT hand the source
   // controller's custom DataTransferItem to the PEER controller's handleDrop: it
   // re-applies the source handleDrag items only when the source and destination

@@ -1,10 +1,10 @@
 // promoteSmartGroup: the two explicit, idempotent promotion commands that turn a
 // read-only smart-group bucket into a real Folder or Tag. This is the ONLY write
-// path the smart-groups slice has, and it writes ONLY synced ProjectMeta through
+// path the smart groups have, and it writes ONLY synced ProjectMeta through
 // the store (never under ~/.claude/projects). Nothing here auto-files; the user
 // invokes a promote on a chosen bucket.
 //
-// Idempotency has TWO levels, both honored (accepted patch):
+// Idempotency has TWO levels, both honored:
 //  - membership: store.setChatFolder is last-write and store.addChatTag dedupes,
 //    so re-running a promotion is a no-op on already-promoted chats.
 //  - GROUP IDENTITY (idempotency-on-NAME): a second promote of the SAME bucket
@@ -14,8 +14,7 @@
 //    by label. So promoting "PR #1" twice yields one folder/tag with every member
 //    filed/tagged once, not two same-named folders/tags.
 //
-// The batch follows the deleteFolder-cascade shape (ARCHITECTURE.md "Refresh
-// coalescing"): N synchronous store calls (which coalesce into one pending
+// The batch follows the deleteFolder-cascade shape: N synchronous store calls (which coalesce into one pending
 // write), ONE await store.flush(), ONE provider.refresh().
 //
 // This module imports the store and the pure id-factory/folderTree helpers; it is

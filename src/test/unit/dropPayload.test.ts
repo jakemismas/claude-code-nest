@@ -8,14 +8,13 @@ import {
   pickPayload,
 } from '../../dnd/dropPayload';
 
-// Headless unit tests for the PURE drop-payload helpers the controller leans on
-// before it reaches the reducer. dropPayload imports no vscode types (the
-// controller hands it plain unknowns pulled off the real DataTransfer), so this
-// test never transitively requires vscode (ARCHITECTURE.md unit-gate rule). It
-// covers the parseChatIds tolerance contract (a missing / non-string / malformed
-// / non-array value, non-string element filtering) and the pickPayload
-// cross-view carrier selection that makes a Folders->Tags drag work, which the
-// reducer never sees.
+// Headless unit tests for the PURE drop-payload helpers the controller leans on before it
+// reaches the reducer. dropPayload imports no vscode types (the controller hands it plain
+// unknowns pulled off the real DataTransfer), so this test never transitively requires
+// vscode. It covers the parseChatIds tolerance contract (a missing / non-string /
+// malformed / non-array value, non-string element filtering) and the pickPayload
+// cross-view carrier selection that makes a Folders->Tags drag work, which the reducer
+// never sees.
 
 describe('parseChatIds tolerance', () => {
   it('parses the JSON id array handleDrag serializes', () => {

@@ -2,15 +2,13 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Regression guard for the s3a-view-consolidation docs findings: retiring a view
-// must not leave README advertising a command that no longer has any UI surface
-// (the "Export Chat..." case), and a command left surfaceless must be an
-// explicitly accepted interim gap rather than a silent orphan. Both checks read
-// the same package.json the extension ships, so a future slice that removes a
-// menu or view contribution fails here and forces a docs decision.
-//
-// Compiled tests run from out/test/unit and sources live in src/test/unit; the
-// repo root is three levels up from either.
+// Regression guard for the docs findings: retiring a view must not leave README
+// advertising a command that no longer has any UI surface (the "Export Chat..." case),
+// and a command left surfaceless must be an explicitly accepted interim gap rather than a
+// silent orphan. Both checks read the same package.json the extension ships, so a future
+// change that removes a menu or view contribution fails here and forces an explicit decision.
+// Compiled tests run from out/test/unit and sources live in src/test/unit; the repo root
+// is three levels up from either.
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
 interface CommandContribution {
@@ -159,19 +157,19 @@ describe('command surfaces stay honest after the s3a view consolidation', () => 
       .filter((id) => !reachable.has(id))
       .sort();
 
-    // The accepted set as of s3b-archive-overlay (CHANGELOG Unreleased / Removed).
-    // Groups: invoked programmatically (openChat rides the org panel row click; the
-    // refresh pair services the kept non-view providers), panel-internal equivalents kept
-    // registered for programmatic callers (folder/tag mutation and the smart-group
-    // promotes), the s3b interim gaps that wait for the in-panel hover card and context
-    // menu (previewChat, exportChat, archiveChat of a live chat), and the curation +
-    // archived-preview commands whose Archive-tree surface was RETIRED in
-    // s3b-archive-overlay (issue #87): star/unstar/restore/previewArchivedChat now route
-    // through the org panel (the row star toggle, the context menu, and the in-panel
-    // Archive overlay's Restore / star-unarchive / row preview) via the OrgPanelActions
-    // seams, so the standalone commands stay registered for those programmatic callers but
-    // have no menu/palette surface. Adding an id here means deliberately shipping a command
-    // with no UI surface: record it in CHANGELOG and keep README silent about it.
+    // The accepted set as of (CHANGELOG Unreleased / Removed). Groups: invoked
+    // programmatically (openChat rides the org panel row click; the refresh pair services
+    // the kept non-view providers), panel-internal equivalents kept registered for
+    // programmatic callers (folder/tag mutation and the smart-group promotes), the s3b
+    // interim gaps that wait for the in-panel hover card and context menu (previewChat,
+    // exportChat, archiveChat of a live chat), and the curation + archived-preview
+    // commands whose Archive-tree surface was RETIRED in:
+    // star/unstar/restore/previewArchivedChat now route through the org panel (the row
+    // star toggle, the context menu, and the in-panel Archive overlay's Restore /
+    // star-unarchive / row preview) via the OrgPanelActions seams, so the standalone
+    // commands stay registered for those programmatic callers but have no menu/palette
+    // surface. Adding an id here means deliberately shipping a command with no UI
+    // surface: record it in CHANGELOG and keep README silent about it.
     assert.deepStrictEqual(surfaceless, [
       'claudeNest.addTagToChat',
       'claudeNest.archiveChat',

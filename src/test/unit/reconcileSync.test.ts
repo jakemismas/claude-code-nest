@@ -225,7 +225,7 @@ describe('reconcileSync reconcileProjectSync', () => {
     }
   });
 
-  it('reconciles a foreign write that FLIPPED starred additively, not wholesale-replaced (Slice 3)', () => {
+  it('reconciles a foreign write that FLIPPED starred additively, not wholesale-replaced', () => {
     // Shadow: this device starred chat c (and tagged it x). The OTHER device
     // wholesale-replaced the synced value with a NEWER record that UNstarred c and
     // dropped tag x. The merge unions x back and the newer foreign starred=false
@@ -284,7 +284,7 @@ describe('reconcileSync reconcileProjectSync', () => {
     }
   });
 
-  it('reconciles a foreign Folder.color flip by document updatedAt with correct storeChanged (Slice 3)', () => {
+  it('reconciles a foreign Folder.color flip by document updatedAt with correct storeChanged', () => {
     // Folder.color is arbitrated at the DOCUMENT level (not the per-record stamp),
     // and the real user hits this through the sync reconcile, not a manual import.
     // The OTHER device recolored folder fa on a NEWER document and re-stamped the
@@ -340,7 +340,7 @@ describe('reconcileSync reconcileProjectSync', () => {
     }
   });
 
-  it('reconciles a foreign userArchived/archivedAt flip, holding the coupling through the reconcile path (Slice 3)', () => {
+  it('reconciles a foreign userArchived/archivedAt flip, holding the coupling through the reconcile path', () => {
     // Shadow: this device archived c at t=5. The OTHER device UNarchived it later
     // (newer record, no archivedAt) and re-stamped the project. The newer foreign
     // archive decision wins AND archivedAt stays coupled (cleared with the flag),

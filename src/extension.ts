@@ -139,16 +139,12 @@ import { ExportOrgLayer } from './export/chatExport';
 import { writeTextFile } from './store/exportIO';
 import { resolveFolderName, resolveStarred, resolveTagLabels } from './views/chatMeta';
 
-// Entry point for the Claude Code Nest extension. It contributes the claudeNest
-// Activity Bar view container, wires the open-chat command to Claude's documented
-// URI handler, and stands up the MetadataStore over context.globalState. Slice
-// s3a-view-consolidation retired the flat Chats and Smart Groups trees: the org
-// panel webview is the ONLY browsing surface (UI-SPEC.md deviation 5), with the
-// Archive tree and the settings editor tab surviving until part 2 ships their
-// in-panel replacements.
-// The active store, held so deactivate() can await a final flush. VSCode awaits
-// a Thenable returned from deactivate() during shutdown, which is the reliable
-// teardown hook for persisting writes staged within the debounce window.
+// Entry point for the Claude Code Nest extension. It contributes the claudeNest Activity
+// Bar view container, wires the open-chat command to Claude's documented URI handler, and
+// stands up the MetadataStore over context.globalState. The org panel webview is the ONLY browsing surface.
+// The active store, held so deactivate can await a final flush. VSCode awaits a Thenable
+// returned from deactivate during shutdown, which is the reliable teardown hook for
+// persisting writes staged within the debounce window.
 let activeStore: MetadataStore | undefined;
 
 // The active auto-exporter, held so deactivate() can cancel a pending debounced
@@ -158,11 +154,10 @@ let activeAutoExporter: AutoExporter | undefined;
 export function activate(context: vscode.ExtensionContext): void {
   const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-  // Adapt the real global Memento to the store's structural seams. The vscode
-  // binding lives ONLY here; the store and deviceId modules stay vscode-free and
-  // headless-testable (ARCHITECTURE.md build contract). context.globalState
-  // structurally satisfies SyncMemento (get/update/keys/setKeysForSync) and the
-  // DeviceIdStore getter/setter.
+  // Adapt the real global Memento to the store's structural seams. The vscode binding
+  // lives ONLY here; the store and deviceId modules stay vscode-free and
+  // headless-testable. context.globalState structurally satisfies SyncMemento
+  // (get/update/keys/setKeysForSync) and the DeviceIdStore getter/setter.
   const syncMemento: SyncMemento = context.globalState;
   const deviceIdStore: DeviceIdStore = {
     get: (key: string) => context.globalState.get<string>(key),
@@ -174,26 +169,23 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   };
   // No seed: a per-INSTALL random UUID is generated on first run. machineId is a
-  // per-MACHINE value (stable across installs/profiles on one computer), so
-  // seeding with it would give two installs on the same machine (a second
-  // profile, or Insiders + Stable) the SAME device id, defeating the
-  // foreign-device overwrite detection the reconcile design depends on
-  // (deviceId.ts: "two machines must NOT share it ... each install keeps its
-  // own"; ARCHITECTURE.md: "a per-install deviceId").
+  // per-MACHINE value (stable across installs/profiles on one computer), so seeding with
+  // it would give two installs on the same machine (a second profile, or Insiders +
+  // Stable) the SAME device id, defeating the foreign-device overwrite detection the
+  // reconcile design depends on (deviceId.ts: "two machines must NOT share it ... each
+  // install keeps its own": "a per-install deviceId").
   const deviceId = getOrCreateDeviceId(deviceIdStore);
   activeStore = new MetadataStore(syncMemento, { deviceId });
   const store = activeStore;
   context.subscriptions.push({ dispose: () => void store.dispose() });
 
-  // Forward handle to the debounced opt-in auto-export. The AutoExporter is
-  // constructed lower (it shares the export/import deps), but the user's own
-  // organization-mutation refresh closures (folder/tag/link/tagging/promote) are
-  // built ABOVE it, so they call through this indirection. Without it the snapshot
-  // would only fire on import/reconcile merges, never on the user's own edits,
-  // defeating the feature's stated purpose (PLAN.md slice 8: a backup of the user's
-  // work, snapshotted on a sync-time change). Assigned once the AutoExporter exists;
-  // a mutation before that point (none occur during synchronous activation) is a
-  // harmless no-op.
+  // Forward handle to the debounced opt-in auto-export. The AutoExporter is constructed
+  // lower (it shares the export/import deps), but the user's own organization-mutation
+  // refresh closures (folder/tag/link/tagging/promote) are built ABOVE it, so they call
+  // through this indirection. Without it the snapshot would only fire on import/reconcile
+  // merges, never on the user's own edits, defeating the feature's stated purpose.
+  // Assigned once the AutoExporter exists; a mutation before that point (none occur
+  // during synchronous activation) is a harmless no-op.
   let scheduleAutoExport: () => void = () => {};
 
   // Forward handle to the primary org-panel webview's refresh, assigned once the
@@ -204,16 +196,14 @@ export function activate(context: vscode.ExtensionContext): void {
   // provider exists (none occur during synchronous activation) is a harmless no-op.
   let refreshOrgPanel: () => void = () => {};
 
-  // Forward handle to the auto-archive engine pass (slice s3b-settings-overlay, issue
-  // #86), assigned once the OrgPanelProvider and the archive-body seams exist (it reads
-  // the provider's scan + the current auto-archive window). Called on activation, after
-  // a scan refresh, and when the user changes the window in the Settings overlay. A
-  // call before it is assigned (none occur during synchronous activation before the
-  // provider is built) is a harmless no-op.
+  // Forward handle to the auto-archive engine pass, assigned once the OrgPanelProvider
+  // and the archive-body seams exist (it reads the provider's scan + the current
+  // auto-archive window). Called on activation, after a scan refresh, and when the user
+  // changes the window in the Settings overlay. A call before it is assigned (none occur
+  // during synchronous activation before the provider is built) is a harmless no-op.
   let runAutoArchiveNow: () => Promise<void> = () => Promise.resolve();
 
-  // RECONCILE-BEFORE-WRITE BARRIER for automated store writers (security fix pass
-  // round 1, critical finding). A foreign Settings Sync write can land in
+  // RECONCILE-BEFORE-WRITE BARRIER for automated store writers. A foreign Settings Sync write can land in
   // globalState at any time with no event; if an AUTOMATED writer (the auto-archive
   // engine) stages a mutation before reconcileAllProjects has classified that
   // foreign value, the staged write re-stamps the project with THIS device's id and
@@ -225,8 +215,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // auto-archive kick is deliberately sequenced AFTER the barrier is assigned.
   let reconcileBeforeAutomatedWrite: () => Promise<void> = () => Promise.resolve();
 
-  // The shared progress + cancellation UI for the explicit Refresh commands
-  // (Polish slice). vscode.window.withProgress shows a cancellable notification
+  // The shared progress + cancellation UI for the explicit Refresh commands.
+  // vscode.window.withProgress shows a cancellable notification
   // while a provider primes its snapshot via a transcript scan; the scanner stays
   // vscode-free and receives only the plain onProgress/shouldCancel callbacks. The
   // passive getChildren/getParent path is unaffected and stays synchronous.
@@ -261,22 +251,20 @@ export function activate(context: vscode.ExtensionContext): void {
   const runRefreshScan = (provider: ScanPrimable, scanLabel: string): Promise<void> =>
     refreshWithProgress({ provider, ui: refreshScanUi, scanLabel });
 
-  // The encoded project key (the on-disk projects directory name) is resolved ON
-  // DEMAND, not frozen here: it is undefined until Claude Code has created a project
-  // dir for this workspace, and the dir can appear after activation. The provider
-  // re-resolves it on every refresh via FoldersProvider.resolveProjectKey, and the
-  // commands share that same resolution through FolderCommandDeps.getProjectKey. The
-  // store keys ProjectMeta by this same string.
-  //
-  // Slice s2-org-panel-webview RETIRES the native Folders TreeView and its
-  // drag-and-drop controller: the primary org panel (a WebviewView, registered
-  // below) supersedes them. FoldersProvider is KEPT as a non-view service: the
-  // folder/link/tag/promote/curation commands still depend on it for on-demand
-  // project-key resolution (resolveProjectKey), the link target pick list
-  // (chatRecords), the rollup token seam (tokenTotalsByChat), and reveal/home
-  // resolution (memberNodeForChat). Its refresh() still fires onDidChangeTreeData,
-  // which no longer drives a tree but is harmless; the org panel's refresh is folded
-  // into every refresh closure so the primary surface re-renders on a mutation.
+  // The encoded project key (the on-disk projects directory name) is resolved ON DEMAND,
+  // not frozen here: it is undefined until Claude Code has created a project dir for this
+  // workspace, and the dir can appear after activation. The provider re-resolves it on
+  // every refresh via FoldersProvider.resolveProjectKey, and the commands share that same
+  // resolution through FolderCommandDeps.getProjectKey. The store keys ProjectMeta by
+  // this same string. RETIRES the native Folders TreeView and its drag-and-drop
+  // controller: the primary org panel (a WebviewView, registered below) supersedes them.
+  // FoldersProvider is KEPT as a non-view service: the folder/link/tag/promote/curation
+  // commands still depend on it for on-demand project-key resolution (resolveProjectKey),
+  // the link target pick list (chatRecords), the rollup token seam (tokenTotalsByChat),
+  // and reveal/home resolution (memberNodeForChat). Its refresh still fires
+  // onDidChangeTreeData, which no longer drives a tree but is harmless; the org panel's
+  // refresh is folded into every refresh closure so the primary surface re-renders on a
+  // mutation.
   const foldersProvider = new FoldersProvider(workspacePath, store);
 
   const folderUi: FolderCommandUi = {
@@ -339,9 +327,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       ASSIGN_CHAT_TO_FOLDER_COMMAND,
       (item?: FolderTreeNode | string) => {
-        // With the trees retired (slice s3a-view-consolidation) no view mints a
-        // chat row for this command any more; a ChatMemberItem still resolves for
-        // a legacy caller, and a bare sessionId string covers a programmatic one.
+        // With the trees retired no view mints a chat row for this command any more; a
+        // ChatMemberItem still resolves for a legacy caller, and a bare sessionId string
+        // covers a programmatic one.
         if (typeof item === 'string') {
           return assignChatToFolder(folderDeps, item);
         }
@@ -357,25 +345,22 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // The many-to-many tag membership service. Like FoldersProvider, the native Tags
-  // TreeView and its drag-and-drop controller are RETIRED in slice
-  // s2-org-panel-webview (the org panel renders tag chips and handles tag DnD).
-  // TagsProvider is KEPT as a non-view service: the tag commands resolve the project
-  // key through it (TagCommandDeps.getProjectKey) and its refresh() participates in
-  // the shared refresh closures. Tag-add by drag is handled by the org panel through
-  // the webviewDropAdapter, which reuses the UNCHANGED reduceDrop.
+  // TreeView and its drag-and-drop controller are RETIRED in (the org panel renders tag
+  // chips and handles tag DnD). TagsProvider is KEPT as a non-view service: the tag
+  // commands resolve the project key through it (TagCommandDeps.getProjectKey) and its
+  // refresh participates in the shared refresh closures. Tag-add by drag is handled by
+  // the org panel through the webviewDropAdapter, which reuses the UNCHANGED reduceDrop.
   const tagsProvider = new TagsProvider(workspacePath, store);
 
-  // The PRIMARY org-panel webview (slice s2-org-panel-webview; the SOLE browsing
-  // surface since slice s3a-view-consolidation, UI-SPEC.md deviation 5). It renders
-  // the section model (Starred, Questions heuristic, the folder hierarchy with
-  // per-folder color, Unsorted), tag filter chips, sort and density modes, folder
-  // rename, and webview drag-and-drop. The drop path reuses the UNCHANGED
-  // reduceDrop through webviewDropAdapter, and the cross-tree dragContext stash is
-  // NOT involved (a webview drag is in-process). The shared refresh closure
-  // re-renders the (view-less) folders/tags services and this panel, and schedules
-  // the opt-in auto-export, so a mutation from any surface keeps all of them
-  // consistent. Constructed after both providers exist so their refresh and
-  // project-key resolution are available.
+  // The PRIMARY org-panel webview. It renders the section model (Starred, Questions
+  // heuristic, the folder hierarchy with per-folder color, Unsorted), tag filter chips,
+  // sort and density modes, folder rename, and webview drag-and-drop. The drop path
+  // reuses the UNCHANGED reduceDrop through webviewDropAdapter, and the cross-tree
+  // dragContext stash is NOT involved (a webview drag is in-process). The shared refresh
+  // closure re-renders the (view-less) folders/tags services and this panel, and
+  // schedules the opt-in auto-export, so a mutation from any surface keeps all of them
+  // consistent. Constructed after both providers exist so their refresh and project-key
+  // resolution are available.
   const refreshAllOrgSurfaces = (): void => {
     foldersProvider.refresh();
     tagsProvider.refresh();
@@ -383,7 +368,7 @@ export function activate(context: vscode.ExtensionContext): void {
     scheduleAutoExport();
   };
   // The org panel's rename/color actions route through the existing store mutations
-  // (the same setFolderColor the schema/store slice added, and a direct rename via
+  // (the store's setFolderColor, and a direct rename via
   // upsertFolder preserving the folder's parent/order) then flush + refresh once, so
   // the webview never couples to the command layer or invents a new write path.
   const orgPanelActions: OrgPanelActions = {
@@ -441,19 +426,18 @@ export function activate(context: vscode.ExtensionContext): void {
       await deleteFolder(folderDeps, item);
     },
     createFolder: async (name?: string): Promise<void> => {
-      // Reuse the existing createFolder command (store mutation + slash-path
-      // expansion + the one-sublevel depth cap). When the in-panel "New folder"
-      // popover supplies a name (issue #82 AC3), pass it as presetName so the command
-      // skips its native input box; otherwise it prompts as before.
-      // folderDeps.provider.refresh folds in refreshOrgPanel, so the panel
-      // re-renders with the new folder after it is created.
+      // Reuse the existing createFolder command (store mutation + slash-path expansion +
+      // the one-sublevel depth cap). When the in-panel "New folder" popover supplies a
+      // name, pass it as presetName so the command skips its native input box; otherwise
+      // it prompts as before. folderDeps.provider.refresh folds in refreshOrgPanel, so
+      // the panel re-renders with the new folder after it is created.
       await createFolder(folderDeps, undefined, name);
     },
     newSession: async (): Promise<void> => {
-      // Best-effort launch of a new Claude Code chat via the probed contributed
-      // command chain (newSessionLauncher). A graceful toast on total failure
-      // (UI-SPEC.md deviation 6): the entry points are undocumented Claude Code
-      // contact points and may be absent in a given environment.
+      // Best-effort launch of a new Claude Code chat via the probed contributed command
+      // chain (newSessionLauncher). A graceful toast on total failure: the entry points
+      // are undocumented Claude Code contact points and may be absent in a given
+      // environment.
       const ok = await launchNewSession((command) =>
         vscode.commands.executeCommand(command),
       );
@@ -465,12 +449,12 @@ export function activate(context: vscode.ExtensionContext): void {
     },
     loadArchivedTitles: async (): Promise<Map<string, string>> => {
       // Load the stored body-copy titles for archived chats whose live transcript was
-      // cleaned up out of band (issue #87, patch item 3), keyed by sessionId, from the
-      // Nest-owned body copies. Read-only (readArchivedBody reads the globalStorage copy);
-      // best-effort per id so one unreadable copy does not fail the whole overlay. Only the
-      // gone-transcript rows consult this; a present chat's title rides the scan. Uses the
-      // panel's scan to find which archived chats are missing (the same records the overlay
-      // posts), then reads only those copies.
+      // cleaned up out of band, keyed by sessionId, from the Nest-owned body copies.
+      // Read-only (readArchivedBody reads the globalStorage copy); best-effort per id so
+      // one unreadable copy does not fail the whole overlay. Only the gone-transcript
+      // rows consult this; a present chat's title rides the scan. Uses the panel's scan
+      // to find which archived chats are missing (the same records the overlay posts),
+      // then reads only those copies.
       const projectKey = foldersProvider.resolveProjectKey();
       const titles = new Map<string, string>();
       if (projectKey === undefined) {
@@ -490,12 +474,12 @@ export function activate(context: vscode.ExtensionContext): void {
       return titles;
     },
     restoreArchivedChat: async (sessionId: string): Promise<void> => {
-      // Restore from the overlay (issue #87 AC #3): clear the synced userArchived flag,
-      // keep the star. Route to the EXISTING restoreChat curation command with a
-      // CurationTarget built from the scan record when present (real filePath so the command
-      // can delete the now-redundant copy), or an empty filePath when the transcript was
-      // cleaned up (a copy-only row) so restoreChat KEEPS the copy (its transcriptExists
-      // guard). A missing/unresolvable id still restores the flag with an empty filePath.
+      // Restore from the overlay: clear the synced userArchived flag, keep the star.
+      // Route to the EXISTING restoreChat curation command with a CurationTarget built
+      // from the scan record when present (real filePath so the command can delete the
+      // now-redundant copy), or an empty filePath when the transcript was cleaned up (a
+      // copy-only row) so restoreChat KEEPS the copy (its transcriptExists guard). A
+      // missing/unresolvable id still restores the flag with an empty filePath.
       const record = orgPanelProvider.resolveRecord(sessionId);
       await restoreChat(curationDeps, {
         sessionId,
@@ -505,8 +489,8 @@ export function activate(context: vscode.ExtensionContext): void {
     },
     runAutoArchive: async (): Promise<void> => {
       // The user changed the auto-archive window in the Settings overlay; run a fresh
-      // pass so a shortened window applies without a window reload (issue #86 AC #4). A
-      // no-op when auto-archiving is disabled (Never) or nothing is past the window.
+      // pass so a shortened window applies without a window reload. A no-op when
+      // auto-archiving is disabled (Never) or nothing is past the window.
       await runAutoArchiveNow();
     },
     setStarred: async (sessionId: string, starred: boolean): Promise<void> => {
@@ -542,11 +526,11 @@ export function activate(context: vscode.ExtensionContext): void {
       label: string,
       color: string | null,
     ): Promise<void> => {
-      // Mint a NEW colored tag and apply it to the chat (issue #85 AC #2). The existing
-      // createTag command opens a modal prompt and mints a COLORLESS tag, so this seam
-      // exists to satisfy the in-panel name + swatch create-with-color flow. Mint via the
-      // id factory (separator-free, mintable), upsert the Tag with an isValidColor-guarded
-      // color (defense in depth: coerce already validated it), then addChatTag it. The two
+      // Mint a NEW colored tag and apply it to the chat. The existing createTag command
+      // opens a modal prompt and mints a COLORLESS tag, so this seam exists to satisfy
+      // the in-panel name + swatch create-with-color flow. Mint via the id factory
+      // (separator-free, mintable), upsert the Tag with an isValidColor-guarded color
+      // (defense in depth: coerce already validated it), then addChatTag it. The two
       // store writes coalesce into one pending write; a single flush + refresh follows.
       const projectKey = foldersProvider.resolveProjectKey();
       if (projectKey === undefined) {
@@ -605,17 +589,16 @@ export function activate(context: vscode.ExtensionContext): void {
     set: (key: string, value: string) => void context.workspaceState.update(key, value),
   };
   // The per-device read-state store (lastSeenAt per chat) on workspaceState, which is
-  // structurally NEVER synced, so the unread signal cannot widen the sync surface
-  // (UI-SPEC.md "Read state"). Backed by the same workspaceState Memento; readState.ts
-  // owns the single-key JSON shape.
+  // structurally NEVER synced, so the unread signal cannot widen the sync surface. Backed
+  // by the same workspaceState Memento; readState.ts owns the single-key JSON shape.
   const readStateStore = new ReadStateStore({
     get: (key: string) => context.workspaceState.get<string>(key),
     update: (key: string, value: string) => void context.workspaceState.update(key, value),
   });
-  // The effective DEFAULT auto-archive window in days when the user has not chosen one
-  // (issue #86 AC #2): the effective Claude cleanupPeriodDays read from settings.json,
-  // or CLAUDE_DEFAULT_CLEANUP_PERIOD_DAYS (30) when Claude itself has not set it. Read
-  // fresh each call so a settings.json change is reflected without a reload. Read-only
+  // The effective DEFAULT auto-archive window in days when the user has not chosen one:
+  // the effective Claude cleanupPeriodDays read from settings.json, or
+  // CLAUDE_DEFAULT_CLEANUP_PERIOD_DAYS (30) when Claude itself has not set it. Read fresh
+  // each call so a settings.json change is reflected without a reload. Read-only
   // (readCleanupPeriodDays does a plain readFileSync + tolerant parse).
   const effectiveAutoArchiveDefaultDays = (): number => {
     const read = readCleanupPeriodDays();
@@ -639,11 +622,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ORG_PANEL_VIEW, orgPanelProvider),
   );
-  // Reveal the org panel and open the in-panel Archive overlay (issue #87). The auto-archive
-  // toast's "Open Archive" action calls this now that the Archive tree is retired: focus the
-  // view (async), then the provider posts the archived rows + open message (deferring to
-  // 'ready' when the view has not resolved yet). A focus failure is swallowed so a missing
-  // view never throws out of a toast callback.
+  // Reveal the org panel and open the in-panel Archive overlay. The auto-archive toast's
+  // "Open Archive" action calls this now that the Archive tree is retired: focus the view
+  // (async), then the provider posts the archived rows + open message (deferring to
+  // 'ready' when the view has not resolved yet). A focus failure is swallowed so a
+  // missing view never throws out of a toast callback.
   const openArchiveOverlay = async (): Promise<void> => {
     try {
       await vscode.commands.executeCommand(ORG_PANEL_VIEW + '.focus');
@@ -781,14 +764,14 @@ export function activate(context: vscode.ExtensionContext): void {
   // from a linked child's designated parent. Both refresh the Folders view once
   // after the store flush.
   const linkUi: LinkCommandUi = {
-    // Slice 5 ships ONLY the kind:'parent' link (the nesting affordance). A
-    // kind:'related' link has no read, navigate, or remove surface yet, so offering
-    // it would let a user create an invisible, unremovable link (a write-only dead
-    // end). The schema and the pure links model already carry 'related' as a
-    // non-nesting kind for a future slice that renders and unlinks it; until then the
-    // picker resolves directly to 'parent' with no prompt (a single choice needs no
-    // QuickPick). The LinkCommandUi.pickKind seam is retained so the deferred kind can
-    // be re-enabled here without touching the command logic.
+    // ships ONLY the kind:'parent' link (the nesting affordance). A kind:'related' link
+    // has no read, navigate, or remove surface yet, so offering it would let a user
+    // create an invisible, unremovable link (a write-only dead end). The schema and the
+    // pure links model already carry 'related' as a non-nesting kind for a future change
+    // that renders and unlinks it; until then the picker resolves directly to 'parent'
+    // with no prompt (a single choice needs no QuickPick). The LinkCommandUi.pickKind
+    // seam is retained so the deferred kind can be re-enabled here without touching the
+    // command logic.
     pickKind: () => Promise.resolve('parent' as Link['kind']),
     pickChat: async (items, placeholder) => {
       const picked = await vscode.window.showQuickPick(
@@ -848,12 +831,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // The promote commands turn a described smart-group bucket into a real
-  // folder/tag. The Smart Groups TREE is retired (slice s3a-view-consolidation),
-  // so no view mints a bucket row any more: the commands stay registered (and
-  // palette-hidden) for a PROGRAMMATIC caller passing a plain PromotableGroup
-  // ({name, memberChatIds}), validated structurally below. A promote creates
-  // folders/tags and files/tags member chats, then refreshes the kept surfaces
+  // The promote commands turn a described smart-group bucket into a real folder/tag. The
+  // Smart Groups TREE is retired, so no view mints a bucket row any more: the commands
+  // stay registered (and palette-hidden) for a PROGRAMMATIC caller passing a plain
+  // PromotableGroup ({name, memberChatIds}), validated structurally below. A promote
+  // creates folders/tags and files/tags member chats, then refreshes the kept surfaces
   // once. The promote is idempotent both on chat membership and on group identity
   // (reuse-by-name); see promoteSmartGroup.ts.
   const promoteDeps: PromoteDeps = {
@@ -879,28 +861,26 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // The Archive tree view (claudeNest.archive) is RETIRED this slice
-  // (s3b-archive-overlay, issue #87). The archived chats now live behind the in-panel
-  // Archive overlay inside the org panel webview, reached from the bottom "Archived (N)"
-  // row, so the org panel is Nest's ONLY contributed view. The archived membership,
-  // Nest-owned body copy, preview, and the star/restore curation commands all survive; only
-  // the tree surface is gone. See DECISIONS.md Slice s3b-archive-overlay.
+  // The Archive tree view (claudeNest.archive) is retired. The archived chats
+  // now live behind the in-panel Archive overlay inside the org panel webview, reached
+  // from the bottom "Archived (N)" row, so the org panel is Nest's ONLY contributed view.
+  // The archived membership, Nest-owned body copy, preview, and the star/restore curation
+  // commands all survive; only the tree surface is gone. See.
 
   // Read the configured keep-window (the extension's FIRST contributes.configuration
-  // value) in the vscode-thin layer and coerce it to a plain keepWindowDays number
-  // here, so the pure archiveRetention policy never reads getConfiguration (slice
-  // patch "KEEP-WINDOW SETTING MECHANISM"). Evaluated at each prune invocation, which
-  // currently runs once per activation, so a mid-session settings change applies on
-  // the next window reload.
+  // value) in the vscode-thin layer and coerce it to a plain keepWindowDays number here,
+  // so the pure archiveRetention policy never reads getConfiguration. Evaluated at each
+  // prune invocation, which currently runs once per activation, so a mid-session settings
+  // change applies on the next window reload.
   const keepWindowDays = (): number =>
     coerceKeepWindowDays(
       vscode.workspace.getConfiguration('claudeNest').get<number>('archiveKeepWindowDays'),
     );
 
   // Missing-transcript archived chats get their stored body-copy title from the
-  // orgPanelActions.loadArchivedTitles seam (the Archive overlay's on-demand title load,
-  // issue #87), which reads the same Nest-owned copies. The old provider-side fallback-title
-  // loader was retired with the Archive tree.
+  // orgPanelActions.loadArchivedTitles seam (the Archive overlay's on-demand title load),
+  // which reads the same Nest-owned copies. The old provider-side fallback-title loader
+  // was retired with the Archive tree.
 
   // The curation commands (STAR/UNSTAR/ARCHIVE/RESTORE). A curation change alters
   // the Archive view membership and the star badge across every chat surface, so the
@@ -959,10 +939,10 @@ export function activate(context: vscode.ExtensionContext): void {
       const target = curationTargetFrom(item);
       return target ? restoreChat(curationDeps, target) : undefined;
     }),
-    // claudeNest.refreshArchive is retired with the Archive tree (issue #87): the org
-    // panel's Refresh (claudeNest.refresh) re-primes the shared scan snapshot, and the
-    // Archive overlay re-requests its rows each time it opens, so a dedicated archive
-    // refresh command has no surface.
+    // claudeNest.refreshArchive is retired with the Archive tree: the org panel's Refresh
+    // (claudeNest.refresh) re-primes the shared scan snapshot, and the Archive overlay
+    // re-requests its rows each time it opens, so a dedicated archive refresh command has
+    // no surface.
   );
 
   // The live-store backstop for the prune. A body copy carries its OWN snapshot of
@@ -1004,20 +984,18 @@ export function activate(context: vscode.ExtensionContext): void {
   // (orgPanelActions.loadArchivedTitles) each time it opens, so no activation-time prime is
   // needed (the retired Archive tree needed one because its rows rendered eagerly).
 
-  // ---- Auto-archive engine (slice s3b-settings-overlay, issue #86 AC #4/#5) ----
-  //
-  // A batched pass over the workspace's scanned chats: an unstarred chat whose last
-  // activity is older than the auto-archive window is userArchived (synced flag +
-  // stamped archivedAt) AND gets a Nest-owned body copy; a starred chat past the window
-  // is NEVER archived but receives a protective body copy once. All flag flips coalesce
-  // into ONE store flush; then the org surfaces refresh once. Reuses the SAME store +
-  // archiveBodyStore seams the interactive archive command uses (no new fs write path),
-  // and reads the window from the org panel's persisted setting (workspaceState). Runs
-  // on activation, after a scan refresh, and when the user shortens the window in the
-  // Settings overlay. Best-effort: a failure never blocks activation.
-  //
-  // FIRST-RUN NOTIFICATION (AC #4): the first pass that actually archives a chat shows
-  // a one-time toast explaining the move and pointing at Restore (the Archive view).
+  // ---- Auto-archive engine ----  A batched pass over the workspace's scanned chats: an
+  // unstarred chat whose last activity is older than the auto-archive window is
+  // userArchived (synced flag + stamped archivedAt) AND gets a Nest-owned body copy; a
+  // starred chat past the window is NEVER archived but receives a protective body copy
+  // once. All flag flips coalesce into ONE store flush; then the org surfaces refresh
+  // once. Reuses the SAME store + archiveBodyStore seams the interactive archive command
+  // uses (no new fs write path), and reads the window from the org panel's persisted
+  // setting (workspaceState). Runs on activation, after a scan refresh, and when the user
+  // shortens the window in the Settings overlay. Best-effort: a failure never blocks
+  // activation.  FIRST-RUN NOTIFICATION: the first pass that actually archives a
+  // chat shows a one-time toast explaining the move and pointing at Restore (the Archive
+  // view).
   const AUTO_ARCHIVE_FIRST_RUN_KEY = 'claudeNest.autoArchive.firstRunNotified';
   runAutoArchiveNow = async (): Promise<void> => {
     try {
@@ -1031,11 +1009,11 @@ export function activate(context: vscode.ExtensionContext): void {
       if (projectKey === undefined) {
         return;
       }
-      // Two windows (issue #86 AC #4 vs AC #5): the user's auto-archive window governs
-      // UNSTARRED archiving (0 = Never = disabled); the effective Claude cleanup age
-      // governs the STARRED protective copy, INDEPENDENT of the auto-archive window so
-      // "Never" does not strip a starred chat of its durable copy. When BOTH are
-      // disabled there is nothing to do.
+      // Two windows: the user's auto-archive window governs UNSTARRED archiving (0 =
+      // Never = disabled); the effective Claude cleanup age governs the STARRED
+      // protective copy, INDEPENDENT of the auto-archive window so "Never" does not strip
+      // a starred chat of its durable copy. When BOTH are disabled there is nothing to
+      // do.
       const archiveWindowDays = orgPanelProvider.autoArchiveWindowDays();
       const protectiveWindowDays = effectiveAutoArchiveDefaultDays();
       if (archiveWindowDays <= 0 && protectiveWindowDays <= 0) {
@@ -1100,8 +1078,8 @@ export function activate(context: vscode.ExtensionContext): void {
           )
           .then((choice) => {
             if (choice === 'Open Archive') {
-              // Reveal the org panel and open the in-panel Archive overlay (issue #87): the
-              // Archive tree is retired, so "Open Archive" now opens the overlay rather than
+              // Reveal the org panel and open the in-panel Archive overlay: the Archive
+              // tree is retired, so "Open Archive" now opens the overlay rather than
               // focusing a view. A failure is swallowed so a missing view never throws.
               void openArchiveOverlay();
             }
@@ -1119,14 +1097,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_CHAT_COMMAND, (sessionId: string) => {
-      // Open-via-Nest is a read-state CLEAR TRIGGER (UI-SPEC.md "Read state"): opening
-      // a chat through Nest marks it seen so its '?' badge / unread dot clears. Stamp
-      // before the launch and re-post the section model. markChatSeen persists the id
-      // into the workspaceState lastSeenAt map, and this command is a CROSS-EXTENSION
-      // surface (any extension can execute it), so the id is gated on the safe
-      // record-id shape (the shape every real sessionId has) exactly like the
-      // webview's own 'open' arrival check; an unbounded or garbage id must never
-      // reach the persistence sink. ReadStateStore.markSeen re-checks at the sink.
+      // Open-via-Nest is a read-state CLEAR TRIGGER: opening a chat through Nest marks it
+      // seen so its '?' badge / unread dot clears. Stamp before the launch and re-post
+      // the section model. markChatSeen persists the id into the workspaceState
+      // lastSeenAt map, and this command is a CROSS-EXTENSION surface (any extension can
+      // execute it), so the id is gated on the safe record-id shape (the shape every real
+      // sessionId has) exactly like the webview's own 'open' arrival check; an unbounded
+      // or garbage id must never reach the persistence sink. ReadStateStore.markSeen
+      // re-checks at the sink.
       if (isSafeRecordId(sessionId)) {
         orgPanelProvider.markChatSeen(sessionId);
       }
@@ -1153,20 +1131,18 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('claudeNest.refresh', async () => {
       await runRefreshScan(foldersProvider, 'chats');
       refreshOrgPanel();
-      // Run an auto-archive pass after the scan refresh (issue #86 AC #4: "runs on
-      // activation and after scan refresh"): a chat that just aged past the window is
-      // swept now rather than only on the next activation.
+      // Run an auto-archive pass after the scan refresh: a chat that just aged past the
+      // window is swept now rather than only on the next activation.
       void runAutoArchiveNow();
     }),
   );
 
-  // The "Preview Full Chat" command (Slice 1): the on-demand single-chat body
-  // reader's production caller. It opens the clicked chat's FULL prose in a
-  // read-only editor document by reading ONE transcript via bodyReader and
-  // discarding the bodies. The pure formatter and orchestrator live in
-  // previewChatCommand.ts; here we wire the real document open. Fires from a chat
-  // row in any view (Chats, Folders, Tags occurrence), each of which carries the
-  // shared ChatRecord on .record.
+  // The "Preview Full Chat" command: the on-demand single-chat body reader's production
+  // caller. It opens the clicked chat's FULL prose in a read-only editor document by
+  // reading ONE transcript via bodyReader and discarding the bodies. The pure formatter
+  // and orchestrator live in previewChatCommand.ts; here we wire the real document open.
+  // Fires from a chat row in any view (Chats, Folders, Tags occurrence), each of which
+  // carries the shared ChatRecord on .record.
   const previewChatDeps: PreviewChatDeps = {
     openPreview: async (content: string) => {
       const doc = await vscode.workspace.openTextDocument({ content, language: 'markdown' });
@@ -1184,13 +1160,12 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // The "Preview Archived Copy" command (Slice 4): the READ counterpart to the
-  // archived body copy. It renders the Nest-owned copy (globalStorage) for one
-  // archived chat, so the saved bodies are reachable AFTER Claude cleans up the live
-  // transcript. The body source is the copy (by sessionId), not a transcript path,
-  // which is exactly why this path survives cleanup. Fires from an archived row (its
-  // default click when the transcript is gone, and its context action always) or
-  // from a sessionId string argument.
+  // The "Preview Archived Copy" command: the READ counterpart to the archived body copy.
+  // It renders the Nest-owned copy (globalStorage) for one archived chat, so the saved
+  // bodies are reachable AFTER Claude cleans up the live transcript. The body source is
+  // the copy (by sessionId), not a transcript path, which is exactly why this path
+  // survives cleanup. Fires from an archived row (its default click when the transcript
+  // is gone, and its context action always) or from a sessionId string argument.
   const previewArchivedChatDeps: PreviewArchivedChatDeps = {
     readArchivedBody: (sessionId: string) =>
       readArchivedBody(context.globalStorageUri, sessionId),
@@ -1203,9 +1178,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       PREVIEW_ARCHIVED_CHAT_COMMAND,
-      // Since the Archive tree is retired (issue #87), this command's only callers are the
-      // palette (no arg) and the Archive overlay's row preview (a sessionId string). It no
-      // longer receives an ArchivedChatItem tree node.
+      // Since the Archive tree is retired, this command's only callers are the palette
+      // (no arg) and the Archive overlay's row preview (a sessionId string). It no longer
+      // receives an ArchivedChatItem tree node.
       (item?: string) => {
         const sessionId = typeof item === 'string' ? item : undefined;
         return sessionId !== undefined
@@ -1215,13 +1190,13 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // The "Export Chat" command (Slice 5): exports ONE chat to Markdown or JSON via the
-  // GUARDED exportIO write. The org layer (folder name, full tag set, starred, link
-  // target ids) is resolved on demand from the current ProjectMeta via the chatMeta
-  // resolvers so the export carries the live curation state; the body is read once via
-  // bodyReader and discarded. The write goes through exportIO.writeTextFile, which
-  // runtime-asserts the target is not under ~/.claude/projects, so an export the user
-  // navigates into a transcript dir is refused. Fires from a chat row in any view.
+  // The "Export Chat" command: exports ONE chat to Markdown or JSON via the GUARDED
+  // exportIO write. The org layer (folder name, full tag set, starred, link target ids)
+  // is resolved on demand from the current ProjectMeta via the chatMeta resolvers so the
+  // export carries the live curation state; the body is read once via bodyReader and
+  // discarded. The write goes through exportIO.writeTextFile, which runtime-asserts the
+  // target is not under ~/.claude/projects, so an export the user navigates into a
+  // transcript dir is refused. Fires from a chat row in any view.
   const exportChatDeps: ExportChatDeps = {
     pickFormat: async () => {
       const picked = await vscode.window.showQuickPick(
@@ -1269,13 +1244,12 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // The "Show Token Cost Rollup" command (Slice 5): rolls up tier-A token totals by
-  // folder and by tag (tokens only, NO USD) and opens the report in a read-only
-  // document. The id set comes from FoldersProvider.chatRecords() and the per-chat
-  // token totals from the narrow tokenTotalsByChat() seam (chatRecords() drops
-  // tokenTotals); the pure reducer + renderer build the report and never read the
-  // provider. The lightest surface that meets the AC (a virtual read-only document)
-  // avoids a webview/CSP dependency.
+  // The "Show Token Cost Rollup" command: rolls up summary token totals by folder and by
+  // tag (tokens only, NO USD) and opens the report in a read-only document. The id set
+  // comes from FoldersProvider.chatRecords and the per-chat token totals from the narrow
+  // tokenTotalsByChat seam (chatRecords drops tokenTotals); the pure reducer + renderer
+  // build the report and never read the provider. The lightest suitable surface
+  // (a virtual read-only document) avoids a webview/CSP dependency.
   const tokenRollupDeps: TokenRollupDeps = {
     getChatIds: () => Array.from(foldersProvider.chatRecords().keys()),
     getTokenTotals: () => foldersProvider.tokenTotalsByChat(),
@@ -1295,11 +1269,11 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // The Settings gear (slice s3b-settings-overlay, issue #86): the Settings sub-page
-  // is now an IN-PANEL overlay inside the org panel webview (the retired
-  // settingsWebview.ts WebviewPanel is deleted). The command reveals the org panel and
-  // asks it to open the overlay. Focusing the view resolves it if it was never opened;
-  // once 'ready' arrives the panel posts the settings state and opens the overlay.
+  // The Settings gear: the Settings sub-page is now an IN-PANEL overlay inside the org
+  // panel webview (the retired settingsWebview.ts WebviewPanel is deleted). The command
+  // reveals the org panel and asks it to open the overlay. Focusing the view resolves it
+  // if it was never opened; once 'ready' arrives the panel posts the settings state and
+  // opens the overlay.
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_SETTINGS_COMMAND, async () => {
       try {
@@ -1311,18 +1285,17 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // Slice 8: export/import plus cross-machine sync hardening. The export writes
-  // ALL projects (with stamps) to a user-chosen JSON as the authoritative backup;
-  // import validates and migrates a scratch copy then atomically swaps and merges
-  // additively per project (never deleting an absent project). The additive
-  // cross-machine reconcile runs on activation and on window focus (best-effort
-  // polling; there is no Memento remote-change event), unioning tags and links and
-  // applying LWW-per-folderId by updatedAt, and surfaces the honest LWW warning. A
-  // debounced opt-in auto-export snapshot with retention writes to globalStorage.
-  //
-  // All filesystem IO here goes through vscode.workspace.fs (a vscode API, not
-  // node fs), so the export/import file writes never trip the read-only lint bank
-  // and need no new chokepoint carve-out; the pure store modules stay vscode-free.
+  // : export/import plus cross-machine sync hardening. The export writes ALL projects
+  // (with stamps) to a user-chosen JSON as the authoritative backup; import validates and
+  // migrates a scratch copy then atomically swaps and merges additively per project
+  // (never deleting an absent project). The additive cross-machine reconcile runs on
+  // activation and on window focus (best-effort polling; there is no Memento
+  // remote-change event), unioning tags and links and applying LWW-per-folderId by
+  // updatedAt, and surfaces the honest LWW warning. A debounced opt-in auto-export
+  // snapshot with retention writes to globalStorage.  All filesystem IO here goes through
+  // vscode.workspace.fs (a vscode API, not node fs), so the export/import file writes
+  // never trip the read-only lint bank and need no new chokepoint carve-out; the pure
+  // store modules stay vscode-free.
   const autoExporter = new AutoExporter({
     store,
     globalStorageUri: context.globalStorageUri,
@@ -1400,14 +1373,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // Named-tab-focus read-state CLEAR TRIGGER (UI-SPEC.md "Read state", deviation 4/6).
-  // When a Claude Code chat tab gains focus, resolve which chat it is by matching the
-  // tab label to a scanned chat title (the identity-by-label heuristic; the real
-  // session id is never exposed) and mark that chat seen. The Tabs API
-  // (window.tabGroups) is a 1.67+ finalized API not present in the pinned 1.66 types,
-  // so it is feature-detected through a narrow shim: on the 1.66 engines floor it is
-  // simply absent and the trigger no-ops (open-via-Nest still clears). Best-effort per
-  // the deviations; a throw is swallowed so it never affects Claude or activation.
+  // Named-tab-focus read-state CLEAR TRIGGER. When a Claude Code chat tab gains focus,
+  // resolve which chat it is by matching the tab label to a scanned chat title (the
+  // identity-by-label heuristic; the real session id is never exposed) and mark that chat
+  // seen. The Tabs API (window.tabGroups) is a 1.67+ finalized API not present in the
+  // pinned 1.66 types, so it is feature-detected through a narrow shim: on the 1.66
+  // engines floor it is simply absent and the trigger no-ops (open-via-Nest still
+  // clears). Best-effort per the deviations; a throw is swallowed so it never affects
+  // Claude or activation.
   registerTabFocusReadState(context, orgPanelProvider);
 
   // The one-time opt-in prompt for the auto-export snapshot and the
@@ -1489,9 +1462,9 @@ function registerTabFocusReadState(
       }
       const sessionId = matchTabLabelToChat(label, orgPanelProvider.scanRecords());
       // Set the active-row tint to the matched chat (null when the label is unnamed or
-      // ambiguous: then no row is tinted, UI-SPEC.md deviation 4). Mark seen only when
-      // the active chat actually changed (the read-state CLEAR TRIGGER), so re-focusing
-      // an already-active chat does not re-post.
+      // ambiguous: then no row is tinted). Mark seen only when the active
+      // chat actually changed (the read-state CLEAR TRIGGER), so re-focusing an
+      // already-active chat does not re-post.
       const changed = orgPanelProvider.setActiveChat(sessionId);
       if (changed && sessionId !== null) {
         orgPanelProvider.markChatSeen(sessionId);
@@ -1512,10 +1485,9 @@ function registerTabFocusReadState(
 }
 
 // Recover the shared ChatRecord from a chat-row node (a Folders member or a Tags
-// occurrence, both kept as non-view service node shapes for programmatic callers).
-// Both wrappers dereference the ONE shared ChatRecord (ARCHITECTURE.md tree
-// binding rule). A non-chat node yields undefined, so the Preview Full Chat
-// command is a no-op on a folder/tag row.
+// occurrence, both kept as non-view service node shapes for programmatic callers). Both
+// wrappers dereference the ONE shared ChatRecord. A non-chat node yields undefined, so
+// the Preview Full Chat command is a no-op on a folder/tag row.
 function chatRecordFrom(
   item?: ChatMemberItem | ChatOccurrenceItem,
 ): ChatRecord | undefined {
@@ -1525,11 +1497,11 @@ function chatRecordFrom(
   return undefined;
 }
 
-// The chat-row node shapes a curation command (star/unstar/archive/restore) can
-// fire on: a folder member, a tags occurrence, or a bare sessionId from a
-// programmatic caller (the Archive tree's ArchivedChatItem was retired with the tree,
-// issue #87; the Archive overlay's Restore/star-unarchive route through the org-panel
-// OrgPanelActions.restoreArchivedChat seam, which builds the target directly).
+// The chat-row node shapes a curation command (star/unstar/archive/restore) can fire on:
+// a folder member, a tags occurrence, or a bare sessionId from a programmatic caller (the
+// Archive tree's ArchivedChatItem was retired with the tree,; the Archive overlay's
+// Restore/star-unarchive route through the org-panel OrgPanelActions.restoreArchivedChat
+// seam, which builds the target directly).
 type CurationClickable =
   | ChatMemberItem
   | ChatOccurrenceItem
@@ -1551,12 +1523,11 @@ function curationTargetFrom(item?: CurationClickable): CurationTarget | undefine
   return undefined;
 }
 
-// Recover a PromotableGroup from a promote-command argument. The Smart Groups
-// tree that minted bucket rows is retired (slice s3a-view-consolidation), so the
-// only remaining caller is programmatic: a plain {name, memberChatIds} object,
-// validated structurally (memberChatIds must be an array of strings; anything
-// else yields undefined and the command no-ops). The name becomes the folder
-// name / tag label and memberChatIds the chats to file/tag.
+// Recover a PromotableGroup from a promote-command argument. The Smart Groups tree that
+// minted bucket rows is retired, so the only remaining caller is programmatic: a plain
+// {name, memberChatIds} object, validated structurally (memberChatIds must be an array of
+// strings; anything else yields undefined and the command no-ops). The name becomes the
+// folder name / tag label and memberChatIds the chats to file/tag.
 function promotableFrom(item?: unknown): PromotableGroup | undefined {
   if (typeof item !== 'object' || item === null) {
     return undefined;

@@ -6,28 +6,28 @@
 // cycle/diamond detection with a capped depth, the broken-target rule, and the
 // linkedChild composite-id grammar.
 //
-// This module is vscode-free (build contract; ARCHITECTURE.md unit-gate rule): no
+// This module is vscode-free (build contract): no
 // vscode import, no filesystem. The view layer (foldersProvider.ts) turns a
 // LinkedChild into a TreeItem and memoizes the node object; this module produces
 // only plain data and the grammar, so the unit test imports it without
 // transitively requiring vscode (mirrors occurrence.ts vs tagsProvider.ts).
 //
-// Composite-id grammar (ARCHITECTURE.md "Tree and VSCode API binding rules"):
+// Composite-id grammar:
 //   linked-child id = `${parentChatId}>link>${chatId}`
 // parentChatId and chatId are separator-free UUIDs (chat ids are filenames =
 // sessionIds, never carrying ':' '#' '>'), and the infix is the literal '>link>',
 // so the id splits unambiguously on the FIRST '>' back to its owning PARENT
 // chat-member occurrence. getParent for a linkedChild recovers that one parent
-// chat occurrence (one parent per node, ARCHITECTURE.md line 100), NOT a folder.
+// chat occurrence (one parent per node), NOT a folder.
 
 import { ChatMeta, Link } from '../store/schema';
 
-// The cap on how deep the Folders tree expands linked children beneath a parent.
-// A proper visited-set traversal already blocks transitive cycles and diamonds;
-// the depth cap is a SECOND, independent bound so even an acyclic but pathological
-// chain (a long parent->child->grandchild line) cannot expand without limit in the
-// tree. ARCHITECTURE.md "Link cycle detection ... Cap depth." Depth is measured in
-// link hops from the root parent: a parent's direct linked children are depth 1.
+// The cap on how deep the Folders tree expands linked children beneath a parent. A proper
+// visited-set traversal already blocks transitive cycles and diamonds; the depth cap is a
+// SECOND, independent bound so even an acyclic but pathological chain (a long
+// parent->child->grandchild line) cannot expand without limit in the tree. Depth is
+// measured in link hops from the root parent: a parent's direct linked children are depth
+// 1.
 export const MAX_LINK_DEPTH = 16;
 
 // The linked-child composite-id grammar. The infix is a full token ('>link>') so
@@ -101,13 +101,13 @@ export interface LinkGraphInput {
   knownChatIds: Set<string>;
 }
 
-// Build the map of parent chat id -> its ordered direct linked children (depth 1).
-// A child's designated parent is the SMALLEST source chat id holding a kind:'parent'
-// link to it (designatedParentOf), so a child with parent links from several sources
-// nests under exactly one parent every render (DECISIONS.md slice-5 entry). The
-// returned children carry depth 1 and their broken flag; transitive descendants are
-// expanded lazily by the view (childrenOf with the visited set), not precomputed
-// here, so a cycle in the stored links cannot make THIS build loop.
+// Build the map of parent chat id -> its ordered direct linked children (depth 1). A
+// child's designated parent is the SMALLEST source chat id holding a kind:'parent' link
+// to it (designatedParentOf), so a child with parent links from several sources nests
+// under exactly one parent every render. The returned children carry depth 1 and their
+// broken flag; transitive descendants are expanded lazily by the view (childrenOf with
+// the visited set), not precomputed here, so a cycle in the stored links cannot make THIS
+// build loop.
 export interface LinkForest {
   // parent chat id -> its direct linked children (depth 1), child-chat-id sorted.
   childrenByParent: Map<string, LinkedChild[]>;
@@ -139,13 +139,13 @@ export function parentSourcesOf(
   return Array.from(sources);
 }
 
-// The DETERMINISTIC single-parent selector (DECISIONS.md slice-5 entry): among all
-// source chats that hold a kind:'parent' link to childChatId, the designated parent
-// is the lexicographically SMALLEST source chat id. Returns null when the child has
-// no parent link pointing at it (it is not a linked child of anyone and renders only
-// in its folder home). Total, stable, and order-independent (a min over a value, not
-// a first-seen pick), so the child nests under the SAME parent on every render and
-// the cycle/diamond traversal is deterministic.
+// The DETERMINISTIC single-parent selector: among all source chats that hold a
+// kind:'parent' link to childChatId, the designated parent is the lexicographically
+// SMALLEST source chat id. Returns null when the child has no parent link pointing at it
+// (it is not a linked child of anyone and renders only in its folder home). Total,
+// stable, and order-independent (a min over a value, not a first-seen pick), so the child
+// nests under the SAME parent on every render and the cycle/diamond traversal is
+// deterministic.
 export function designatedParentOf(
   links: { [sourceChatId: string]: Link[] },
   childChatId: string,
@@ -216,8 +216,7 @@ export function buildLinkForest(input: LinkGraphInput): LinkForest {
 
 // The visited-set graph traversal that yields the linked children to render BENEATH
 // a given chat occurrence, blocking transitive cycles and diamonds with a capped
-// depth (ARCHITECTURE.md "Link cycle detection uses a proper visited-set graph
-// traversal (transitive cycles and diamonds) ... Cap depth.").
+// depth.
 //
 // `visitedChatIds` is the set of chat ids already on the path from the ROOT parent
 // down to (and including) `parentChatId`. A candidate child is SKIPPED when:
@@ -325,15 +324,14 @@ function detectCycle(
 }
 
 // Node-object memoization reuse rule for a linkedChild node (the PURE half of the
-// provider's linkedChildItemFor). VSCode caches tree elements by object reference,
-// so a refresh must REUSE the existing wrapper's TreeItem for an unchanged id rather
-// than return a fresh object with the same id, or reveal/selection break
-// (ARCHITECTURE.md "Memoize node objects by id across refreshes"). A linkedChild's
-// RENDERED content is the TARGET chat's title + timestamp PLUS its broken state (a
-// broken child renders muted and label-only, so a target that comes back / goes
-// missing must rebuild). timestamp is number | null; null === null is unchanged. A
-// broken child has no record, so title/timestamp are compared as null/null and the
-// broken flag is the discriminator.
+// provider's linkedChildItemFor). VSCode caches tree elements by object reference, so a
+// refresh must REUSE the existing wrapper's TreeItem for an unchanged id rather than
+// return a fresh object with the same id, or reveal/selection break. A linkedChild's
+// RENDERED content is the TARGET chat's title + timestamp PLUS its broken state (a broken
+// child renders muted and label-only, so a target that comes back / goes missing must
+// rebuild). timestamp is number | null; null === null is unchanged. A broken child has no
+// record, so title/timestamp are compared as null/null and the broken flag is the
+// discriminator.
 export function canReuseLinkedChildItem(
   cached:
     | { title: string | null; timestamp: number | null; broken: boolean }

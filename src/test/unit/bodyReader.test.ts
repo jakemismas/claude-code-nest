@@ -4,10 +4,10 @@ import * as path from 'path';
 import * as os from 'os';
 import { readTranscriptBodies, extractBodies } from '../../claude/bodyReader';
 
-// Headless unit tests for the on-demand single-chat body reader (slice 1). The
-// file-reading path runs against a scratch fixture under the OS temp dir, NEVER
-// the real ~/.claude files. No vscode import. The reader is read-only and must
-// never throw: a malformed line is skipped, an unreadable file yields [].
+// Headless unit tests for the on-demand single-chat body reader. The file-reading path
+// runs against a scratch fixture under the OS temp dir, NEVER the real ~/.claude files.
+// No vscode import. The reader is read-only and must never throw: a malformed line is
+// skipped, an unreadable file yields [].
 
 let root: string;
 let goodFile: string;

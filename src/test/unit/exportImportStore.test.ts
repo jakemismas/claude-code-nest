@@ -6,11 +6,11 @@ import { validateEnvelope, migrateEnvelope } from '../../store/schemaMigrate';
 import { buildImportPlan } from '../../store/exportImport';
 import { FakeMemento } from './fakeMemento';
 
-// Store-integration unit tests for the Slice 8 additions against the FakeMemento
-// double: allProjectKeys enumeration (export-all), the non-synced shadow
-// read/write, and the SCRATCH-VALIDATE-BEFORE-SWAP guarantee (a malformed or
-// invalid file is rejected before the live store is ever mutated, and a valid
-// import only mutates the store at the explicit putProjectMeta swap). No vscode.
+// Store-integration unit tests for the additions against the FakeMemento double:
+// allProjectKeys enumeration (export-all), the non-synced shadow read/write, and the
+// SCRATCH-VALIDATE-BEFORE-SWAP guarantee (a malformed or invalid file is rejected before
+// the live store is ever mutated, and a valid import only mutates the store at the
+// explicit putProjectMeta swap). No vscode.
 
 const DEVICE = 'dev-A';
 const NOW = 1_700_000_000_000;

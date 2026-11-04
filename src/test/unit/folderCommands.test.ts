@@ -244,7 +244,7 @@ describe('createFolder', () => {
     assert.strictEqual(validate('Work'), null);
   });
 
-  it('uses a preset name from the in-panel popover and skips the prompt (issue #82 AC3)', async () => {
+  it('uses a preset name from the in-panel popover and skips the prompt', async () => {
     const store = makeStore();
     const { provider, refreshCount } = makeProvider();
     const ui = makeUi({}); // no prompt responses queued: the preset path must not prompt
@@ -270,7 +270,7 @@ describe('createFolder', () => {
   });
 });
 
-describe('createFolder one-visible-sublevel depth cap (issue #82 AC4)', () => {
+describe('createFolder one-visible-sublevel depth cap', () => {
   it('creates a child under a top folder (depth 1 is allowed)', async () => {
     const store = makeStore();
     const { provider } = makeProvider();

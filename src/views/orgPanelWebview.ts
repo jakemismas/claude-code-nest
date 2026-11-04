@@ -21,14 +21,14 @@ import {
 import { persistTierAIndex, loadOrRebuildTierAIndex } from '../search/searchStore';
 import { handleWebviewDrop, WebviewDropDeps } from '../dnd/webviewDropAdapter';
 
-// The PRIMARY org-panel WebviewView (slice s2-org-panel-webview), promoted from
+// The PRIMARY org-panel WebviewView, promoted from
 // the chatsPreview proof-of-concept to the main organization surface. It renders
 // the section model (Starred, Questions heuristic, the folder hierarchy with
 // per-folder color, Unsorted), tag filter chips, sort and density controls,
 // double-click folder rename, and webview drag-and-drop that REUSES the unchanged
 // pure dropReducer through webviewDropAdapter (the DnD-shell-only contract).
-// Since slice s3a-view-consolidation this panel is the SOLE browsing surface
-// (UI-SPEC.md deviation 5): the native flat Chats and Smart Groups trees are
+// Since this panel is the SOLE browsing surface
+// : the native flat Chats and Smart Groups trees are
 // retired like the Folders and Tags trees before them, and this panel's own
 // keyboard + ARIA tree implementation is the accessibility story.
 //
@@ -40,18 +40,18 @@ import { handleWebviewDrop, WebviewDropDeps } from '../dnd/webviewDropAdapter';
 // - DnD interpretation stays in the unchanged reduceDrop via webviewDropAdapter;
 //   this host only forwards the self-describing drop message. The cross-tree
 //   dragContext stash is NOT consulted (a webview drag is fully in-process).
-// - Content search reuses the durable host-side search machinery slice 2 built
+// - Content search reuses the durable host-side search machinery built
 //   (searchIndex + searchStore), the same two-phase warm-then-body upgrade the
 //   POC used, so search keeps working on the primary surface.
 
 export const ORG_PANEL_VIEW = 'claudeNest.orgPanel';
 
-// The Settings command id. Since slice s3b-settings-overlay the Settings sub-page is
-// an IN-PANEL overlay in this webview (not a separate WebviewPanel), so the command
-// reveals the org panel and opens the overlay rather than creating a panel. The id is
-// unchanged (package.json, activationEvents, the two view/title menu homes) so the
-// gear command keeps working; only its behavior moved into the panel. Its former home
-// (the retired src/settings/settingsWebview.ts) is deleted this slice.
+// The Settings command id. Since the Settings sub-page is an IN-PANEL overlay in this
+// webview (not a separate WebviewPanel), so the command reveals the org panel and opens
+// the overlay rather than creating a panel. The id is unchanged (package.json,
+// activationEvents, the two view/title menu homes) so the gear command keeps working;
+// only its behavior moved into the panel. Its former home (the retired
+// src/settings/settingsWebview.ts) is deleted.
 export const OPEN_SETTINGS_COMMAND = 'claudeNest.openSettings';
 
 // How many transcript bodies to read between yields to the host event loop during
@@ -74,17 +74,15 @@ interface SearchRow {
   rank: number;
 }
 
-// Messages the webview posts to the host. ready/refresh/open/search mirror the
-// POC; drop carries an in-panel drag-and-drop (the adapter maps it to the reducer);
-// renameFolder applies an in-place folder rename; setFolderColor sets/clears a
-// folder color; setState persists the user's sort choice and collapsed set;
-// newSession requests a best-effort new Claude Code chat; openArchive surfaces the
-// interim Archive view. The Settings sub-page is an IN-PANEL overlay opened
-// client-side (the gear) or by the palette command via openSettingsOverlay(), so the
-// client no longer posts an 'openSettings' message; setAutoArchiveWindow and
-// setSectionsVisible persist the overlay's controls on workspaceState (slice
-// s3b-settings-overlay, issue #86). Density was removed in slice s3a-design-shell
-// (the design has a single row density), so setState no longer carries it.
+// Messages the webview posts to the host. ready/refresh/open/search mirror the POC; drop
+// carries an in-panel drag-and-drop (the adapter maps it to the reducer); renameFolder
+// applies an in-place folder rename; setFolderColor sets/clears a folder color; setState
+// persists the user's sort choice and collapsed set; newSession requests a best-effort
+// new Claude Code chat; openArchive surfaces the interim Archive view. The Settings
+// sub-page is an IN-PANEL overlay opened client-side (the gear) or by the palette command
+// via openSettingsOverlay, so the client no longer posts an 'openSettings' message;
+// setAutoArchiveWindow and setSectionsVisible persist the overlay's controls on
+// workspaceState. Row density does not exist, so setState does not carry it.
 type Inbound =
   | { type: 'ready' }
   | { type: 'refresh' }
@@ -96,46 +94,44 @@ type Inbound =
   | { type: 'deleteFolder'; folderId: string }
   | { type: 'createFolder'; name?: string }
   | { type: 'newSession' }
-  // Open the in-panel Archive overlay (slice s3b-archive-overlay, issue #87). The host
-  // answers by posting the current archived rows ('archivedRows'); the client renders the
-  // overlay. Repointed from the interim tree focus (which this slice retires).
+  // Open the in-panel Archive overlay. The host answers by posting the current archived
+  // rows ('archivedRows'); the client renders the overlay. The earlier tree focus is gone.
   | { type: 'openArchive' }
-  // Restore an archived chat from the overlay's Restore button (issue #87 AC #3): clears
-  // the synced userArchived flag (keeps the star). The host resolves the record from its
-  // scan cache (real filePath when present, empty when the transcript was cleaned up) and
-  // routes to the EXISTING restoreChat curation command.
+  // Restore an archived chat from the overlay's Restore button: clears the synced
+  // userArchived flag (keeps the star). The host resolves the record from its scan cache
+  // (real filePath when present, empty when the transcript was cleaned up) and routes to
+  // the EXISTING restoreChat curation command.
   | { type: 'restoreChat'; sessionId: string }
-  // Star-unarchive from the overlay (issue #87 AC #4): starring an archived chat also
-  // un-archives it. Routes to setChatStarred(true) + setChatArchived(false) through the
-  // existing star + restore seams, so no new write path is introduced.
+  // Star-unarchive from the overlay: starring an archived chat also un-archives it.
+  // Routes to setChatStarred(true) + setChatArchived(false) through the existing star +
+  // restore seams, so no new write path is introduced.
   | { type: 'starUnarchive'; sessionId: string }
-  // Preview an archived chat's Nest-owned body copy from the overlay row (issue #87 AC #6).
-  // Routes to the EXISTING claudeNest.previewArchivedChat command (the archived-copy read
-  // path), so a cleaned-up chat is still readable from the overlay. sessionId only.
+  // Preview an archived chat's Nest-owned body copy from the overlay row. Routes to the
+  // EXISTING claudeNest.previewArchivedChat command (the archived-copy read path), so a
+  // cleaned-up chat is still readable from the overlay. sessionId only.
   | { type: 'previewArchivedChat'; sessionId: string }
   | { type: 'toggleStar'; sessionId: string; starred: boolean }
-  // The right-click context menu's tag toggle (slice s3b-context-menu, issue #85 AC #1):
-  // set/clear a tag on a chat. `on` is the DESIRED next state; the host routes it to
-  // store.addChatTag / removeChatTag. Both ids are validated as strings at coerce().
+  // The right-click context menu's tag toggle: set/clear a tag on a chat. `on` is the
+  // DESIRED next state; the host routes it to store.addChatTag / removeChatTag. Both ids
+  // are validated as strings at coerce.
   | { type: 'toggleTag'; sessionId: string; tagId: string; on: boolean }
-  // The context menu's in-panel create-tag-with-color flow (issue #85 AC #2): mint a new
-  // tag with the typed label and a chosen swatch color, then apply it to the chat. The
-  // color is a HANDOFF_PALETTE literal or null, re-validated via isValidColor at coerce()
-  // exactly like setFolderColor before it can reach the store or a CSS sink.
+  // The context menu's in-panel create-tag-with-color flow: mint a new tag with the typed
+  // label and a chosen swatch color, then apply it to the chat. The color is a
+  // HANDOFF_PALETTE literal or null, re-validated via isValidColor at coerce exactly like
+  // setFolderColor before it can reach the store or a CSS sink.
   | { type: 'createTagWithColor'; sessionId: string; label: string; color: string | null }
-  // The context menu's Export as Markdown / JSON entries (issue #85 AC #3). Carries ONLY
-  // the sessionId; the host resolves the transcript filePath from its scan cache and
-  // routes to the SAME exportChat pipeline (save dialog + exportIO chokepoint + guard).
+  // The context menu's Export as Markdown / JSON entries. Carries ONLY the sessionId; the
+  // host resolves the transcript filePath from its scan cache and routes to the SAME
+  // exportChat pipeline (save dialog + exportIO chokepoint + guard).
   | { type: 'exportChat'; sessionId: string; format: 'markdown' | 'json' }
-  // The context menu's Archive chat entry (issue #85 AC #4). Carries ONLY the sessionId;
-  // the host resolves the filePath from its scan cache and routes to the SAME archiveChat
-  // pipeline (synced flag + read-only Nest-owned body copy).
+  // The context menu's Archive chat entry. Carries ONLY the sessionId; the host resolves
+  // the filePath from its scan cache and routes to the SAME archiveChat pipeline (synced
+  // flag + read-only Nest-owned body copy).
   | { type: 'archiveChat'; sessionId: string }
-  // The Settings overlay's controls (slice s3b-settings-overlay, issue #86). The
-  // auto-archive window (in DAYS; 0 = Never) and the four section-visibility toggles
-  // persist on workspaceState through the EXISTING stateStore (new _KEY constants),
-  // never on ProjectMeta and never synced (AC #7, Non-goals). Setting the window also
-  // triggers a fresh auto-archive pass so a shortened window applies without a reload.
+  // The Settings overlay's controls. The auto-archive window (in DAYS; 0 = Never) and the
+  // four section-visibility toggles persist on workspaceState through the EXISTING
+  // stateStore (new _KEY constants), never on ProjectMeta and never synced. Setting the window also triggers a fresh auto-archive pass so a shortened
+  // window applies without a reload.
   | { type: 'setState'; sort?: string; collapsedFolders?: string[] }
   | { type: 'setAutoArchiveWindow'; days: number }
   | {
@@ -158,63 +154,62 @@ export interface OrgPanelActions {
   // runs the store's deleteFolder cascade (which unfiles the folder's chats, never
   // deletes a chat), then refreshes. The webview only requests it.
   deleteFolder(folderId: string): Promise<void> | void;
-  // Create a new folder. The design's FOLDERS header carries a + button that opens
-  // an in-panel "New folder" popover (issue #82 AC3); the popover posts the typed
-  // name, which arrives here so the create skips the native input box. When name is
-  // omitted (a legacy/no-name path) the underlying command prompts as before. Either
-  // way the shared refresh re-renders the panel. The webview only requests it.
+  // Create a new folder. The FOLDERS header carries a + button that opens an
+  // in-panel "New folder" popover; the popover posts the typed name, which arrives here
+  // so the create skips the native input box. When name is omitted (a legacy/no-name
+  // path) the underlying command prompts as before. Either way the shared refresh
+  // re-renders the panel. The webview only requests it.
   createFolder(name?: string): Promise<void> | void;
-  // Launch a NEW Claude Code chat, best-effort (UI-SPEC.md data mapping, deviation
-  // 6). The wiring routes this to the probed claude-vscode.newConversation
-  // contributed command with a graceful fallback + toast; the webview only requests
-  // it. See DECISIONS.md slice s3a-design-shell.
+  // Launch a NEW Claude Code chat, best-effort. The wiring routes this to the probed
+  // claude-vscode.newConversation contributed command with a graceful fallback + toast;
+  // the webview only requests it. See.
   newSession(): Promise<void> | void;
-  // Load the stored body-copy titles for archived chats whose live transcript was
-  // cleaned up out of band (slice s3b-archive-overlay, issue #87). Keyed by sessionId;
-  // the wiring reads the Nest-owned body copies (readArchivedBody) so a missing-transcript
-  // archived row shows its stored title instead of a raw UUID (patch item 3). Returns an
-  // empty map when no copies are readable; the overlay falls back to the sessionId. The
-  // present-chat rows do not need this (their title rides the scan). Async and best-effort.
+  // Load the stored body-copy titles for archived chats whose live transcript was cleaned
+  // up out of band. Keyed by sessionId; the wiring reads the Nest-owned body copies
+  // (readArchivedBody) so a missing-transcript archived row shows its stored title
+  // instead of a raw UUID (patch item 3). Returns an empty map when no copies are
+  // readable; the overlay falls back to the sessionId. The present-chat rows do not need
+  // this (their title rides the scan). Async and best-effort.
   loadArchivedTitles(): Promise<Map<string, string>>;
-  // Restore an archived chat from the overlay (issue #87 AC #3): clears the synced
-  // userArchived flag, keeps the star, and (when the live transcript survives) deletes the
-  // now-redundant body copy. Routes to the EXISTING restoreChat curation command via a
-  // record resolved from the scan cache; a copy-only (gone-transcript) chat passes an empty
-  // filePath so the command keeps the copy. The webview only requests it by sessionId.
+  // Restore an archived chat from the overlay: clears the synced userArchived flag, keeps
+  // the star, and (when the live transcript survives) deletes the now-redundant body
+  // copy. Routes to the EXISTING restoreChat curation command via a record resolved from
+  // the scan cache; a copy-only (gone-transcript) chat passes an empty filePath so the
+  // command keeps the copy. The webview only requests it by sessionId.
   restoreArchivedChat(sessionId: string): Promise<void> | void;
-  // Run one auto-archive pass now (slice s3b-settings-overlay, issue #86 AC #4). The
-  // wiring routes this to the batched auto-archive engine over the current auto-archive
-  // window and refreshes; the webview requests it after the user changes the window in
-  // the Settings overlay so a shortened window applies without a window reload. A no-op
-  // when auto-archiving is disabled (Never) or nothing is past the window.
+  // Run one auto-archive pass now. The wiring routes this to the batched auto-archive
+  // engine over the current auto-archive window and refreshes; the webview requests it
+  // after the user changes the window in the Settings overlay so a shortened window
+  // applies without a window reload. A no-op when auto-archiving is disabled (Never) or
+  // nothing is past the window.
   runAutoArchive(): Promise<void> | void;
   // Toggle a chat's synced ChatMeta.starred and persist immediately (AC: "Star click
   // persists immediately through the store"). The wiring routes this to the existing
   // star/unstar curation commands (store.setChatStarred + flush + refresh), so the
   // webview never invents a write path. `starred` is the DESIRED next state.
   setStarred(sessionId: string, starred: boolean): Promise<void> | void;
-  // Set or clear a tag on a chat from the context menu (issue #85 AC #1). `on` is the
-  // DESIRED next state; the wiring routes it to store.addChatTag / removeChatTag (which
-  // coalesce into one pending write) + flush + refresh, mirroring setStarred, so the
-  // webview never invents a mutation. Both ids are validated as strings at coerce().
+  // Set or clear a tag on a chat from the context menu. `on` is the DESIRED next state;
+  // the wiring routes it to store.addChatTag / removeChatTag (which coalesce into one
+  // pending write) + flush + refresh, mirroring setStarred, so the webview never invents
+  // a mutation. Both ids are validated as strings at coerce.
   toggleChatTag(sessionId: string, tagId: string, on: boolean): Promise<void> | void;
-  // Mint a NEW tag with a label and an optional color and apply it to the chat (issue
-  // #85 AC #2). The existing createTag command opens a modal prompt and mints a COLORLESS
-  // tag, so it cannot satisfy the in-panel name + swatch create-with-color flow. This
-  // seam mints via mintTagId, upserts a Tag with an isValidColor-validated color, and
-  // addChatTags it, then flushes and refreshes. color is a palette literal or null (the
-  // host already re-validated it at coerce()). The webview only requests it.
+  // Mint a NEW tag with a label and an optional color and apply it to the chat. The
+  // existing createTag command opens a modal prompt and mints a COLORLESS tag, so it
+  // cannot satisfy the in-panel name + swatch create-with-color flow. This seam mints via
+  // mintTagId, upserts a Tag with an isValidColor-validated color, and addChatTags it,
+  // then flushes and refreshes. color is a palette literal or null (the host already
+  // re-validated it at coerce). The webview only requests it.
   createTagWithColor(sessionId: string, label: string, color: string | null): Promise<void> | void;
-  // Export ONE chat to Markdown or JSON from the context menu (issue #85 AC #3),
-  // resolving the chat by its sessionId. The wiring resolves the transcript record and
-  // routes to the EXISTING exportChat pipeline (save dialog + exportIO chokepoint +
-  // projects-path guard), so the read-only invariant holds and the webview never touches
-  // the filesystem. A missing/unresolvable id is a no-op.
+  // Export ONE chat to Markdown or JSON from the context menu, resolving the chat by its
+  // sessionId. The wiring resolves the transcript record and routes to the EXISTING
+  // exportChat pipeline (save dialog + exportIO chokepoint + projects-path guard), so the
+  // read-only invariant holds and the webview never touches the filesystem. A
+  // missing/unresolvable id is a no-op.
   exportChat(sessionId: string, format: ExportFormat): Promise<void> | void;
-  // Archive ONE chat from the context menu (issue #85 AC #4), resolving the chat by its
-  // sessionId. The wiring routes to the EXISTING archiveChat pipeline (synced
-  // userArchived flag + a read-only Nest-owned body copy). A missing/unresolvable id is a
-  // no-op. The client only shows this entry when the chat is neither starred nor archived.
+  // Archive ONE chat from the context menu, resolving the chat by its sessionId. The
+  // wiring routes to the EXISTING archiveChat pipeline (synced userArchived flag + a
+  // read-only Nest-owned body copy). A missing/unresolvable id is a no-op. The client
+  // only shows this entry when the chat is neither starred nor archived.
   archiveChat(sessionId: string): Promise<void> | void;
 }
 
@@ -230,12 +225,11 @@ export interface OrgPanelStateStore {
   set(key: string, value: string): void;
 }
 
-// The per-device read-state seam the panel needs (backed by readState.ts's
-// ReadStateStore in the host). getMap feeds the pure buildSections; markSeen clears a
-// chat's unread affordance on a clear trigger (open-via-Nest, matching-tab focus);
-// seedIfFirstRun marks every chat present at the FIRST scan as already read (issue
-// #123) so pre-existing chats do not all show unread. LOCAL and NEVER synced
-// (UI-SPEC.md "Read state").
+// The per-device read-state seam the panel needs (backed by readState.ts's ReadStateStore
+// in the host). getMap feeds the pure buildSections; markSeen clears a chat's unread
+// affordance on a clear trigger (open-via-Nest, matching-tab focus); seedIfFirstRun marks
+// every chat present at the FIRST scan as already read so pre-existing chats do not all
+// show unread. LOCAL and NEVER synced.
 export interface OrgPanelReadState {
   getMap(): Map<string, number>;
   markSeen(sessionId: string, at?: number): void;
@@ -243,22 +237,22 @@ export interface OrgPanelReadState {
 }
 
 const SORT_KEY = 'claudeNest.orgPanel.sort';
-// The collapsed-folder set, persisted per workspace as a JSON-encoded string array
-// of folder ids (issue #64). Workspace-local and NEVER synced, exactly like sort
-// and density: it lives only on workspaceState through stateStore and is never
-// added to setKeysForSync or the nest.meta.v1 sync surface.
+// The collapsed-folder set, persisted per workspace as a JSON-encoded string array of
+// folder ids. Workspace-local and NEVER synced, exactly like sort and density: it lives
+// only on workspaceState through stateStore and is never added to setKeysForSync or the
+// nest.meta.v1 sync surface.
 const COLLAPSED_KEY = 'claudeNest.orgPanel.collapsedFolders';
-// The auto-archive window in DAYS (slice s3b-settings-overlay, issue #86). Persisted
-// per workspace on workspaceState through the same stateStore, NEVER on ProjectMeta
-// and never synced (AC #7, Non-goals). Stored as the string form of the day count; 0
-// is the Never sentinel. When unset the effective default is the Claude
-// cleanupPeriodDays (30 when Claude itself is unset), resolved by the wiring.
+// The auto-archive window in DAYS. Persisted per workspace on workspaceState through the
+// same stateStore, NEVER on ProjectMeta and never synced . Stored as
+// the string form of the day count; 0 is the Never sentinel. When unset the effective
+// default is the Claude cleanupPeriodDays (30 when Claude itself is unset), resolved by
+// the wiring.
 const AUTO_ARCHIVE_WINDOW_KEY = 'claudeNest.orgPanel.autoArchiveWindowDays';
 // The four section-visibility toggles (Starred, Questions, Folders, Unsorted), all ON
-// by default (AC #3). Persisted per workspace as a JSON object of booleans on
+// by default. Persisted per workspace as a JSON object of booleans on
 // workspaceState, never on ProjectMeta and never synced. Disabling Unsorted only hides
 // the SECTION; search and chips still reach every unfiled chat, so no chat is ever
-// made unreachable (AC #3, enforced client-side).
+// made unreachable (enforced client-side).
 const SECTIONS_VISIBLE_KEY = 'claudeNest.orgPanel.sectionsVisible';
 
 // The section-visibility toggle set. Every toggle defaults to true (all sections ON).
@@ -292,19 +286,19 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   private buildGeneration = 0;
 
   // The currently-open chat's sessionId, resolved best-effort by the host's tab-label
-  // match (UI-SPEC.md deviation 4). Held here so it survives webview re-renders and is
-  // re-posted on 'ready'; null when no active chat can be identified (then no row is
-  // tinted). This is the ONLY row tint (starred rows are NOT tinted).
+  // match. Held here so it survives webview re-renders and is re-posted on 'ready'; null
+  // when no active chat can be identified (then no row is tinted). This is the ONLY row
+  // tint (starred rows are NOT tinted).
   private activeChatId: string | null = null;
 
   // Cached sessionId->filePath map from the MOST RECENT scan, so resolveRecord (the
   // context menu's export/archive path) can resolve a chat's transcript path WITHOUT a
   // fresh full-directory rescan+reparse per action. The scan that buildSectionModel/
-  // scanRecords already performs on a discrete user action or refresh seeds this;
-  // refresh() clears it (invalidateContentIndex) so a stale path is never served.
-  // Holds ONLY the file path per session (no bodies): a transcript is still read ONCE
-  // on demand and discarded (ARCHITECTURE.md tier-A rule). Empty until the first scan;
-  // resolveRecord falls back to one scan only when it is empty.
+  // scanRecords already performs on a discrete user action or refresh seeds this; refresh
+  // clears it (invalidateContentIndex) so a stale path is never served. Holds ONLY the
+  // file path per session (no bodies): a transcript is still read ONCE on demand and
+  // discarded. Empty until the first scan; resolveRecord falls back to one scan only when
+  // it is empty.
   private previewPathBySession: Map<string, string> = new Map();
 
   // Set when openSettingsOverlay() is called before the webview has resolved and sent
@@ -313,10 +307,10 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   // handler consumes this flag and opens the overlay once the client is listening.
   private pendingOpenSettings = false;
 
-  // Set when openArchiveOverlay() is called before the webview has resolved (the
-  // auto-archive toast's "Open Archive" path, issue #87). Focusing the view is async, so an
-  // open message posted to an unresolved webview is dropped; the 'ready' handler consumes
-  // this flag and opens the overlay once the client is listening. Mirrors pendingOpenSettings.
+  // Set when openArchiveOverlay is called before the webview has resolved (the
+  // auto-archive toast's "Open Archive" path). Focusing the view is async, so an open
+  // message posted to an unresolved webview is dropped; the 'ready' handler consumes this
+  // flag and opens the overlay once the client is listening. Mirrors pendingOpenSettings.
   private pendingOpenArchive = false;
 
   constructor(
@@ -329,11 +323,11 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     private readonly stateStore: OrgPanelStateStore,
     private readonly readState: OrgPanelReadState,
     private readonly globalStorageUri?: vscode.Uri,
-    // The effective DEFAULT auto-archive window in days when the user has not chosen
-    // one (slice s3b-settings-overlay, issue #86 AC #2): the effective Claude
-    // cleanupPeriodDays, 30 when Claude itself is unset. Injected so this vscode-thin
-    // view does not read settings.json itself; the wiring passes a resolver over
-    // readCleanupPeriodDays. Defaults to CLAUDE_DEFAULT (30) when not supplied.
+    // The effective DEFAULT auto-archive window in days when the user has not chosen one:
+    // the effective Claude cleanupPeriodDays, 30 when Claude itself is unset. Injected so
+    // this vscode-thin view does not read settings.json itself; the wiring passes a
+    // resolver over readCleanupPeriodDays. Defaults to CLAUDE_DEFAULT (30) when not
+    // supplied.
     private readonly effectiveAutoArchiveDefault: () => number = () => 30,
   ) {}
 
@@ -407,8 +401,8 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     } else if (msg.type === 'starUnarchive') {
       void this.onStarUnarchive(msg.sessionId);
     } else if (msg.type === 'previewArchivedChat') {
-      // Preview the archived body copy from the overlay row (issue #87 AC #6). Route to the
-      // existing command with the sessionId; a missing copy surfaces an info notice there.
+      // Preview the archived body copy from the overlay row. Route to the existing
+      // command with the sessionId; a missing copy surfaces an info notice there.
       if (msg.sessionId.length > 0) {
         void vscode.commands.executeCommand(PREVIEW_ARCHIVED_CHAT_COMMAND, msg.sessionId);
       }
@@ -464,9 +458,9 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     await this.actions.archiveChat(sessionId);
   }
 
-  // Restore an archived chat from the overlay (issue #87 AC #3). Routes to the existing
-  // restoreChat curation command, then re-posts the archived rows so the overlay drops the
-  // restored chat immediately (the shared refresh also re-renders the tree, where the chat
+  // Restore an archived chat from the overlay. Routes to the existing restoreChat
+  // curation command, then re-posts the archived rows so the overlay drops the restored
+  // chat immediately (the shared refresh also re-renders the tree, where the chat
   // reappears under its folder or Unsorted). An empty id is ignored.
   private async onRestoreChat(sessionId: string): Promise<void> {
     if (sessionId.length === 0) {
@@ -476,11 +470,10 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     await this.postArchivedRows();
   }
 
-  // Star-unarchive from the overlay (issue #87 AC #4: starring an archived chat un-archives
-  // it). Set the synced star, then restore (clear userArchived). Both route through the
-  // existing coerced seams; the star is applied FIRST so the restore's copy handling reads
-  // the current star, then the overlay rows are re-posted so the chat leaves the list. An
-  // empty id is ignored.
+  // Star-unarchive from the overlay. Set the synced star, then restore (clear
+  // userArchived). Both route through the existing coerced seams; the star is applied
+  // FIRST so the restore's copy handling reads the current star, then the overlay rows
+  // are re-posted so the chat leaves the list. An empty id is ignored.
   private async onStarUnarchive(sessionId: string): Promise<void> {
     if (sessionId.length === 0) {
       return;
@@ -490,11 +483,11 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     await this.postArchivedRows();
   }
 
-  // Build and post the Archive overlay's rows (issue #87). Membership is the SYNCED
-  // userArchived flag via the pure buildArchivedRows; present-chat titles/ages ride the
-  // scan, and a missing-transcript archived chat's title falls back to its stored body-copy
-  // title (loaded async via the wiring). Tolerant: no workspace/project posts an empty list
-  // so the overlay renders its "Nothing archived." empty state rather than throwing.
+  // Build and post the Archive overlay's rows. Membership is the SYNCED userArchived flag
+  // via the pure buildArchivedRows; present-chat titles/ages ride the scan, and a
+  // missing-transcript archived chat's title falls back to its stored body-copy title
+  // (loaded async via the wiring). Tolerant: no workspace/project posts an empty list so
+  // the overlay renders its "Nothing archived." empty state rather than throwing.
   private async postArchivedRows(): Promise<void> {
     if (this.view === undefined) {
       return;
@@ -574,10 +567,10 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   }
 
   // Persist the auto-archive window (in days) and run a fresh auto-archive pass so a
-  // shortened window applies immediately (issue #86 AC #2/#4). The value is
-  // re-validated through the pure coercer (allowed enum, else the effective default)
-  // before it is stored, so a tampered webview value can never persist an arbitrary
-  // window. Re-post the settings state so the overlay reflects the coerced value.
+  // shortened window applies immediately. The value is re-validated through the pure
+  // coercer (allowed enum, else the effective default) before it is stored, so a tampered
+  // webview value can never persist an arbitrary window. Re-post the settings state so
+  // the overlay reflects the coerced value.
   private onSetAutoArchiveWindow(days: number): void {
     const coerced = coerceAutoArchiveWindowDays(days, this.effectiveAutoArchiveDefault());
     this.stateStore.set(AUTO_ARCHIVE_WINDOW_KEY, String(coerced));
@@ -587,10 +580,10 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     void this.actions.runAutoArchive();
   }
 
-  // Persist the section-visibility toggles (issue #86 AC #3). Merges the supplied
-  // partial over the current set so a single-toggle post does not clear the others.
-  // Client-side render gates only: they never touch membership or the store, so an
-  // unfiled chat stays reachable via search/chips even with Unsorted hidden.
+  // Persist the section-visibility toggles. Merges the supplied partial over the current
+  // set so a single-toggle post does not clear the others. Client-side render gates only:
+  // they never touch membership or the store, so an unfiled chat stays reachable via
+  // search/chips even with Unsorted hidden.
   private onSetSectionsVisible(next: {
     starred?: boolean;
     questions?: boolean;
@@ -690,10 +683,10 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     void this.view.webview.postMessage({ type: 'sections', sections: this.buildSectionModel() });
   }
 
-  // Post the Settings overlay's state (slice s3b-settings-overlay, issue #86): the
-  // current auto-archive window in days and the four section-visibility toggles, so
-  // the overlay's select and pill switches render the persisted values. Both ride
-  // workspaceState; nothing here reads or widens the synced surface.
+  // Post the Settings overlay's state: the current auto-archive window in days and the
+  // four section-visibility toggles, so the overlay's select and pill switches render the
+  // persisted values. Both ride workspaceState; nothing here reads or widens the synced
+  // surface.
   private postSettings(): void {
     if (this.view === undefined) {
       return;
@@ -741,11 +734,11 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     void this.view.webview.postMessage({ type: 'openArchive' });
   }
 
-  // Reveal the org panel and open the Archive overlay (issue #87), for the auto-archive
-  // toast's "Open Archive" action now that the Archive tree is retired. Posts the archived
-  // rows and the open message; when the view has NOT resolved yet the messages would be
-  // dropped, so pendingOpenArchive defers to the 'ready' handler, mirroring
-  // openSettingsOverlay. The caller focuses the view first (executeCommand focus).
+  // Reveal the org panel and open the Archive overlay, for the auto-archive toast's "Open
+  // Archive" action now that the Archive tree is retired. Posts the archived rows and the
+  // open message; when the view has NOT resolved yet the messages would be dropped, so
+  // pendingOpenArchive defers to the 'ready' handler, mirroring openSettingsOverlay. The
+  // caller focuses the view first (executeCommand focus).
   openArchiveOverlay(): void {
     if (this.view === undefined) {
       this.pendingOpenArchive = true;
@@ -777,9 +770,9 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       return empty;
     }
     this.cachePreviewPaths(records);
-    // One-time read-state seed (issue #123): the first scan of this workspace marks
-    // every existing chat as already read, so a fresh install does not light the
-    // unread dot on months-old chats. No-op on every scan after the flag is set.
+    // One-time read-state seed: the first scan of this workspace marks every existing
+    // chat as already read, so a fresh install does not light the unread dot on
+    // months-old chats. No-op on every scan after the flag is set.
     this.readState.seedIfFirstRun(records);
     const projectKey = this.getProjectKey();
     const meta: ProjectMeta | undefined =
@@ -811,20 +804,19 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     this.previewPathBySession = new Map(records.map((r) => [r.sessionId, r.filePath]));
   }
 
-  // Clear a chat's unread affordance (open-via-Nest and matching-tab-focus triggers,
-  // UI-SPEC.md "Read state"). Stamps lastSeenAt for the chat and re-posts the section
-  // model so the '?' badge / unread dot clears immediately. Best-effort: an empty id
-  // is ignored by the store.
+  // Clear a chat's unread affordance (open-via-Nest and matching-tab-focus triggers).
+  // Stamps lastSeenAt for the chat and re-posts the section model so the '?' badge /
+  // unread dot clears immediately. Best-effort: an empty id is ignored by the store.
   markChatSeen(sessionId: string): void {
     this.readState.markSeen(sessionId);
     this.postSections();
   }
 
-  // Set the currently-open chat (best-effort tab-label match, UI-SPEC.md deviation 4)
-  // and post it so the webview tints exactly that row. null clears any tint. Returns
-  // true when the value CHANGED (false when unchanged), so the caller can gate a
-  // re-scan/mark-seen on an actual change and a tab-change storm does not thrash the
-  // webview or trigger a scan per event.
+  // Set the currently-open chat (best-effort tab-label match) and post it so
+  // the webview tints exactly that row. null clears any tint. Returns true when the value
+  // CHANGED (false when unchanged), so the caller can gate a re-scan/mark-seen on an
+  // actual change and a tab-change storm does not thrash the webview or trigger a scan
+  // per event.
   setActiveChat(sessionId: string | null): boolean {
     if (this.activeChatId === sessionId) {
       return false;
@@ -842,12 +834,12 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
   }
 
   // Resolve a scanned ChatRecord by sessionId for the context menu's export/archive
-  // actions (issue #85 AC #3/#4), which arrive from the webview with ONLY a sessionId.
-  // The chat's real transcript filePath is REQUIRED downstream: exportChat reads the body
-  // to render, and archiveChat reads the body to save the Nest-owned copy; a bare
-  // sessionId (an empty filePath) would export a body-less document and archive with no
-  // copy. Resolve from the cheap previewPathBySession cache (seeded by every scan, cleared
-  // on invalidateContentIndex), falling back to ONE scan only when the cache lacks the id.
+  // actions, which arrive from the webview with ONLY a sessionId. The chat's real
+  // transcript filePath is REQUIRED downstream: exportChat reads the body to render, and
+  // archiveChat reads the body to save the Nest-owned copy; a bare sessionId (an empty
+  // filePath) would export a body-less document and archive with no copy. Resolve from
+  // the cheap previewPathBySession cache (seeded by every scan, cleared on
+  // invalidateContentIndex), falling back to ONE scan only when the cache lacks the id.
   // Never re-scans per action when the cache is warm; no new scan path is added. Returns
   // undefined for an empty/unknown id (the caller no-ops).
   resolveRecord(sessionId: string): ChatRecord | undefined {
@@ -922,11 +914,9 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       if (record === undefined) {
         return;
       }
-      // Snippet ONLY on a body-only match: a chat whose TITLE contains the query
-      // shows no snippet (issue #83 AC #1; the prototype's
-      // `q && !c.title.toLowerCase().includes(q)` gate). A body-only match shows the
-      // role-prefixed snippet buildRoleSnippet produced; a title match sends null so
-      // the client renders no snippet row under it.
+      // Snippet ONLY on a body-only match: a chat whose TITLE contains the query shows no
+      // snippet. A body-only match shows the role-prefixed snippet buildRoleSnippet
+      // produced; a title match sends null so the client renders no snippet row under it.
       const titleHit =
         needle.length > 0 && (record.title ?? '').toLowerCase().indexOf(needle) >= 0;
       rows.push({
@@ -979,7 +969,7 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     // Exclude user-archived chats from the content-search index by the SAME synced
     // predicate buildSections uses to drop them from the visible sections. Filtering
     // HERE (the sole feeder) sweeps every downstream search sink at once: the
-    // MiniSearch index (tier-A and body), the persisted tier-A cache, the 50-hit
+    // MiniSearch index (summary and body), the persisted summary cache, the 50-hit
     // search() cap, and the rankRows join. Without it, archived chats are indexed and
     // rank into the top 50 on a common term, then the client silently drops them when
     // it joins hits to the archived-excluded rows, so genuine live matches ranked
@@ -1044,23 +1034,22 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     return bodyIndex;
   }
 
-  // Read one chat's message bodies and concatenate them into the role-labeled body
-  // string docFromRecord splits into the index text and the snippet source. Each
-  // genuine turn is PREFIXED with its role label ("You: " / "Claude: ") and turns
-  // are joined with '\n'. docFromRecord then stores this labeled text verbatim as
-  // the (never-indexed) snippet source AND indexes a label-STRIPPED copy, so the
-  // label words never become searchable tokens (a search for "claude"/"you" must
-  // not match every chat) while buildRoleSnippet can still re-emit the label on a
-  // body-match snippet (issue #83 AC #1) without the host re-reading the body at
-  // query time. Each message's OWN internal whitespace (newlines in a multi-line
-  // message, tabs, runs of spaces) is collapsed to single spaces FIRST, so every
-  // message is exactly ONE newline-free segment: buildRoleSnippet splits the body
-  // on '\n' to find the matched message, so a message must not itself contain a
-  // newline or a match on a wrapped continuation line would lose its role prefix.
-  // Bodies are read on demand and discarded here (the returned string is handed
-  // straight to docFromRecord and never retained), preserving the tier-A "full body
-  // never persisted" invariant: this feeds the IN-MEMORY body index only; the
-  // persisted index is tier-A-only (searchStore.tierADocs).
+  // Read one chat's message bodies and concatenate them into the role-labeled body string
+  // docFromRecord splits into the index text and the snippet source. Each genuine turn is
+  // PREFIXED with its role label ("You: " / "Claude: ") and turns are joined with '\n'.
+  // docFromRecord then stores this labeled text verbatim as the (never-indexed) snippet
+  // source AND indexes a label-STRIPPED copy, so the label words never become searchable
+  // tokens (a search for "claude"/"you" must not match every chat) while buildRoleSnippet
+  // can still re-emit the label on a body-match snippet without the host re-reading the
+  // body at query time. Each message's OWN internal whitespace (newlines in a multi-line
+  // message, tabs, runs of spaces) is collapsed to single spaces FIRST, so every message
+  // is exactly ONE newline-free segment: buildRoleSnippet splits the body on '\n' to find
+  // the matched message, so a message must not itself contain a newline or a match on a
+  // wrapped continuation line would lose its role prefix. Bodies are read on demand and
+  // discarded here (the returned string is handed straight to docFromRecord and never
+  // retained), preserving the summary "full body never persisted" invariant: this feeds
+  // the IN-MEMORY body index only; the persisted index is summary-only
+  // (searchStore.tierADocs).
   private async readBodyText(record: ChatRecord): Promise<string> {
     try {
       const bodies = readTranscriptBodies(record.filePath);
@@ -1106,14 +1095,14 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
       `script-src 'nonce-${nonce}'`,
       `font-src ${cspSource}`,
     ].join('; ');
-    // The toolbar (New session, gear, sort), the search box, the chip rail, and the
-    // tree container are static shells rebuilt to the design handoff (media/design/,
-    // UI-SPEC.md; slice s3a-design-shell, issue #80). orgPanel.js renders the section
-    // content into #list, the chips into #chips, drives the sort popover, and owns all
-    // keyboard/ARIA wiring; role="tree" plus the roving-tabindex management live in the
-    // script (ARIA tree semantics are an acceptance criterion, UI-SPEC.md deviation 5).
-    // scripts/fidelity/harness.html keeps a byte-aligned copy of this exact shell; any
-    // change here MUST be mirrored there or the fidelity harness wiring breaks.
+    // The toolbar (New session, gear, sort), the search box, the chip rail, and the tree
+    // container are static shells built here.
+    // orgPanel.js renders the section content into #list, the chips into #chips, drives
+    // the sort popover, and owns all keyboard/ARIA wiring; role="tree" plus the
+    // roving-tabindex management live in the script (ARIA tree semantics are
+    // required). scripts/fidelity/harness.html keeps a
+    // byte-aligned copy of this exact shell; any change here MUST be mirrored there or
+    // the fidelity harness wiring breaks.
     return `<!DOCTYPE html>
 <html lang="en">
 <head>

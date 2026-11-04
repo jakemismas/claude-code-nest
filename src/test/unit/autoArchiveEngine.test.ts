@@ -7,11 +7,10 @@ import {
   runAutoArchivePass,
 } from '../../store/autoArchiveEngine';
 
-// Headless unit tests for the auto-archive ENGINE (slice s3b-settings-overlay). The
-// engine sequences injected seams the pure decision selects; all seams are stubbed
-// in memory here, so this exercises the batching, the archive/copy branching, and the
-// read-your-writes archivedAt round-trip without vscode or a filesystem. No stub
-// needed: the engine imports no vscode.
+// Headless unit tests for the auto-archive pass. It sequences injected seams
+// the pure decision selects; all seams are stubbed in memory here, so this exercises the
+// batching, the archive/copy branching, and the read-your-writes archivedAt round-trip
+// without vscode or a filesystem. No stub needed: the module imports no vscode.
 
 const NOW = 1_700_000_000_000;
 
@@ -147,7 +146,7 @@ describe('autoArchiveEngine.runAutoArchivePass', () => {
     assert.strictEqual(h.copies.has('a'), false);
   });
 
-  it('AC #5: writes a starred protective copy when auto-archive is Never but the protective window is past', async () => {
+  it('writes a starred protective copy when auto-archive is Never but the protective window is past', async () => {
     const h = harness();
     const chats = [chat({ sessionId: 's1', starred: true, lastActivity: NOW - 90 * MS_PER_DAY })];
     const result = await runAutoArchivePass(h.deps, chats, 0, 30);
@@ -191,7 +190,7 @@ describe('autoArchiveEngine.runAutoArchivePass', () => {
   });
 });
 
-// Security fix pass round 1: the engine threads restoredAt (the deliberate-restore
+// The pass threads restoredAt (the deliberate-restore
 // intent marker) into the pure policy, so a chat the user restored is not swept by
 // the very next pass even though its transcript age is past the window.
 describe('runAutoArchivePass: restored chats are not re-archived', () => {

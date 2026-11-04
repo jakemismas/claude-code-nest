@@ -7,11 +7,10 @@ import {
 import { UNFILED_FOLDER_ID } from '../../model/folderTree';
 import { UNTAGGED_TAG_ID } from '../../model/untagged';
 
-// Headless unit tests for the PURE drop reducer. The reducer imports no vscode
-// types (only plain data in/out), so this test never transitively requires the
-// vscode module (ARCHITECTURE.md unit-gate rule). It covers the MIME guard,
-// folder-move vs tag-add interpretation BY TARGET VIEW, multi-node batching, and
-// the synthetic-bucket edge cases.
+// Headless unit tests for the PURE drop reducer. The reducer imports no vscode types
+// (only plain data in/out), so this test never transitively requires the vscode module.
+// It covers the MIME guard, folder-move vs tag-add interpretation BY TARGET VIEW,
+// multi-node batching, and the synthetic-bucket edge cases.
 
 function input(over: Partial<DropInput>): DropInput {
   return {

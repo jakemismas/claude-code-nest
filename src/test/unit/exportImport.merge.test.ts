@@ -2,12 +2,12 @@ import * as assert from 'assert';
 import { ChatMeta, Folder, ProjectMeta, emptyProjectMeta } from '../../store/schema';
 import { mergeProjectMeta } from '../../store/exportImport';
 
-// Pure-logic unit tests for the Slice 3 per-scalar LWW extension of
-// mergeProjectMeta: starred / userArchived / archivedAt arbitrated by the single
-// per-record updatedAt (archivedAt coupled to userArchived), and Folder.color
-// arbitrated by the document-level updatedAt via foldersEqual/cloneFolder. The
-// tag/link union and folderId conflict floor are unchanged; a couple of guards
-// here confirm the extension did not disturb them. No vscode, no filesystem.
+// Pure-logic unit tests for the per-scalar LWW extension of mergeProjectMeta: starred /
+// userArchived / archivedAt arbitrated by the single per-record updatedAt (archivedAt
+// coupled to userArchived), and Folder.color arbitrated by the document-level updatedAt
+// via foldersEqual/cloneFolder. The tag/link union and folderId conflict floor are
+// unchanged; a couple of guards here confirm the extension did not disturb them. No
+// vscode, no filesystem.
 
 const DEVICE = 'dev-A';
 const NOW = 1_700_000_000_000;

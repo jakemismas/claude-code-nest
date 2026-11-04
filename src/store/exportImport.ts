@@ -5,7 +5,7 @@
 // vscode.workspace.fs, NOT node fs, so it never trips the read-only lint bank)
 // and the store calls; this module takes plain data and returns plain results.
 //
-// Binding rules honored (ARCHITECTURE.md and the slice patch):
+// Rules this module follows:
 // - Import validates and migrates a scratch copy BEFORE touching the live store,
 //   then merges additively per project and NEVER deletes a project absent from
 //   the file (a project in the store but not in the import is untouched; line 205).
@@ -19,7 +19,7 @@
 //     * chat folderId is the LWW scalar arbitrated by ChatMeta.updatedAt (there is
 //       NO per-scalar-field stamp; per-RECORD updatedAt arbitrates folderId).
 //     * chat starred and the (userArchived, archivedAt) pair are LWW scalars
-//       arbitrated by the SAME per-record ChatMeta.updatedAt (Slice 3), but as
+//       arbitrated by the SAME per-record ChatMeta.updatedAt, but as
 //       TWO INDEPENDENT groups: starred is orthogonal to the archive pair, so the
 //       stamp-winner wins a group only when it SET that group, otherwise the
 //       loser's independently-set group is carried (not dropped). archivedAt
@@ -54,7 +54,7 @@ export interface ProjectMergeResult {
   changed: boolean;
   // Chats where BOTH sides set a DIFFERENT non-null folderId, i.e. a genuine
   // same-scalar-field conflict resolved by LWW (the older side lost its home).
-  // The irreducible floor the architecture calls out and surfaces.
+  // The irreducible conflict case, surfaced to the user.
   folderConflicts: string[];
 }
 
@@ -93,8 +93,7 @@ export function buildImportPlan(
 
 // The ADDITIVE per-project merge. `live` is the store's current document, `file`
 // is the imported document. The result is a new ProjectMeta; neither input is
-// mutated. The collision identity rule (pinned in the slice patch) is applied
-// here exactly.
+// mutated. The collision identity rule is applied here exactly.
 export function mergeProjectMeta(
   projectKey: string,
   live: ProjectMeta,
@@ -245,7 +244,7 @@ export function mergeProjectMeta(
     const loser = useFile ? liveChat : fileChat;
     // EQUAL record stamps need a DEVICE-INDEPENDENT tie-break for the two
     // independent scalar groups below. Automated archive flips deliberately do
-    // not refresh updatedAt (security audit round 1), so two devices that
+    // not refresh updatedAt, so two devices that
     // auto-archive the same chat before sync delivers either flip hold records
     // with IDENTICAL stamps but DIVERGENT groups; the plain local-wins tie
     // (useFile === false on both machines) then keeps each device's OWN value

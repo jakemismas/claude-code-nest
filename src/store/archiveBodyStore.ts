@@ -5,34 +5,25 @@ import { ChatMessageBody } from '../claude/bodyReader';
 import { decideRetention } from './archiveRetention';
 import { isSafeRecordId } from './schema';
 
-// vscode-THIN persistence for the Nest-owned ARCHIVED CHAT BODY copy (Slice 4
-// s2-star-archive). When the user archives a chat, the full transcript body is
-// read once on demand (bodyReader, in the command layer) and a Nest-owned copy is
-// written HERE so the chat survives Claude's cleanup of ~/.claude/projects.
-//
-// READ-ONLY INVARIANT (ARCHITECTURE.md "Read-only invariant"; SPRINT-2-PLAN.md:70
-// "Archive is an org-layer flag plus a Nest-owned exported body copy under
-// globalStorage; it never renames, moves, or deletes anything under
-// ~/.claude/projects"): this module mirrors searchStore.ts EXACTLY. It does NO
-// node fs and NO direct vscode.workspace.fs; every write/read/list/delete goes
-// through exportIO (exportIO.writeTextFile / readTextFile / listDirectory /
-// deleteFile / ensureDirectory), which runtime-asserts assertNotUnderClaudeProjects
-// before every write/createDirectory/delete. So this module is under the FULL
-// read-only lint bank (it is NOT a carve-out) and cannot write a transcript: the
-// only write path is exportIO, whose target here is always
-// context.globalStorageUri/archive, never ~/.claude/projects.
-//
-// LOCAL, NEVER SYNCED (slice patch "GLOBALSTORAGE BODY-COPY CONVENTION";
-// SPRINT-2-PLAN.md:68,70): the body copy is a FILE in extension globalStorage, not
-// a globalState key, so it is structurally outside the MetadataStore sync surface
-// and is never registered with setKeysForSync. The only synced surface stays
-// nest.meta.v1::<key> (and the curation scalars on it). The user-archive FLAG
-// (ChatMeta.userArchived) syncs; the body COPY does not.
-//
-// One file per archived chat, keyed by the sessionId (a separator-free UUID), so
-// the filename is collision-free and needs no encoding. The stored envelope
-// carries the archive timestamp and the starred flag so a prune pass can decide
-// retention WITHOUT re-reading the synced store, plus the ordered message bodies.
+// vscode-THIN persistence for the Nest-owned ARCHIVED CHAT BODY copy. When the user
+// archives a chat, the full transcript body is read once on demand (bodyReader, in the
+// command layer) and a Nest-owned copy is written HERE so the chat survives Claude's
+// cleanup of ~/.claude/projects.  READ-ONLY INVARIANT: this module mirrors searchStore.ts
+// EXACTLY. It does NO node fs and NO direct vscode.workspace.fs; every
+// write/read/list/delete goes through exportIO (exportIO.writeTextFile / readTextFile /
+// listDirectory / deleteFile / ensureDirectory), which runtime-asserts
+// assertNotUnderClaudeProjects before every write/createDirectory/delete. So this module
+// is under the FULL read-only lint bank (it is NOT a carve-out) and cannot write a
+// transcript: the only write path is exportIO, whose target here is always
+// context.globalStorageUri/archive, never ~/.claude/projects.  LOCAL, NEVER SYNCED: the
+// body copy is a FILE in extension globalStorage, not a globalState key, so it is
+// structurally outside the MetadataStore sync surface and is never registered with
+// setKeysForSync. The only synced surface stays nest.meta.v1::<key> (and the curation
+// scalars on it). The user-archive FLAG (ChatMeta.userArchived) syncs; the body COPY does
+// not.  One file per archived chat, keyed by the sessionId (a separator-free UUID), so
+// the filename is collision-free and needs no encoding. The stored envelope carries the
+// archive timestamp and the starred flag so a prune pass can decide retention WITHOUT
+// re-reading the synced store, plus the ordered message bodies.
 
 // The fixed subdir under globalStorage the body copies live in (mirrors
 // searchStore's 'search' subdir convention).
@@ -136,7 +127,7 @@ export async function writeArchivedBody(
   // the write instead (return false, the same signal as a storage failure), so an
   // existing good copy is never downgraded, no poisoned marker is minted, the
   // interactive archive command surfaces its honest "copy failed, re-archive to
-  // retry" toast, and the engine's next pass retries. A transcript with genuinely
+  // retry" toast, and the next auto-archive pass retries. A transcript with genuinely
   // zero extractable bodies loses nothing by having no copy.
   if (envelope.bodies.length === 0) {
     return false;
@@ -189,16 +180,15 @@ export async function readArchivedBody(
   }
 }
 
-// Whether a Nest-owned body copy WITH CONTENT already exists for one chat. Used
-// by the auto-archive engine (slice s3b-settings-overlay) to skip writing a
-// starred protective copy that already landed, so the pass is idempotent and
-// never re-copies. Any failure (absent, unreadable, malformed) reads as absent.
-// An envelope with EMPTY bodies also reads as absent: envelope-exists is not
-// content-exists. A legacy empty envelope (written before writeArchivedBody's
-// empty-bodies guard, from a transiently unreadable transcript) must not satisfy
-// the protective-copy check, or the starred chat's only durable form would stay
-// an empty shell forever; treating it as absent makes the next pass retry and
-// overwrite it with the real content. Best-effort, never throws.
+// Whether a Nest-owned body copy WITH CONTENT already exists for one chat. Used by the
+// auto-archive engine to skip writing a starred protective copy that already landed, so
+// the pass is idempotent and never re-copies. Any failure (absent, unreadable, malformed)
+// reads as absent. An envelope with EMPTY bodies also reads as absent: envelope-exists is
+// not content-exists. A legacy empty envelope (written before writeArchivedBody's
+// empty-bodies guard, from a transiently unreadable transcript) must not satisfy the
+// protective-copy check, or the starred chat's only durable form would stay an empty
+// shell forever; treating it as absent makes the next pass retry and overwrite it with
+// the real content. Best-effort, never throws.
 export async function hasArchivedBody(
   globalStorageUri: vscode.Uri,
   sessionId: string,

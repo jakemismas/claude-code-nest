@@ -8,7 +8,7 @@
 import { SmartSignalsInput } from '../../model/types';
 
 // One read-only smart-group bucket from a single signal. key is unique WITHIN a
-// signal (the engine namespaces it by signal id for the tree). memberChatIds are
+// signal (the smart group module namespaces it by signal id). memberChatIds are
 // the sessionIds of the chats in the bucket, pre-sorted by the signal.
 export interface SmartBucket {
   key: string;

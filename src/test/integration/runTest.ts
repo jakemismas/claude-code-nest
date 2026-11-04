@@ -2,16 +2,14 @@ import * as path from 'path';
 import { runTests } from '@vscode/test-electron';
 
 // The electron-host integration test LAUNCHER. This is the file package.json's
-// `test:integration` script points at (out/test/integration/runTest.js after
-// tsc). It downloads a VSCode build and runs the integration suite inside a real
-// Extension Development Host, which is the only place the host-only behaviors can
-// be exercised: a real vscode.DataTransfer / DataTransferItem round-trip and the
-// `instanceof vscode.TreeItem` node-dispatch in the drag-and-drop controller.
-//
-// This is DEFERRED, not part of the unattended headless gate (`npm test`): it
-// needs a VSCode download and a display, so it is run by a human or CI per
-// TESTING.md and ARCHITECTURE.md "Test layering". The headless mocha suite never
-// downloads VSCode; this launcher is the separate entry point that does.
+// `test:integration` script points at (out/test/integration/runTest.js after tsc). It
+// downloads a VSCode build and runs the integration suite inside a real Extension
+// Development Host, which is the only place the host-only behaviors can be exercised: a
+// real vscode.DataTransfer / DataTransferItem round-trip and the `instanceof
+// vscode.TreeItem` node-dispatch in the drag-and-drop controller.  This is DEFERRED, not
+// part of the unattended headless gate (`npm test`): it needs a VSCode download and a
+// display, so it is run by a human or CI. The headless mocha suite never downloads
+// VSCode; this launcher is the separate entry point that does.
 
 async function main(): Promise<void> {
   try {

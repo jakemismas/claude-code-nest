@@ -1,20 +1,19 @@
-// The PURE, vscode-free archive keep-window retention policy (Slice 4
-// s2-star-archive). It decides, for ONE archived chat's Nest-owned body copy,
+// The PURE, vscode-free archive keep-window retention policy
+// ). It decides, for ONE archived chat's Nest-owned body copy,
 // whether to KEEP or PRUNE that copy, from plain data only: {archivedAt,
 // starred, keepWindowDays, now}. No clock, no config, no filesystem, no vscode
 // access inside it, so the headless unit gate exercises it deterministically and
 // the boundary case (now - archivedAt exactly == keepWindowDays * MS_PER_DAY) is
-// exact rather than wall-clock dependent (slice patch "RETENTION-POLICY EDGE
-// ENCODING").
+// exact rather than wall-clock dependent.
 //
 // The keepWindow is read in the vscode-thin layer via
 // vscode.workspace.getConfiguration('claudeNest') and passed in here as a plain
 // keepWindowDays number, NEVER read from getConfiguration inside this module
-// (slice patch "KEEP-WINDOW SETTING MECHANISM": reading config here would break
+// (reading config here would break
 // the headless gate). The configured enum maps 7/30/90 to those day counts and
 // "never" to 0.
 //
-// Binding rules (slice patch "RETENTION-POLICY EDGE ENCODING"):
+// Rules:
 // - never-prune sentinel: keepWindowDays <= 0 means NEVER prune (keep all). This
 //   is how the "never" setting is encoded, and it also makes a negative or absent
 //   day count fail safe toward keeping the copy.
@@ -48,7 +47,7 @@ export type RetentionDecision = 'keep' | 'prune';
 // result depends ONLY on the four inputs, with no clock or config access, so it is
 // deterministic and the boundary test (age exactly == window) is exact.
 //
-// Order of precedence (slice patch):
+// Order of precedence:
 //   1. STARRED is always kept (exemption outranks the window).
 //   2. never-prune sentinel (keepWindowDays <= 0) keeps everything.
 //   3. no archivedAt cannot be proven past-window: keep.

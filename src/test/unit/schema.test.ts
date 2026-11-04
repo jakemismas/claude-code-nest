@@ -206,7 +206,7 @@ describe('schema migrateProjectMeta (defensive, total)', () => {
   });
 });
 
-describe('schema curation scalars (Slice 3): normalize round-trip and additive migration', () => {
+describe('schema curation scalars: normalize round-trip and additive migration', () => {
   it('carries Folder.color through normalize when present and omits it when absent', () => {
     const doc = {
       schemaVersion: SCHEMA_VERSION,
@@ -366,7 +366,7 @@ describe('schema curation scalars (Slice 3): normalize round-trip and additive m
   });
 
   it('migrates an OLDER document lacking the new scalars with NO version bump (additive)', () => {
-    // A pre-Slice-3 document has no starred/userArchived/archivedAt/color. It must
+    // An older document has no starred/userArchived/archivedAt/color. It must
     // migrate cleanly, stay at SCHEMA_VERSION (no bump), and gain no escrow.
     const older = {
       schemaVersion: SCHEMA_VERSION,

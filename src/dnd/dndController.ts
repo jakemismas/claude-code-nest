@@ -29,12 +29,11 @@ import { stashDrag, takeDrag } from './dragContext';
 // vscode (TreeDragAndDropController, DataTransfer, DataTransferItem); the pure
 // drop reducer (dropReducer.ts) holds the interpretation logic and stays
 // vscode-free so the unit test can import it without pulling vscode in
-// (ARCHITECTURE.md unit-gate rule; mirrors the occurrence.ts vs tagsProvider.ts
-// split). This controller extracts the plain data (payload MIME, source chat ids,
+// (mirrors the occurrence.ts vs tagsProvider.ts split). This controller extracts the plain data (payload MIME, source chat ids,
 // target view/id) out of the real DataTransfer and drop target, calls the
 // reducer, and applies the returned intents.
 //
-// Binding rules honored (ARCHITECTURE.md "Drag and drop" + "Refresh coalescing"):
+// Rules this module follows:
 // - Cross-view drags use an IN-PROCESS shared stash (dragContext), NOT the
 //   DataTransfer. VSCode 1.66 does NOT deliver a source controller's custom
 //   DataTransferItem to a DIFFERENT controller's handleDrop: verified against the
@@ -248,17 +247,17 @@ export class NestDragAndDropController<TNode extends DraggableNode>
     }
     const payload = pickPayload(found);
 
-    // The stash is consumed on EVERY drop (one-shot) so a within-view drop also
-    // clears it and it can never leak into a later unrelated drop. It is USED
-    // whenever the DataTransfer payload yielded no usable chat ids: that covers
-    // both the absent-payload case AND the case the cross-view drop actually hits,
-    // where the host delivers an OPAQUE host-internal value under the source's
-    // reserved MIME (e.g. {itemHandles:['0'],hostInternal:true}). pickPayload then
-    // returns that opaque value (payload !== undefined), but parseChatIds rejects it
-    // and returns [], so keying the fallback only on payload === undefined would
-    // skip the stash and silently no-op the whole cross-view drag (the precise
-    // failure DECISIONS.md says the stash prevents). Parse the DataTransfer payload
-    // FIRST and fall back to the stash whenever the parse came up empty.
+    // The stash is consumed on EVERY drop (one-shot) so a within-view drop also clears it
+    // and it can never leak into a later unrelated drop. It is USED whenever the
+    // DataTransfer payload yielded no usable chat ids: that covers both the
+    // absent-payload case AND the case the cross-view drop actually hits, where the host
+    // delivers an OPAQUE host-internal value under the source's reserved MIME (e.g.
+    // {itemHandles:['0'],hostInternal:true}). pickPayload then returns that opaque value
+    // (payload !== undefined), but parseChatIds rejects it and returns [], so keying the
+    // fallback only on payload === undefined would skip the stash and silently no-op the
+    // whole cross-view drag (the precise failure says the stash prevents). Parse the
+    // DataTransfer payload FIRST and fall back to the stash whenever the parse came up
+    // empty.
     const stashed = takeDrag();
     const dtChatIds = payload !== undefined ? parseChatIds(payload.raw) : [];
     const usedStash = dtChatIds.length === 0;
@@ -289,8 +288,7 @@ export class NestDragAndDropController<TNode extends DraggableNode>
     // coalesces this burst into a SINGLE pending write (same mechanism the
     // deleteFolder cascade relies on); no new batch API is introduced.
     this.applyIntents(projectKey, intents);
-    // One flush, one refresh (ARCHITECTURE.md "Refresh coalescing": fire
-    // onDidChangeTreeData once for the whole multi-select mutation).
+    // One flush, one refresh.
     await this.deps.store.flush();
     this.deps.provider.refresh();
   }

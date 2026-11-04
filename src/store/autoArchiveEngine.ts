@@ -1,29 +1,24 @@
 import { ChatMessageBody } from '../claude/bodyReader';
 import { decideAutoArchive } from './autoArchivePolicy';
 
-// The auto-archive ENGINE (slice s3b-settings-overlay, issue #86 AC #4/#5). It runs
-// a BATCHED pass over the workspace's scanned chats: for each chat the PURE
-// autoArchivePolicy.decideAutoArchive says to archive, it flips the synced
-// userArchived flag AND writes a Nest-owned body copy; for each starred chat the
+// The auto-archive ENGINE. It runs a BATCHED pass over the workspace's scanned chats: for
+// each chat the PURE autoArchivePolicy.decideAutoArchive says to archive, it flips the
+// synced userArchived flag AND writes a Nest-owned body copy; for each starred chat the
 // policy says to protectively copy, it writes the body copy only (never archiving a
 // starred chat). All flag flips are staged first and coalesced into ONE store flush
-// (refresh coalescing, ARCHITECTURE.md), then the caller refreshes once.
-//
-// This module is a thin ORCHESTRATOR over injected seams (mirroring
-// curationCommands / archiveBodyStore's caller shape), so it is exercised headlessly
-// without vscode: the store mutation, the body read, the body write, the copy-exists
-// check, and the clock are all injected. The DECISION is the pure policy; this module
-// only sequences the seams the decision selects.
-//
+// (refresh coalescing), then the caller refreshes once.  This module is a thin
+// ORCHESTRATOR over injected seams (mirroring curationCommands / archiveBodyStore's
+// caller shape), so it is exercised headlessly without vscode: the store mutation, the
+// body read, the body write, the copy-exists check, and the clock are all injected. The
+// DECISION is the pure policy; this module only sequences the seams the decision selects.
 // READ-ONLY INVARIANT: the only transcript contact is the injected readBody
-// (bodyReader.readTranscriptBodies, read-only) to source the copy; the copy is
-// written to globalStorage via the injected writeBody seam (archiveBodyStore ->
-// exportIO, guarded). Nothing here writes, renames, moves, or deletes anything under
-// ~/.claude/projects, and NO new fs write path is added: the write reuses
-// store.setChatArchived + archiveBodyStore.writeArchivedBody exactly as the
-// interactive archive command does.
+// (bodyReader.readTranscriptBodies, read-only) to source the copy; the copy is written to
+// globalStorage via the injected writeBody seam (archiveBodyStore -> exportIO, guarded).
+// Nothing here writes, renames, moves, or deletes anything under ~/.claude/projects, and
+// NO new fs write path is added: the write reuses store.setChatArchived +
+// archiveBodyStore.writeArchivedBody exactly as the interactive archive command does.
 
-// The minimal per-chat identity the engine needs from the scan: a sessionId, the
+// The minimal per-chat identity this pass needs from the scan: a sessionId, the
 // transcript path to read the body from, the resolved title to stamp on the copy,
 // the last-activity epoch ms (ChatRecord.timestamp), and the synced curation flags
 // (starred / archived) read from ProjectMeta at the call site.
@@ -88,13 +83,13 @@ export interface AutoArchiveResult {
 
 // Run one batched auto-archive pass over the supplied chats.
 //
-// TWO windows (AC #4 vs AC #5):
+// TWO windows:
 //   - archiveWindowDays: the user's chosen auto-archive window. An UNSTARRED chat older
 //     than this is archived. <= 0 (Never) disables archiving.
 //   - protectiveWindowDays: the effective Claude cleanup age. A STARRED chat older than
 //     this receives a protective body copy (once), WITHOUT being archived. This is
 //     INDEPENDENT of archiveWindowDays, so a user who sets auto-archiving to "Never"
-//     still keeps their starred chats safe from Claude's cleanup (AC #5). The pass does
+//     still keeps their starred chats safe from Claude's cleanup. The pass does
 //     NOT short-circuit on archiveWindowDays <= 0: the protective-copy work still runs.
 //
 // For each chat: decideAutoArchive over its inputs.

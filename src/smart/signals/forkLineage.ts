@@ -1,16 +1,12 @@
-// Fork-lineage signal (best-effort, OFTEN EMPTY): group transcripts that share a
-// leading message-UUID prefix. When a session is forked/branched in Claude Code,
-// the fork replays the parent's opening turns, so the two transcripts share the
-// SAME leading sequence of message uuids before diverging. Grouping by the
-// longest shared leading uuid prefix surfaces those fork families.
-//
-// In this user's real data no two transcripts shared a leading message-UUID
-// sequence in the sample (ARCHITECTURE.md "no two transcripts shared a leading
-// message-UUID prefix"), so this signal is expected to produce zero buckets and
-// MUST render empty cleanly. It is built best-effort against the captured leading
-// uuid sequences.
-//
-// This module is PURE and vscode-free (unit-gate rule): no vscode import, no fs.
+// Fork-lineage signal (best-effort, OFTEN EMPTY): group transcripts that share a leading
+// message-UUID prefix. When a session is forked/branched in Claude Code, the fork replays
+// the parent's opening turns, so the two transcripts share the SAME leading sequence of
+// message uuids before diverging. Grouping by the longest shared leading uuid prefix
+// surfaces those fork families.  In this user's real data no two transcripts shared a
+// leading message-UUID sequence in the sample, so this signal is expected to produce zero
+// buckets and MUST render empty cleanly. It is built best-effort against the captured
+// leading uuid sequences.  This module is PURE and vscode-free (unit-gate rule): no
+// vscode import, no fs.
 
 import { SmartSignalsInput } from '../../model/types';
 import { SmartBucket, sortMembersInput } from './bucket';

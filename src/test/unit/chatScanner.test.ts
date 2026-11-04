@@ -37,10 +37,10 @@ before(() => {
     { type: 'user', timestamp: '2026-06-15T12:00:00.000Z', cwd: 'c:\\Users\\Tester\\proj', message: { content: 'newer' } },
   ]);
 
-  // A transcript carrying all five slice 6 smart-group signals: a pr-link line
-  // (PR number/url/repo), a gitBranch on the user/assistant lines, and a leading
-  // run of message uuids. Asserts readChat/scanChats wire each scan field through
-  // to the ChatRecord (the seam between the reader and the engine's input).
+  // A transcript carrying all five smart-group signals: a pr-link line (PR
+  // number/url/repo), a gitBranch on the user/assistant lines, and a leading run of
+  // message uuids. Asserts readChat/scanChats wire each scan field through to the
+  // ChatRecord (the seam between the reader and the scanner's input).
   writeJsonl(proj, 'dddddddd-0000-0000-0000-000000000004.jsonl', [
     { type: 'custom-title', customTitle: 'Signal Chat' },
     {
@@ -139,7 +139,7 @@ describe('chatScanner.scanChats', () => {
     assert.strictEqual(records[3].sessionId, 'bbbbbbbb-0000-0000-0000-000000000002');
   });
 
-  it('carries the slice 6 signal fields from the scan through to the ChatRecord', () => {
+  it('carries the signal fields from the scan through to the ChatRecord', () => {
     const records = scanChats('c:\\Users\\Tester\\proj', { projectsRoot: root });
     const byId = new Map(records.map((r) => [r.sessionId, r]));
     const signal = byId.get('dddddddd-0000-0000-0000-000000000004');
@@ -151,7 +151,7 @@ describe('chatScanner.scanChats', () => {
     assert.deepStrictEqual(signal.leadingMessageUuids, ['uuid-aaaa', 'uuid-bbbb']);
   });
 
-  it('leaves the slice 6 signal fields null/empty for a transcript carrying none', () => {
+  it('leaves the signal fields null/empty for a transcript carrying none', () => {
     const records = scanChats('c:\\Users\\Tester\\proj', { projectsRoot: root });
     const byId = new Map(records.map((r) => [r.sessionId, r]));
     const plain = byId.get('aaaaaaaa-0000-0000-0000-000000000001');

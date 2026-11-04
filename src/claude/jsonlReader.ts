@@ -6,7 +6,7 @@ import { TokenTotals, TranscriptScan } from '../model/types';
 // line types (verified ground truth):
 //   type "custom-title"  -> customTitle
 //   type "ai-title"      -> aiTitle
-//   type "pr-link"       -> prNumber, prUrl, prRepository  (slice 6)
+//   type "pr-link"       -> prNumber, prUrl, prRepository
 //   type "user"/"assistant" -> timestamp, cwd, slug, message, gitBranch, uuid
 // Unrelated types (queue-operation, hook_success, attachment,
 // deferred_tools_delta, last-prompt, file-history-snapshot, system, ...) are
@@ -14,7 +14,7 @@ import { TokenTotals, TranscriptScan } from '../model/types';
 // thrown. This module never touches the filesystem; it operates on already-read
 // text so the scanner owns the read-only contract.
 //
-// Slice 6 extends THIS one reader (not a second scanner) with the smart-group
+//  extends THIS one reader (not a second scanner) with the smart-group
 // signal fields: the pr-link PR data, the user/assistant gitBranch, and the
 // leading sequence of user/assistant message uuids for fork-lineage. The
 // skip-unknown-types tolerance is preserved.
@@ -28,16 +28,15 @@ const MAX_TITLE_LENGTH = 80;
 // session replays the parent's opening turns) is still observed.
 const MAX_LEADING_UUIDS = 16;
 
-// Cap on the number of distinct files-touched paths retained (Sprint 2 tier-A),
-// matching MAX_LEADING_UUIDS' rationale: a chat that edits hundreds of files
-// needs only a bounded, representative set for the files-touched count and
-// preview. Distinct paths are retained in first-seen order up to the cap; later
-// distinct paths are dropped.
+// Cap on the number of distinct files-touched paths retained, matching MAX_LEADING_UUIDS'
+// rationale: a chat that edits hundreds of files needs only a bounded, representative set
+// for the files-touched count and preview. Distinct paths are retained in first-seen
+// order up to the cap; later distinct paths are dropped.
 const MAX_FILES_TOUCHED = 64;
 
 // Truncation cap for the last-message snippet. Keeps the scan a bounded
 // reduction (the full body is never retained); the snippet is enough for the
-// awaiting-reply heuristic and the hover/preview surfaces of later slices.
+// awaiting-reply heuristic and the hover/preview surfaces.
 const MAX_LAST_MESSAGE_LENGTH = 200;
 
 // Title resolution order, applied after a scan:
@@ -201,7 +200,7 @@ function absorbLeadingUuid(scan: TranscriptScan, obj: Record<string, unknown>): 
   }
 }
 
-// Count one user/assistant line. Tier-A messageCount is the number of
+// Count one user/assistant line. Summary messageCount is the number of
 // user/assistant turns, not raw JSONL lines (unrelated types do not count).
 function absorbMessageCount(scan: TranscriptScan): void {
   scan.messageCount++;
@@ -252,7 +251,7 @@ function absorbFirstMessage(
 // message shapes the title fallback understands (string body, {content:string},
 // {content:[{type:'text',text}]}) feed the snippet.
 //
-// Role semantics serve the slice-6 awaiting-reply ("Questions") heuristic, which
+// Role semantics serve the awaiting-reply ("Questions") heuristic, which
 // reads lastMessageRole === 'user' as "a human spoke last and awaits a reply".
 // The harness records tool outputs as type:'user' lines whose content is a
 // tool_result block (the DOMINANT real user-line shape: ~13 of 16 on real

@@ -46,8 +46,7 @@ function browserOverride() {
 }
 
 // The standard auto-discovery Chrome/Edge locations on Windows, macOS, and Linux.
-// First existing file wins. Ordered Chrome-before-Edge to match the AC wording
-// ("headless Chrome or Edge"). Does NOT include the env override.
+// First existing file wins. Ordered Chrome-before-Edge. Does NOT include the env override.
 function browserCandidates() {
   const list = [];
   const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
@@ -295,11 +294,9 @@ async function openPage(browser) {
   return new Page(browser, attached.sessionId, target.targetId);
 }
 
-// Navigate a page session to a file URL and wait for the load event, then run
-// afterLoad (async) for page-specific readiness (mock render, thumbnail hide).
-// afterLoad may return a clip rect { x, y, width, height } in CSS pixels to crop
-// the capture to a sub-element (the prototype frames its sidebar inside a mock VS
-// Code window, so we clip to the sidebar to match the harness's panel-only frame).
+// Navigate a page session to a file URL and wait for the load event, then run afterLoad
+// (async) for page-specific readiness (mock render, thumbnail hide). afterLoad may return
+// a clip rect { x, y, width, height } in CSS pixels to crop the capture to a sub-element.
 async function renderAndCapture(page, fileUrl, outPath, afterLoad, viewportWidth) {
   await page.send('Page.enable');
   await page.send('Runtime.enable');
@@ -420,10 +417,10 @@ async function typeIntoInput(page, selector, text) {
   );
 }
 
-// The query the results-state captures stage. It matches a body line in the mock
-// (the harness reply) and the prototype's c2 body ("...backed by Redis...") while
-// being ABSENT from those chats' titles, so the flat "N RESULTS" list shows a
-// role-prefixed "You: ..." body-match snippet (issue #83 AC #1/#6).
+// The query the results-state captures stage. It matches a body line in the mock (the
+// harness reply) and a body line while being ABSENT
+// from those chats' titles, so the flat "N RESULTS" list shows a role-prefixed "You: ..."
+// body-match snippet.
 const RESULTS_QUERY = 'redis';
 
 // --- main ------------------------------------------------------------------
@@ -455,7 +452,7 @@ async function main() {
     browser = new CdpClient(version.webSocketDebuggerUrl);
     await browser.connect();
 
-    // Page 1: the real org-panel asset via the harness.
+    // the real org-panel asset via the harness.
     const harnessPage = await openPage(browser);
     await renderAndCapture(
       harnessPage,
@@ -480,10 +477,10 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness.png')));
 
-    // Page 3: the RESULTS STATE of the real panel (issue #83 AC #6). Re-render the
-    // harness, type a body-only-match query into the search box, wait for the flat
-    // "N RESULTS" list (the harness echoes a synthetic host searchResults reply), and
-    // capture it. This is the results-state analogue of harness.png.
+    // the RESULTS STATE of the real panel. Re-render the harness, type a
+    // body-only-match query into the search box, wait for the flat "N RESULTS" list (the
+    // harness echoes a synthetic host searchResults reply), and capture it. This is the
+    // results-state analogue of harness.png.
     const harnessResultsPage = await openPage(browser);
     await renderAndCapture(
       harnessResultsPage,
@@ -520,10 +517,10 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-results.png')));
 
-    // Page 6: the CHAT CONTEXT MENU (list state) of the real panel (issue #85 AC #7).
-    // Re-render the harness, dispatch a contextmenu on a chat row, wait for the menu, and
-    // capture the full 320px viewport so the floating menu is in frame. The menu is a
-    // body-level position:fixed node, so this capture is NOT clipped to the tree.
+    // the CHAT CONTEXT MENU (list state) of the real panel. Re-render the
+    // harness, dispatch a contextmenu on a chat row, wait for the menu, and capture the
+    // full 320px viewport so the floating menu is in frame. The menu is a body-level
+    // position:fixed node, so this capture is NOT clipped to the tree.
     const harnessMenuPage = await openPage(browser);
     await renderAndCapture(
       harnessMenuPage,
@@ -572,9 +569,8 @@ async function main() {
       '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu.png')),
     );
 
-    // Page 7: the CREATE-TAG state of the chat context menu (issue #85 AC #2/#7). Open
-    // the menu, click "Create new tag" to switch to the name-input + 8-swatch state, and
-    // capture it.
+    // the CREATE-TAG state of the chat context menu. Open the menu, click "Create
+    // new tag" to switch to the name-input + 8-swatch state, and capture it.
     const harnessNewTagPage = await openPage(browser);
     await renderAndCapture(
       harnessNewTagPage,
@@ -644,10 +640,10 @@ async function main() {
         path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu-newtag.png')),
     );
 
-    // Page 8: the SETTINGS OVERLAY of the real panel (slice s3b-settings-overlay, issue
-    // #86). Open the harness, click the gear to open the in-panel Settings sub-page, wait
-    // for its "Keep chats for" select and the four section switches, and capture the full
-    // 320px viewport (the overlay is position:fixed;inset:0 over the panel).
+    // the SETTINGS OVERLAY of the real panel. Open the harness, click the gear to
+    // open the in-panel Settings sub-page, wait for its "Keep chats for" select and the
+    // four section switches, and capture the full 320px viewport (the overlay is
+    // position:fixed;inset:0 over the panel).
     const harnessSettingsPage = await openPage(browser);
     await renderAndCapture(
       harnessSettingsPage,
@@ -691,11 +687,11 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-settings.png')));
 
-    // Page 10: the ARCHIVE OVERLAY of the real panel (slice s3b-archive-overlay, issue #87).
-    // Open the harness, click the bottom Archived (N) row to open the in-panel Archive
-    // sub-page, wait for its gray-glow search box and the archived rows (the harness echoes a
-    // synthetic archivedRows reply), and capture the full 320px viewport (the overlay is
-    // position:fixed;inset:0 over the panel).
+    // the ARCHIVE OVERLAY of the real panel. Open the harness, click the bottom
+    // Archived (N) row to open the in-panel Archive sub-page, wait for its gray-glow
+    // search box and the archived rows (the harness echoes a synthetic archivedRows
+    // reply), and capture the full 320px viewport (the overlay is position:fixed;inset:0
+    // over the panel).
     const harnessArchivePage = await openPage(browser);
     await renderAndCapture(
       harnessArchivePage,
@@ -739,13 +735,13 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-archive.png')));
 
-    // Page 12: the DRAG DROP-HIGHLIGHT state of the real panel (slice s3c-fidelity-sweep,
-    // issue #88). The .nest-drop-over highlight only paints while a chat drag is in flight
-    // (attachDropTarget's dragover handler is gated on draggingChatIds.length > 0), so this
-    // stage first dispatches a dragstart on a chat row to arm the in-process drag, then a
-    // dragover onto a folder header so the header paints its inset-ring drop target. The
-    // capture is the clipped 320px tree (the highlight is an in-list state, not a body-level
-    // overlay), matching the "clipped tree for in-list states" rule in the fit patch.
+    // the DRAG DROP-HIGHLIGHT state of the real panel. The .nest-drop-over
+    // highlight only paints while a chat drag is in flight (attachDropTarget's dragover
+    // handler is gated on draggingChatIds.length > 0), so this stage first dispatches a
+    // dragstart on a chat row to arm the in-process drag, then a dragover onto a folder
+    // header so the header paints its inset-ring drop target. The capture is the clipped
+    // 320px tree (the highlight is an in-list state, not a body-level overlay), matching
+    // the "clipped tree for in-list states" rule.
     const harnessDropPage = await openPage(browser);
     await renderAndCapture(
       harnessDropPage,
@@ -809,9 +805,9 @@ async function main() {
       '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-drop-highlight.png')),
     );
 
-    // Page 13: the SORT POPOVER (open) state of the real panel (issue #88). Click the sort
-    // button and wait for the popover to un-hide, then capture the full 320px viewport (the
-    // popover is a body-adjacent toolbar overlay, so capture the whole panel like the menus).
+    // the SORT POPOVER (open) state of the real panel. Click the sort button and
+    // wait for the popover to un-hide, then capture the full 320px viewport (the popover
+    // is a body-adjacent toolbar overlay, so capture the whole panel like the menus).
     const harnessSortPage = await openPage(browser);
     await renderAndCapture(
       harnessSortPage,
@@ -854,9 +850,9 @@ async function main() {
     );
     console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-sort-popover.png')));
 
-    // Page 15: the NEW-FOLDER POPOVER (open) state of the real panel (issue #88). Click the
-    // FOLDERS-header + button (openNewFolderPopover) and wait for the popover with its name
-    // input and Create/Cancel actions, then capture the full 320px viewport.
+    // the NEW-FOLDER POPOVER (open) state of the real panel. Click the
+    // FOLDERS-header + button (openNewFolderPopover) and wait for the popover with its
+    // name input and Create/Cancel actions, then capture the full 320px viewport.
     const harnessNewFolderPage = await openPage(browser);
     await renderAndCapture(
       harnessNewFolderPage,
@@ -903,12 +899,10 @@ async function main() {
       '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-newfolder-popover.png')),
     );
 
-    // Page 17: the INLINE FOLDER RENAME state of the real panel (issue #88). Double-click a
-    // folder header (its dblclick handler calls beginRename), wait for the .nest-rename-input
-    // to replace the folder name in place, then capture the clipped 320px tree (an in-list
-    // state). The prototype has no headlessly reproducible rename-input path (verified during
-    // the fit review), so the harness capture is this state's committed baseline; see
-    // DECISIONS.md Slice s3c-fidelity-sweep.
+    // the INLINE FOLDER RENAME state of the real panel. Double-click a folder
+    // header (its dblclick handler calls beginRename), wait for the .nest-rename-input to
+    // replace the folder name in place, then capture the clipped 320px tree (an in-list
+    // state).
     const harnessRenamePage = await openPage(browser);
     await renderAndCapture(
       harnessRenamePage,

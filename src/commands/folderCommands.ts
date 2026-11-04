@@ -12,17 +12,15 @@ import {
 import { assertMintableId } from '../model/idFactory';
 import { FolderItem, ChatMemberItem } from '../views/foldersProvider';
 
-// The Folders-view commands: create (with slash-path expansion), rename, delete,
-// and assign-a-chat-to-a-folder. Every store mutation runs through MetadataStore
-// (the synced ProjectMeta), and the view is refreshed ONCE after the store flush
-// (refresh coalescing, ARCHITECTURE.md).
-//
-// Slash-path expansion (accepted patch, interpretation (b)): typing 'Work/ClientA'
-// in the create command expands into a CHAIN of real parent-child Folder records,
-// reusing any existing segment by (parentId, name) and minting only missing ones.
-// No literal '/' is ever stored in a single Folder.name. The split happens HERE at
-// create time, not at render time, so Folder.parentId stays meaningful for the
-// delete cascade and getParent.
+// The Folders-view commands: create (with slash-path expansion), rename, delete, and
+// assign-a-chat-to-a-folder. Every store mutation runs through MetadataStore (the synced
+// ProjectMeta), and the view is refreshed ONCE after the store flush (refresh
+// coalescing).  Slash-path expansion: typing
+// 'Work/ClientA' in the create command expands into a CHAIN of real parent-child Folder
+// records, reusing any existing segment by (parentId, name) and minting only missing
+// ones. No literal '/' is ever stored in a single Folder.name. The split happens HERE at
+// create time, not at render time, so Folder.parentId stays meaningful for the delete
+// cascade and getParent.
 
 export const CREATE_FOLDER_COMMAND = 'claudeNest.createFolder';
 export const RENAME_FOLDER_COMMAND = 'claudeNest.renameFolder';
@@ -62,17 +60,15 @@ export interface FolderCommandDeps {
   ui: FolderCommandUi;
 }
 
-// Create a folder from a (possibly slash-nested) name. parentFolderItem, when
-// supplied (right-click "New Folder" on a folder row), roots the new chain under
-// that folder. presetName, when supplied (the in-panel "New folder" popover, issue
-// #82 AC3), skips the interactive prompt and uses that name directly; the palette
-// and right-click paths omit it and prompt as before. Returns the leaf folder id,
-// or null when cancelled / no project / nothing creatable under the depth cap.
-//
-// The "one visible sublevel" cap (AC4, MAX_FOLDER_CREATE_DEPTH) is enforced here:
-// creating under a folder already at the max creatable depth is refused with a
-// message, and a deeper slash path is clamped so it can never mint past one
-// sublevel. Existing deeper (legacy) folders are untouched.
+// Create a folder from a (possibly slash-nested) name. parentFolderItem, when supplied
+// (right-click "New Folder" on a folder row), roots the new chain under that folder.
+// presetName, when supplied (the in-panel "New folder" popover), skips the interactive
+// prompt and uses that name directly; the palette and right-click paths omit it and
+// prompt as before. Returns the leaf folder id, or null when cancelled / no project /
+// nothing creatable under the depth cap.  The "one visible sublevel" cap
+// (MAX_FOLDER_CREATE_DEPTH) is enforced here: creating under a folder already at the max
+// creatable depth is refused with a message, and a deeper slash path is clamped so it can
+// never mint past one sublevel. Existing deeper (legacy) folders are untouched.
 export async function createFolder(
   deps: FolderCommandDeps,
   parentFolderItem?: FolderItem,

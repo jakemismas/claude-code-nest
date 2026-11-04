@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 // tagQuickPick: the vscode-bound multi-select tag picker (QuickPick with
-// canPickMany), the PRIMARY tagging affordance per the slice plan. It presents
+// canPickMany), the PRIMARY tagging affordance. It presents
 // every tag with the chat's currently-applied tags pre-picked, lets the user
 // toggle many in one pass, and returns the FINAL selected tag-id set. The command
 // layer (taggingCommands.ts) diffs that set against the current set and stages the
