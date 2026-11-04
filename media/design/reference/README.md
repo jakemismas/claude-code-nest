@@ -42,14 +42,16 @@ and is wider than 640px (see its entry below).
 ## How these are produced and used
 
 `npm run fidelity` (see `scripts/fidelity/`) renders both the design prototype and
-the real org-panel webview asset headlessly and writes fresh screenshots to
-`.claude-working/fidelity/` (gitignored). For each state it writes a `harness-*.png`
-(the REAL shipped panel asset, `media/orgPanel.css` + `media/orgPanel.js`, driven by
-synthetic mock data through `scripts/fidelity/harness.html`) and, for the states the
-prototype can be driven to headlessly, a matching `prototype-*.png` (a fresh clip of
-the design authority).
+the real org-panel webview asset headlessly. For each state it writes a
+`<state>-<theme>.png` (for example `default-light.png`, `rename-dark.png`) into
+`.claude-working/screens/` (gitignored; override with `--out`, and choose the theme
+with `--theme light|dark`). These are the REAL shipped panel asset (`media/orgPanel.css`
++ `media/orgPanel.js`, driven by synthetic mock data through
+`scripts/fidelity/harness.html`). For the states the prototype can be driven to
+headlessly, it also writes a matching light-only `prototype*.png` (a fresh clip of the
+design authority) into `.claude-working/fidelity/` (gitignored), whatever `--out` is.
 
-The reviewer (and the build agent) open each `harness-*.png` beside its baseline in
+The reviewer (and the build agent) open each `<state>-<theme>.png` beside its baseline in
 this directory and eyeball the panel against the handoff. The visual-fidelity review
 lens is exactly this: run the harness, read the images, and judge convergence. Pixel
 diffing is a deliberate non-goal (issue #79); the gate is reviewer-eye plus the human
@@ -59,13 +61,14 @@ check.
 
 Re-capture a baseline only when the prototype itself changes (for a prototype-side
 baseline) or when the shipped asset's chrome for a harness-only state changes
-intentionally (for a harness baseline). Run `npm run fidelity`, then copy the fresh
-capture from `.claude-working/fidelity/` over the matching file here:
+intentionally (for a harness baseline). Run `npm run fidelity -- --theme light`, then copy the fresh
+capture over the matching file here (prototype captures come from
+`.claude-working/fidelity/`, harness captures from `.claude-working/screens/`):
 
-- `prototype.png` -> `prototype-320.png`
-- `prototype-sort-popover.png` -> `sort-popover-320.png`
-- `prototype-newfolder-popover.png` -> `newfolder-popover-320.png`
-- `harness-drop-highlight.png` -> `drop-highlight-320.png`
-- `harness-rename.png` -> `rename-320.png`
+- `.claude-working/fidelity/prototype.png` -> `prototype-320.png`
+- `.claude-working/fidelity/prototype-sort-popover.png` -> `sort-popover-320.png`
+- `.claude-working/fidelity/prototype-newfolder-popover.png` -> `newfolder-popover-320.png`
+- `.claude-working/screens/drop-highlight-light.png` -> `drop-highlight-320.png`
+- `.claude-working/screens/rename-light.png` -> `rename-320.png`
 
 All mock data in the harness is synthetic. No real transcript content is committed.

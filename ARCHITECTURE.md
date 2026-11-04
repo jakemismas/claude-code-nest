@@ -1195,11 +1195,26 @@ visual-fidelity review lens; every UI slice runs it before its review is dry.
   for React to mount, removes the placeholder, and clips the capture to the 320px
   sidebar column (UI-SPEC.md deviation 1), so the reference is a clean panel-only
   frame and never the gray unpack screen.
-- Outputs land in `.claude-working/fidelity/` (gitignored): `harness.png` (the real
-  asset) and `prototype.png` (a fresh prototype render). The frozen baseline is
-  committed at `media/design/reference/prototype-320.png` and is what the lens
-  compares against. Pixel diffing is a deliberate non-goal; the gate is
-  reviewer-eye plus the human check.
+- Flags: `--theme light|dark` (default `light`) and `--out <dir>` (default
+  `.claude-working/screens/`, gitignored). Harness captures are named
+  `<state>-<theme>.png` (for example `default-light.png`, `results-dark.png`), where
+  `<state>` covers `default`, `results`, `context-menu`, `settings`, `archive` and the
+  other staged states. The prototype reference renders (`prototype.png`,
+  `prototype-results.png`, and so on) are light only and stay under
+  `.claude-working/fidelity/` whatever `--out` is. The frozen baseline is committed at
+  `media/design/reference/prototype-320.png` and is what the lens compares against.
+  Pixel diffing is a deliberate non-goal; the gate is reviewer-eye plus the human check.
+- Dark theme: `harness.html` reads `?theme=dark` (appended by `screenshot.js`) and sets
+  `data-theme="dark"` on the root, which opts into a small block of dark `--vscode-*`
+  variables. Light adds nothing, so the light render and the frozen baseline comparison
+  do not shift. Surfaces that follow `--vscode-*` render dark; the hardcoded palette
+  does not change by theme.
+- Integration test host (slice s5a-test-host): the Electron or Code executable
+  resolver lives in `src/test/integration/vscodeExecutable.ts`. It takes an injected
+  fs probe and does not import `@vscode/test-electron`, so `runTest.ts` calls it and
+  `src/test/unit/vscodeExecutable.test.ts` imports it without running `main()` or the
+  downloader under mocha. `npm run test:integration` needs a VS Code download and a
+  display, so it is a human-run step when the unattended gate cannot run it.
 - Packaging boundary: the whole `scripts/**` tree and `media/design/**` (which holds
   the reference images) are excluded from the VSIX via `.vscodeignore`, so neither
   the harness nor the baselines ever reach a user. The installCheck package proof
