@@ -1490,6 +1490,12 @@ body {
   color: var(--vscode-editorWarning-foreground, #A8641B);
 }
 
+html[data-theme='dark'] .nest-organize-problems,
+body.vscode-dark .nest-organize-problems,
+body.vscode-high-contrast .nest-organize-problems {
+  color: var(--vscode-editorWarning-foreground, #E3A45A);
+}
+
 .nest-organize-problems li + li {
   margin-top: 3px;
 }
@@ -1790,7 +1796,7 @@ body {
   border-radius: 6px;
   border: 1px solid var(--nest-border-input);
   background: var(--nest-surface);
-  color: var(--nest-text-secondary);
+  color: var(--nest-text);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
@@ -1869,6 +1875,7 @@ body.vscode-dark,
 body.vscode-high-contrast {
   --nf-wordmark: #E07B3C;
   --nf-branch: #6F6A62;
+  --nf-working: #3DBB6C;
   --nf-done: #6CC58C;
   --nf-idle: #8C867D;
 
@@ -2309,7 +2316,7 @@ html[data-theme='dark'] .rp-v, body.vscode-dark .rp-v, body.vscode-high-contrast
   }
   50% {
     box-shadow: 0 0 0 5px rgba(46, 158, 87, 0);
-    opacity: 0.45;
+    opacity: 0.8;
   }
 }
 
