@@ -1,9 +1,7 @@
 import * as assert from 'assert';
 import { buildOpenUri, openChat, OpenUri } from '../../launch/uriLauncher';
 
-// Pure-logic unit tests for the URI launcher. The opener is injected as a spy;
-// no vscode import. Asserts the verified target
-// vscode://Anthropic.claude-code/open?session=<sessionId>.
+// Unit tests for the URI launcher with a spy opener; the target is vscode://Anthropic.claude-code/open?session=<sessionId>.
 
 const UUID = '3ffbf9b4-9d3a-4c98-8616-10b0bec221e4';
 const BAD_IDS = ['abc_xyz', 'a', 'x', '', 'abcdef12 ', '../abcdef12', 'abcdef12&x=1', 'g'.repeat(16), 'a'.repeat(65)];
@@ -23,8 +21,7 @@ describe('uriLauncher.buildOpenUri', () => {
   });
 
   it('leaves a bare UUID unchanged under standard query encoding', () => {
-    // A UUID has no characters that require percent-encoding, so the encoded
-    // form equals the raw form.
+    // A UUID needs no percent-encoding, so encoded equals raw.
     const id = '00000000-1111-2222-3333-444444444444';
     assert.strictEqual(buildOpenUri(id).query, 'session=' + id);
   });
@@ -36,8 +33,7 @@ describe('uriLauncher.openChat', () => {
     const spy = (uri: OpenUri): void => {
       calls.push(uri);
     };
-    // The sessionId is the .jsonl filename with the extension stripped; the
-    // caller passes that stripped UUID directly.
+    // The caller passes the sessionId already stripped of the .jsonl extension.
     const sessionId = '3ffbf9b4-9d3a-4c98-8616-10b0bec221e4';
     openChat(sessionId, spy);
 

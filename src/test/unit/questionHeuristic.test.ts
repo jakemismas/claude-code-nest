@@ -1,11 +1,8 @@
 import * as assert from 'assert';
 import { asksSomething } from '../../model/questionHeuristic';
 
-// Headless unit tests for the PURE asks-vs-statement heuristic behind the org
-// panel's question badge / Questions section. No vscode import (unit-gate rule).
-// Covers: trailing '?', '?' inside the truncated tail window, input-request phrases
-// with no '?', statement tails that must NOT flag (conservative bias), trailing
-// wrappers around a '?', and garbage/null tolerance.
+// Unit tests for the pure asks-vs-statement heuristic behind the question badge: trailing "?",
+// "?" in a truncated tail, input-request phrases, statements that must not flag, and bad input.
 
 describe('questionHeuristic asksSomething: trailing question mark', () => {
   it('flags a plain trailing question mark', () => {
@@ -25,8 +22,7 @@ describe('questionHeuristic asksSomething: trailing question mark', () => {
 
 describe('questionHeuristic asksSomething: question mark in the truncated tail', () => {
   it('flags a snippet whose question mark is not the very last char (truncated tail)', () => {
-    // A tier-A snippet can be cut mid-sentence AFTER the question, leaving trailing
-    // prose; the '?' still sits within the tail window.
+    // A snippet cut after the question still has the "?" within the tail window.
     assert.strictEqual(
       asksSomething('Which of these do you want? I can start on whichever you pick and'),
       true,
@@ -34,8 +30,7 @@ describe('questionHeuristic asksSomething: question mark in the truncated tail',
   });
 
   it('does NOT flag a question mark buried far before a long statement tail', () => {
-    // A '?' early in a long passage that ENDS as a statement must not trigger: the
-    // tail window excludes the early '?'.
+    // An early "?" in a passage that ends as a statement must not trigger.
     const early = 'Is this right? ' + 'x'.repeat(300) + ' and that is the final summary.';
     assert.strictEqual(asksSomething(early), false);
   });
@@ -85,8 +80,7 @@ describe('questionHeuristic asksSomething: statements must not flag (conservativ
   });
 
   it('does not flag a declarative "confirm that/the ..." statement', () => {
-    // "confirm" heads a statement about what the assistant did/will do, not a request
-    // to the user; the conservative bias must leave these as non-questions.
+    // "confirm" heading a statement about what was done is not a request to the user.
     assert.strictEqual(asksSomething('The tests confirm that the change works.'), false);
     assert.strictEqual(asksSomething('I will confirm the target branch before I push it.'), false);
     assert.strictEqual(asksSomething('The logs confirm that it works.'), false);
@@ -130,10 +124,8 @@ describe('questionHeuristic asksSomething: garbage tolerance', () => {
   });
 
   it('returns quickly on the pathological trim shape: a long run of trailing-trim class chars ending in a non-class char', () => {
-    // Regression for the quadratic-backtracking end-anchored trim regex: a run of
-    // characters from the trim class followed by ONE non-class character made every
-    // run position start a match attempt (measured 16s at 100k chars). The linear
-    // scan plus the function-owned input bound must keep this well under 50ms.
+    // Guards against quadratic backtracking in the trailing trim: a long run of trim characters
+    // followed by one other character must stay well under 50ms.
     const pathological = '"'.repeat(100000) + 'a';
     const start = Date.now();
     const out = asksSomething(pathological);
@@ -151,7 +143,7 @@ describe('questionHeuristic asksSomething: garbage tolerance', () => {
   });
 
   it('still detects a trailing question mark behind a wrapper run within the scan window', () => {
-    // The self-enforced bound must not break the legitimate wrapper-trim behavior.
+    // The input bound must not break legitimate wrapper trimming.
     assert.strictEqual(asksSomething('Shall I proceed?' + '`'.repeat(500)), true);
   });
 });

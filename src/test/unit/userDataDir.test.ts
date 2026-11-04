@@ -1,3 +1,4 @@
+// Unit tests for choosing the integration test user data directory.
 import * as assert from 'assert';
 import * as path from 'path';
 import { integrationUserDataDir } from '../integration/userDataDir';

@@ -1,3 +1,5 @@
+// Unit tests for loading the Nest config, reloading it, and opening the layout file.
+
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';

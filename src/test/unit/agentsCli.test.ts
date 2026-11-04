@@ -1,3 +1,5 @@
+// Unit tests for parsing the claude agents CLI output and the exec runner.
+
 import * as assert from 'assert';
 import { SESSION_ID_RE } from '../../fleet/types';
 import {

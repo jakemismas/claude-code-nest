@@ -7,9 +7,8 @@ import { FleetReloader } from '../../fleet/fleetReloader';
 import { watchFleetFiles } from '../../fleet/fleetWatcher';
 import { FleetState } from '../../fleet/types';
 
-// Runs only in the Extension Development Host (npm run test:integration). It proves
-// a line appended to a watched fleet file reaches the fleet state through the real
-// vscode file watcher and the debounced reloader.
+// Runs only in the Extension Development Host (npm run test:integration). A line appended to a watched
+// fleet file must reach the fleet state through the real file watcher and the debounced reloader.
 
 const A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const B = 'bbbbbbbb-0000-0000-0000-000000000002';

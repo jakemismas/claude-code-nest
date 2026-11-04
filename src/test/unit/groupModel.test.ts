@@ -1,3 +1,5 @@
+// Unit tests for the fleet group model: tickets, folders, date and auto modes, ids and attachable rows.
+
 import * as assert from 'assert';
 import {
   FleetSections,

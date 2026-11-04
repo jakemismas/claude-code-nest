@@ -1,3 +1,5 @@
+// Unit tests for the star badge on folder-member and tag-occurrence chat rows.
+
 // vscodeStub MUST be imported first so require('vscode') resolves before the
 // provider modules' transitive import of vscode (TreeItem/EventEmitter/ThemeIcon)
 // runs under the headless runner.
@@ -12,14 +14,7 @@ import { FakeMemento } from './fakeMemento';
 import { FoldersProvider, ChatMemberItem } from '../../views/foldersProvider';
 import { TagsProvider, ChatOccurrenceItem } from '../../views/tagsProvider';
 
-// Headless unit tests for the star BADGE on the kept chat-row node builders (folders
-// members, tags occurrences). The flat Chats tree that also carried the badge was retired
-// in; FoldersProvider and TagsProvider remain as non-view services whose node shapes are
-// still consumed by programmatic command callers, so their badge rendering stays pinned
-// here. These tests pin the badge to the SYNCED ChatMeta.starred flag: a starred row
-// shows star-full, an unstarred row shows the default comment-discussion icon. Runs
-// against scratch transcript fixtures (NEVER the real ~/.claude files) plus a real
-// MetadataStore.
+// The badge follows the synced ChatMeta.starred flag: starred rows show star-full, others the default icon.
 
 const DEVICE = 'dev-starbadge';
 const PK = 'c--Users-Tester-starbadge';

@@ -1,73 +1,36 @@
 import { TokenTotals } from '../model/types';
 import { ProjectMeta } from '../store/schema';
 
-// PURE, vscode-free token-cost rollup reducers. They
-// sum each chat's summary tokenTotals by folder and by tag. tokens only, NO USD
-// . The reducer NEVER reads the provider: the caller passes a plain
-// {chatId -> TokenTotals} map (surfaced from the provider's full ChatRecords via the
-// narrow tokenTotalsByChat seam) plus the ProjectMeta membership, keeping this module
-// headless-testable.
-//
-// THE COUNTING RULE (asserted in tokenRollup.test.ts):
-//  - by FOLDER: a chat counts ONCE, in its SINGLE home folder. A chat with no folder
-//    (folderId null/absent, or a folderId that no longer resolves) counts in the
-//    synthetic UNFILED bucket. Every chat lands in exactly one folder bucket, so the
-//    per-folder totals PARTITION the library: summing all folder buckets equals the
-//    library total.
-//  - by TAG: a chat counts ONCE per EACH of its tags. A chat with no tags counts in
-//    the synthetic UNTAGGED bucket. A MULTI-TAG chat adds its full token total to
-//    EVERY one of its tag buckets, so the per-tag totals are INTENTIONALLY NOT a
-//    partition: summing all tag buckets can EXCEED the library total when chats are
-//    multi-tagged. This is by design (a chat's cost is attributable to each of its
-//    tags), not a bug; the surface labels the tag rollup so it does not read as one.
-//    Only an UNTAGGED chat contributes to the untagged bucket, and an untagged chat
-//    has no tag bucket, so the untagged bucket never double-counts.
-//
-// Token total per chat is the sum of the four trusted summary counts (input + output +
-// cacheCreation + cacheRead). A chat absent from the token map contributes 0 (it is
-// still counted as a member so the bucket's chatCount is honest).
+// Pure reducers that sum each chat's summary token totals by folder and by tag (tokens only, no USD).
+// By folder a chat counts once (no folder or a stale id goes to Unfiled); by tag it counts once per tag, so tag totals can exceed the library total.
+// A chat missing from the token map counts as a member with 0 tokens.
 
-// The synthetic bucket keys for chats with no folder / no tags. These are display
-// keys, not stored ids; the surface renders them as "Unfiled" / "Untagged".
+// Display keys for the synthetic buckets, rendered as Unfiled and Untagged; not stored ids.
 export const UNFILED_BUCKET_KEY = '__unfiled__';
 export const UNTAGGED_BUCKET_KEY = '__untagged__';
 
-// One rollup row: a bucket (a folder/tag, or the synthetic unfiled/untagged), the
-// number of member chats counted into it, and their summed token total.
 export interface RollupBucket {
-  // The display label (the folder name, the tag label, or "Unfiled"/"Untagged").
   label: string;
-  // The number of chats counted into this bucket.
   chatCount: number;
-  // The summed token total across this bucket's chats (tokens only).
   tokenTotal: number;
-  // True for the synthetic unfiled/untagged bucket so the surface can style it.
   synthetic: boolean;
 }
 
-// The full rollup result: the per-bucket rows (sorted by tokenTotal desc, then label
-// asc for stability) plus the library-wide totals. libraryTokenTotal is the honest
-// partition total (each counted chat once); for the by-tag rollup it can be LESS than
-// the sum of the tag buckets when chats are multi-tagged (see the counting rule).
+// Rollup rows sorted by token total descending, then label. libraryTokenTotal counts each chat once, so by-tag rows can sum past it.
 export interface RollupResult {
   buckets: RollupBucket[];
   libraryChatCount: number;
   libraryTokenTotal: number;
 }
 
-// The set of chats the rollup ranges over, with their token totals. chatIds is the
-// authoritative member set (the scanned chats); tokensByChat supplies each chat's
-// summary total (a chat absent from the map contributes 0). meta carries the folder
-// and tag membership and the folder/tag label resolution. now is unused here (the
-// rollup is timeless); kept out of the signature deliberately.
+// Chats the rollup ranges over: chatIds is the member set, tokensByChat their totals (absent counts 0), meta supplies membership and labels.
 export interface RollupInput {
   chatIds: readonly string[];
   tokensByChat: ReadonlyMap<string, TokenTotals>;
   meta: ProjectMeta;
 }
 
-// Roll up token cost by folder. Each chat counts ONCE in its single home folder (or
-// the synthetic Unfiled bucket). The per-folder totals partition the library.
+// Roll up by folder: each chat counts once, in its home folder or Unfiled.
 export function rollupByFolder(input: RollupInput): RollupResult {
   const buckets = new Map<string, { label: string; chatCount: number; tokenTotal: number; synthetic: boolean }>();
   let libraryTokenTotal = 0;
@@ -78,9 +41,7 @@ export function rollupByFolder(input: RollupInput): RollupResult {
     libraryTokenTotal += tokens;
     libraryChatCount++;
 
-    // A folderId that is null/absent OR no longer resolves to a stored folder falls
-    // back to the synthetic Unfiled bucket, so every chat lands in exactly one folder
-    // bucket and the per-folder totals partition the library.
+    // A null or unresolvable folderId falls back to Unfiled.
     const folderKey = resolveFolderKey(input.meta, chatId);
     const resolved = input.meta.folders[folderKey];
     const bucketKey = resolved !== undefined ? folderKey : UNFILED_BUCKET_KEY;
@@ -91,9 +52,7 @@ export function rollupByFolder(input: RollupInput): RollupResult {
   return finalize(buckets, libraryChatCount, libraryTokenTotal);
 }
 
-// Roll up token cost by tag. Each chat counts ONCE per EACH of its tags; an untagged
-// chat counts in the synthetic Untagged bucket. The per-tag totals are intentionally
-// NOT a partition (a multi-tag chat's tokens add to every tag bucket).
+// Roll up by tag: a chat counts once per tag, and an untagged chat in Untagged.
 export function rollupByTag(input: RollupInput): RollupResult {
   const buckets = new Map<string, { label: string; chatCount: number; tokenTotal: number; synthetic: boolean }>();
   let libraryTokenTotal = 0;
@@ -109,9 +68,7 @@ export function rollupByTag(input: RollupInput): RollupResult {
       addToBucket(buckets, UNTAGGED_BUCKET_KEY, 'Untagged', tokens, true);
       continue;
     }
-    // A multi-tag chat adds its full total to EACH tag bucket. Dedupe the chat's own
-    // tag ids first so a chat tagged with the same id twice (malformed data) is not
-    // counted twice in the same bucket.
+    // Dedupe the chat's tag ids so a repeated id does not double-count in one bucket.
     const seen = new Set<string>();
     for (const tagId of tagIds) {
       if (seen.has(tagId)) {
@@ -120,9 +77,7 @@ export function rollupByTag(input: RollupInput): RollupResult {
       seen.add(tagId);
       const tag = input.meta.tags[tagId];
       if (tag === undefined) {
-        // A tag id that no longer resolves: skip it. If a chat's only tag ids all
-        // fail to resolve it is effectively untagged, but it has already been
-        // counted into libraryChatCount; it simply contributes to no tag bucket.
+        // Skip a tag id that no longer resolves.
         continue;
       }
       addToBucket(buckets, tagId, tag.label, tokens, false);
@@ -141,9 +96,7 @@ function totalFor(totals: TokenTotals | undefined): number {
   return totals.input + totals.output + totals.cacheCreation + totals.cacheRead;
 }
 
-// The folder bucket KEY for a chat: its stored folderId, or the synthetic unfiled
-// sentinel when it has none. (Whether the id resolves to a real folder is decided by
-// the caller; a stale id is mapped to Unfiled there.)
+// The folder bucket key: the stored folderId, or the unfiled sentinel; the caller maps stale ids to Unfiled.
 function resolveFolderKey(meta: ProjectMeta, chatId: string): string {
   const chat = meta.chats[chatId];
   const folderId = chat ? chat.folderId : null;
@@ -177,7 +130,7 @@ function addToBucket(
   existing.tokenTotal += tokens;
 }
 
-// Sort buckets by tokenTotal desc, then label asc for a stable, deterministic order.
+// Sort by token total descending, then label, for a deterministic order.
 function finalize(
   buckets: Map<string, { label: string; chatCount: number; tokenTotal: number; synthetic: boolean }>,
   libraryChatCount: number,

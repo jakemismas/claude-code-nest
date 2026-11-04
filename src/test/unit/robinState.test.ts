@@ -1,3 +1,4 @@
+// Unit tests for the robin state machine: states, priority, notes and still markers.
 import * as assert from 'assert';
 import {
   INITIAL_ROBIN_MEMORY,

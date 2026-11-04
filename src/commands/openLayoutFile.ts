@@ -1,5 +1,5 @@
-// "Nest: Open Layout File". vscode-free: the editor and filesystem are injected. Nest
-// writes nothing: a missing file opens as an untitled editor at the .nest/config.json path that the user saves themselves.
+// "Nest: Open Layout File". The editor and filesystem are injected.
+// Nest writes nothing: a missing file opens as an untitled editor at the .nest/config.json path for the user to save.
 import { nestConfigPath } from '../fleet/configSource';
 
 export const OPEN_LAYOUT_FILE_COMMAND = 'claudeNest.openLayoutFile';

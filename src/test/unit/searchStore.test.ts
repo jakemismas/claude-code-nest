@@ -1,5 +1,4 @@
-// vscodeStub MUST be imported first so require('vscode') resolves before
-// searchStore's transitive import of exportIO (which imports 'vscode') runs.
+// Import vscodeStub first so require('vscode') resolves before searchStore loads exportIO.
 import './vscodeStub';
 import { vscodeHarness } from './vscodeStub';
 
@@ -19,16 +18,10 @@ import {
   claudeProjectsRoot,
 } from '../../store/exportPathGuard';
 
-// Headless tests for the vscode-THIN search-index store (src/search/searchStore.ts).
-// The store persists/loads ONLY through exportIO (vscode.workspace.fs, stubbed
-// here) against a globalStorage Uri, never under ~/.claude/projects, and never as
-// a synced globalState key. The guard test reuses exportPathGuard (the same guard
-// every exportIO write runtime-asserts) to prove the target resolves under
-// globalStorage and that a projects-path target is rejected.
+// Tests for the vscode-thin search-index store (src/search/searchStore.ts). It persists and loads only
+// through exportIO against a globalStorage Uri, never under ~/.claude/projects or as a synced key.
 
-// A stub Uri matching the shape the vscodeStub builds (Uri.joinPath joins fsPath
-// segments with '/'). globalStorageUri in the real host is a file Uri; here we
-// just need fsPath + scheme for the stub.
+// Stub Uri matching the vscodeStub shape: fsPath and scheme are all the store needs.
 function uri(fsPath: string): { fsPath: string; scheme: 'file' } {
   return { fsPath, scheme: 'file' };
 }
@@ -90,7 +83,6 @@ describe('searchStore.persistTierAIndex', () => {
       STORAGE + '/search/nest-search-index.v1.json',
       'index written under <globalStorage>/search/',
     );
-    // The search dir is created before the write (ensureDirectory).
     assert.ok(
       vscodeHarness.createdDirs.includes(STORAGE + '/search'),
       'the search dir is created first',
@@ -103,14 +95,12 @@ describe('searchStore.persistTierAIndex', () => {
     const env = JSON.parse(body) as { version: number; index: unknown };
     assert.strictEqual(env.version, 1, 'a schema version rides the envelope');
     assert.ok(env.index !== undefined && env.index !== null, 'the serialized index is present');
-    // The records carry no body in tier-A docs, so no body text can appear.
-    // (Sanity: the title token is present somewhere in the serialized index.)
+    // Tier-A docs carry no body, so no body text can appear in the serialized index.
     assert.ok(body.includes('refactor') || body.includes('Refactor') || body.length > 0);
   });
 
   it('swallows a write failure (best-effort: never throws, leaves no file)', async () => {
     vscodeHarness.writeErrors.add(STORAGE + '/search/nest-search-index.v1.json');
-    // Must resolve, not reject.
     await persistTierAIndex(uri(STORAGE) as never, records);
     assert.strictEqual(vscodeHarness.writes.length, 0, 'the failed write recorded nothing');
   });
@@ -121,8 +111,6 @@ describe('searchStore.loadOrRebuildTierAIndex', () => {
 
   it('round-trips: a persisted index loads and searches identically', async () => {
     await persistTierAIndex(uri(STORAGE) as never, records);
-    // The stub keeps written files in its in-memory map, so the load reads back
-    // what persist wrote.
     const index = await loadOrRebuildTierAIndex(uri(STORAGE) as never, []);
     const hits = search(index, 'tags');
     assert.ok(
@@ -132,19 +120,15 @@ describe('searchStore.loadOrRebuildTierAIndex', () => {
   });
 
   it('the warm-loaded index carries TIER-A tokens but no body token', async () => {
-    // The provider's warm start (chatsPreviewWebview phase 1) loads this persisted
-    // index and answers the first query off it BEFORE any body is read. That is
-    // only honest if the persisted index never carried body text: a body-only term
-    // must not match the warm index, while a tier-A term must.
+    // The warm start loads this persisted index and answers the first query before any body is read, so the
+    // persisted index must carry no body text: a body-only term must not match, a tier-A term must.
     await persistTierAIndex(uri(STORAGE) as never, records);
     const warm = await loadOrRebuildTierAIndex(uri(STORAGE) as never, []);
-    // 'parser' lives in record a's TITLE (tier-A) -> matches.
     assert.ok(
       search(warm, 'parser').some((h) => h.sessionId === 'a'),
       'a tier-A term matches the warm-loaded index',
     );
-    // A term that could only have come from a chat BODY was never persisted, so it
-    // cannot match the warm index (the provider upgrades to bodies in phase 2).
+    // A body-only term was never persisted, so it cannot match the warm index.
     assert.strictEqual(
       search(warm, 'zzqxbodyonly').length,
       0,
@@ -153,7 +137,6 @@ describe('searchStore.loadOrRebuildTierAIndex', () => {
   });
 
   it('rebuilds in memory from records when no persisted file exists', async () => {
-    // No persist call: the read fails (ENOENT) and the store rebuilds from records.
     const index = await loadOrRebuildTierAIndex(uri(STORAGE) as never, records);
     const hits = search(index, 'parser');
     assert.ok(
@@ -185,27 +168,22 @@ describe('searchStore.loadOrRebuildTierAIndex', () => {
       JSON.stringify({ version: 1, index: { bogus: true } }),
     );
     const index = await loadOrRebuildTierAIndex(uri(STORAGE) as never, records);
-    // Either loadJSON tolerates it or the catch rebuilds; either way search works.
     const hits = search(index, 'parser');
     assert.ok(Array.isArray(hits), 'load is total and never throws');
   });
 });
 
-// The GUARD test: the store target resolves under globalStorage, and the same
-// guard every exportIO write runs (assertNotUnderClaudeProjects) rejects a
-// pathological globalStorage that points into ~/.claude/projects/.
+// The store target resolves under globalStorage, and the guard every exportIO write runs
+// (assertNotUnderClaudeProjects) rejects a globalStorage that points into ~/.claude/projects/.
 describe('searchStore target is guarded under globalStorage, never under ~/.claude/projects', () => {
   it('the index file path resolves under the given globalStorage dir', () => {
     const fsPath = indexFilePath(uri(STORAGE) as never);
     assert.strictEqual(fsPath, STORAGE + '/search/nest-search-index.v1.json');
-    // It is NOT under the projects root.
     assert.doesNotThrow(() => assertNotUnderClaudeProjects(fsPath));
   });
 
   it('assertNotUnderClaudeProjects THROWS for a target under ~/.claude/projects (reused guard)', () => {
-    // Pathological: a host (or a buggy caller) hands a globalStorageUri that points
-    // inside the sacred transcript tree. The same guard exportIO runs before every
-    // write rejects it, so no index write can land on a transcript.
+    // A globalStorageUri inside the transcript tree must be rejected before any write.
     const projectsStorage = uri(path.join(claudeProjectsRoot(), 'c--proj'));
     const fsPath = indexFilePath(projectsStorage as never);
     assert.throws(
@@ -218,8 +196,7 @@ describe('searchStore target is guarded under globalStorage, never under ~/.clau
   it('persistTierAIndex aimed under ~/.claude/projects writes NOTHING (the guard fires inside exportIO)', async () => {
     vscodeHarness.reset();
     const projectsStorage = uri(path.join(claudeProjectsRoot(), 'c--proj'));
-    // persistTierAIndex is best-effort: the exportIO guard throws inside, the
-    // store swallows it, and no write is recorded.
+    // persistTierAIndex is best-effort: the guard throws inside, the store swallows it, and no write is recorded.
     await persistTierAIndex(projectsStorage as never, records);
     assert.strictEqual(
       vscodeHarness.writes.length,

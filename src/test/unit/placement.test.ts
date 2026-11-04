@@ -1,3 +1,4 @@
+// Unit tests for folder placement precedence and automatic date grouping.
 import * as assert from 'assert';
 import { AUTO_GROUP_PREFIX, PlacementInput, dateBucketIndex, resolvePlacement } from '../../fleet/placement';
 

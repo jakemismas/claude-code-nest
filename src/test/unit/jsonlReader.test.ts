@@ -1,8 +1,7 @@
+// Unit tests for the tolerant, line-type-driven transcript reader.
+
 import * as assert from 'assert';
 import { scanTranscript, resolveTitle } from '../../claude/jsonlReader';
-
-// Pure-logic unit tests for the tolerant, line-type-driven transcript reader.
-// No filesystem and no vscode import; the reader operates on raw JSONL text.
 
 function jsonl(...objs: unknown[]): string {
   return objs.map((o) => JSON.stringify(o)).join('\n');

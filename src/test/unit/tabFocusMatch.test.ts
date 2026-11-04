@@ -1,9 +1,8 @@
 import * as assert from 'assert';
 import { matchTabLabelToChat, isClaudeChatViewType } from '../../views/tabFocusMatch';
 
-// Headless unit tests for the pure named-tab-focus matcher. No vscode import
-// (unit-gate rule). Covers the unique-match rule, the ambiguity refusal, unnamed/empty
-// labels, trimming, and the Claude viewType detection.
+// Unit tests for the pure named-tab-focus matcher: unique match, ambiguity refusal, unnamed or empty
+// labels, trimming, and Claude viewType detection.
 
 const RECORDS = [
   { sessionId: 's1', title: 'Refactor auth middleware' },

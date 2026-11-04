@@ -3,11 +3,8 @@ import { TokenTotals } from '../../model/types';
 import { ProjectMeta } from '../../store/schema';
 import { TokenRollupDeps, showTokenRollup } from '../../commands/tokenRollupCommand';
 
-// Headless unit tests for the token-rollup command orchestrator. vscode-free: it takes
-// injected seams for the snapshot inputs and the document open, so the report content is
-// the reducer + renderer output (covered in tokenRollup.test.ts) and this test asserts
-// the orchestration: open the report when there is data, surface a notice when there is
-// none, and never throw.
+// Unit tests for the token-rollup command orchestrator, with injected snapshot and document-open seams:
+// it opens the report when there is data, shows a notice when there is none, and never throws.
 
 const DEVICE = 'dev-rollup-cmd';
 const NOW = 1_700_000_000_000;

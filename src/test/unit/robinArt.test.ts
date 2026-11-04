@@ -1,3 +1,4 @@
+// Unit tests for the robin art webview script, loaded in a vm sandbox.
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';

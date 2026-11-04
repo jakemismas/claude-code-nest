@@ -1,14 +1,9 @@
-// Orchestration-level tests for importLibrary (the command, not its replayed
-// internals). The pure pieces (validateEnvelope -> migrateEnvelope ->
-// buildImportPlan) and the validate-before-swap SEQUENCE are covered by
-// exportImportStore.test.ts; this file covers the COMMAND's own apply loop and the
-// POST-FLUSH per-project shadow finalize (exportImportCommands.ts lines 173-195),
-// whose inline comment warns that without it "the very next window-focus poll would
-// misclassify the just-imported state as a FOREIGN write, re-run the merge, and
-// re-show the LWW warning a second time after a normal restore."
+// Tests for the importLibrary command apply loop and its post-flush shadow finalize.
+
+// Pure pieces and the validate-before-swap sequence are covered by exportImportStore.test.ts.
+// Without the shadow finalize, the next window-focus poll would misread the import as a foreign write and re-warn.
 //
-// vscodeStub MUST be imported first so require('vscode') resolves before the
-// command module's top-level import runs.
+// vscodeStub MUST be imported first so require('vscode') resolves before the command module loads.
 import './vscodeStub';
 import { vscodeHarness } from './vscodeStub';
 
@@ -105,12 +100,8 @@ describe('importLibrary orchestration (apply loop + post-flush shadow finalize)'
   });
 
   it('finalizes the shadow so a follow-up focus reconcile does NOT re-fire the LWW toast', async () => {
-    // Two machines disagree on a chat's folder. The import file is NEWER, so on
-    // import its folder wins and the same-scalar conflict is recorded -> one LWW
-    // toast at import time. The regression guarded here: the apply loop's
-    // post-flush shadow finalize (lines 189-195) must stamp the shadow from the
-    // RE-STAMPED live value, so the immediate next reconcile (window focus) sees
-    // the live value equal to the shadow and stays silent.
+    // The import file is newer, so its folder wins and one LWW toast fires. The shadow must be stamped from the re-stamped
+    // live value, so the next reconcile on window focus stays silent.
     const mem = new FakeMemento();
     mem.seed(
       metaKeyFor('c--proj'),

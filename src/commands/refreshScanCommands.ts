@@ -1,28 +1,14 @@
 import { ScannerOptions } from '../claude/chatScanner';
 
-// The explicit refresh/scan command path that wraps a transcript scan in a cancellable
-// progress notification. This is DELIBERATELY separate from the passive
-// getChildren/getParent path: those stay synchronous and read the provider's memoized
-// snapshot. Here, an explicit user-driven Refresh primes the provider snapshot under
-// vscode.window.withProgress with a CancellationToken, THEN fires onDidChangeTreeData
-// once, so the host re-renders from the freshly primed (synchronous) snapshot.  The
-// provider seam is ScanPrimable.primeSnapshot(scanOptions): the provider clears its
-// cached snapshot and rebuilds it ONCE with the supplied plain-callback scan options
-// (onProgress/shouldCancel from chatScanner.ScannerOptions), then refreshes. The scanner
-// stays vscode-free; this module is the only place the CancellationToken and the progress
-// UI touch the scan.
+// Explicit Refresh command: primes the provider snapshot under a cancellable progress notification, then fires one tree change.
+// Passive getChildren and getParent stay synchronous over the memoized snapshot; only this module touches CancellationToken.
 
-// A provider that can be primed by an explicit progress-wrapped scan. Implemented
-// by the four view providers. primeSnapshot rebuilds the memoized snapshot once
-// with the supplied scan options (progress + cancellation) and then fires its
-// change event so the passive getChildren reads the primed snapshot.
+// A provider that primeSnapshot can rebuild once with progress and cancellation options, then refresh.
 export interface ScanPrimable {
   primeSnapshot(scanOptions: ScannerOptions): void;
 }
 
-// The vscode UI seam, injected so the command logic stays headless-testable. The
-// real wiring (extension.ts) supplies vscode.window.withProgress and the toast
-// surface; a unit test can supply plain stand-ins.
+// The vscode UI seam, injected so the command logic runs without vscode.
 export interface RefreshScanUi {
   // Run work under a cancellable progress indicator. The work receives a report
   // callback (done/total -> a percentage increment) and a cancellation probe.
@@ -33,23 +19,18 @@ export interface RefreshScanUi {
       isCancelled: () => boolean,
     ) => Promise<void> | void,
   ): Promise<void>;
-  // Surface a non-blocking error. Worded so it never blames Claude (the scan reads
-  // Claude's transcripts read-only; a failure here is Nest's own scan, not Claude).
+  // Surface a non-blocking error that does not blame Claude (the scan is Nest's own and read-only).
   showError(message: string): void;
 }
 
 export interface RefreshScanDeps {
   provider: ScanPrimable;
   ui: RefreshScanUi;
-  // The view's human label for the progress title (for example 'chats',
-  // 'folders'). Kept generic so one helper serves every view.
+  // The view's label for the progress title, for example 'chats'.
   scanLabel: string;
 }
 
-// Run an explicit, cancellable, progress-reported refresh: prime the provider
-// snapshot under a progress indicator, polling the cancellation token before each
-// file and reporting per-file progress. A failure NEVER throws out to the host and
-// is surfaced through a toast worded so it never attributes the failure to Claude.
+// Run a cancellable, progress-reported refresh. A failure never throws to the host; a toast reports it without blaming Claude.
 export async function refreshWithProgress(deps: RefreshScanDeps): Promise<void> {
   const title = 'Scanning ' + deps.scanLabel + '...';
   try {
@@ -58,14 +39,11 @@ export async function refreshWithProgress(deps: RefreshScanDeps): Promise<void> 
         onProgress: (done, total) => report(done, total),
         shouldCancel: () => isCancelled(),
       };
-      // primeSnapshot performs the synchronous scan with these callbacks and caches
-      // the result; the subsequent passive getChildren reads it without rescanning.
+      // primeSnapshot scans synchronously with these callbacks and caches the result.
       deps.provider.primeSnapshot(scanOptions);
     });
   } catch {
-    // The scan is read-only over Nest's own view of the transcripts; a failure is
-    // Nest's, never Claude's. Worded accordingly (telemetry-free: nothing is
-    // reported anywhere but this local toast).
+    // A failure here is Nest's own scan, never Claude's; the toast is the only report.
     deps.ui.showError(
       'Claude Code Nest could not finish scanning ' +
         deps.scanLabel +

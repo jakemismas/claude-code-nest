@@ -1,54 +1,24 @@
-// folderTree: the PURE model behind the Folders view. It owns slash-path
-// expansion (a slash name expands into a CHAIN of real
-// parent-child Folder records, never a literal '/' inside one Folder.name), the
-// single-home assembly of a nested tree from flat Folder records, the synthetic
-// Unfiled bucket, and the composite-id grammar for chat member nodes.
-//
-// This module is vscode-free (build contract): no vscode import, no filesystem.
-// The view layer (foldersProvider.ts) renders the structures produced here into
-// TreeItems and memoizes node objects; this module produces only plain data.
-//
-// Composite-id grammar:
-//   chat member node id = `${folderId}#${chatId}`
-// folderId is separator-free (minted by idFactory or the '__unfiled__' sentinel)
-// and chatId is a separator-free UUID, so the id splits unambiguously on the
-// FIRST '#' back to its owning folder id. getParent for a chat node recovers
-// exactly that one owning folder id.
+// Pure model for the Folders view: slash-path expansion into real parent-child Folder
+// records, single-home tree assembly, the synthetic Unfiled bucket, and the chat node id
+// `${folderId}#${chatId}`. No vscode dependency, so the unit suite runs headless.
 
 import { Folder } from '../store/schema';
 import { mintFolderId } from './idFactory';
 
-// The Folders-view synthetic bucket for every chat with no home folder (ChatMeta.folderId
-// null or absent). The sentinel mirrors the '__untagged__' convention and is excluded
-// from the id factory's mintable space (idFactory.RESERVED_SENTINELS), so a real folder
-// can never collide with it.
+// Sentinel for chats with no home folder; it is outside the id factory's mintable space.
 export const UNFILED_FOLDER_ID = '__unfiled__';
 export const UNFILED_LABEL = 'Unfiled';
 
-// The path separator used when a user types a nested folder name. 'Work/ClientA'
-// expands into a Work folder (parentId null) with a ClientA child.
+// Separator for nested folder names: 'Work/ClientA' becomes Work with a ClientA child.
 export const FOLDER_PATH_SEPARATOR = '/';
 
-// Folder-depth caps for the "one visible sublevel" design. Depth is the 0-based nesting depth: a root is 0,
-// its direct child is 1, a grandchild is 2.
-//
-// - MAX_FOLDER_CREATE_DEPTH bounds what the UI CREATES: at most one level of
-//   subfolders, so a newly created leaf folder may sit at depth 1 (a top folder or
-//   its direct child) but never deeper. createFolder enforces this so a slash path
-//   or a right-click-under-a-child cannot mint a depth-2 folder.
-// - MAX_FOLDER_RENDER_DEPTH bounds how DEEP a folder RENDERS: deeper legacy folders
-//   (created before this cap, or arriving via sync from an older client) still
-//   render, clamped to depth 2, and their stored parentId chain is NEVER modified
-//   or lost. The clamp is applied only to the emitted section depth, never to the
-//   data. Render tolerance (2) is one deeper than the create cap (1) so a legacy
-//   grandchild is visible at the 47px tier rather than hidden or destroyed.
+// Depths are 0-based: a root is 0, its direct child is 1.
+// Creation allows one sublevel. Rendering tolerates one level deeper so legacy or synced
+// deeper folders stay visible; the clamp applies to display only and never alters parentId.
 export const MAX_FOLDER_CREATE_DEPTH = 1;
 export const MAX_FOLDER_RENDER_DEPTH = 2;
 
-// Clamp a folder's nesting depth to the render cap (MAX_FOLDER_RENDER_DEPTH) for
-// display. A deeper legacy folder is shown at the cap; its actual depth in the
-// stored hierarchy is untouched (this only affects the indent the UI paints).
-// Negative inputs (a corrupt depth) clamp up to 0. Pure and total.
+// Clamps display depth to MAX_FOLDER_RENDER_DEPTH; a negative or non-finite depth becomes 0.
 export function clampFolderDepth(depth: number): number {
   if (!Number.isFinite(depth) || depth < 0) {
     return 0;
@@ -56,11 +26,8 @@ export function clampFolderDepth(depth: number): number {
   return depth > MAX_FOLDER_RENDER_DEPTH ? MAX_FOLDER_RENDER_DEPTH : depth;
 }
 
-// The 0-based depth of a folder id in the stored hierarchy, walking parentId to a
-// root. Bounded against a corrupt cyclic parent chain by a visited set (a cycle
-// terminates and returns the count so far). An id absent from the map is treated as
-// a root (depth 0). Used by createFolder to enforce MAX_FOLDER_CREATE_DEPTH from a
-// right-click parent without re-deriving the whole tree.
+// 0-based depth of a folder in the stored hierarchy. A visited set stops a corrupt cyclic
+// parent chain; an unknown id counts as a root.
 export function folderDepthOf(
   folders: { [id: string]: Folder },
   folderId: string | null,
@@ -84,26 +51,21 @@ export function folderDepthOf(
   return depth;
 }
 
-// One node in the assembled folder hierarchy. A folder node carries its Folder
-// record and its child folder nodes plus the ids of the chats homed directly in
-// it. The Unfiled bucket is represented as a folder node with id
-// UNFILED_FOLDER_ID and a null record (it has no stored Folder).
+// A folder node with its child folders and the chats homed directly in it. The Unfiled
+// bucket is a node with id UNFILED_FOLDER_ID and a null folder.
 export interface FolderNode {
   id: string;
   name: string;
   parentId: string | null;
-  // The stored Folder this node renders, or null for the synthetic Unfiled node.
+  // Null for the synthetic Unfiled node.
   folder: Folder | null;
-  // Whether this is the synthetic Unfiled bucket.
   synthetic: boolean;
   childFolders: FolderNode[];
-  // sessionIds of chats homed directly under this folder (not under a child).
+  // Chats homed directly here, not under a child.
   chatIds: string[];
 }
 
-// Split a folder path into its non-empty trimmed segments. 'Work / ClientA /'
-// yields ['Work', 'ClientA']. Empty or whitespace-only segments are dropped, so
-// leading/trailing/double slashes do not create blank folders.
+// Splits a path into trimmed non-empty segments, so stray slashes create no blank folders.
 export function splitFolderPath(rawPath: string): string[] {
   return rawPath
     .split(FOLDER_PATH_SEPARATOR)
@@ -111,44 +73,23 @@ export function splitFolderPath(rawPath: string): string[] {
     .filter((segment) => segment.length > 0);
 }
 
-// One folder record to upsert as part of a slash-path expansion. mintNew is true
-// when this segment did not already exist and a fresh id was minted for it;
-// false when an existing folder was reused. The caller persists only the records
-// (existing ones are already in the store, but re-upserting them is harmless and
-// idempotent).
+// One record from a slash-path expansion; mintNew is false when an existing folder was
+// reused.
 export interface ExpandedSegment {
   folder: Folder;
   mintNew: boolean;
 }
 
-// The result of expanding a slash path against the existing folders: the ordered
-// chain of segment records (root first) and the leaf folder id (the deepest
-// segment), which becomes the assignment target / newly-created folder. When the
-// path has no usable segments, leafFolderId is null and chain is empty.
+// The segment chain, root first, and the leaf folder id (null when the path has no segments).
 export interface ExpandResult {
   chain: ExpandedSegment[];
   leafFolderId: string | null;
 }
 
-// Expand a slash path into a chain of real parent-child Folder records, reusing
-// any existing segment matched by (parentId, name) and minting a new Folder only
-// for a missing segment. This is the create-time expansion:
-// 'Work/ClientA' against an empty store yields two records (Work parentId=null,
-// ClientA parentId=Work.id); run again it reuses both and mints nothing.
-//
-// existing is the flat map of stored folders (ProjectMeta.folders). orderFor
-// supplies the `order` for a newly minted sibling (defaults to an
-// append-at-end-of-siblings count). mint supplies ids (defaults to the id
-// factory; injectable for deterministic tests). startParentId roots the
-// expansion under a KNOWN parent folder id rather than at the top level: a
-// right-click "New Folder" on a folder row passes that folder's authoritative id
-// so the new chain hangs under exactly the clicked folder, never re-resolved
-// through its name path. This is the uniqueness-safe alternative to prefixing the
-// parent's slash path and re-matching it by name, which can resolve to the wrong
-// same-named sibling. When startParentId is omitted the expansion roots at the
-// top level (parentId null) exactly as before. The chain returned does NOT
-// include the startParentId folder itself, only the new/reused descendant
-// segments.
+// Expands a slash path into a chain of Folder records, reusing an existing segment matched
+// by (parentId, name) and minting only missing ones. startParentId roots the chain under a
+// known folder id: matching by id avoids resolving the wrong same-named sibling. The chain
+// excludes the startParentId folder itself.
 export function expandFolderPath(
   rawPath: string,
   existing: { [id: string]: Folder },
@@ -156,11 +97,8 @@ export function expandFolderPath(
     mint?: () => string;
     orderFor?: (parentId: string | null) => number;
     startParentId?: string | null;
-    // The maximum 0-based depth a NEWLY minted segment may occupy. Reused existing
-    // segments (already deeper, e.g. a legacy grandchild) are never blocked; only
-    // new minting stops once the next segment would exceed this cap, so the chain is
-    // clamped to the create policy (MAX_FOLDER_CREATE_DEPTH) rather than growing an
-    // unbounded slash path. Omit for no cap (the historical behavior).
+    // Maximum depth for NEWLY minted segments. Reused deeper segments are never blocked.
+    // Omit for no cap.
     maxDepth?: number;
   } = {},
 ): ExpandResult {
@@ -174,16 +112,11 @@ export function expandFolderPath(
     return { chain: [], leafFolderId: null };
   }
 
-  // A working view of folders that grows as new segments are minted, so a later
-  // segment in the SAME path can match a sibling minted earlier in this call.
+  // Grows as segments are minted so a later segment can match one minted earlier.
   const working: { [id: string]: Folder } = { ...existing };
   const chain: ExpandedSegment[] = [];
-  // Root the expansion under the clicked parent's authoritative id when supplied,
-  // otherwise at the top level (parentId null).
   let parentId: string | null = startParentId;
-  // The 0-based depth of the NEXT segment to place. A top-level start (parentId
-  // null) places its first segment at depth 0; a start under an existing folder
-  // places its first child at that folder's depth + 1.
+  // Depth of the next segment to place.
   let nextDepth = startParentId === null ? 0 : folderDepthOf(existing, startParentId) + 1;
 
   for (const name of segments) {
@@ -194,11 +127,8 @@ export function expandFolderPath(
       nextDepth += 1;
       continue;
     }
-    // A missing segment must be minted. Stop clamping the chain once minting the
-    // next segment would exceed the create-depth cap, so a deep slash path or a
-    // create under an already-deep parent cannot grow the tree past one sublevel.
-    // The leaf becomes the deepest allowed segment (an existing one when the whole
-    // remaining tail was over the cap).
+    // Stop minting once the next segment would exceed the depth cap; the leaf is then the
+    // deepest segment placed.
     if (maxDepth !== undefined && nextDepth > maxDepth) {
       break;
     }
@@ -217,10 +147,7 @@ export function expandFolderPath(
   return { chain, leafFolderId: parentId };
 }
 
-// Find a folder that is a direct child of parentId with a case-sensitive exact
-// name match. Reuse keys on (parentId, name): two folders named 'ClientA' under
-// different parents are distinct, but a second 'ClientA' under the same parent
-// reuses the first. Returns null when none matches.
+// Exact, case-sensitive match among the direct children of parentId. Returns null when none.
 export function findChildByName(
   folders: { [id: string]: Folder },
   parentId: string | null,
@@ -234,8 +161,7 @@ export function findChildByName(
   return null;
 }
 
-// The default order for a newly minted child of parentId: one past the current
-// sibling count, so a new folder appends after existing siblings.
+// Order for a new child: one past the current sibling count.
 function defaultOrderFor(
   existing: { [id: string]: Folder },
 ): (parentId: string | null) => number {
@@ -250,29 +176,22 @@ function defaultOrderFor(
   };
 }
 
-// Inputs to a tree assembly: the flat folder map plus each chat's single home
-// folder id. chatHomes maps a sessionId to its ChatMeta.folderId (null/absent =>
-// unfiled). Only chats present in chatHomes are placed; the caller supplies the
-// set of known sessionIds it wants rendered.
+// Inputs to tree assembly. chatHomes maps a sessionId to its folder id; null or absent
+// means Unfiled.
 export interface AssembleInput {
   folders: { [id: string]: Folder };
-  // sessionId -> home folder id (null or undefined => Unfiled).
   chatHomes: { [chatId: string]: string | null | undefined };
 }
 
-// The assembled tree: the ordered top-level folder nodes followed by the Unfiled
-// node. The Unfiled node is always present in the model (the view may choose to
-// hide it when empty); it is appended LAST so real folders sort above it.
+// Top-level folder nodes, then the Unfiled node, which is always present so the view can
+// hide it when empty.
 export interface AssembledTree {
   roots: FolderNode[];
   unfiled: FolderNode;
 }
 
-// SINGLE-HOME INVARIANT: every chat appears under EXACTLY one folder node. A chat
-// whose home folder id exists in `folders` is placed under that one folder; a
-// chat with a null/absent home, or a home id that no longer resolves to a real
-// folder (a dangling reference), falls into the Unfiled bucket. No chat is ever
-// placed under two folders, and none is dropped.
+// Every chat lands under exactly one folder. A null home or a dangling home id goes to
+// Unfiled, so no chat is dropped or duplicated.
 export function assembleFolderTree(input: AssembleInput): AssembledTree {
   const { folders, chatHomes } = input;
 
@@ -299,9 +218,7 @@ export function assembleFolderTree(input: AssembleInput): AssembledTree {
     chatIds: [],
   };
 
-  // Wire parent/child folder links. A folder whose parentId does not resolve to a
-  // real folder is treated as a root (a dangling parent reference must not orphan
-  // it out of the tree). Self-parenting is ignored.
+  // A folder with a dangling or self parentId becomes a root so it is not orphaned.
   const roots: FolderNode[] = [];
   for (const node of nodesById.values()) {
     const parentId = node.parentId;
@@ -314,8 +231,7 @@ export function assembleFolderTree(input: AssembleInput): AssembledTree {
     }
   }
 
-  // Place each chat under its single home (exactly one of: a resolved folder, or
-  // Unfiled). A home id absent from nodesById (dangling) routes to Unfiled.
+  // A dangling home id routes to Unfiled.
   for (const [chatId, home] of Object.entries(chatHomes)) {
     const target =
       typeof home === 'string' && nodesById.has(home)
@@ -330,14 +246,8 @@ export function assembleFolderTree(input: AssembleInput): AssembledTree {
   return { roots, unfiled };
 }
 
-// Build the chatId -> owning-folderId inverse for an assembled tree. Every chat
-// is recorded against the single folder node that directly homes it; a chat in
-// the Unfiled bucket maps to the Unfiled sentinel id so a reveal-by-chat still
-// resolves a parent. This is the PURE half of the provider's getParent: the
-// vscode-bound layer turns the resolved folder id into a TreeItem, but the
-// single-home resolution itself (and the Unfiled fallback) lives here so it can
-// be unit-tested without the vscode host. Mirrors the SINGLE-HOME INVARIANT of
-// assembleFolderTree: exactly one entry per placed chat.
+// Builds the chatId to owning folderId map. Unfiled chats map to the Unfiled sentinel so
+// a reveal by chat still resolves a parent.
 export function buildChatHomeIndex(tree: AssembledTree): Map<string, string> {
   const into = new Map<string, string>();
   indexChatHomesInto(tree.roots, into);
@@ -347,12 +257,8 @@ export function buildChatHomeIndex(tree: AssembledTree): Map<string, string> {
   return into;
 }
 
-// Resolve the single owning folder id for a chat from a home index, falling back
-// to a hint (the folder id carried on the chat's member node) when the index has
-// no entry for the chat. The hint defaults to the Unfiled sentinel so a chat that
-// is not in the current index still resolves to a parent rather than orphaning.
-// This is the exact resolution the provider's getParent performs before turning
-// the id into a TreeItem; extracted so the rule is unit-testable.
+// Owning folder id for a chat, falling back to hint (default Unfiled) so a chat missing
+// from the index still has a parent.
 export function resolveChatHomeFolderId(
   index: Map<string, string>,
   chatId: string,
@@ -361,16 +267,9 @@ export function resolveChatHomeFolderId(
   return index.get(chatId) ?? hint;
 }
 
-// Node-object memoization reuse rule (the PURE half of the provider's folderItemFor /
-// chatMemberItemFor). VSCode caches tree elements by object reference, so a refresh must
-// REUSE the existing node object for an unchanged id rather than return a fresh object
-// with the same id, or reveal and selection break. These predicates decide whether a
-// cached object is still valid for the current data; the provider holds the actual
-// TreeItem objects and the Map, but the reuse-vs-rebuild decision lives here so the rule
-// is unit-testable headless.
-
-// A cached folder node may be reused when its memoized name still equals the
-// node's current name (a rename must rebuild so the label updates).
+// VSCode caches tree elements by object reference, so a refresh must reuse the node for
+// an unchanged id. These predicates decide whether a cached node is still valid.
+// A rename must rebuild the node so the label updates.
 export function canReuseFolderItem(
   cachedName: string | undefined,
   currentName: string,
@@ -378,11 +277,7 @@ export function canReuseFolderItem(
   return cachedName !== undefined && cachedName === currentName;
 }
 
-// A cached chat-member node may be reused when its memoized title and timestamp
-// both still match the current record (either changing must rebuild so the label
-// and relative time update). timestamp is number | null (a transcript with no
-// timestamped line yields null), so the comparison must accept null and treat
-// null === null as unchanged.
+// Reuse only when title and timestamp both match; timestamp can be null.
 export function canReuseChatMemberItem(
   cached: { title: string; timestamp: number | null } | undefined,
   current: { title: string; timestamp: number | null },
@@ -394,8 +289,6 @@ export function canReuseChatMemberItem(
   );
 }
 
-// Recurse the folder nodes recording the chatId -> owning folderId entry for each
-// directly-homed chat. Internal helper for buildChatHomeIndex.
 function indexChatHomesInto(nodes: FolderNode[], into: Map<string, string>): void {
   for (const node of nodes) {
     for (const chatId of node.chatIds) {
@@ -405,9 +298,8 @@ function indexChatHomesInto(nodes: FolderNode[], into: Map<string, string>): voi
   }
 }
 
-// Sort folder siblings by (order, name) and recurse. Chat ids within a folder are
-// left in the caller-supplied iteration order; the view sorts them by the chat's
-// own timestamp/title since that data lives outside this pure model.
+// Sorts siblings by (order, name) recursively. Chats within a folder keep caller order;
+// the view sorts them using data outside this model.
 function sortTree(nodes: FolderNode[]): void {
   nodes.sort(compareFolderNodes);
   for (const node of nodes) {
@@ -431,21 +323,14 @@ function compareFolderNodes(a: FolderNode, b: FolderNode): number {
   return a.name.localeCompare(b.name);
 }
 
-// ---- Composite-id grammar for chat member nodes ----
-
 const CHAT_NODE_SEPARATOR = '#';
 
-// Build the composite id for a chat homed under a folder: `${folderId}#${chatId}`.
-// Used for BOTH real folders and the Unfiled bucket (folderId === '__unfiled__').
 export function chatNodeId(folderId: string, chatId: string): string {
   return folderId + CHAT_NODE_SEPARATOR + chatId;
 }
 
-// Recover the owning folder id from a chat member node id by splitting on the
-// FIRST '#'. folderId is separator-free (factory-minted or the '__unfiled__'
-// sentinel) so the first '#' is always the grammar separator; chatId is a
-// separator-free UUID so the remainder is the whole chat id even if it somehow
-// contained another '#'. Returns null for a value that is not a chat node id.
+// Splits on the FIRST '#' because folder ids never contain one. Returns null when the id
+// has no separator or an empty side.
 export function parseChatNodeId(
   nodeId: string,
 ): { folderId: string; chatId: string } | null {
@@ -464,9 +349,8 @@ export function isUnfiledId(folderId: string): boolean {
   return folderId === UNFILED_FOLDER_ID;
 }
 
-// Collect a folder and all its descendant folder ids (the cascade set used by a
-// delete). Bounded against a cyclic parentId chain (a corrupt store) by a
-// visited set, so a cycle cannot make this loop forever.
+// A folder and all its descendants, for cascade delete. A visited set stops a cyclic
+// parentId chain.
 export function descendantFolderIds(
   folders: { [id: string]: Folder },
   rootId: string,

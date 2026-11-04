@@ -1,3 +1,5 @@
+// Unit tests for the agents poller: visible, hidden and retry polling intervals.
+
 import * as assert from 'assert';
 import type { AgentSession, AgentsResult } from '../../claude/agentsCli';
 import { AgentsPoller, POLL_HIDDEN_MS, POLL_RETRY_MS, POLL_VISIBLE_MS, PollerTimers } from '../../fleet/agentsPoller';

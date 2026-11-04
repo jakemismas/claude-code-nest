@@ -1,3 +1,5 @@
+// Unit tests for the fleet log source and its file reloader.
+
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';

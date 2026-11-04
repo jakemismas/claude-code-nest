@@ -84,7 +84,6 @@ describe('schema migrateProjectMeta (defensive, total)', () => {
     assert.strictEqual(meta.schemaVersion, SCHEMA_VERSION);
     assert.strictEqual(meta.folders.f1.name, 'Inbox');
     assert.strictEqual(meta.tags.t1.label, 'urgent');
-    // A stamp-less chat is defaulted to the supplied stamp.
     assert.strictEqual(meta.chats.c1.updatedAt, NOW);
     assert.strictEqual(meta.chats.c1.deviceId, DEVICE);
   });
@@ -119,25 +118,19 @@ describe('schema migrateProjectMeta (defensive, total)', () => {
       },
     };
     const meta = migrateProjectMeta(messy, DEVICE, NOW);
-    // Unknown top-level dropped.
     assert.ok(!('bogusTopLevel' in meta));
-    // Folder without a name dropped; the good one keeps only known fields.
     assert.ok('good' in meta.folders);
     assert.ok(!('nameless' in meta.folders));
     assert.ok(!('notObject' in meta.folders));
     assert.ok(!('extra' in (meta.folders.good as unknown as Record<string, unknown>)));
-    // Tag without a label dropped.
     assert.ok('good' in meta.tags);
     assert.ok(!('labelless' in meta.tags));
     assert.strictEqual(meta.tags.good.color, '#aabbcc');
-    // Non-string tag ids filtered out of the chat's tag array.
     assert.deepStrictEqual(meta.chats.good.tags, ['good', 'x']);
-    // Malformed links dropped; an unknown kind coerces to 'related'.
     assert.deepStrictEqual(meta.chats.good.links, [
       { targetChatId: 'z', kind: 'parent' },
       { targetChatId: 'q', kind: 'related' },
     ]);
-    // Existing stamps preserved.
     assert.strictEqual(meta.chats.good.updatedAt, 10);
     assert.strictEqual(meta.chats.good.deviceId, 'd2');
     assert.ok(!('notObject' in meta.chats));
@@ -151,21 +144,16 @@ describe('schema migrateProjectMeta (defensive, total)', () => {
       chats: {},
       updatedAt: 999,
       deviceId: 'future-device',
-      // Fields a newer extension added that this build does not understand.
       pinnedChats: ['c1', 'c2'],
       smartGroupRules: { byBranch: true },
     };
     const meta = migrateProjectMeta(future, DEVICE, NOW);
-    // Known data preserved.
     assert.strictEqual(meta.folders.f.name, 'F');
     assert.strictEqual(meta.updatedAt, 999);
     assert.strictEqual(meta.deviceId, 'future-device');
-    // The document is NOT down-stamped to our older version; it keeps the
-    // writer's newer schemaVersion so a later mutate/persist does not advertise
-    // the foreign machine's richer document as our older shape.
+    // The document keeps the writer's newer schemaVersion.
     assert.strictEqual(meta.schemaVersion, SCHEMA_VERSION + 5);
-    // Unknown top-level fields are escrowed verbatim rather than dropped, so a
-    // round-trip through this older build does not clobber the newer machine.
+    // Unknown top-level fields are escrowed verbatim so a round-trip does not clobber the newer machine.
     assert.deepStrictEqual(meta.__unknown, {
       pinnedChats: ['c1', 'c2'],
       smartGroupRules: { byBranch: true },
@@ -183,9 +171,7 @@ describe('schema migrateProjectMeta (defensive, total)', () => {
       bogusTopLevel: 'x',
     };
     const meta = migrateProjectMeta(sameVersion, DEVICE, NOW);
-    // Same-version unknown fields are still dropped (normal forward-compat for a
-    // peer build is not in scope); __unknown escrow only engages for a strictly
-    // newer writer.
+    // Same-version unknown fields are dropped; __unknown escrow only engages for a strictly newer writer.
     assert.strictEqual(meta.schemaVersion, SCHEMA_VERSION);
     assert.strictEqual(meta.__unknown, undefined);
     assert.ok(!('bogusTopLevel' in (meta as unknown as Record<string, unknown>)));
@@ -221,7 +207,6 @@ describe('schema curation scalars: normalize round-trip and additive migration',
     };
     const meta = migrateProjectMeta(doc, DEVICE, NOW);
     assert.strictEqual(meta.folders.colored.color, '#aabbcc');
-    // Absent color is omitted, not defaulted to a value.
     assert.strictEqual('color' in meta.folders.plain, false);
   });
 
@@ -239,11 +224,8 @@ describe('schema curation scalars: normalize round-trip and additive migration',
   });
 
   it('keeps a strict #rrggbb Folder.color and drops any non-matching string', () => {
-    // A folder color travels in a synced, importable library document and later
-    // reaches a CSS sink (background: var(--chip-color)) in the webview. Only the
-    // exact #rrggbb form the native picker emits may survive normalize; anything
-    // else (a CSS url() exfil token, a named color, a 3-digit hex, a bad hex) is
-    // dropped at the boundary so no CSS token can ride through.
+    // A folder color reaches a CSS sink (background: var(--chip-color)) from synced or imported documents,
+    // so only the exact #rrggbb form survives normalize; url() tokens, names and 3-digit hex are dropped.
     function colorOf(value: unknown): string | undefined {
       const doc = {
         schemaVersion: SCHEMA_VERSION,
@@ -255,26 +237,18 @@ describe('schema curation scalars: normalize round-trip and additive migration',
       };
       return migrateProjectMeta(doc, DEVICE, NOW).folders.f.color;
     }
-    // A valid 6-digit hex color is kept verbatim.
     assert.strictEqual(colorOf('#aabbcc'), '#aabbcc');
-    // The CSS exfiltration payload from the finding is dropped (color omitted).
+    // A CSS url() exfiltration payload is dropped (color omitted).
     assert.strictEqual(colorOf('url(https://evil/x)'), undefined);
-    // A named color is dropped (the picker never emits one).
     assert.strictEqual(colorOf('red'), undefined);
-    // A 3-digit hex is intentionally rejected by the strict pattern.
+    // A 3-digit hex is rejected by the strict pattern.
     assert.strictEqual(colorOf('#fff'), undefined);
-    // A malformed hex (non-hex digits) is dropped.
     assert.strictEqual(colorOf('#GGGGGG'), undefined);
   });
 
   it('keeps a strict #rrggbb Tag.color and drops any non-matching string', () => {
-    // A tag color travels the SAME attacker-influenceable synced/import path as a
-    // folder color and reaches the SAME --chip-color CSS sink (buildTagChips ->
-    // media/orgPanel.js). normalizeTag is the sole boundary (tag color has no
-    // postMessage setter), so it must enforce the strict #rrggbb shape exactly as
-    // normalizeFolder does: only the hex form the native picker emits survives;
-    // anything else (a CSS url() exfil token, a named color, a 3-digit hex, a bad
-    // hex) is dropped at the boundary so no CSS token can ride through.
+    // A tag color takes the same synced and import path to the same --chip-color sink (buildTagChips in
+    // media/orgPanel.js), and normalizeTag is its only boundary, so it enforces the same strict #rrggbb shape.
     function colorOf(value: unknown): string | undefined {
       const doc = {
         schemaVersion: SCHEMA_VERSION,
@@ -286,15 +260,12 @@ describe('schema curation scalars: normalize round-trip and additive migration',
       };
       return migrateProjectMeta(doc, DEVICE, NOW).tags.t.color;
     }
-    // A valid 6-digit hex color is kept verbatim.
     assert.strictEqual(colorOf('#aabbcc'), '#aabbcc');
-    // The CSS exfiltration payload from the finding is dropped (color omitted).
+    // A CSS url() exfiltration payload is dropped (color omitted).
     assert.strictEqual(colorOf('url(https://evil/x)'), undefined);
-    // A named color is dropped (the picker never emits one).
     assert.strictEqual(colorOf('red'), undefined);
-    // A 3-digit hex is intentionally rejected by the strict pattern.
+    // A 3-digit hex is rejected by the strict pattern.
     assert.strictEqual(colorOf('#fff'), undefined);
-    // A malformed hex (non-hex digits) is dropped.
     assert.strictEqual(colorOf('#GGGGGG'), undefined);
   });
 
@@ -366,8 +337,7 @@ describe('schema curation scalars: normalize round-trip and additive migration',
   });
 
   it('migrates an OLDER document lacking the new scalars with NO version bump (additive)', () => {
-    // An older document has no starred/userArchived/archivedAt/color. It must
-    // migrate cleanly, stay at SCHEMA_VERSION (no bump), and gain no escrow.
+    // An older document migrates cleanly at SCHEMA_VERSION with no bump and no escrow.
     const older = {
       schemaVersion: SCHEMA_VERSION,
       folders: { f: { id: 'f', name: 'F', parentId: null, order: 0 } },
@@ -385,12 +355,9 @@ describe('schema curation scalars: normalize round-trip and additive migration',
 });
 
 describe('schema normalizeChat record-id validation (data-integrity hardening)', () => {
-  // An imported library document is untrusted input. The id alphabet admits the
-  // bare Object.prototype member names (constructor, prototype, toString,
-  // valueOf, hasOwnProperty), which would resolve to inherited values at a
-  // downstream bare-object lookup and produce phantom folder/tag labels. The
-  // normalize boundary must reject a folderId or tag id that is not in the safe
-  // record-id shape, mirroring how it already drops other malformed fields.
+  // An imported library document is untrusted. The id alphabet admits Object.prototype member names
+  // (constructor, toString, and so on) that would resolve to inherited values and show phantom labels,
+  // so normalize rejects any folderId or tag id outside the safe record-id shape.
   function chatDoc(chat: Record<string, unknown>) {
     return {
       schemaVersion: SCHEMA_VERSION,
@@ -468,13 +435,9 @@ describe('schema normalizeChat record-id validation (data-integrity hardening)',
 });
 
 describe('schema normalizeProjectMeta MAP-KEY validation (path-traversal + prototype hardening)', () => {
-  // The CRITICAL boundary: a normalize pass re-keys folders/tags/chats with the
-  // RAW imported/synced map KEY verbatim. An attacker-authored import or a
-  // foreign-device synced document can introduce a record under a path-traversal
-  // key ('../../../../Users/victim/evil') or a prototype-member name. The chat key
-  // flows to the archive body-file path sink, where Uri.joinPath collapses '..' and
-  // escapes globalStorage. Every map KEY (not just the references inside a record)
-  // must be dropped here when it fails the safe record-id shape.
+  // Normalize re-keys folders, tags and chats with the raw map key. A traversal key such as
+  // "../../../../Users/victim/evil" would escape globalStorage at the archive body-file sink via
+  // Uri.joinPath, so every map key, not just record references, must pass the safe record-id shape.
   function docWith(maps: {
     folders?: Record<string, unknown>;
     tags?: Record<string, unknown>;
@@ -522,15 +485,13 @@ describe('schema normalizeProjectMeta MAP-KEY validation (path-traversal + proto
     assert.deepStrictEqual(Object.keys(meta.folders), []);
     assert.deepStrictEqual(Object.keys(meta.tags), []);
     assert.deepStrictEqual(Object.keys(meta.chats), []);
-    // The dropped key must NOT survive as a phantom own key, and the bare-object
-    // index must not resolve to an inherited member (null-proto backstop).
+    // The dropped key must not survive as a phantom own key or resolve to an inherited member.
     assert.strictEqual('constructor' in meta.folders, false);
     assert.strictEqual(meta.chats['constructor' as keyof typeof meta.chats], undefined);
   });
 
   it('drops a "__proto__" map key without polluting the prototype', () => {
-    // A literal `__proto__:` sets the prototype, not an own key, so define it as a
-    // genuine OWN enumerable key to model the attacker map Object.entries iterates.
+    // A literal `__proto__:` sets the prototype, so define it as an own key to model the attacker map.
     const evilFolders: Record<string, unknown> = {};
     Object.defineProperty(evilFolders, '__proto__', {
       value: folder('Polluter'),
@@ -540,7 +501,6 @@ describe('schema normalizeProjectMeta MAP-KEY validation (path-traversal + proto
     });
     const meta = migrateProjectMeta(docWith({ folders: evilFolders }), DEVICE, NOW);
     assert.deepStrictEqual(Object.keys(meta.folders), []);
-    // The global Object prototype was not mutated by the malicious key.
     assert.strictEqual(({} as Record<string, unknown>).order, undefined);
   });
 
@@ -582,13 +542,9 @@ describe('schema normalizeProjectMeta MAP-KEY validation (path-traversal + proto
 });
 
 describe('schema nullProtoMaps (write-path defense-in-depth backstop)', () => {
-  // The write-path clones use JSON.parse(JSON.stringify(...)), which re-attaches
-  // Object.prototype to the folders/tags/chats maps and voids the null-prototype
-  // hygiene normalize builds. nullProtoMaps rebuilds those three maps with a null
-  // prototype after such a clone so an unsafe index can never reach an inherited
-  // Object member, and a write through the map cannot land on Object.prototype.
+  // The write-path JSON clones re-attach Object.prototype to the maps. nullProtoMaps rebuilds them with a
+  // null prototype so an unsafe index cannot reach an inherited member or write to Object.prototype.
   function cloned(meta: ProjectMeta): ProjectMeta {
-    // Model the exact clone the store/merge sites perform before the backstop.
     return JSON.parse(JSON.stringify(meta)) as ProjectMeta;
   }
 
@@ -596,15 +552,12 @@ describe('schema nullProtoMaps (write-path defense-in-depth backstop)', () => {
     const base = emptyProjectMeta(DEVICE, NOW);
     base.folders.f1 = { id: 'f1', name: 'Inbox', parentId: null, order: 0 };
     const clone = cloned(base);
-    // After the JSON round-trip the maps inherit Object.prototype again.
     assert.strictEqual(Object.getPrototypeOf(clone.folders), Object.prototype);
 
     const fixed = nullProtoMaps(clone);
     assert.strictEqual(Object.getPrototypeOf(fixed.folders), null);
     assert.strictEqual(Object.getPrototypeOf(fixed.tags), null);
     assert.strictEqual(Object.getPrototypeOf(fixed.chats), null);
-    // A non-own prototype-name index now resolves to undefined, not the inherited
-    // Object member it would have on a normal-prototype map.
     assert.strictEqual(
       (fixed.folders as Record<string, unknown>).constructor,
       undefined,
@@ -634,7 +587,6 @@ describe('schema nullProtoMaps (write-path defense-in-depth backstop)', () => {
     assert.strictEqual(fixed.chats.c1.folderId, 'f1');
     assert.strictEqual(fixed.schemaVersion, SCHEMA_VERSION);
     assert.strictEqual(fixed.deviceId, DEVICE);
-    // The maps still JSON-serialize as ordinary objects (sync/export unchanged).
     assert.strictEqual(
       JSON.stringify(fixed.folders),
       JSON.stringify({ f1: { id: 'f1', name: 'Inbox', parentId: null, order: 0 } }),
@@ -642,11 +594,8 @@ describe('schema nullProtoMaps (write-path defense-in-depth backstop)', () => {
   });
 });
 
-// the shared free-text cap at the normalize ingest
-// boundary (import / sync-merge). Over-long names are TRUNCATED, not dropped, so
-// a foreign document keeps its records while the oversized payload (which could
-// break the project's Settings Sync item) never re-enters the synced store. The
-// restoredAt scalar (deliberate-restore intent) must also round-trip.
+// Free-text fields are capped at the normalize boundary (import and sync-merge). Over-long names are
+// truncated, not dropped, so a foreign document keeps its records. restoredAt must round-trip.
 describe('schema normalize: free-text caps and restoredAt carry-through', () => {
   const DEVICE = 'dev-T';
   const NOW = 1_700_000_000_000;
@@ -708,7 +657,6 @@ describe('schema normalize: free-text caps and restoredAt carry-through', () => 
     const meta = migrateProjectMeta(raw, DEVICE, NOW);
     assert.strictEqual(meta.deviceId.length, MAX_DEVICE_ID_LENGTH);
     assert.strictEqual(meta.chats.c.deviceId.length, MAX_DEVICE_ID_LENGTH);
-    // A normal UUID-length stamp is untouched.
     const uuid = '0a1b2c3d-4e5f-6789-abcd-ef0123456789';
     const normal = migrateProjectMeta({ ...raw, deviceId: uuid }, DEVICE, NOW);
     assert.strictEqual(normal.deviceId, uuid);
@@ -732,8 +680,7 @@ describe('schema normalize: free-text caps and restoredAt carry-through', () => 
   });
 });
 
-// Import-envelope hardening: reference-id gates that mirror
-// the store sinks, exactly one rule at both boundaries.
+// Reference-id gates mirror the store sinks, with one rule at both boundaries.
 describe('schema normalize: reference-id gates (parentId, link targetChatId)', () => {
   function docWithFolder(folder: Record<string, unknown>) {
     return {
@@ -800,10 +747,8 @@ describe('schema normalize: reference-id gates (parentId, link targetChatId)', (
   });
 });
 
-// Import-envelope hardening: the __unknown escrow size cap.
-// The escrow replays on every synced write; a forward-schemaVersion claim from
-// an attacker-authored import must not carry an unbounded blob onto the synced
-// surface.
+// The __unknown escrow is size-capped: it replays on every synced write, so a forward-version claim in an
+// attacker-authored import must not carry an unbounded blob.
 describe('schema migrateProjectMeta __unknown escrow size cap', () => {
   function forwardDoc(extra: Record<string, unknown>) {
     return {
@@ -846,10 +791,8 @@ describe('schema migrateProjectMeta __unknown escrow size cap', () => {
   });
 
   it('preserves the escrow across a SECOND migration (persisted docs nest it under __unknown)', () => {
-    // The write path persists the ProjectMeta as-is, so a round-tripped stored
-    // document carries the escrowed fields NESTED under __unknown rather than
-    // at top level. A re-read must fold them back into the escrow, or the
-    // foreign machine's fields survive exactly one write and are then lost.
+    // A stored document carries escrowed fields nested under __unknown; a re-read must fold them back
+    // into the escrow, or they survive one write and are then lost.
     const first = migrateProjectMeta(forwardDoc({ pinnedChats: ['c1'] }), DEVICE, NOW);
     assert.deepStrictEqual(first.__unknown, { pinnedChats: ['c1'] });
     const second = migrateProjectMeta(
@@ -880,7 +823,7 @@ describe('schema migrateProjectMeta __unknown escrow size cap', () => {
   });
 
   it('escrows an own "__proto__" field as an own key without rebinding the map prototype', () => {
-    // JSON.parse creates '__proto__' as an OWN key; model that exact input.
+    // JSON.parse creates __proto__ as an own key; model that input.
     const raw = JSON.parse(
       '{"schemaVersion":' +
         String(SCHEMA_VERSION + 5) +
@@ -891,16 +834,14 @@ describe('schema migrateProjectMeta __unknown escrow size cap', () => {
     const escrow = meta.__unknown as Record<string, unknown>;
     assert.ok(escrow !== undefined);
     assert.strictEqual(escrow.other, 1);
-    // The field survives as an OWN key (not a prototype rebind) so it replays
-    // on write, and the global prototype is untouched.
+    // The field survives as an own key so it replays on write, and the global prototype is untouched.
     assert.ok(Object.prototype.hasOwnProperty.call(escrow, '__proto__'));
     assert.strictEqual(Object.getPrototypeOf(escrow), Object.prototype);
     assert.strictEqual(({} as Record<string, unknown>).polluted, undefined);
   });
 });
 
-// Import-envelope hardening: the project-key predicate that
-// gates the import envelope and the store's write sink.
+// The project-key predicate gates the import envelope and the store write sink.
 describe('schema isSafeProjectKey', () => {
   it('accepts real encodeProjectKey outputs', () => {
     assert.strictEqual(

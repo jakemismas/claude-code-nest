@@ -7,9 +7,8 @@ import * as vscode from 'vscode';
 import { setAttachableOverrideForTests } from '../../extension';
 import { DEFAULT_TERMINAL_NAME, NOT_FOUND_WARNING, OPEN_IN_TERMINAL_COMMAND, attachInTerminal } from '../../launch/attachLauncher';
 
-// Runs only in the Extension Development Host (npm run test:integration). It proves the
-// real terminal factory gets the expected shell path and arguments, and that a missing
-// claude binary raises one warning.
+// Runs only in the Extension Development Host (npm run test:integration). The real terminal factory must get the
+// expected shell path and arguments, and a missing claude binary must raise one warning.
 
 const ID = '3ffbf9b4-9d3a-4c98-8616-10b0bec221e4';
 

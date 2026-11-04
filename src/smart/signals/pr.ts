@@ -1,27 +1,12 @@
-// PR signal: the ONE clean, solid smart-group signal in this data. A chat carries a PR
-// when its transcript had a type "pr-link" line (prNumber + prUrl + prRepository). Chats
-// are grouped by their PR identity so every chat that worked the same pull request lands
-// in one bucket.  This module is PURE and vscode-free (unit-gate rule): no vscode import,
-// no fs. It takes plain SmartSignalsInput rows and returns plain SmartBucket rows; the
-// view layer renders them. Mirrors the occurrence.ts-vs-tagsProvider.ts split so the
-// signal is unit-tested headless.
+// PR signal: groups chats by pull request. A chat carries a PR when its transcript had a
+// "pr-link" line (prNumber, prUrl, prRepository). Pure, with no vscode or fs dependency.
 
 import { SmartSignalsInput } from '../../model/types';
 import { SmartBucket, sortMembersInput } from './bucket';
 
-// Group chats by PR identity. The bucket KEY is the CANONICAL pull-request
-// identity "owner/repo#number" whenever repo and number can be derived from
-// EITHER the explicit pr-link fields OR the url (a GitHub PR url encodes
-// owner/repo and number in its path), so two chats that worked the SAME PR
-// co-locate even when one transcript's pr-link carried a url and the other's
-// carried only repo+number. It falls back to "#number" when only a number is
-// known and to the raw url when neither repo nor number can be derived. A chat
-// with no PR signal at all is omitted (it joins no bucket). The bucket LABEL is
-// human-facing: "PR #<number> (<repo>)" when both are known, "PR #<number>" when
-// only the number is, or the bare url.
-//
-// Buckets are returned sorted by label; members within a bucket are sorted
-// newest-first by the supplied order (the view passes the scan timestamp).
+// The key is "owner/repo#number", derived from the pr-link fields or the url, so a chat with
+// only a url and a chat with only repo and number for the same PR share a bucket. A chat
+// with no PR signal joins no bucket. Buckets sort by label.
 export function prBuckets(rows: SmartSignalsInput[]): SmartBucket[] {
   const byKey = new Map<string, SmartSignalsInput[]>();
   for (const row of rows) {
@@ -39,9 +24,7 @@ export function prBuckets(rows: SmartSignalsInput[]): SmartBucket[] {
 
   const buckets: SmartBucket[] = [];
   for (const [key, members] of byKey) {
-    // The representative for the label is the FIRST member in the deterministic
-    // sessionId order, so the label does not depend on scan/insertion order even
-    // if two members carrying the same PR key somehow disagree on number/repo.
+    // The first member by sessionId supplies the label, so it does not depend on scan order.
     const sorted = sortMembersInput(members);
     buckets.push({
       key,
@@ -52,12 +35,8 @@ export function prBuckets(rows: SmartSignalsInput[]): SmartBucket[] {
   return buckets.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-// Parse a GitHub (or GitHub Enterprise) pull-request url into its canonical
-// "owner/repo" and number. PR urls are https://<host>/<owner>/<repo>/pull/<n>
-// possibly with a trailing /files, ?query, or #anchor. Host-agnostic on purpose:
-// the canonical identity is owner/repo#number (what prRepository + prNumber also
-// carry), so a url-derived key collides with an explicit-field key for the same
-// PR. Returns null when the url is absent or does not match the PR path shape.
+// Matches https://<host>/<owner>/<repo>/pull/<n>, with an optional /files, query or anchor.
+// The host is ignored so GitHub Enterprise urls work and the key equals the explicit-field key.
 export function parsePrUrl(
   url: string | null,
 ): { repo: string; number: number } | null {
@@ -75,12 +54,8 @@ export function parsePrUrl(
   return { repo: match[1], number };
 }
 
-// The canonical PR identity for a chat: repo + number resolved from the explicit
-// pr-link fields FIRST, then from the url path, so a chat whose pr-link carried
-// only a url and a chat whose pr-link carried only repo+number for the SAME pull
-// request resolve to the SAME identity. url is retained as a last-resort coarse
-// identity for a non-standard url that does not expose repo+number. Returns null
-// when the chat carries no PR signal at all.
+// Explicit pr-link fields win over the url path. The url stays as a last-resort identity for
+// a non-standard url without repo and number.
 export function prIdentity(
   row: SmartSignalsInput,
 ): { repo: string | null; number: number | null; url: string | null } | null {
@@ -97,12 +72,8 @@ export function prIdentity(
   return { repo, number, url };
 }
 
-// The stable identity key for a chat's PR, or null when the chat has no PR
-// signal. The CANONICAL repo#number is preferred (derived from fields or url) so
-// the url-only and repo+number forms of one PR co-locate; then a bare #number
-// when no repo is derivable (a repo-less number is NOT merged into a specific
-// repo's PR of the same number, which could be a different PR); then the raw url
-// as a last resort for a non-standard url that exposes no number.
+// A repo-less number gets its own key and is never merged into a repo's PR with the same
+// number, which could be a different PR.
 export function prKey(row: SmartSignalsInput): string | null {
   const id = prIdentity(row);
   if (id === null) {
@@ -120,10 +91,7 @@ export function prKey(row: SmartSignalsInput): string | null {
   return null;
 }
 
-// The human-facing label for a PR bucket derived from a representative member.
-// Routes through the same canonical identity as the key so a url-only member and
-// a repo+number member of one PR render the SAME label. Prefers number+repo, then
-// number-only, then the url.
+// Uses the same identity as the key, so url-only and repo+number members of one PR share a label.
 export function prLabel(row: SmartSignalsInput): string {
   const id = prIdentity(row);
   if (id !== null && id.number !== null) {
@@ -135,7 +103,6 @@ export function prLabel(row: SmartSignalsInput): string {
   if (id !== null && id.url !== null) {
     return id.url;
   }
-  // Unreachable: prBuckets only calls this for a member that produced a key, and
-  // a key requires a url or a number. Kept total.
+  // Unreachable: a bucket member always has a url or a number.
   return 'PR';
 }

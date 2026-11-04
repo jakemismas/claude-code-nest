@@ -1,3 +1,5 @@
+// Unit tests for parsing fleet log lines and folding them into entries.
+
 import * as assert from 'assert';
 import { foldFleet, parseFleetLine, coerceString } from '../../fleet/fleetRecord';
 import { FleetRecord } from '../../fleet/types';

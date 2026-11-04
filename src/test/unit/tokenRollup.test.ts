@@ -10,17 +10,12 @@ import {
 } from '../../rollup/tokenRollup';
 import { renderRollupReport } from '../../rollup/rollupReport';
 
-// Pure-logic unit tests for the token-cost rollup. No vscode, no filesystem: the reducer
-// takes a plain {chatId -> TokenTotals} map plus a ProjectMeta and returns bucket rows.
-// The pinned counting rule is asserted here: a chat counts ONCE per its single folder and
-// ONCE per EACH of its tags; unfiled/untagged buckets carry the leftovers; and a
-// multi-tag chat's tokens add to every tag bucket so the by-tag totals can EXCEED the
-// library total (intentional, not a bug).
+// Unit tests for the token-cost rollup reducer over a {chatId -> TokenTotals} map and a ProjectMeta.
+// A chat counts once per folder and once per tag, so by-tag totals can exceed the library total.
 
 const DEVICE = 'dev-rollup';
 const NOW = 1_700_000_000_000;
 
-// Sum the four counts to a known per-chat total for terse fixtures.
 function tk(total: number): TokenTotals {
   return { input: total, output: 0, cacheCreation: 0, cacheRead: 0 };
 }
@@ -75,7 +70,6 @@ describe('tokenRollup.rollupByFolder', () => {
     assert.strictEqual(bucket(result, 'Alpha')?.chatCount, 2);
     assert.strictEqual(bucket(result, 'Beta')?.tokenTotal, 50);
     assert.strictEqual(result.libraryTokenTotal, 350);
-    // Folders partition: the bucket totals sum to the library total.
     const folderSum = result.buckets.reduce((s, b) => s + b.tokenTotal, 0);
     assert.strictEqual(folderSum, result.libraryTokenTotal, 'folder buckets partition the library');
   });
@@ -99,7 +93,6 @@ describe('tokenRollup.rollupByFolder', () => {
     assert.strictEqual(unfiled.synthetic, true);
     assert.strictEqual(unfiled.tokenTotal, 50, 'c2 (no folder) + c3 (stale id)');
     assert.strictEqual(unfiled.chatCount, 2);
-    // Still a partition.
     const sum = result.buckets.reduce((s, b) => s + b.tokenTotal, 0);
     assert.strictEqual(sum, result.libraryTokenTotal);
   });
@@ -136,11 +129,10 @@ describe('tokenRollup.rollupByTag', () => {
       tokensByChat: new Map([['c1', tk(100)], ['c2', tk(30)]]),
       meta: m,
     });
-    // c1 (100) adds to BOTH bug and urgent; c2 (30) adds only to bug.
     assert.strictEqual(bucket(result, 'bug')?.tokenTotal, 130, 'bug = c1+c2');
     assert.strictEqual(bucket(result, 'urgent')?.tokenTotal, 100, 'urgent = c1');
     assert.strictEqual(result.libraryTokenTotal, 130, 'library counts each chat once: 100+30');
-    // The by-tag totals INTENTIONALLY exceed the library total (multi-tag chat).
+    // By-tag totals exceed the library total because a multi-tag chat adds to every tag bucket.
     const tagSum = result.buckets.reduce((s, b) => s + b.tokenTotal, 0);
     assert.ok(
       tagSum > result.libraryTokenTotal,
@@ -219,7 +211,6 @@ describe('rollupReport.renderRollupReport', () => {
     assert.ok(report.includes('1,234 tokens'), 'thousands-formatted total');
     assert.ok(report.includes('Alpha'), 'folder bucket label');
     assert.ok(report.includes('bug') && report.includes('urgent'), 'tag bucket labels');
-    // The note that keeps the tag rollup from reading as a double-count bug.
     assert.ok(
       report.includes('can exceed the library total') && report.includes('by design'),
       'multi-tag exceed-library note present',

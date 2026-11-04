@@ -1,3 +1,4 @@
+// Unit tests for parsing the markdown queue table, including row and cell caps.
 import * as assert from 'assert';
 import { MAX_QUEUE_CELL, MAX_QUEUE_ROWS, parseQueueTable } from '../../fleet/queueTable';
 

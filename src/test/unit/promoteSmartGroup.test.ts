@@ -8,11 +8,8 @@ import {
   findTagByLabel,
 } from '../../commands/promoteSmartGroup';
 
-// Unit tests for the promotion command orchestration against a REAL MetadataStore
-// (debounceMs 0) over the headless FakeMemento and a fake refreshable provider.
-// They assert: (1) a promote produces the correct store mutations (folder + filed
-// members, tag + tagged members); (2) it is idempotent on chat MEMBERSHIP; and
-// (3) it is idempotent on GROUP IDENTITY (reuse-by-name, no duplicate folder/tag).
+// Unit tests for promoting a smart group against a real MetadataStore (debounceMs 0) over FakeMemento:
+// correct mutations, idempotent membership, and reuse of the folder or tag by name.
 
 const PROJECT_KEY = 'promote-test-project';
 
@@ -73,7 +70,6 @@ describe('promoteGroupToFolder', () => {
     const first = await promoteGroupToFolder(deps, { name: 'G', memberChatIds: ['a', 'b'] });
     await promoteGroupToFolder(deps, { name: 'G', memberChatIds: ['a', 'b', 'c'] });
     const meta = store.getProjectMeta(PROJECT_KEY);
-    // a and b stay in the same folder; c is newly added; no second folder.
     assert.strictEqual(meta.chats['a'].folderId, first!.id);
     assert.strictEqual(meta.chats['b'].folderId, first!.id);
     assert.strictEqual(meta.chats['c'].folderId, first!.id);

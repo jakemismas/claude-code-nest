@@ -1,3 +1,4 @@
+// Unit tests for parsing .nest/config.json, linked folder and fleet file expansion, and glob segment matching.
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';

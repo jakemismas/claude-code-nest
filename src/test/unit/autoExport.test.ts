@@ -1,3 +1,5 @@
+// Tests for auto-export: the retention policy and the debounced AutoExporter timer.
+
 // vscodeStub MUST be imported first so require('vscode') resolves before the
 // command module's (AutoExporter's) top-level import runs.
 import './vscodeStub';
@@ -17,9 +19,7 @@ import {
   ExportImportDeps,
 } from '../../commands/exportImportCommands';
 
-// Pure-logic unit tests for the auto-export retention policy. No vscode, no
-// filesystem: the command module supplies the dir listing and does the deletes;
-// this module decides the name and the prune set.
+// Pure retention policy: the command module supplies the dir listing and does the deletes.
 
 describe('autoExport retentionSnapshotName', () => {
   it('embeds a fixed-width epoch-ms stamp so name order is chronological', () => {
@@ -98,12 +98,8 @@ describe('autoExport computeRetentionPrune', () => {
   });
 });
 
-// Behavior tests for the AutoExporter timer: the named "debounced" ship item, the
-// opt-in gate, the coalesce-a-burst-into-one-snapshot rule, dispose cancellation,
-// the best-effort swallow, and the prune WIRING (listDirectory -> compute -> delete)
-// that the pure computeRetentionPrune tests above cannot reach. The debounce window
-// is injected small so the timer is exercisable with short real timers (no
-// fake-timer dependency exists in this project).
+// Timer behavior: opt-in gate, burst coalescing, dispose, best-effort swallow and prune wiring.
+// The debounce window is injected small so real short timers work.
 describe('AutoExporter (debounce, gate, coalesce, dispose, prune wiring)', () => {
   const NOW = 1_700_000_000_000;
   // A generous debounce relative to the sub-waits below: each burst sub-wait is

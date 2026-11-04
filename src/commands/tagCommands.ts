@@ -3,24 +3,16 @@ import { Tag } from '../store/schema';
 import { assertMintableId, mintTagId } from '../model/idFactory';
 import { TagItem, ChatOccurrenceItem } from '../views/tagsProvider';
 
-// The Tags-view commands: create a tag, delete a tag, and apply/remove a tag on a chat.
-// Every store mutation runs through MetadataStore (the synced ProjectMeta), and the view
-// is refreshed ONCE after the store flush (refresh coalescing).  Create mints a
-// SEPARATOR-FREE tag id through the shared id factory (mintTagId), so a tag id can never
-// carry ':' '#' '>' and the occurrence composite id `${tagId}:${chatId}` always splits
-// unambiguously on the first ':'. Delete removes the tag and (via the store's deleteTag)
-// strips the tag id from every chat that referenced it, so no occurrence survives a
-// delete and a chat whose last tag was deleted recomputes into Untagged on the next
-// refresh.  The injectable TagCommandUi seam mirrors FolderCommandUi so the command logic
-// is exercisable without the real vscode UI; extension.ts wires the real window methods.
+// The Tags-view commands: create a tag, delete a tag, and apply or remove a tag on a chat.
+// Mutations go through MetadataStore and the view refreshes once. Tag ids come from mintTagId, so they never contain ':' and the occurrence id `${tagId}:${chatId}` splits on the first ':'.
+// Deleting a tag strips it from every chat; a chat that loses its last tag shows under Untagged.
 
 export const CREATE_TAG_COMMAND = 'claudeNest.createTag';
 export const DELETE_TAG_COMMAND = 'claudeNest.deleteTag';
 export const ADD_TAG_TO_CHAT_COMMAND = 'claudeNest.addTagToChat';
 export const REMOVE_TAG_FROM_CHAT_COMMAND = 'claudeNest.removeTagFromChat';
 
-// The injectable seam for prompts, confirmations, and picks. Mirrors
-// FolderCommandUi. extension.ts supplies the real vscode.window implementations.
+// The injectable seam for prompts, confirmations and picks; extension.ts supplies the real vscode.window calls.
 export interface TagCommandUi {
   prompt(options: {
     title: string;
@@ -40,20 +32,14 @@ export interface TagCommandUi {
 
 export interface TagCommandDeps {
   store: MetadataStore;
-  // Only refresh() is used; a structural refresher lets the wiring schedule the
-  // opt-in auto-export snapshot after a tag mutation. The concrete TagsProvider and
-  // the test stubs both satisfy it.
+  // A structural refresher so the wiring can schedule the opt-in export snapshot after a mutation.
   provider: { refresh(): void };
-  // Resolve the encoded project key ON DEMAND (mirroring FoldersProvider), so a
-  // command invoked after Claude Code created the project dir resolves it instead
-  // of acting on a value frozen at activation.
+  // Resolve the project key on demand so a project created after activation still resolves.
   getProjectKey: () => string | undefined;
   ui: TagCommandUi;
 }
 
-// Create a tag from a typed label. Mints a fresh separator-free id, persists the
-// tag, and refreshes once. Returns the new tag id, or null when cancelled / no
-// project. A blank label is rejected by validateInput and as a post-prompt guard.
+// Create a tag from a typed label and refresh once. Returns the new tag id, or null on cancel or no project.
 export async function createTag(deps: TagCommandDeps): Promise<string | null> {
   const { store, provider, ui } = deps;
   const projectKey = deps.getProjectKey();
@@ -76,9 +62,7 @@ export async function createTag(deps: TagCommandDeps): Promise<string | null> {
     return null;
   }
 
-  // Mint a separator-free id and re-assert it at the write boundary (defense in
-  // depth: the factory already guarantees this, but the assertion documents and
-  // enforces the invariant the occurrence grammar depends on).
+    // Re-assert the separator-free id at the write boundary; the occurrence id grammar depends on it.
   const id = mintTagId();
   assertMintableId(id, 'tag id');
   const tag: Tag = { id, label };
@@ -88,9 +72,7 @@ export async function createTag(deps: TagCommandDeps): Promise<string | null> {
   return id;
 }
 
-// Delete a tag after a confirmation. The store's deleteTag removes the tag record
-// AND strips its id from every chat's tags array; a chat that loses its last tag
-// recomputes into Untagged on the next refresh. Chats are never deleted.
+// Delete a tag after confirmation. The store strips its id from every chat; chats are never deleted.
 export async function deleteTag(
   deps: TagCommandDeps,
   tagItem: TagItem,
@@ -119,11 +101,8 @@ export async function deleteTag(
   provider.refresh();
 }
 
-// Apply a tag to a chat via the context menu. Presents the tag list (the chat's
-// not-yet-applied tags); the store's addChatTag is a no-op when already present.
-// The chat may arrive as a ChatOccurrenceItem (right-clicked in this view) or as a
-// bare sessionId (from another surface). When there are no tags to apply, prompts
-// to create one first.
+// Apply a tag to a chat from the context menu, offering tags not yet applied. The chat arrives as an occurrence item or a bare sessionId.
+// With no tags to apply, it prompts to create one first.
 export async function addTagToChat(
   deps: TagCommandDeps,
   target: ChatOccurrenceItem | string,
@@ -156,9 +135,7 @@ export async function addTagToChat(
   provider.refresh();
 }
 
-// Remove a tag from a chat via the context menu on an occurrence. The occurrence's
-// owning tag is the one removed (a many-to-many chat keeps its other tags). After
-// the removal, a chat that loses its last tag recomputes into Untagged.
+// Remove the occurrence's owning tag from a chat; the chat keeps its other tags.
 export async function removeTagFromChat(
   deps: TagCommandDeps,
   occurrenceItem: ChatOccurrenceItem,

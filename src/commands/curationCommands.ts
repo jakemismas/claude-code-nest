@@ -1,40 +1,16 @@
 import { MetadataStore } from '../store/metadataStore';
 import { ChatMessageBody } from '../claude/bodyReader';
 
-// curationCommands: STAR / UNSTAR / ARCHIVE / RESTORE.
-// Every curation flag write goes through MetadataStore's mutations, which
-// stamp updatedAt/deviceId and coalesce into the existing pending write, and the
-// affected views are refreshed ONCE after the store flush (refresh coalescing). The deps mirror folderCommands/linkCommands: a store, a
-// structural refresher, an on-demand getProjectKey, plus the archive-body and
-// body-reader seams so the orchestration is exercisable headless without vscode.
-//
-// FLAG SEMANTICS:
-// - ARCHIVE writes the SYNCED ChatMeta.userArchived flag via store.setChatArchived
-//   (which sets archivedAt coupled to the flag). It NEVER touches the local-only
-//   LocalChatState.archived (the orphan-reconcile flag on the separate nest.local.v1
-//   document); the two are deliberately distinct.
-// - RESTORE calls store.setChatArchived(false), which CLEARS archivedAt (the store
-//   couples the two), and is independent of starred (a restored chat keeps its
-//   star). It also deletes the now-redundant Nest-owned body copy.
-// - STAR/UNSTAR write ChatMeta.starred via store.setChatStarred, INDEPENDENT of the
-//   archive flag. Starring an archived chat exempts its body copy from the
-//   keep-window prune (archiveRetention), so the star flag on the body copy is kept
-//   current via the body store.
-//
-// READ-ONLY INVARIANT: ARCHIVE reads the chat's full body ONCE via the injected
-// readBody seam (bodyReader.readTranscriptBodies, read-only on the transcript) and
-// writes a Nest-owned COPY to globalStorage via the injected writeBody seam
-// (archiveBodyStore -> exportIO, guarded). Nothing here writes, renames, moves, or
-// deletes anything under ~/.claude/projects.
+// curationCommands: star, unstar, archive and restore, written through MetadataStore with one view refresh after the flush.
+// Archive sets the synced userArchived flag (never the local-only LocalChatState.archived) and writes a Nest-owned body copy.
+// Nothing here writes, renames or deletes under ~/.claude/projects; the body is read once through the injected readBody seam.
 
 export const STAR_CHAT_COMMAND = 'claudeNest.starChat';
 export const UNSTAR_CHAT_COMMAND = 'claudeNest.unstarChat';
 export const ARCHIVE_CHAT_COMMAND = 'claudeNest.archiveChat';
 export const RESTORE_CHAT_COMMAND = 'claudeNest.restoreChat';
 
-// The minimal chat identity the commands need: a sessionId, the file path to read
-// the body from on archive, and the title to stamp onto the body copy. extension.ts
-// resolves these from the clicked chat row (any view); a test supplies a literal.
+// The minimal chat identity the commands need: sessionId, the transcript path to read on archive, and the title for the body copy.
 export interface CurationTarget {
   sessionId: string;
   filePath: string;
@@ -43,17 +19,12 @@ export interface CurationTarget {
 
 export interface CurationCommandDeps {
   store: MetadataStore;
-  // Only refresh() is used; the wiring also schedules the opt-in auto-export
-  // snapshot after a curation mutation (a synced scalar changed).
+  // Only refresh() is used; the wiring also schedules the opt-in export snapshot after a mutation.
   provider: { refresh(): void };
   getProjectKey: () => string | undefined;
-  // Read the chat's full body for the archive copy. Wired to
-  // bodyReader.readTranscriptBodies in extension.ts; a test supplies a stub. Reads
-  // the transcript read-only and returns the ordered bodies, [] when unreadable.
+  // Read the chat's full body for the archive copy; read-only, [] when unreadable.
   readBody: (filePath: string) => ChatMessageBody[];
-  // Write the Nest-owned body copy to globalStorage. Wired to
-  // archiveBodyStore.writeArchivedBody; returns true on success. Best-effort: a
-  // false result does not block the archive flag flip.
+  // Write the Nest-owned body copy to globalStorage; returns true on success. Best-effort: a false result does not block the flag flip.
   writeBody: (envelope: {
     sessionId: string;
     title: string;
@@ -61,30 +32,20 @@ export interface CurationCommandDeps {
     starred: boolean;
     bodies: ChatMessageBody[];
   }) => Promise<boolean>;
-  // Delete the Nest-owned body copy (on restore). Wired to
-  // archiveBodyStore.deleteArchivedBody. Best-effort.
+  // Delete the Nest-owned body copy on restore. Best-effort.
   deleteBody: (sessionId: string) => Promise<void>;
-  // Report whether the underlying Claude transcript still exists on disk. READ-ONLY
-  // (a stat/exists check, never a write/rename/delete under ~/.claude/projects).
-  // Wired to a filesystem existence check in extension.ts; a test supplies a stub.
-  // Restore consults this to decide whether the now-redundant body copy may be
-  // deleted: deleting it is only safe when the original transcript survives.
+  // Report whether the Claude transcript still exists (a read-only stat). Restore deletes the body copy only when it does.
   transcriptExists: (filePath: string) => boolean;
-  // Update the starred flag recorded on an existing body copy so a later prune
-  // reads the right exemption. Wired to archiveBodyStore.updateStarFlag.
+  // Update the starred flag on an existing body copy so a later prune reads the right exemption.
   updateBodyStarFlag: (sessionId: string, starred: boolean) => Promise<void>;
-  // Injected clock for the archive timestamp / determinism. Defaults to Date.now in
-  // the wiring; a test supplies a fixed value.
+  // Injected clock for the archive timestamp; defaults to Date.now.
   now: () => number;
-  // Surface an info/error toast. Optional; defaults to no-op so a test need not
-  // supply it.
+  // Surface an info or error toast. Optional.
   showInfo?: (message: string) => void;
   showError?: (message: string) => void;
 }
 
-// Star a chat (synced ChatMeta.starred = true). Independent of archive. When the
-// chat is currently archived, the body copy's starred flag is updated so the
-// keep-window prune exemption is current. Refreshes once after the flush.
+// Star a chat (synced ChatMeta.starred = true). When the chat is archived, the body copy's starred flag is updated so the prune exemption stays current.
 export async function starChat(deps: CurationCommandDeps, target: CurationTarget): Promise<void> {
   const projectKey = deps.getProjectKey();
   if (projectKey === undefined) {
@@ -98,8 +59,7 @@ export async function starChat(deps: CurationCommandDeps, target: CurationTarget
   deps.provider.refresh();
 }
 
-// Unstar a chat (synced ChatMeta.starred = false). Independent of archive. Removes
-// the prune exemption on the body copy when one exists.
+// Unstar a chat (synced ChatMeta.starred = false), removing the prune exemption on the body copy when one exists.
 export async function unstarChat(deps: CurationCommandDeps, target: CurationTarget): Promise<void> {
   const projectKey = deps.getProjectKey();
   if (projectKey === undefined) {
@@ -112,33 +72,23 @@ export async function unstarChat(deps: CurationCommandDeps, target: CurationTarg
   deps.provider.refresh();
 }
 
-// Archive a chat: flip the SYNCED userArchived flag (store.setChatArchived(true),
-// which sets archivedAt), then write a Nest-owned copy of the full body to
-// globalStorage so the chat survives Claude's cleanup. The flag flip is
-// authoritative for membership; the body copy is best-effort durability, so a
-// failed copy still leaves the chat archived. Reads the body AFTER the flush so the
-// archivedAt the store stamped (this.now()) matches the copy's archivedAt: both use
-// the same injected clock value captured once here.
+// Archive a chat: set the synced userArchived flag, then write a Nest-owned body copy so the chat survives Claude's cleanup.
+// The flag flip is authoritative; the copy is best-effort, so a failed copy still leaves the chat archived.
 export async function archiveChat(deps: CurationCommandDeps, target: CurationTarget): Promise<void> {
   const projectKey = deps.getProjectKey();
   if (projectKey === undefined) {
     deps.showError?.('No Claude Code project is resolved for this workspace yet.');
     return;
   }
-  // Capture the archive timestamp ONCE so the synced archivedAt and the body
-  // copy's archivedAt agree exactly (the store stamps with its own clock, so read
-  // the stamped value back rather than guessing). Flip the flag first.
+  // Flip the flag first, then read the store-stamped archivedAt and starred flag back so the body copy matches the synced values.
   deps.store.setChatArchived(projectKey, target.sessionId, true);
-  // Read the starred flag and the store-stamped archivedAt back for the copy.
   const meta = deps.store.getProjectMeta(projectKey);
   const chat = meta.chats[target.sessionId];
   const archivedAt = chat?.archivedAt ?? deps.now();
   const starred = chat?.starred === true;
   await deps.store.flush();
 
-  // Read the full body once and write the Nest-owned copy. Best-effort: a failure
-  // is reported but does not undo the archive flag (the chat is still archived; only
-  // the durable copy is missing, and a re-archive retries).
+  // Best-effort: a failed copy is reported but does not undo the flag; a re-archive retries.
   const bodies = deps.readBody(target.filePath);
   const ok = await deps.writeBody({
     sessionId: target.sessionId,
@@ -158,33 +108,19 @@ export async function archiveChat(deps: CurationCommandDeps, target: CurationTar
   deps.provider.refresh();
 }
 
-// Restore an archived chat: clear the SYNCED userArchived flag
-// (store.setChatArchived(false), which also clears archivedAt per the coupling),
-// independent of starred (the star survives a restore).
-//
-// BODY-COPY GUARD (data-loss): the Nest-owned body copy is only "now-redundant" when
-// the original transcript still exists; deleting it is then safe because Claude's
-// live transcript carries the same content. But restore is reachable on a "copy
-// only" archived row (archiveProvider: a userArchived chat whose transcript Claude
-// already cleaned up out of band; curationTargetFrom yields an empty filePath for
-// it). On such a row the body copy is the SOLE surviving form of the conversation,
-// so deleting it would make the chat permanently unrecoverable. Gate the delete on
-// transcript presence: keep the copy whenever the transcript is absent. The check is
-// read-only (an existence test under ~/.claude/projects, never a write/rename/delete),
-// so the read-only invariant holds. An empty filePath (cleaned-up row) is treated as
-// absent without a filesystem touch.
+// Restore an archived chat: clear the synced userArchived flag (which also clears archivedAt); the star survives.
+// Delete the body copy only when the live transcript still exists. On a copy-only row (Claude already cleaned up the transcript, so filePath is empty) the copy is the sole surviving form, so keep it.
+// The existence check is a read-only stat.
 export async function restoreChat(deps: CurationCommandDeps, target: CurationTarget): Promise<void> {
   const projectKey = deps.getProjectKey();
   if (projectKey === undefined) {
     deps.showError?.('No Claude Code project is resolved for this workspace yet.');
     return;
   }
-  // setChatArchived(false) clears archivedAt (the store couples them); starred is
-  // untouched.
+  // setChatArchived(false) clears archivedAt; starred is untouched.
   deps.store.setChatArchived(projectKey, target.sessionId, false);
   await deps.store.flush();
-  // Only delete the redundant copy when the live transcript survives. When the
-  // transcript is gone (copy-only row), KEEP the copy so the chat stays readable.
+  // Delete the copy only when the live transcript survives; otherwise keep it so the chat stays readable.
   const present = target.filePath.length > 0 && deps.transcriptExists(target.filePath);
   if (present) {
     await deps.deleteBody(target.sessionId);
