@@ -558,7 +558,8 @@
     const chevron = document.createElement('span');
     chevron.className = 'nest-folder-chevron';
     chevron.setAttribute('aria-hidden', 'true');
-    chevron.textContent = collapsed ? '▸' : '▾';
+    chevron.classList.toggle('is-open', !collapsed);
+    chevron.appendChild(svgEl(12, 12, 'nest-fleet-chev', ['M4 2.5 7.5 6 4 9.5']));
     chevron.addEventListener('click', (e) => {
       e.stopPropagation();
       // The chevron toggles immediately (it is the disclosure control, not a rename

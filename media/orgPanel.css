@@ -479,12 +479,15 @@ body {
 }
 
 .nest-folder-chevron {
-  width: 10px;
+  width: 12px;
+  height: 12px;
   flex: 0 0 auto;
-  font-size: 9px;
-  color: var(--nest-text-secondary);
-  text-align: center;
+  display: inline-flex;
   cursor: pointer;
+}
+
+.nest-folder-chevron.is-open .nest-fleet-chev {
+  transform: rotate(90deg);
 }
 
 .nest-folder-glyph {
