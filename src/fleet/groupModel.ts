@@ -105,9 +105,10 @@ export const DATE_GROUPS = [
 const ROOT_KEY = '';
 
 // Group ids carry a kind prefix and never contain ':', '#' or '>', so they cannot collide
-// with a reserved sentinel or split a composite id.
+// with a reserved sentinel or split a composite id. Those characters and the escape
+// character are percent-escaped, which keeps distinct keys on distinct ids.
 export function groupId(kind: string, key: string): string {
-  return `${kind}.${key.replace(/[:#>]/g, '-')}`;
+  return `${kind}.${key.replace(/[%:#>]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))}`;
 }
 
 function startOfLocalDay(ms: number): number {
@@ -420,7 +421,7 @@ export function buildFleetSections(input: GroupModelInput): FleetSections {
     }
     if (mode === 'tickets') {
       if (entry !== null && entry.ticket !== null && entry.ticket.length > 0) {
-        add(groupId('ticket', entry.ticket), 'ticket', entry.ticket, entry.ticket, 0, item);
+        add(groupId('ticket', entry.ticket.toLowerCase()), 'ticket', entry.ticket, entry.ticket, 0, item);
       } else {
         unsorted.push(item);
       }
