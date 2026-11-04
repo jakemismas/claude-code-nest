@@ -37,7 +37,7 @@ function glyph(key, cls) {
   return `<g class="${cls}">${rows(art.glyphRows(p.g, p.c), p.x, p.y)}</g>`;
 }
 
-function bird() {
+function bird(peck) {
   const o = art.BIRD_ORIGIN;
   const rest = art.birdParts(art.BIRD);
   const flick = art.birdParts(art.birdFrame({ flick: true }));
@@ -46,8 +46,8 @@ function bird() {
     `<g class="tail-flick">${rects(flick.tail, o.x, o.y)}</g>` +
     rects(rest.body, o.x, o.y) +
     rects(rest.wing, o.x, o.y) +
-    rects(rest.head, o.x, o.y) +
-    `<g class="eye">${rects(rest.eye, o.x, o.y)}</g>`
+    `<g class="${peck ? 'peck' : 'head'}">${rects(rest.head, o.x, o.y)}` +
+    `<g class="eye">${rects(rest.eye, o.x, o.y)}</g></g>`
   );
 }
 
@@ -88,6 +88,7 @@ const STYLE = `
   .eye { animation: blink 4.2s steps(1, end) infinite; }
   .tail-flick { opacity: 0; animation: flick 7s steps(1, end) infinite; }
   .tail-rest { animation: rest 7s steps(1, end) infinite; }
+  .peck { animation: peck 0.8s steps(1, end) infinite; }
   .rise { animation: rise 2.4s steps(6, end) infinite; }
   .r2 { animation-delay: 1.2s; }
   .bob { animation: bob 1.4s steps(1, end) infinite; }
@@ -101,6 +102,7 @@ const STYLE = `
   @keyframes blink { 0%, 94% { opacity: 1; } 96% { opacity: 0; } }
   @keyframes rest { 0%, 88% { opacity: 1; } 90%, 94% { opacity: 0; } 96% { opacity: 1; } }
   @keyframes flick { 0%, 88% { opacity: 0; } 90%, 94% { opacity: 1; } 96% { opacity: 0; } }
+  @keyframes peck { 0% { transform: translate(0, 0); } 45% { transform: translate(1px, 2px); } 60% { transform: translate(1px, 1px); } 75% { transform: translate(0, 0); } }
   @keyframes rise { 0% { transform: translateY(2px); opacity: 0; } 15% { opacity: 1; } 80% { opacity: 1; } 100% { transform: translateY(-4px); opacity: 0; } }
   @keyframes bob { 0%, 49% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
   @keyframes pop { 0%, 79% { opacity: 1; } 80%, 89% { opacity: 0; } 90% { opacity: 1; } }
@@ -112,7 +114,7 @@ const STYLE = `
 
 function robinAt(state, dx, dy) {
   const g = state.glyphs.map(([key, cls]) => glyph(key, cls)).join('');
-  return `<g transform="translate(${dx} ${dy})">${rows(art.BRANCHES[BRANCH], 0, 0)}${bird()}${g}</g>`;
+  return `<g transform="translate(${dx} ${dy})">${rows(art.BRANCHES[BRANCH], 0, 0)}${bird(state.id === 'working')}${g}</g>`;
 }
 
 function svg(w, h, body, label, viewBox, extraStyle) {

@@ -8,12 +8,15 @@ Organize your Claude Code chat history in VS Code: folders, tags, stars, search 
 <p align="center">
   <picture>
     <source type="image/svg+xml" srcset="media/readme/robin.svg">
-    <img src="media/readme/robin.png" alt="A pixel-art robin perched on a branch" width="160">
+    <img src="media/readme/robin.png" alt="A pixel-art robin singing on a branch" width="192">
   </picture>
 </p>
 
 <p align="center">
-  <img src="media/readme/panel.png" alt="The Claude Code Nest panel showing starred chats, questions, folders and unsorted chats" width="320">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="media/readme/panel-dark.png">
+    <img src="media/readme/panel-light.png" alt="The Claude Code Nest panel showing starred chats, questions, folders and unsorted chats" width="320">
+  </picture>
 </p>
 
 ## Features
@@ -31,6 +34,40 @@ Organize your Claude Code chat history in VS Code: folders, tags, stars, search 
 ## Fleet view
 
 If you run several Claude Code sessions at once, for example an orchestrator that launches builders and reviewers, Nest can show them as a live fleet. The fleet view is read-only. Nest reads the files below and never writes them.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="media/readme/fleet-dark.png">
+    <img src="media/readme/fleet-light.png" alt="The fleet view: a pinned orchestrator, ticket groups with stage pills, agent tags and status dots, and the Active and Queue buttons" width="320">
+  </picture>
+</p>
+
+### Try it
+
+1. Make a scratch folder with a `dev` and a `.nest` folder in it.
+2. Save these lines as `dev/fleet.jsonl`. Each line is one event an orchestrator would append.
+
+   ```json
+   {"v":1,"event":"launch","at":"2026-03-02T09:00:00Z","sessionId":"aaaa1111-0000-4000-8000-000000000001","agent":"orchestrator","name":"Run the storefront queue","ticket":null,"role":"orchestrator","launchedBy":"user"}
+   {"v":1,"event":"launch","at":"2026-03-02T09:05:00Z","sessionId":"bbbb2222-0000-4000-8000-000000000002","agent":"build","name":"Add search box","ticket":"PROJ-101","role":"build","launchedBy":"aaaa1111-0000-4000-8000-000000000001"}
+   {"v":1,"event":"organize","at":"2026-03-02T09:06:00Z","sessionId":"bbbb2222-0000-4000-8000-000000000002","stage":"In build"}
+   {"v":1,"event":"launch","at":"2026-03-02T09:10:00Z","sessionId":"cccc3333-0000-4000-8000-000000000003","agent":"qa","name":"Check price rounding","ticket":"PROJ-102","role":"qa","launchedBy":"aaaa1111-0000-4000-8000-000000000001"}
+   {"v":1,"event":"organize","at":"2026-03-02T09:11:00Z","sessionId":"cccc3333-0000-4000-8000-000000000003","stage":"In review"}
+   {"v":1,"event":"launch","at":"2026-03-01T15:00:00Z","sessionId":"dddd4444-0000-4000-8000-000000000004","agent":"build","name":"Fix cart badge","ticket":"PROJ-099","role":"build","launchedBy":"aaaa1111-0000-4000-8000-000000000001"}
+   {"v":1,"event":"end","at":"2026-03-01T16:30:00Z","sessionId":"dddd4444-0000-4000-8000-000000000004","outcome":"done"}
+   ```
+
+3. Save this as `.nest/config.json`:
+
+   ```jsonc
+   {
+     // Group by ticket; colors for the agent tags.
+     "groupBy": "tickets",
+     "tags": { "build": "#2f81f7", "qa": "#8c6fe0" }
+   }
+   ```
+
+4. Open the folder in VS Code and click the Claude Code Nest icon. You see the orchestrator pinned at the top and one group per ticket. These made-up sessions have no transcripts, so they show as queued, and PROJ-099 shows as done. Your own orchestrator's sessions show their live status.
 
 ### Fleet record
 
@@ -84,8 +121,6 @@ An optional `.nest/config.json` in the first workspace folder controls the layou
 }
 ```
 
-To try it, make a scratch folder with `dev/fleet.jsonl` holding the line above and a `.nest/config.json` like the example, then open the folder in VS Code.
-
 ### Status dots
 
 Each chat and group shows a dot. A group shows the most urgent status of its chats.
@@ -120,7 +155,16 @@ A regular expression in `name` or `ticket` is at most 200 characters and matches
 
 ### Robin
 
-The header robin reacts to fleet activity. To stop all motion, turn off **Robin animations** in Settings, or set `claudeNest.robin.animations` to `false`. The editor's reduced motion preference is also respected.
+The header robin reacts to the fleet. It pecks while chats work, with a pixel note for each one, asks when a chat needs you, celebrates finished work, ruffles when something fails, flies off when the orchestrator rotates, and sleeps when nothing runs.
+
+<p align="center">
+  <picture>
+    <source type="image/svg+xml" srcset="media/readme/robin-states.svg">
+    <img src="media/readme/robin-states.png" alt="The robin in six states: idle, working, needs you, done, sleeping and error" width="480">
+  </picture>
+</p>
+
+To stop all motion, turn off **Robin animations** in Settings, or set `claudeNest.robin.animations` to `false`. The editor's reduced motion preference is also respected, and the robin pauses while the panel is hidden.
 
 ## Requirements
 
