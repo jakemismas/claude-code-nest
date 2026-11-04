@@ -1878,7 +1878,7 @@ body.vscode-high-contrast {
   justify-content: center;
   align-items: center;
   gap: 14px;
-  /* 13 art pixels above the perch: the highest jump, burst and flight stay inside the header. */
+  /* 13 art pixels above the perch for the highest jump, note and burst. */
   padding: 39px 16px 16px;
   flex: none;
   overflow: hidden;

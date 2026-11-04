@@ -3791,7 +3791,7 @@
     return !robinMsg || robinMsg.animations !== true || (reducedMotionQuery !== null && reducedMotionQuery.matches);
   }
 
-  // The same rule the panel CSS uses for a dark surface.
+  // Dark themes and high contrast dark use the dark palette; high contrast light keeps the light one.
   function robinDark() {
     const cls = document.body.classList;
     return (
@@ -3893,6 +3893,11 @@
     }
     robinMsg = next;
     robinState = msg.state;
+    // A new state starts its scene from the beginning, even if it last showed before the panel hid.
+    if (changed) {
+      robinDrawnState = null;
+      robinResumeAt = 0;
+    }
     drawRobin();
     if (changed && robinLiveEl) {
       robinLiveEl.textContent = msg.liveText.slice(0, 60);

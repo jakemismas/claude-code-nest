@@ -1272,6 +1272,34 @@ async function main() {
     }
     console.log('  robin lower body and feet checks passed');
 
+    // The robin follows a theme change and a reduced motion change without a reload. The light
+    // run starts light, so each body class VS Code sets must pick its palette on the spot.
+    if (THEME === 'light') {
+      const themePage = await openPage(browser);
+      await renderAndCapture(themePage, harnessUrl() + '&robin=idle', path.join(OUT_DIR, 'robin-switch-check.png'), async (page) => {
+        await waitForCondition(page, 'window.__nestHarnessReady === true', 10000, 'harness mock post');
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'full'", 10000, 'the robin to animate');
+        const uses = (palette) =>
+          "Array.from(document.querySelectorAll('#robinSlot rect')).some((r) => r.getAttribute('fill') === window.NestMascot." + palette + ".H)";
+        const cases = [
+          ['vscode-dark', 'DARK'],
+          ['vscode-high-contrast', 'DARK'],
+          ['vscode-high-contrast vscode-high-contrast-light', 'LIGHT'],
+          ['vscode-light', 'LIGHT'],
+        ];
+        for (const [cls, palette] of cases) {
+          await evaluate(page, "document.body.className = '" + cls + "'");
+          await waitForCondition(page, uses(palette) + ' && !' + uses(palette === 'DARK' ? 'LIGHT' : 'DARK'), 3000, 'the ' + palette.toLowerCase() + ' robin for ' + cls);
+        }
+        await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'still'", 3000, 'the robin to go still for reduced motion');
+        await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+        await waitForCondition(page, "document.getElementById('robinSlot').getAttribute('data-motion') === 'full'", 3000, 'the robin to move again');
+        return null;
+      });
+      console.log('  robin theme and reduced motion switch checks passed');
+    }
+
     // One contact sheet with every robin capture in a grid. It is written next to the PNGs.
     const sheetName = 'robin-contact';
     const sheetHtml = path.join(OUT_DIR, sheetName + '-' + THEME + '.html');
