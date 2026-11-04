@@ -100,7 +100,8 @@ is type-checked.
   `setFolderColor`, `deleteFolder`, `exportChat`, `archiveChat`, `restoreChat`,
   `previewArchivedChat`, `newSession`, `setState`, and a few settings messages.
 - Host to webview: `sections`, `state`, `searchResults`, `settings`,
-  `archivedRows`, `active`, `openSettings`, `openArchive`.
+  `archivedRows`, `active`, `openSettings`, `openArchive`. The `settings` message
+  also carries `groupByOverride` (`auto` when none) and `robinAnimations`.
 
 The host owns all state changes. The webview only requests them.
 
@@ -181,6 +182,15 @@ never writes, creates, renames or deletes it. You edit it in the editor.
   the Unsorted section is hidden.
 - `schemas/nest-config.schema.json` is contributed through `contributes.jsonValidation`
   for `.nest/config.json` and ships in the VSIX.
+- The Settings overlay holds a Group chats by control, a Layout file row and a Robin
+  animations toggle. Group chats by is a per-workspace override stored in
+  `workspaceState` under `claudeNest.orgPanel.groupByOverride`, never synced. A concrete
+  override (`tickets`, `folders` or `date`) takes precedence over the layout file's
+  `groupBy`. `auto` clears it, and the layout file's value stands. `groupByOverride.ts`
+  is pure and holds the key, the coercion and the inbound gate. The webview sends
+  `setGroupBy` (`mode`), `setRobinAnimations` (`on`) and `openLayoutFile`. The host
+  drops an unknown mode or a non-boolean `on`, re-applies the layout after a
+  `setGroupBy`, and writes `claudeNest.robin.animations` for the toggle.
 - Open Layout File opens the existing file with `showTextDocument`, or an untitled
   JSONC editor when the file is missing. It uses no filesystem write.
 - Unit tests cover parsing, coercion, expansion, precedence and the reloader with a

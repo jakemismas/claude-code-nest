@@ -97,6 +97,16 @@
   // message. Persisted on workspaceState by the host; the client only reflects and
   // posts it. The allowed values mirror autoArchivePolicy.AUTO_ARCHIVE_WINDOW_DAYS.
   let autoArchiveWindowDays = 30;
+  // The per-workspace "Group chats by" choice ('auto' when no override) and the robin
+  // animations setting, both hydrated from the host 'settings' message.
+  let groupByOverride = 'auto';
+  let robinAnimationsOn = true;
+  const GROUP_BY_OPTIONS = [
+    { mode: 'auto', label: 'Auto' },
+    { mode: 'tickets', label: 'Tickets' },
+    { mode: 'folders', label: 'Folders' },
+    { mode: 'date', label: 'Date' },
+  ];
   const AUTO_ARCHIVE_OPTIONS = [
     { days: 7, label: '7 days' },
     { days: 14, label: '14 days' },
@@ -2211,6 +2221,92 @@
     const body = document.createElement('div');
     body.className = 'nest-overlay-body';
 
+    // GROUP CHATS BY: a four-option segmented control.
+    const groupLabel = document.createElement('div');
+    groupLabel.className = 'nest-settings-group-label';
+    groupLabel.textContent = 'GROUP CHATS BY';
+    body.appendChild(groupLabel);
+
+    const seg = document.createElement('div');
+    seg.className = 'nest-seg';
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-label', 'Group chats by');
+    GROUP_BY_OPTIONS.forEach((opt) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'nest-seg-opt';
+      b.setAttribute('role', 'radio');
+      b.dataset.mode = opt.mode;
+      b.textContent = opt.label;
+      b.addEventListener('click', () => {
+        groupByOverride = opt.mode;
+        reconcileOpenSettingsControls();
+        vscode.postMessage({ type: 'setGroupBy', mode: opt.mode });
+      });
+      seg.appendChild(b);
+    });
+    body.appendChild(seg);
+
+    const groupNote = document.createElement('div');
+    groupNote.className = 'nest-settings-note';
+    groupNote.textContent = 'Auto: tickets when an orchestrator records them, otherwise folders, then date.';
+    body.appendChild(groupNote);
+
+    // LAYOUT FILE: the path and an Open button.
+    const layoutLabel = document.createElement('div');
+    layoutLabel.className = 'nest-settings-group-label nest-settings-group-label-spaced';
+    layoutLabel.textContent = 'LAYOUT FILE';
+    body.appendChild(layoutLabel);
+
+    const layoutRow = document.createElement('div');
+    layoutRow.className = 'nest-settings-card-row';
+    const layoutPath = document.createElement('span');
+    layoutPath.className = 'nest-settings-path';
+    layoutPath.textContent = '.nest/config.json';
+    layoutRow.appendChild(layoutPath);
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'nest-settings-open-btn';
+    openBtn.textContent = 'Open';
+    openBtn.setAttribute('aria-label', 'Open layout file');
+    openBtn.addEventListener('click', () => vscode.postMessage({ type: 'openLayoutFile' }));
+    layoutRow.appendChild(openBtn);
+    body.appendChild(layoutRow);
+
+    // ROBIN: the animations switch.
+    const robinLabel = document.createElement('div');
+    robinLabel.className = 'nest-settings-group-label nest-settings-group-label-spaced';
+    robinLabel.textContent = 'ROBIN';
+    body.appendChild(robinLabel);
+
+    const robinRow = document.createElement('div');
+    robinRow.className = 'nest-settings-card-row nest-settings-robin-row';
+    const robinName = document.createElement('span');
+    robinName.className = 'nest-settings-toggle-name';
+    robinName.textContent = 'Animations';
+    robinRow.appendChild(robinName);
+    const robinSw = document.createElement('button');
+    robinSw.type = 'button';
+    robinSw.className = 'nest-switch nest-switch-robin';
+    robinSw.setAttribute('role', 'switch');
+    robinSw.setAttribute('aria-label', 'Robin animations');
+    const robinThumb = document.createElement('span');
+    robinThumb.className = 'nest-switch-thumb';
+    robinThumb.setAttribute('aria-hidden', 'true');
+    robinSw.appendChild(robinThumb);
+    robinSw.addEventListener('click', () => {
+      robinAnimationsOn = !robinAnimationsOn;
+      reconcileOpenSettingsControls();
+      vscode.postMessage({ type: 'setRobinAnimations', on: robinAnimationsOn });
+    });
+    robinRow.appendChild(robinSw);
+    body.appendChild(robinRow);
+
+    const topDivider = document.createElement('div');
+    topDivider.className = 'nest-settings-divider';
+    topDivider.setAttribute('aria-hidden', 'true');
+    body.appendChild(topDivider);
+
     // ARCHIVING group.
     const archLabel = document.createElement('div');
     archLabel.className = 'nest-settings-group-label';
@@ -2310,6 +2406,7 @@
     // area as an inset:0 sub-page and inherits the panel width.
     document.body.appendChild(overlay);
     settingsOverlayEl = overlay;
+    reconcileOpenSettingsControls();
     wireDialogFocusTrap(overlay);
     back.focus();
   }
@@ -2324,6 +2421,16 @@
     const select = settingsOverlayEl.querySelector('.nest-settings-select');
     if (select) {
       select.value = String(autoArchiveWindowDays);
+    }
+    settingsOverlayEl.querySelectorAll('.nest-seg-opt').forEach(function (b) {
+      const pressed = b.dataset.mode === groupByOverride;
+      b.setAttribute('aria-checked', pressed ? 'true' : 'false');
+      b.classList.toggle('nest-seg-opt-on', pressed);
+    });
+    const robinSwEl = settingsOverlayEl.querySelector('.nest-switch-robin');
+    if (robinSwEl) {
+      robinSwEl.setAttribute('aria-checked', robinAnimationsOn ? 'true' : 'false');
+      robinSwEl.classList.toggle('nest-switch-on', robinAnimationsOn);
     }
     const rows = settingsOverlayEl.querySelectorAll('.nest-settings-toggle-row');
     // Rows are in SECTION_TOGGLES order; sync each switch's on-state from sectionsVisible.
@@ -4128,6 +4235,12 @@
       // out-of-range window snapped to the default) is still reflected.
       if (typeof msg.autoArchiveWindowDays === 'number') {
         autoArchiveWindowDays = msg.autoArchiveWindowDays;
+      }
+      if (typeof msg.groupByOverride === 'string' && GROUP_BY_OPTIONS.some((o) => o.mode === msg.groupByOverride)) {
+        groupByOverride = msg.groupByOverride;
+      }
+      if (typeof msg.robinAnimations === 'boolean') {
+        robinAnimationsOn = msg.robinAnimations;
       }
       const sv = msg.sectionsVisible;
       if (sv && typeof sv === 'object') {
