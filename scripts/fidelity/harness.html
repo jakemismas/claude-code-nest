@@ -41,6 +41,37 @@
     width: 320px;
   }
 </style>
+<!--
+  Dark theme is opt-in via ?theme=dark (set by screenshot.js --theme dark). Light adds
+  nothing. The values mirror a typical dark editor theme so surfaces that follow
+  --vscode-* render dark.
+-->
+<style id="harness-dark">
+  html[data-theme="dark"], html[data-theme="dark"] body {
+    background: #252526;
+    color: #cccccc;
+    --vscode-foreground: #cccccc;
+    --vscode-descriptionForeground: #9d9d9d;
+    --vscode-icon-foreground: #c5c5c5;
+    --vscode-sideBar-background: #252526;
+    --vscode-sideBar-foreground: #cccccc;
+    --vscode-editorWidget-background: #202020;
+    --vscode-input-background: #3c3c3c;
+    --vscode-input-border: #3c3c3c;
+    --vscode-panel-border: #2b2b2b;
+    --vscode-list-hoverBackground: #2a2d2e;
+    --vscode-list-activeSelectionBackground: #04395e;
+    --vscode-list-dropBackground: #383b3d;
+    --vscode-toolbar-hoverBackground: rgba(90, 93, 94, 0.31);
+  }
+</style>
+<script>
+  (function () {
+    if (/[?&]theme=dark(&|$)/.test(location.search)) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
 <link href="../../media/orgPanel.css" rel="stylesheet" />
 </head>
 <body>

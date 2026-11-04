@@ -24,8 +24,8 @@ describe('projectKeyResolver.encodeProjectKey (verified exact encoding table)', 
     ['C:/Users/JakeMismas', 'c--Users-JakeMismas'],
     // A dot in a path segment becomes a hyphen.
     [
-      'c:\\Users\\JakeMismas\\dart--pricing.sandbox',
-      'c--Users-JakeMismas-dart--pricing-sandbox',
+      'c:\\Users\\JakeMismas\\demo--pricing.sandbox',
+      'c--Users-JakeMismas-demo--pricing-sandbox',
     ],
     // Existing double hyphen is preserved, not collapsed.
     ['c:\\a--b', 'c--a--b'],
@@ -75,7 +75,7 @@ describe('projectKeyResolver.keysMatch', () => {
 describe('projectKeyResolver.resolveProjectDir', () => {
   it('resolves via the exact-encoding direct match', () => {
     const deps: ResolveDeps = {
-      listProjectDirs: () => ['c--Users-JakeMismas-Documents-Claude-Code---Nest', 'c--Users-JakeMismas-bbmcp'],
+      listProjectDirs: () => ['c--Users-JakeMismas-Documents-Claude-Code---Nest', 'c--Users-JakeMismas-sample-app'],
     };
     const dir = resolveProjectDir('c:\\Users\\JakeMismas\\Documents\\Claude Code - Nest', deps);
     assert.strictEqual(dir, 'c--Users-JakeMismas-Documents-Claude-Code---Nest');
@@ -86,7 +86,7 @@ describe('projectKeyResolver.resolveProjectDir', () => {
     // encoding rule derives a lowercase c--Users-JakeMismas. Case-insensitive
     // leading-segment match must bridge this.
     const deps: ResolveDeps = {
-      listProjectDirs: () => ['C--Users-JakeMismas', 'c--Users-JakeMismas-bbmcp'],
+      listProjectDirs: () => ['C--Users-JakeMismas', 'c--Users-JakeMismas-sample-app'],
     };
     const dir = resolveProjectDir('C:\\Users\\JakeMismas', deps);
     assert.strictEqual(dir, 'C--Users-JakeMismas');

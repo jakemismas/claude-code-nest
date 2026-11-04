@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The screenshot harness takes `--theme light|dark` and `--out <dir>`, and writes
+  `<state>-<theme>.png` captures to `.claude-working/screens/` by default.
+- The integration test host finds the VS Code executable through a small injectable
+  module that unit tests cover.
+
 ## [0.2.0] - 2026-07-10
 
 Nest is now a single sidebar panel.

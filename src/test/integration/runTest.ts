@@ -1,5 +1,7 @@
+import * as fs from 'fs';
 import * as path from 'path';
-import { runTests } from '@vscode/test-electron';
+import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
+import { resolveVscodeExecutable } from './vscodeExecutable';
 
 // The electron-host integration test LAUNCHER. This is the file package.json's
 // `test:integration` script points at (out/test/integration/runTest.js after tsc). It
@@ -13,13 +15,23 @@ import { runTests } from '@vscode/test-electron';
 
 async function main(): Promise<void> {
   try {
+    // A VS Code integrated terminal sets this, which makes the launched Electron
+    // binary run as plain Node and ignore the test arguments.
+    delete process.env.ELECTRON_RUN_AS_NODE;
+
     // The repo root (two levels up from out/test/integration): it holds the
     // package.json Extension Manifest the host loads via --extensionDevelopmentPath.
     const extensionDevelopmentPath = path.resolve(__dirname, '../../../');
     // The compiled suite directory; index.js here exports the run() the host calls.
     const extensionTestsPath = path.resolve(__dirname, './index');
 
+    const downloaded = await downloadAndUnzipVSCode();
+    const vscodeExecutablePath = resolveVscodeExecutable(downloaded, {
+      exists: (p) => fs.existsSync(p),
+    });
+
     const exitCode = await runTests({
+      vscodeExecutablePath,
       extensionDevelopmentPath,
       extensionTestsPath,
       // No workspace folder is opened: the contract tests construct the

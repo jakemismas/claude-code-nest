@@ -3,16 +3,18 @@
 // Renders the real panel assets (media/orgPanel.{css,js}) through
 // scripts/fidelity/harness.html, which feeds them made-up data, in headless Chrome
 // or Edge at 320px wide. It writes one full-page PNG per panel state into
-// .claude-working/fidelity/ (gitignored): the default list, search results, the
-// context menu, the settings and archive overlays, popovers, drag highlight and
-// inline rename. Review the images by eye; there is no pixel diffing.
+// .claude-working/screens/ (gitignored) as <state>-<theme>.png: the default list,
+// search results, the context menu, the settings and archive overlays, popovers, drag
+// highlight and inline rename. Review the images by eye; there is no pixel diffing.
+//
+// Usage: npm run fidelity -- [--theme light|dark] [--out <dir>]
 //
 // It has zero npm dependencies. The extension ships with no runtime dependencies,
 // so this talks to the browser over the Chrome DevTools Protocol using only Node
 // built-ins (Node 20+ has a global fetch and WebSocket). The scripts/ folder is
 // excluded from the VSIX.
 //
-// It only reads repo files and writes PNGs under .claude-working/fidelity/. It never
+// It only reads repo files and writes PNGs under the output folder. It never
 // touches ~/.claude/projects.
 
 'use strict';
@@ -26,8 +28,42 @@ const { pathToFileURL } = require('url');
 // --- paths -----------------------------------------------------------------
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const OUT_DIR = path.join(REPO_ROOT, '.claude-working', 'fidelity');
 const HARNESS_HTML = path.join(__dirname, 'harness.html');
+
+// --theme light|dark (default light) and --out <dir> (default .claude-working/screens/).
+function parseArgs(argv) {
+  const opts = { theme: 'light', out: path.join(REPO_ROOT, '.claude-working', 'screens') };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--theme' || a.startsWith('--theme=')) {
+      opts.theme = a === '--theme' ? argv[++i] : a.slice('--theme='.length);
+    } else if (a === '--out' || a.startsWith('--out=')) {
+      const v = a === '--out' ? argv[++i] : a.slice('--out='.length);
+      opts.out = path.resolve(process.cwd(), v || '');
+    } else {
+      console.error('\nUnknown argument: ' + a + '\nUsage: npm run fidelity -- [--theme light|dark] [--out <dir>]\n');
+      process.exit(1);
+    }
+  }
+  if (opts.theme !== 'light' && opts.theme !== 'dark') {
+    console.error('\n--theme must be light or dark, got: ' + opts.theme + '\n');
+    process.exit(1);
+  }
+  return opts;
+}
+
+const OPTS = parseArgs(process.argv.slice(2));
+const OUT_DIR = OPTS.out;
+const THEME = OPTS.theme;
+
+// Captures are named <state>-<theme>.png.
+function harnessOut(state) {
+  return path.join(OUT_DIR, state + '-' + THEME + '.png');
+}
+// The harness reads ?theme= and opts into the dark --vscode-* variables.
+function harnessUrl() {
+  return pathToFileURL(HARNESS_HTML).href + '?theme=' + THEME;
+}
 
 // Panel width for every capture. The panel stays usable from 260 to 480px.
 const VIEWPORT_WIDTH = 320;
@@ -456,8 +492,8 @@ async function main() {
     const harnessPage = await openPage(browser);
     await renderAndCapture(
       harnessPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness.png'),
+      harnessUrl(),
+      harnessOut('default'),
       async (page) => {
         // Wait for the mock to be posted AND for the script to render at least one
         // chat row, so we never screenshot an empty tree.
@@ -475,17 +511,17 @@ async function main() {
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('default')));
 
     // the RESULTS STATE of the real panel. Re-render the harness, type a
     // body-only-match query into the search box, wait for the flat "N RESULTS" list (the
     // harness echoes a synthetic host searchResults reply), and capture it. This is the
-    // results-state analogue of harness.png.
+    // results-state analogue of default-<theme>.png.
     const harnessResultsPage = await openPage(browser);
     await renderAndCapture(
       harnessResultsPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-results.png'),
+      harnessUrl(),
+      harnessOut('results'),
       async (page) => {
         await waitForCondition(
           page,
@@ -515,7 +551,7 @@ async function main() {
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-results.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('results')));
 
     // the CHAT CONTEXT MENU (list state) of the real panel. Re-render the
     // harness, dispatch a contextmenu on a chat row, wait for the menu, and capture the
@@ -524,8 +560,8 @@ async function main() {
     const harnessMenuPage = await openPage(browser);
     await renderAndCapture(
       harnessMenuPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-context-menu.png'),
+      harnessUrl(),
+      harnessOut('context-menu'),
       async (page) => {
         await waitForCondition(
           page,
@@ -566,7 +602,7 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('context-menu')),
     );
 
     // the CREATE-TAG state of the chat context menu. Open the menu, click "Create
@@ -574,8 +610,8 @@ async function main() {
     const harnessNewTagPage = await openPage(browser);
     await renderAndCapture(
       harnessNewTagPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-context-menu-newtag.png'),
+      harnessUrl(),
+      harnessOut('context-menu-newtag'),
       async (page) => {
         await waitForCondition(
           page,
@@ -637,7 +673,7 @@ async function main() {
     );
     console.log(
       '  wrote ' +
-        path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-context-menu-newtag.png')),
+        path.relative(REPO_ROOT, harnessOut('context-menu-newtag')),
     );
 
     // the SETTINGS OVERLAY of the real panel. Open the harness, click the gear to
@@ -647,8 +683,8 @@ async function main() {
     const harnessSettingsPage = await openPage(browser);
     await renderAndCapture(
       harnessSettingsPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-settings.png'),
+      harnessUrl(),
+      harnessOut('settings'),
       async (page) => {
         await waitForCondition(
           page,
@@ -685,7 +721,7 @@ async function main() {
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-settings.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('settings')));
 
     // the ARCHIVE OVERLAY of the real panel. Open the harness, click the bottom
     // Archived (N) row to open the in-panel Archive sub-page, wait for its gray-glow
@@ -695,8 +731,8 @@ async function main() {
     const harnessArchivePage = await openPage(browser);
     await renderAndCapture(
       harnessArchivePage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-archive.png'),
+      harnessUrl(),
+      harnessOut('archive'),
       async (page) => {
         await waitForCondition(
           page,
@@ -733,7 +769,7 @@ async function main() {
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-archive.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('archive')));
 
     // the DRAG DROP-HIGHLIGHT state of the real panel. The .nest-drop-over
     // highlight only paints while a chat drag is in flight (attachDropTarget's dragover
@@ -745,8 +781,8 @@ async function main() {
     const harnessDropPage = await openPage(browser);
     await renderAndCapture(
       harnessDropPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-drop-highlight.png'),
+      harnessUrl(),
+      harnessOut('drop-highlight'),
       async (page) => {
         await waitForCondition(
           page,
@@ -802,7 +838,7 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-drop-highlight.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('drop-highlight')),
     );
 
     // the SORT POPOVER (open) state of the real panel. Click the sort button and
@@ -811,8 +847,8 @@ async function main() {
     const harnessSortPage = await openPage(browser);
     await renderAndCapture(
       harnessSortPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-sort-popover.png'),
+      harnessUrl(),
+      harnessOut('sort-popover'),
       async (page) => {
         await waitForCondition(
           page,
@@ -848,7 +884,7 @@ async function main() {
         await sleep(150);
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-sort-popover.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('sort-popover')));
 
     // the NEW-FOLDER POPOVER (open) state of the real panel. Click the
     // FOLDERS-header + button (openNewFolderPopover) and wait for the popover with its
@@ -856,8 +892,8 @@ async function main() {
     const harnessNewFolderPage = await openPage(browser);
     await renderAndCapture(
       harnessNewFolderPage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-newfolder-popover.png'),
+      harnessUrl(),
+      harnessOut('newfolder-popover'),
       async (page) => {
         await waitForCondition(
           page,
@@ -896,7 +932,7 @@ async function main() {
       },
     );
     console.log(
-      '  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-newfolder-popover.png')),
+      '  wrote ' + path.relative(REPO_ROOT, harnessOut('newfolder-popover')),
     );
 
     // the INLINE FOLDER RENAME state of the real panel. Double-click a folder
@@ -906,8 +942,8 @@ async function main() {
     const harnessRenamePage = await openPage(browser);
     await renderAndCapture(
       harnessRenamePage,
-      pathToFileURL(HARNESS_HTML).href,
-      path.join(OUT_DIR, 'harness-rename.png'),
+      harnessUrl(),
+      harnessOut('rename'),
       async (page) => {
         await waitForCondition(
           page,
@@ -948,7 +984,7 @@ async function main() {
         );
       },
     );
-    console.log('  wrote ' + path.relative(REPO_ROOT, path.join(OUT_DIR, 'harness-rename.png')));
+    console.log('  wrote ' + path.relative(REPO_ROOT, harnessOut('rename')));
 
     console.log('Fidelity screenshots written to ' + path.relative(REPO_ROOT, OUT_DIR));
   } catch (err) {

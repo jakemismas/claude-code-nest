@@ -48,6 +48,7 @@ modules.
 | `src/views/` (other files) | Panel helpers (`readState`, `chatMeta`, `chatTooltip`, `relativeTime`, `tabFocusMatch`) and service providers for folders and tags. |
 | `src/ui/tagQuickPick.ts` | The tag picker shown from commands. |
 | `media/orgPanel.js`, `media/orgPanel.css` | The webview UI. Plain JavaScript, no framework. |
+| `src/test/integration/vscodeExecutable.ts` | Finds the VS Code executable in a downloaded build, with an injected file probe so unit tests skip the downloader. |
 | `scripts/fidelity/` | Screenshot harness (development only). |
 | `scripts/private-words/` | Maintainer's push check (development only). |
 
@@ -140,8 +141,13 @@ Tests that read transcripts use scratch copies, never real files.
 | Layer | Command | What it covers |
 | --- | --- | --- |
 | Unit | `npm test` | Pure modules and stubbed command handlers, run by Mocha against compiled output. Runs lint and compile first. |
-| Extension host | `npm run test:integration` | Activation and drag-and-drop contract inside a real VS Code instance. |
-| Screenshot harness | `npm run fidelity` | Renders the real panel assets with made-up data in headless Chrome or Edge and writes PNGs to `.claude-working/fidelity/` for review by eye. |
+| Extension host | `npm run test:integration` | Activation and drag-and-drop contract inside a real VS Code instance. Needs a VS Code download and a display. |
+| Screenshot harness | `npm run fidelity` | Renders the real panel assets with made-up data in headless Chrome or Edge and writes `<state>-<theme>.png` files to `.claude-working/screens/` for review by eye. |
+
+Pass `--theme light|dark` (default `light`) and `--out <dir>` to the harness, as in
+`npm run fidelity -- --theme dark`. The dark theme sets `data-theme="dark"` on the
+harness root, which turns on a small block of dark `--vscode-*` variables. Light adds
+nothing. Colors that the panel hardcodes do not change by theme.
 
 The harness HTML (`scripts/fidelity/harness.html`) copies the static shell built
 in `orgPanelWebview.renderHtml`. If you change the shell, change the harness to
