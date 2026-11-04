@@ -1,6 +1,7 @@
 // The vscode-bound watcher shells: one file watcher per watched file. The fleet set
 // is re-subscribable so a changed layout file can add or drop paths without a reload.
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { FleetReloader } from './fleetReloader';
@@ -18,6 +19,8 @@ function isDirectory(p: string): Promise<boolean> {
 
 // Watches one file and calls notify on create, change and delete. While the file's folder
 // is missing, it watches the nearest existing folder and moves down as folders appear.
+// A watcher on a removed folder stays silent, so the file's folder is watched from its
+// parent too, and the watch starts over when that folder goes away or comes back.
 export function watchFile(filePath: string, notify: () => void): vscode.Disposable {
   let current: vscode.Disposable | undefined;
   let late: ReturnType<typeof setTimeout> | undefined;
@@ -30,30 +33,39 @@ export function watchFile(filePath: string, notify: () => void): vscode.Disposab
       return;
     }
     current?.dispose();
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(vscode.Uri.file(where.base), where.name),
-    );
+    const watchers: vscode.FileSystemWatcher[] = [];
+    const watchEntry = (base: string, name: string): vscode.FileSystemWatcher => {
+      const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(base), name));
+      watchers.push(w);
+      return w;
+    };
     if (where.direct) {
-      watcher.onDidCreate(notify);
-      watcher.onDidChange(notify);
-      // Only a vanished folder needs a new watch; a file replaced in place keeps this one.
-      watcher.onDidDelete(() => {
-        notify();
-        void isDirectory(where.base).then((exists) => {
-          if (!exists) {
-            void arm(false);
-          }
+      const file = watchEntry(where.base, where.name);
+      file.onDidCreate(notify);
+      file.onDidChange(notify);
+      file.onDidDelete(notify);
+      const parent = path.dirname(where.base);
+      if (parent !== where.base) {
+        const folder = watchEntry(parent, path.basename(where.base));
+        folder.onDidDelete(() => {
+          notify();
+          void arm(false);
         });
-      });
+        folder.onDidCreate(() => void arm(true));
+      }
     } else {
-      watcher.onDidCreate(() => void arm(true));
+      watchEntry(where.base, where.name).onDidCreate(() => void arm(true));
     }
-    current = watcher;
+    current = new vscode.Disposable(() => {
+      for (const w of watchers) {
+        w.dispose();
+      }
+    });
     if (afterCreate) {
       notify();
-      clearTimeout(late);
-      late = setTimeout(notify, LATE_NOTIFY_MS);
     }
+    clearTimeout(late);
+    late = setTimeout(notify, LATE_NOTIFY_MS);
   };
   void arm(false);
   return new vscode.Disposable(() => {
