@@ -156,7 +156,7 @@ describe('expandFolderTemplate', () => {
 });
 
 describe('unsafe regex patterns', () => {
-  const bad = ['^(a+)+$', '(a|aa)*b', '.*.*.*.*x', '(a)\\1', '(?=a)b', 'a{1,9}(b){2}', '(?<n>a)', '.*.*.*x', 'a*a*a*b', '[a-z]*[a-z]*[a-z]*\\d', '\\w+\\w+\\w+!', 'a.*b.*c', '^a*a*a*b', '.*a{0,19}a{0,19}b', 'a*a{0,19}a{0,19}c', '\\w*\\w*\\w*!', '^x|.*.*b'];
+  const bad = ['^(a+)+$', '(a|aa)*b', '.*.*.*.*x', '(a)\\1', '(?=a)b', 'a{1,9}(b){2}', '(?<n>a)', '.*.*.*x', 'a*a*a*b', '[a-z]*[a-z]*[a-z]*\\d', '\\w+\\w+\\w+!', 'a.*b.*c', '^a*a*a*b', 'a*a{0,19}a{0,19}c', '\\w*\\w*\\w*!', '^x|.*.*b'];
   for (const pattern of bad) {
     for (const key of ['name', 'ticket']) {
       it(`rejects match.${key} ${pattern}`, () => {
@@ -186,6 +186,93 @@ describe('unsafe regex patterns', () => {
     const c = compile([{ match: { name: 'a*x' }, folder: 'X' }]);
     firstMatch(c.rules, subject({ name: 'a'.repeat(500) }), '/h');
     assert.ok(Date.now() - start < 500);
+  });
+});
+
+describe('pattern cost budget and subject cap', () => {
+  const accepted = ['^PROJ-\\d+$', '^(?:fix|feat)/', 'ticket-(\\d{3,5})', '.*review.*', 'release.*v\\d+', '.*\\d+.*', '\\b(fix|bug)\\b.*\\d+', '.*a{0,19}a{0,19}b'];
+  for (const pattern of accepted) {
+    it(`accepts ${pattern}`, () => {
+      const c = compile([{ match: { name: pattern }, folder: 'X' }]);
+      assert.strictEqual(c.rules.length, 1, c.problems.join('; '));
+    });
+  }
+
+  it('matches the same names after redundant dot-star is dropped', () => {
+    const lead = compile([{ match: { name: '.*review.*' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(lead, subject({ name: 'Code Review now' }), '/h') !== null);
+    assert.ok(firstMatch(lead, subject({ name: 'nothing' }), '/h') === null);
+    const rel = compile([{ match: { name: 'release.*v\\d+' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(rel, subject({ name: 'release candidate v2' }), '/h') !== null);
+    assert.ok(firstMatch(rel, subject({ name: 'release candidate v' }), '/h') === null);
+  });
+
+  it('keeps a trailing dot-star that is escaped or follows a dollar anchor', () => {
+    const esc = compile([{ match: { name: 'a\\.*' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(esc, subject({ name: 'b' }), '/h') === null);
+    assert.ok(firstMatch(esc, subject({ name: 'xa.' }), '/h') !== null);
+  });
+
+  it('refuses a cost problem with a hint on how to simplify it', () => {
+    const c = compile([{ match: { name: '.*.*.*x' }, folder: 'X' }]);
+    assert.strictEqual(c.rules.length, 0);
+    assert.ok(/drop a leading or trailing \.\*/.test(c.problems[0]));
+  });
+
+  it('refuses seven repeated four-way alternations', () => {
+    const c = compile([{ match: { name: '(a|b|c|d)'.repeat(7) }, folder: 'X' }]);
+    assert.strictEqual(c.rules.length, 0);
+    assert.ok(/alternation/.test(c.problems[0]));
+  });
+
+  it('treats ^a|b as unanchored and ^(a|b) as anchored', () => {
+    const branch = '(a|b|c|d)'.repeat(6);
+    assert.strictEqual(compile([{ match: { name: `^a|${branch}` }, folder: 'X' }]).rules.length, 0);
+    assert.strictEqual(compile([{ match: { name: `^${branch}` }, folder: 'X' }]).rules.length, 1);
+    const alt = compile([{ match: { name: '^a|b' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(alt, subject({ name: 'xb' }), '/h') !== null);
+    assert.ok(firstMatch(alt, subject({ name: 'xa' }), '/h') === null);
+    const grouped = compile([{ match: { name: '^(a|b)' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(grouped, subject({ name: 'xb' }), '/h') === null);
+  });
+
+  it('keeps every accepted pattern under 5 ms on a hostile 64-char subject', () => {
+    const hostile = ['a'.repeat(64), 'release'.repeat(9) + 'v', ('fix 1 ').repeat(10) + 'zzzz', '1'.repeat(63) + 'x', 'ab'.repeat(32)];
+    for (const pattern of accepted) {
+      const c = compile([{ match: { name: pattern }, folder: 'X' }]).rules;
+      for (const name of hostile) {
+        const start = process.hrtime.bigint();
+        firstMatch(c, subject({ name }), '/h');
+        const ms = Number(process.hrtime.bigint() - start) / 1e6;
+        assert.ok(ms < 5, `${pattern} took ${ms} ms`);
+      }
+    }
+  });
+
+  it('tests the last 64 characters when the pattern ends with $ and has no ^', () => {
+    const long = 'a'.repeat(63) + 'x' + 'b'.repeat(40);
+    const end = compile([{ match: { name: 'x$' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(end, subject({ name: long }), '/h') === null);
+    assert.ok(firstMatch(end, subject({ name: 'c'.repeat(100) + 'x' }), '/h') !== null);
+  });
+
+  it('reports no match for text over the cap when the pattern has both anchors', () => {
+    const both = compile([{ match: { name: '^a.*x$' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(both, subject({ name: 'a' + 'b'.repeat(80) + 'x' }), '/h') === null);
+    assert.ok(firstMatch(both, subject({ name: 'abx' }), '/h') !== null);
+  });
+
+  it('tests the first 64 characters when the pattern has no $', () => {
+    const start = compile([{ match: { name: '^a' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(start, subject({ name: 'a' + 'b'.repeat(100) }), '/h') !== null);
+    const tail = compile([{ match: { name: 'zz' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(tail, subject({ name: 'a'.repeat(70) + 'zz' }), '/h') === null);
+    assert.ok(firstMatch(tail, subject({ name: 'zz' + 'a'.repeat(70) }), '/h') !== null);
+  });
+
+  it('applies the cap to the ticket condition too', () => {
+    const t = compile([{ match: { ticket: 'x$' }, folder: 'X' }]).rules;
+    assert.ok(firstMatch(t, subject({ ticket: 'a'.repeat(63) + 'x' + 'b'.repeat(40) }), '/h') === null);
   });
 });
 
@@ -417,5 +504,18 @@ describe('planUndo', () => {
     });
     const plan = planUndo(l, { a: { folderId: 'c', tagIds: [], starred: false } }, { p: folder('p', 'P'), c: folder('c', 'C', 'p') }, {});
     assert.deepStrictEqual(plan.removeFolderIds, ['c', 'p']);
+  });
+
+  it('gives back the Apply-made prior folder so later rules can still move the chat', () => {
+    const l = ledger({
+      createdFolderIds: ['fNew'],
+      createdTagIds: [],
+      snapshot: { a: { folderId: 'fNew', priorFolderId: 'fOld', tagsAdded: [], pinned: false } },
+      applied: { a: 'fNew' },
+    });
+    const plan = planUndo(l, { a: { folderId: 'fNew', tagIds: [], starred: false } }, folders, {});
+    assert.strictEqual(plan.actions[0].appliedFolderId, 'fOld');
+    const none = planUndo(ledger(), { b: { folderId: 'fNew', tagIds: [], starred: false } }, folders, tags);
+    assert.strictEqual(none.actions[0].appliedFolderId, undefined);
   });
 });
