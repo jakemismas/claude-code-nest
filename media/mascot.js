@@ -3,10 +3,11 @@
 (function (root) {
   'use strict';
 
-  // One light direction (upper left): j and f catch the light, K and u sit in shade.
+  // One light direction (upper left): j and f catch the light, K and u sit in shade. The beak (b) is a
+  // lighter gold and the eye (e, W) has more contrast, so both read at small sizes.
   const LIGHT = {
     H: '#5B4A42', j: '#74615A', K: '#4E3F37', w: '#8A7469', f: '#A39083', u: '#6B594E',
-    r: '#D9692E', R: '#EC8A4B', Q: '#B7521F', b: '#C99413', e: '#1F1A17', W: '#F3E9D2', k: '#7A5A48',
+    r: '#D9692E', R: '#EC8A4B', Q: '#B7521F', b: '#E9AE24', e: '#050403', W: '#FFFCF0', k: '#7A5A48',
     M: '#9E2B2B', T: '#E58C8C', B: '#B9CFEC',
     t: '#C29261', m: '#8A5A3B', d: '#5E3E26', g: '#4E9A5B', G: '#357544', l: '#7CC06A',
     x: '#C8462E', s: '#C9A66A', E: '#E6D3AA', O: '#9C8863', c: '#7A5E3F',
@@ -14,7 +15,7 @@
   };
   const DARK = {
     H: '#8B7466', j: '#A38E80', K: '#66554A', w: '#B8A596', f: '#D6C6B8', u: '#907B6D',
-    r: '#EA8240', R: '#F89E5E', Q: '#CB6A2C', b: '#E3AC2E', e: '#1F1A17', W: '#F3E9D2', k: '#C8A68C',
+    r: '#EA8240', R: '#F89E5E', Q: '#CB6A2C', b: '#F0BC40', e: '#050403', W: '#FFFCF0', k: '#C8A68C',
     M: '#D9544A', T: '#F3A0A0', B: '#C9DCF7',
     t: '#D9AE80', m: '#A87650', d: '#80593A', g: '#5FB06D', G: '#4A9A5A', l: '#8FD07E',
     x: '#E4624C', s: '#E8CF92', E: '#EDDDB8', O: '#B8A57F', c: '#7A5E3F',
