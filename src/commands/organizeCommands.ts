@@ -225,6 +225,23 @@ export async function applyOrganize(deps: OrganizeDeps): Promise<OrganizeReport>
       snapshot[move.sessionId] = { folderId: targetFolderId, priorFolderId: prior.folderId, tagsAdded: added, pinned };
     }
   }
+  const changed = Object.keys(snapshot).length;
+  if (changed === 0) {
+    // Nothing moved, so the previous snapshot stays the one Undo restores.
+    if (c.ledger !== null && (createdFolderIds.length > 0 || createdTagIds.length > 0)) {
+      await store.setOrganizeLedger(projectKey, {
+        ...c.ledger,
+        createdFolderIds: [...c.ledger.createdFolderIds, ...createdFolderIds],
+        createdTagIds: [...c.ledger.createdTagIds, ...createdTagIds],
+      });
+    }
+    await store.flush();
+    deps.refresh();
+    return {
+      ...reportFrom('applied', 'No chats could be organized.', c),
+      moves: [],
+    };
+  }
   // Folders and tags an earlier Apply created stay listed, so Undo still removes them
   // once nothing uses them.
   const ledger: OrganizeLedger = {
@@ -237,7 +254,6 @@ export async function applyOrganize(deps: OrganizeDeps): Promise<OrganizeReport>
   await store.setOrganizeLedger(projectKey, ledger);
   await store.flush();
   deps.refresh();
-  const changed = Object.keys(snapshot).length;
   return {
     ...reportFrom('applied', `${plural(changed, 'chat', 'chats')} organized.`, c, { undoCount: changed, canUndo: changed > 0 }),
     moves: [],
@@ -291,6 +307,13 @@ export async function undoOrganize(deps: OrganizeDeps): Promise<OrganizeReport> 
   const applied = { ...ledger.applied };
   for (const chatId of Object.keys(ledger.snapshot)) {
     delete applied[chatId];
+  }
+  // A prior folder in the snapshot was chosen by an earlier Apply, so the chat stays a
+  // chat the rules may move again.
+  for (const action of plan.actions) {
+    if (action.appliedFolderId !== undefined) {
+      applied[action.sessionId] = action.appliedFolderId;
+    }
   }
   const rest: OrganizeLedger = { at: ledger.at, createdFolderIds: [], createdTagIds: [], snapshot: {}, applied };
   await store.setOrganizeLedger(projectKey, Object.keys(applied).length > 0 ? rest : null);

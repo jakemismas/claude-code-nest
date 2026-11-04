@@ -211,6 +211,39 @@ describe('organize commands', () => {
     assert.strictEqual(folder.name, 'T-2');
   });
 
+  it('a second Apply where every move fails keeps the previous Undo', async () => {
+    const h = harness([{ match: { ticket: true }, folder: '{ticket}' }]);
+    h.setSubjects([subject('a', { ticket: 'T-1' })]);
+    await applyOrganize(h.deps);
+    const before = h.store.getOrganizeLedger(PK);
+    assert.ok(before !== null);
+    h.setSubjects([subject('a', { ticket: 'T-2' })]);
+    const original = h.store.upsertFolder.bind(h.store);
+    h.store.upsertFolder = () => false;
+    const second = await applyOrganize(h.deps);
+    h.store.upsertFolder = original;
+    assert.strictEqual(second.canUndo, true);
+    assert.deepStrictEqual(h.store.getOrganizeLedger(PK)?.snapshot, before.snapshot);
+    const undone = await undoOrganize(h.deps);
+    assert.strictEqual(undone.message, '1 chat restored.');
+    assert.strictEqual(h.store.getProjectMeta(PK).chats.a.folderId ?? null, null);
+  });
+
+  it('Undo of a second Apply leaves the chat movable by later rules', async () => {
+    const h = harness([{ match: { ticket: true }, folder: '{ticket}' }]);
+    h.setSubjects([subject('a', { ticket: 'T-1' })]);
+    await applyOrganize(h.deps);
+    h.setSubjects([subject('a', { ticket: 'T-2' })]);
+    await applyOrganize(h.deps);
+    await undoOrganize(h.deps);
+    const meta = h.store.getProjectMeta(PK);
+    assert.strictEqual(meta.folders[meta.chats.a.folderId as string].name, 'T-1');
+    h.setSubjects([subject('a', { ticket: 'T-3' })]);
+    const preview = previewOrganize(h.deps);
+    assert.strictEqual(preview.skippedHandFiled, 0);
+    assert.strictEqual(preview.moves.length, 1);
+  });
+
   it('keeps the ledger in the local document only, never on the synced meta or sync keys', async () => {
     const h = harness([QA_RULE]);
     h.setSubjects([subject('a', { role: 'qa' })]);
