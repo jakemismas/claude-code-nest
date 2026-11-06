@@ -334,6 +334,19 @@ describe('buildRuleSubjects', () => {
     assert.strictEqual(subjects[1].subfolder, 'web');
     assert.strictEqual(subjects[1].fleetTitle, '');
   });
+
+  it('keeps a subfolder whose name starts with two dots inside the workspace', () => {
+    const subjects = buildRuleSubjects(
+      [
+        { sessionId: 'in', title: 'in', cwd: '/ws/..notes' },
+        { sessionId: 'up', title: 'up', cwd: '/ws/../other' },
+      ],
+      [],
+      '/ws',
+    );
+    assert.strictEqual(subjects[0].subfolder, '..notes');
+    assert.strictEqual(subjects[1].subfolder, '');
+  });
 });
 
 describe('planOrganize', () => {

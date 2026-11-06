@@ -166,7 +166,7 @@ function subfolderKey(item: Item, root: string | null): string | null {
   if (rel === '') {
     return ROOT_KEY;
   }
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+  if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
     return null;
   }
   return rel.split(path.sep).join('/');

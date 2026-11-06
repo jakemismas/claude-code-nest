@@ -494,7 +494,7 @@ export function buildRuleSubjects(
     let subfolder = '';
     if (workspaceRoot !== null && cwd !== null && cwd.length > 0) {
       const rel = path.relative(workspaceRoot, cwd);
-      if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+      if (rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)) {
         subfolder = rel.split(path.sep).join('-');
       }
     }

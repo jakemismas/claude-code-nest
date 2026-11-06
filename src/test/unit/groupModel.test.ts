@@ -188,6 +188,15 @@ describe('groupModel folders mode', () => {
     assert.strictEqual(out.groups[0].rows.length, 2);
     assert.ok(out.groups[0].rows.every((r) => r.children.length === 0));
   });
+
+  it('groups a subfolder whose name starts with two dots, and keeps parent and sibling outside', () => {
+    const out = build({
+      groupBy: 'folders',
+      chats: [chat('ffff0030', { cwd: '/ws/..notes' }), chat('ffff0031', { cwd: '/ws/../other' }), chat('ffff0032', { cwd: '/' })],
+    });
+    assert.deepStrictEqual(out.groups.map((g) => g.label), ['..notes']);
+    assert.deepStrictEqual(out.unsorted.map((r) => r.sessionId).sort(), ['ffff0031', 'ffff0032']);
+  });
 });
 
 describe('groupModel date mode', () => {
