@@ -47,6 +47,9 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- A JSON export refuses to overwrite Claude Code's account state file (`~/.claude.json`)
+  or its backup in the home folder.
+
 - The live session lookup runs one fixed command with no shell, from the home
   directory, with a hard kill and an output cap. A watchdog keeps a hung command from
   stalling status updates.

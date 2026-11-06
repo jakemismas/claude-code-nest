@@ -55,6 +55,12 @@ export function canonicalize(absPath: string): string {
   return resolved;
 }
 
+// Claude Code's account and project state file and its backup sit beside ~/.claude, in the home folder.
+export function claudeStateFiles(): string[] {
+  const home = os.homedir();
+  return [path.join(home, '.claude.json'), path.join(home, '.claude.json.backup')];
+}
+
 // True for the projects root or anything under it. The path.sep suffix keeps a sibling
 // such as ~/.claude/projects-archive from matching.
 export function isUnderClaudeProjects(targetPath: string): boolean {
@@ -63,8 +69,21 @@ export function isUnderClaudeProjects(targetPath: string): boolean {
   return candidate === root || candidate.startsWith(root + path.sep);
 }
 
-// Throws ExportPathError when the target is under ~/.claude/projects/.
+// True for the account state file or its backup in the home folder.
+export function isClaudeStateFile(targetPath: string): boolean {
+  const candidate = canonicalize(targetPath);
+  return claudeStateFiles().some((file) => canonicalize(file) === candidate);
+}
+
+// Throws ExportPathError when the target is under ~/.claude/projects/ or is a Claude state file.
 export function assertNotUnderClaudeProjects(targetPath: string): void {
+  if (isClaudeStateFile(targetPath)) {
+    throw new ExportPathError(
+      'Refusing to write Claude Code account state (~/.claude.json or its backup). ' +
+        'Requested: ' +
+        canonicalize(targetPath),
+    );
+  }
   if (isUnderClaudeProjects(targetPath)) {
     throw new ExportPathError(
       'Refusing to write under ~/.claude/projects/ (read-only invariant: the ' +
