@@ -45,6 +45,11 @@ to [Semantic Versioning](https://semver.org/).
 
 - The listing icon and the Activity Bar icon show the robin.
 
+### Fixed
+
+- A subfolder whose name starts with two dots (such as `..notes`) is treated as inside the
+  workspace, so its chats get their subfolder group and folder count.
+
 ### Security
 
 - The live session lookup runs one fixed command with no shell, from the home
