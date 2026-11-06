@@ -131,6 +131,8 @@ class EventEmitter<T> {
 }
 
 const fakeVscode = {
+  // Values match vscode.ConfigurationTarget, so code that picks a settings target can run headless.
+  ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   Uri: {
     file: (p: string): FakeUri => makeUri(p),
     joinPath: (base: FakeUri, ...segs: string[]): FakeUri =>

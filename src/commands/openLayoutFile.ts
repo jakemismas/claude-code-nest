@@ -1,6 +1,7 @@
 // "Nest: Open Layout File". The editor and filesystem are injected.
 // Nest writes nothing: a missing file opens as an untitled editor at the .nest/config.json path for the user to save.
 import { nestConfigPath } from '../fleet/configSource';
+import { isUnderClaudeProjects } from '../store/exportPathGuard';
 
 export const OPEN_LAYOUT_FILE_COMMAND = 'claudeNest.openLayoutFile';
 
@@ -32,6 +33,11 @@ export async function openLayoutFile(deps: OpenLayoutDeps): Promise<void> {
     return;
   }
   const filePath = nestConfigPath(folder);
+  // Same guard as exports: a workspace inside the Claude transcript folder must not get a layout file there.
+  if (isUnderClaudeProjects(filePath)) {
+    deps.notify('The layout file would sit inside ~/.claude/projects, which Nest never writes to. Open a different workspace folder.');
+    return;
+  }
   if (await deps.fileExists(filePath)) {
     await deps.openExisting(filePath);
     return;

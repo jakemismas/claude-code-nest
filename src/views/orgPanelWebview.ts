@@ -32,6 +32,7 @@ import {
   ROLE_LABEL_ASSISTANT,
 } from '../search/searchIndex';
 import { persistTierAIndex, loadOrRebuildTierAIndex } from '../search/searchStore';
+import { isUnderClaudeProjects } from '../store/exportPathGuard';
 import { handleWebviewDrop, WebviewDropDeps } from '../dnd/webviewDropAdapter';
 
 // The org panel WebviewView, the main browsing surface: section model, tag chips, sort,
@@ -189,9 +190,14 @@ const DEFAULT_SECTIONS_VISIBLE: SectionsVisible = {
 };
 
 // Writes where the effective value comes from, so a workspace value does not mask the switch.
+// A workspace inside the Claude transcript folder writes user-level settings only, so no file lands there.
 export function robinConfigTarget(
   inspected: { workspaceFolderValue?: unknown; workspaceValue?: unknown } | undefined,
+  workspaceInClaudeFolder = false,
 ): vscode.ConfigurationTarget {
+  if (workspaceInClaudeFolder) {
+    return vscode.ConfigurationTarget.Global;
+  }
   if (inspected?.workspaceFolderValue !== undefined) {
     return vscode.ConfigurationTarget.WorkspaceFolder;
   }
@@ -680,7 +686,15 @@ export class OrgPanelProvider implements vscode.WebviewViewProvider {
     } else if (msg.type === 'setRobinAnimations') {
       // The configuration listener in the host re-posts the robin and the settings state.
       const config = vscode.workspace.getConfiguration('claudeNest');
-      void config.update('robin.animations', msg.on, robinConfigTarget(config.inspect<boolean>('robin.animations')));
+      const inspected = config.inspect<boolean>('robin.animations');
+      const inClaudeFolder = this.workspacePath !== undefined && isUnderClaudeProjects(this.workspacePath);
+      void config.update('robin.animations', msg.on, robinConfigTarget(inspected, inClaudeFolder));
+      // A workspace value still wins over the user-level write, and removing it would write inside the Claude folder.
+      if (inClaudeFolder && (inspected?.workspaceFolderValue !== undefined || inspected?.workspaceValue !== undefined)) {
+        void vscode.window.showInformationMessage(
+          'A workspace setting overrides the robin option. Nest cannot edit workspace settings inside ~/.claude/projects.',
+        );
+      }
     }
   }
 

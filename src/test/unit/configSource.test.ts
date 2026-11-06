@@ -8,6 +8,7 @@ import { CONFIG_RELOAD_DEBOUNCE_MS, ConfigReloader, ConfigTimers, loadNestConfig
 import { MAX_CONFIG_BYTES } from '../../fleet/nestConfig';
 import { OPEN_LAYOUT_FILE_COMMAND, starterLayout, openLayoutFile } from '../../commands/openLayoutFile';
 import { parseNestConfig } from '../../fleet/nestConfig';
+import { claudeProjectsRoot } from '../../store/exportPathGuard';
 
 let root: string;
 before(() => {
@@ -161,6 +162,12 @@ describe('openLayoutFile', () => {
     const { d, calls } = deps();
     await openLayoutFile(d);
     assert.deepStrictEqual(calls, ['untitled:' + path.join('/w', '.nest', 'config.json') + ':true']);
+  });
+
+  it('refuses to aim the layout file inside the Claude transcript folder', async () => {
+    const { d, calls } = deps({ workspaceFolder: () => claudeProjectsRoot() });
+    await openLayoutFile(d);
+    assert.deepStrictEqual(calls.map((c) => c.split(':')[0]), ['notify']);
   });
 
   it('tells the user when there is no workspace folder', async () => {
