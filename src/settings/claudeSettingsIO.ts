@@ -594,13 +594,45 @@ function skipBlockComment(text: string, idx: number): number {
   return Math.min(i + 2, text.length);
 }
 
+// Walks a chain of symlinks whose final target is missing and returns the path the last link points at.
+// A plain missing path (not a link) is returned unchanged.
+function followDanglingLink(p: string): string {
+  let cur = p;
+  for (let hop = 0; hop < 40; hop++) {
+    let st: fs.Stats;
+    try {
+      st = fs.lstatSync(cur);
+    } catch {
+      return cur;
+    }
+    if (!st.isSymbolicLink()) {
+      return cur;
+    }
+    cur = path.resolve(path.dirname(cur), fs.readlinkSync(cur));
+  }
+  return cur;
+}
+
 // Atomic write via a temp file in the same directory and a rename, so a crash never leaves a truncated settings.json.
+// The rename targets the resolved file, not a link, so a linked settings.json stays linked, and the original mode is kept.
 function atomicWrite(targetPath: string, content: string): void {
-  const dir = path.dirname(targetPath);
+  let dest = targetPath;
+  let mode: number | null = null;
+  try {
+    dest = fs.realpathSync(targetPath);
+    mode = fs.statSync(dest).mode & 0o7777;
+  } catch {
+    // realpath fails for a missing target or a dangling link. Follow a dangling link by hand so the link is kept.
+    dest = followDanglingLink(targetPath);
+  }
+  const dir = path.dirname(dest);
   const tmp = path.join(dir, '.nest-settings-' + process.pid + '-' + Date.now() + '.tmp');
   fs.writeFileSync(tmp, content, 'utf8');
+  if (mode !== null) {
+    fs.chmodSync(tmp, mode);
+  }
   try {
-    fs.renameSync(tmp, targetPath);
+    fs.renameSync(tmp, dest);
   } catch (err) {
     // Clean up the temp file on a failed rename so we do not litter ~/.claude.
     try {
