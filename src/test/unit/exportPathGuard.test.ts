@@ -166,6 +166,56 @@ describe('exportPathGuard symlink/junction resolution', () => {
   });
 });
 
+// Claude Code keeps its account and project state beside ~/.claude, in ~/.claude.json and its backup. An export onto either is refused; other home files stay writable.
+describe('exportPathGuard account state file in the home folder', () => {
+  let scratch: string | null = null;
+  let savedHome: string | undefined;
+  let savedUserProfile: string | undefined;
+
+  beforeEach(() => {
+    scratch = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'nest-home-')));
+    savedHome = process.env.HOME;
+    savedUserProfile = process.env.USERPROFILE;
+    process.env.HOME = scratch;
+    process.env.USERPROFILE = scratch;
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedUserProfile;
+    if (scratch) {
+      try {
+        fs.rmSync(scratch, { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup
+      }
+      scratch = null;
+    }
+  });
+
+  it('refuses an export onto the account state file and its backup', () => {
+    const state = path.join(scratch as string, '.claude.json');
+    const backup = path.join(scratch as string, '.claude.json.backup');
+    assert.throws(
+      () => assertNotUnderClaudeProjects(state),
+      (err: unknown) => err instanceof ExportPathError,
+      'the account state file must be refused',
+    );
+    assert.throws(
+      () => assertNotUnderClaudeProjects(backup),
+      (err: unknown) => err instanceof ExportPathError,
+      'the account state backup must be refused',
+    );
+  });
+
+  it('still allows an export to other files in the home folder', () => {
+    const other = path.join(scratch as string, 'nest-export.json');
+    assert.doesNotThrow(() => assertNotUnderClaudeProjects(other));
+  });
+});
+
 describe('exportPathGuard.assertNotUnderClaudeProjects', () => {
   it('throws an ExportPathError for a target under ~/.claude/projects', () => {
     const transcript = path.join(claudeProjectsRoot(), 'c--proj', 'session.jsonl');
