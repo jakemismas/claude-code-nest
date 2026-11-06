@@ -272,6 +272,39 @@ describe('claudeSettingsIO.writeCleanupPeriodDays (create-when-missing, full pat
     assert.deepStrictEqual(parsed.permissions, { allow: [] });
   });
 
+  it('writes through a linked settings.json, keeping the link', () => {
+    const real = path.join(root, 'dotfiles-settings.json');
+    fs.mkdirSync(claudeDir(), { recursive: true });
+    fs.writeFileSync(real, '{\n  "cleanupPeriodDays": 30\n}\n', 'utf8');
+    fs.symlinkSync(real, settingsPath(), 'file');
+    writeCleanupPeriodDays(12);
+    assert.ok(fs.lstatSync(settingsPath()).isSymbolicLink(), 'settings.json must stay a link');
+    assert.strictEqual(
+      fs.readFileSync(real, 'utf8'),
+      '{\n  "cleanupPeriodDays": 12\n}\n',
+    );
+  });
+
+  it('keeps a dangling settings.json link and writes its target', () => {
+    const missing = path.join(root, 'dotfiles-missing.json');
+    fs.mkdirSync(claudeDir(), { recursive: true });
+    fs.symlinkSync(missing, settingsPath(), 'file');
+    writeCleanupPeriodDays(12);
+    assert.ok(fs.lstatSync(settingsPath()).isSymbolicLink(), 'settings.json must stay a link');
+    assert.strictEqual(fs.readFileSync(missing, 'utf8').includes('"cleanupPeriodDays": 12'), true);
+  });
+
+  it('keeps the original file mode on write', function () {
+    if (process.platform === 'win32') {
+      this.skip();
+    }
+    fs.mkdirSync(claudeDir(), { recursive: true });
+    fs.writeFileSync(settingsPath(), '{\n  "cleanupPeriodDays": 30\n}\n', 'utf8');
+    fs.chmodSync(settingsPath(), 0o600);
+    writeCleanupPeriodDays(12);
+    assert.strictEqual(fs.statSync(settingsPath()).mode & 0o7777, 0o600, 'settings.json mode must stay 0600');
+  });
+
   it('throws on a non-integer value', () => {
     fs.mkdirSync(claudeDir(), { recursive: true });
     assert.throws(() => writeCleanupPeriodDays(30.5), SettingsIoError);
