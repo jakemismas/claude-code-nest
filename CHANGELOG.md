@@ -47,6 +47,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- The robin animation option and Open Layout File no longer write into the Claude
+  transcript folder when the workspace folder is inside it (issue 197).
 - The live session lookup runs one fixed command with no shell, from the home
   directory, with a hard kill and an output cap. A watchdog keeps a hung command from
   stalling status updates.
